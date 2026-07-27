@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#070916">
   <title>Playlist · PlaylistMuse</title>
   <link rel="stylesheet" href="/static/style.css?v=8">
+  <link rel="stylesheet" href="/static/playlist.css?v=1">
 </head>
 <body>
   <header class="app-header">
@@ -18,18 +19,28 @@
   <main class="playlist-shell">
     <div class="playlist-toolbar">
       <a class="back-link" href="/">← Create another playlist</a>
-      <span id="resolved-count" class="playlist-meta"></span>
     </div>
 
-    <section class="card">
+    <section class="card playlist-card">
       <p class="eyebrow">Your playlist</p>
-      <h2 id="playlist-name">Generated playlist</h2>
-      <p id="playlist-prompt" class="playlist-meta"></p>
+
+      <label class="playlist-title-editor" for="playlist-name">
+        <span class="visually-hidden">Edit playlist title</span>
+        <input id="playlist-name" type="text" maxlength="100" value="Generated playlist" title="Edit playlist title before sending it to YouTube Music">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16v4Z" />
+          <path d="m13.5 6.5 4 4" />
+        </svg>
+      </label>
+
+      <p id="playlist-summary" class="playlist-summary"></p>
+      <p id="playlist-description" class="playlist-description"></p>
+
       <ol id="track-list" class="track-list"></ol>
       <div id="empty-state" class="empty-state hidden">No generated playlist was found in this browser session.</div>
     </section>
   </main>
 
-  <script src="/static/playlist.js?v=7"></script>
+  <script src="/static/playlist.js?v=8"></script>
 </body>
 </html>
