@@ -1,4 +1,4 @@
-"""Resolve AI suggestions against the YouTube Music catalogue."""
+"""Resolve AI suggestions and search seeds in the YouTube Music catalogue."""
 
 from __future__ import annotations
 
@@ -20,6 +20,29 @@ def _artist_text(result: dict[str, Any]) -> str:
     return ", ".join(str(item.get("name", "")) for item in result.get("artists", []))
 
 
+def _thumbnail(result: dict[str, Any]) -> str | None:
+    thumbnails = result.get("thumbnails") or []
+    return thumbnails[-1].get("url") if thumbnails else None
+
+
+def _serialize_song(result: dict[str, Any]) -> dict[str, Any] | None:
+    video_id = result.get("videoId")
+    title = str(result.get("title", "")).strip()
+    artists = _artist_text(result)
+    if not video_id or not title or not artists:
+        return None
+    album = result.get("album") or {}
+    return {
+        "video_id": video_id,
+        "title": title,
+        "artists": artists,
+        "album": album.get("name"),
+        "duration": result.get("duration"),
+        "thumbnail_url": _thumbnail(result),
+        "url": f"https://music.youtube.com/watch?v={video_id}",
+    }
+
+
 def _is_excluded(title: str, *, live: bool, covers: bool, remixes: bool) -> bool:
     normalized = title.casefold()
     if live and re.search(r"\b(live|concert|session)\b", normalized):
@@ -29,6 +52,23 @@ def _is_excluded(title: str, *, live: bool, covers: bool, remixes: bool) -> bool
     if covers and re.search(r"\b(cover|tribute|karaoke)\b", normalized):
         return True
     return False
+
+
+def _search_songs(query: str, limit: int) -> list[dict[str, Any]]:
+    results = _client().search(query, filter="songs", limit=limit)
+    songs: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for result in results:
+        song = _serialize_song(result)
+        if not song or song["video_id"] in seen:
+            continue
+        seen.add(song["video_id"])
+        songs.append(song)
+    return songs
+
+
+async def search_songs(query: str, limit: int = 8) -> list[dict[str, Any]]:
+    return await asyncio.to_thread(_search_songs, query, limit)
 
 
 def _resolve_one(candidate: dict[str, str], exclusions: dict[str, bool]) -> dict[str, Any] | None:
@@ -59,20 +99,11 @@ def _resolve_one(candidate: dict[str, str], exclusions: dict[str, bool]) -> dict
     if best is None or best[0] < 65:
         return None
 
-    result = best[1]
-    thumbnails = result.get("thumbnails") or []
-    thumbnail = thumbnails[-1].get("url") if thumbnails else None
-    album = result.get("album") or {}
-    return {
-        "video_id": result["videoId"],
-        "title": result.get("title"),
-        "artists": _artist_text(result),
-        "album": album.get("name"),
-        "duration": result.get("duration"),
-        "thumbnail_url": thumbnail,
-        "url": f"https://music.youtube.com/watch?v={result['videoId']}",
-        "match_score": round(best[0], 1),
-    }
+    song = _serialize_song(best[1])
+    if not song:
+        return None
+    song["match_score"] = round(best[0], 1)
+    return song
 
 
 async def resolve_candidates(
