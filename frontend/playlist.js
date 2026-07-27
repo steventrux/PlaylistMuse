@@ -33,14 +33,14 @@
     const copy = document.createElement('div');
     copy.className = 'track-copy';
 
-    const heading = document.createElement('div');
+    const heading = document.createElement('strong');
     heading.className = 'track-heading';
 
-    const title = document.createElement('strong');
-    title.className = 'track-title';
-    title.textContent = `${index + 1}. ${track.title || 'Unknown track'}`;
-    title.title = track.title || 'Unknown track';
-    heading.append(title);
+    const titleText = document.createElement('span');
+    titleText.className = 'track-title';
+    titleText.textContent = `${index + 1}. ${track.title || 'Unknown track'}`;
+
+    heading.append(titleText);
 
     if (track.duration) {
       const duration = document.createElement('span');
@@ -48,6 +48,8 @@
       duration.textContent = ` - ${track.duration}`;
       heading.append(duration);
     }
+
+    heading.title = `${index + 1}. ${track.title || 'Unknown track'}${track.duration ? ` - ${track.duration}` : ''}`;
 
     const meta = document.createElement('span');
     meta.className = 'track-meta';
