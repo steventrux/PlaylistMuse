@@ -5,6 +5,7 @@ COMPOSE_FILE="docker-compose.playlistmuse.yml"
 CONTAINER="playlistmuse-test"
 HEALTH_URL="http://127.0.0.1:5770/api/health"
 ROOT_URL="http://127.0.0.1:5770/"
+PLAYLIST_URL="http://127.0.0.1:5770/static/playlist.html"
 SETTINGS_URL="http://127.0.0.1:5770/api/settings"
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -67,12 +68,35 @@ echo
 
 echo
 echo "Settings endpoint:"
-curl --fail --silent --show-error "$SETTINGS_URL"
+settings_json="$(curl --fail --silent --show-error "$SETTINGS_URL")"
+echo "$settings_json"
+printf '%s' "$settings_json" | python -c '
+import json, sys
+payload = json.load(sys.stdin)
+required = {"provider", "model", "fallback_1", "fallback_2", "base_url", "configured", "api_key_set"}
+missing = sorted(required - payload.keys())
+if missing:
+    raise SystemExit(f"Missing settings fields: {missing}")
+'
+
 echo
+echo "Frontend structure:"
+frontend_html="$(curl --fail --silent --show-error "$ROOT_URL")"
+for required_text in "From Prompt" "From Seed" "AI provider" "Fallbacks" "YouTube Music account"; do
+  if ! grep -Fq "$required_text" <<<"$frontend_html"; then
+    echo "ERROR: frontend is missing: $required_text" >&2
+    exit 1
+  fi
+  echo "OK: $required_text"
+done
 
 echo
 echo "Frontend HTTP status:"
 curl --fail --silent --show-error --output /dev/null --write-out '%{http_code}\n' "$ROOT_URL"
+
+echo
+echo "Playlist page HTTP status:"
+curl --fail --silent --show-error --output /dev/null --write-out '%{http_code}\n' "$PLAYLIST_URL"
 
 echo
 echo "Recent logs:"
