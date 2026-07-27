@@ -37,6 +37,7 @@ Rules:
 - Each reason must be one concise sentence, no more than 220 characters, and must explain the song's contribution to this playlist's flow, mood, contrast or progression.
 - Describe audible musical character; do not invent biographical or recording facts.
 - Do not include live versions, remixes or covers unless explicitly requested.
+- Never include the same song more than once, even if multiple uploads or versions exist.
 - Avoid duplicate artists when possible.
 - Return no commentary and no markdown outside the JSON object.
 """
