@@ -1,0 +1,63 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #0b0e14;
+  color: #f4f6fb;
+  --panel: #151a24;
+  --panel-2: #1b2230;
+  --line: #2a3344;
+  --muted: #99a4b8;
+  --accent: #b68cff;
+  --accent-2: #70d7ff;
+  --danger: #ff8c9b;
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: radial-gradient(circle at top, #20233a 0, #0b0e14 42%); }
+button, input, textarea, select { font: inherit; }
+button { cursor: pointer; }
+.app-header, main { width: min(980px, calc(100% - 32px)); margin-inline: auto; }
+.app-header { display: flex; justify-content: space-between; align-items: center; padding: 28px 0 18px; }
+.brand { display: flex; gap: 14px; align-items: center; }
+.brand-mark { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 16px; font-weight: 900; background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #10131a; }
+h1, h2, p { margin-top: 0; }
+h1 { margin-bottom: 0; font-size: clamp(1.7rem, 4vw, 2.4rem); }
+.eyebrow { margin-bottom: 3px; color: var(--accent-2); font-size: .78rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+main { display: grid; gap: 22px; padding-bottom: 56px; }
+.card, .dialog-card { border: 1px solid var(--line); background: color-mix(in srgb, var(--panel) 94%, transparent); box-shadow: 0 24px 70px rgba(0,0,0,.25); }
+.card { border-radius: 24px; padding: clamp(20px, 4vw, 36px); }
+label { display: grid; gap: 8px; color: #dce2ed; font-weight: 700; }
+textarea, input, select { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: #0f141e; color: inherit; }
+textarea { resize: vertical; min-height: 130px; line-height: 1.5; }
+.controls { display: grid; grid-template-columns: minmax(120px, 180px); margin-top: 18px; }
+.checks { display: flex; flex-wrap: wrap; gap: 14px 24px; margin: 20px 0; }
+.checks label { display: flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 600; }
+.checks input { width: auto; }
+.primary, .secondary { border: 0; border-radius: 12px; padding: 12px 18px; font-weight: 800; }
+.primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #111522; }
+.secondary { background: var(--panel-2); color: inherit; border: 1px solid var(--line); }
+button:disabled { cursor: wait; opacity: .6; }
+.status { min-height: 1.4em; margin: 14px 0 0; color: var(--muted); }
+.status.error { color: var(--danger); }
+.hidden { display: none !important; }
+.results-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.pill { border: 1px solid var(--line); border-radius: 999px; padding: 7px 11px; color: var(--muted); white-space: nowrap; }
+.track-list { list-style: none; padding: 0; margin: 22px 0 0; display: grid; gap: 10px; }
+.track { display: grid; grid-template-columns: 56px 1fr auto; align-items: center; gap: 14px; padding: 10px; border: 1px solid var(--line); border-radius: 15px; background: #101620; }
+.track img { width: 56px; height: 56px; object-fit: cover; border-radius: 10px; background: var(--panel-2); }
+.track-copy { display: grid; min-width: 0; gap: 4px; }
+.track-copy strong, .track-copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.track-copy span { color: var(--muted); font-size: .9rem; }
+.track a { color: var(--accent-2); font-weight: 800; text-decoration: none; }
+dialog { width: min(560px, calc(100% - 28px)); padding: 0; border: 0; border-radius: 22px; background: transparent; color: inherit; }
+dialog::backdrop { background: rgba(0,0,0,.72); backdrop-filter: blur(5px); }
+.dialog-card { display: grid; gap: 16px; padding: 24px; border-radius: 22px; }
+.dialog-head { display: flex; justify-content: space-between; align-items: center; }
+.dialog-head h2 { margin: 0; }
+.icon { border: 0; background: transparent; color: inherit; font-size: 2rem; line-height: 1; }
+@media (max-width: 600px) {
+  .app-header { align-items: flex-start; }
+  .track { grid-template-columns: 48px 1fr; }
+  .track img { width: 48px; height: 48px; }
+  .track a { grid-column: 2; }
+  .results-head { align-items: flex-start; flex-direction: column; }
+}
