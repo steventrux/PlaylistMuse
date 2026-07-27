@@ -1,4 +1,4 @@
-"""Provider-neutral playlist candidate generation with model fallbacks."""
+"""Provider-neutral playlist generation with model fallbacks."""
 
 from __future__ import annotations
 
@@ -10,36 +10,70 @@ import httpx
 
 from backend.config import AppConfig
 
-SYSTEM_PROMPT = """You are PlaylistMuse, a music playlist curator.
-Return only a JSON array. Each item must contain exactly two string fields:
-\"artist\" and \"title\". Choose real released tracks that match the request.
-Do not include commentary, markdown, live versions, remixes, or covers unless
-explicitly requested. Avoid duplicate artists when possible.
+SYSTEM_PROMPT = """You are PlaylistMuse, an expert music playlist curator.
+Return only one valid JSON object with exactly this structure:
+{
+  "title": "A short evocative playlist title",
+  "description": "A concise description of the playlist's sound, mood and flow.",
+  "tracks": [
+    {"artist": "Artist name", "title": "Released track title"}
+  ]
+}
+
+Rules:
+- The title must be original, descriptive, 2 to 6 words, and no more than 70 characters.
+- Do not simply repeat the user's prompt as the title.
+- The description must be 1 or 2 natural sentences, no more than 260 characters.
+- The description must explain the genres, mood, energy, era or listening context.
+- Do not mention AI, the prompt, curation, or these instructions.
+- Every track must be a real released song and contain only the string fields "artist" and "title".
+- Use the canonical concise song title, not a YouTube upload title, medley, full album or compilation.
+- Do not include live versions, remixes or covers unless explicitly requested.
+- Avoid duplicate artists when possible.
+- Return no commentary and no markdown outside the JSON object.
 """
 
 
-def _extract_json(text: str) -> list[dict[str, str]]:
+def _extract_json(text: str) -> dict[str, Any]:
     cleaned = text.strip()
     cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.IGNORECASE)
-    start = cleaned.find("[")
-    end = cleaned.rfind("]")
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
     if start < 0 or end <= start:
-        raise ValueError("The AI provider did not return a JSON track list.")
+        raise ValueError("The AI provider did not return a JSON playlist object.")
+
     payload: Any = json.loads(cleaned[start : end + 1])
-    if not isinstance(payload, list):
+    if not isinstance(payload, dict):
         raise ValueError("The AI provider returned an invalid playlist format.")
 
+    title = str(payload.get("title", "")).strip()
+    description = str(payload.get("description", "")).strip()
+    raw_tracks = payload.get("tracks")
+
+    if not title or len(title) > 100:
+        raise ValueError("The AI provider returned an invalid playlist title.")
+    if not description or len(description) > 500:
+        raise ValueError("The AI provider returned an invalid playlist description.")
+    if not isinstance(raw_tracks, list):
+        raise ValueError("The AI provider did not return a JSON track list.")
+
     tracks: list[dict[str, str]] = []
-    for item in payload:
+    for item in raw_tracks:
         if not isinstance(item, dict):
             continue
         artist = str(item.get("artist", "")).strip()
-        title = str(item.get("title", "")).strip()
-        if artist and title:
-            tracks.append({"artist": artist, "title": title})
+        track_title = str(item.get("title", "")).strip()
+        if artist and track_title:
+            tracks.append({"artist": artist, "title": track_title})
+
     if not tracks:
         raise ValueError("The AI provider returned no usable tracks.")
-    return tracks
+
+    return {
+        "title": title,
+        "description": description,
+        "tracks": tracks,
+    }
 
 
 def _content_from_openai(data: dict[str, Any]) -> str:
@@ -124,11 +158,16 @@ async def _request_model(
     return _content_from_openai(response.json())
 
 
-async def generate_candidates(config: AppConfig, prompt: str, count: int) -> list[dict[str, str]]:
+async def generate_playlist_draft(
+    config: AppConfig, prompt: str, count: int
+) -> dict[str, Any]:
+    """Generate playlist metadata and canonical track candidates."""
     if not config.configured:
         raise ValueError("Configure an AI provider before generating a playlist.")
 
-    user_prompt = f"Create {count} tracks for this request: {prompt}"
+    user_prompt = (
+        f"Create a playlist containing exactly {count} tracks for this request:\n{prompt}"
+    )
     timeout = httpx.Timeout(60.0, connect=10.0)
     errors: list[str] = []
 
@@ -136,7 +175,9 @@ async def generate_candidates(config: AppConfig, prompt: str, count: int) -> lis
         for model in config.model_chain:
             try:
                 text = await _request_model(client, config, model, user_prompt)
-                return _extract_json(text)[:count]
+                draft = _extract_json(text)
+                draft["tracks"] = draft["tracks"][:count]
+                return draft
             except Exception as exc:
                 errors.append(f"{model}: {exc}")
 
