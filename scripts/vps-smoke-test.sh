@@ -70,6 +70,11 @@ docker exec "$CONTAINER" python -m compileall -q backend
 echo "OK: backend compiled"
 
 echo
+echo "Duplicate-track identity:"
+docker exec "$CONTAINER" python -c "from backend.youtube import track_identity_key as k; assert k('Bé-Bop-A-Lula!', 'Gene Vincent') == k('be bop a lula', 'GENE VINCENT'); assert k('Woman', 'Wolfmother') == k('Woman', 'Wolfmother')"
+echo "OK: alternate uploads share one track identity"
+
+echo
 echo "Health endpoint:"
 curl --fail --silent --show-error "$HEALTH_URL"
 echo
