@@ -82,28 +82,24 @@
 }
 
 .track-heading {
-  display: flex;
-  align-items: baseline;
-  gap: 0;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.track-title {
-  flex: 0 1 auto;
+  display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.track-title,
 .track-duration {
-  flex: 0 0 auto;
+  display: inline;
   overflow: visible !important;
+  white-space: nowrap;
+}
+
+.track-duration {
   color: var(--magenta);
   font-size: .8rem;
   font-weight: 850;
-  white-space: nowrap;
 }
 
 .track-meta {
