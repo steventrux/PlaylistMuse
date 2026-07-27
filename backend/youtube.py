@@ -54,6 +54,30 @@ def _is_excluded(title: str, *, live: bool, covers: bool, remixes: bool) -> bool
     return False
 
 
+def _looks_like_collection(candidate_title: str, result_title: str) -> bool:
+    """Reject collection-style uploads when a normal single track was requested."""
+    candidate = candidate_title.casefold()
+    result = result_title.casefold()
+    collection_terms = (
+        "medley",
+        "full album",
+        "greatest hits",
+        "best of",
+        "compilation",
+        "complete album",
+    )
+    return any(term in result and term not in candidate for term in collection_terms)
+
+
+def _title_score(candidate_title: str, result_title: str) -> float:
+    """Reward close titles and penalize noisy YouTube-style suffixes."""
+    candidate_tokens = set(re.findall(r"[a-z0-9]+", candidate_title.casefold()))
+    result_tokens = set(re.findall(r"[a-z0-9]+", result_title.casefold()))
+    extra_tokens = max(0, len(result_tokens - candidate_tokens))
+    penalty = min(28, extra_tokens * 2.5)
+    return max(0.0, fuzz.token_set_ratio(candidate_title, result_title) - penalty)
+
+
 def _search_songs(query: str, limit: int) -> list[dict[str, Any]]:
     results = _client().search(query, filter="songs", limit=limit)
     songs: list[dict[str, Any]] = []
@@ -89,10 +113,12 @@ def _resolve_one(candidate: dict[str, str], exclusions: dict[str, bool]) -> dict
             remixes=exclusions.get("exclude_remixes", True),
         ):
             continue
+        if _looks_like_collection(candidate["title"], title):
+            continue
 
-        title_score = fuzz.token_set_ratio(candidate["title"], title)
+        title_score = _title_score(candidate["title"], title)
         artist_score = fuzz.token_set_ratio(candidate["artist"], artists)
-        score = title_score * 0.65 + artist_score * 0.35
+        score = title_score * 0.68 + artist_score * 0.32
         if best is None or score > best[0]:
             best = (score, result)
 
