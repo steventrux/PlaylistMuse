@@ -40,6 +40,21 @@
   transform: translateY(0);
 }
 
+.settings-icon-btn svg {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 180ms ease;
+}
+
+.settings-icon-btn:hover:not(:disabled) svg {
+  transform: scale(1.08);
+}
+
 .mode-tabs {
   gap: 6px;
   padding: 5px;
