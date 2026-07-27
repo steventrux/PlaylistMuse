@@ -103,15 +103,16 @@
   background: #a78bfa;
 }
 
-/* Use the same label-to-field spacing in Prompt, Seed and Tracks. */
+/* Prompt and Seed labels are siblings of their fields, so they need margin. */
 #prompt-panel > label,
-.compact-filters label {
-  gap: 12px;
-}
-
 #seed-panel > label {
   display: block;
   margin-bottom: 12px;
+}
+
+/* Tracks wraps its input inside the label, so grid gap is correct here. */
+.compact-filters label {
+  gap: 12px;
 }
 
 .home-status {
