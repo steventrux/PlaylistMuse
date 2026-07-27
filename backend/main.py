@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
 from backend.config import AppConfig, load_config, save_config
-from backend.llm import generate_candidates
+from backend.llm import generate_playlist_draft
 from backend.youtube import resolve_candidates, search_songs
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -20,7 +20,7 @@ FRONTEND = ROOT / "frontend"
 app = FastAPI(
     title="PlaylistMuse",
     description="AI-assisted playlist creation for YouTube Music",
-    version="0.2.0",
+    version="0.3.0",
 )
 app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
 
@@ -91,10 +91,11 @@ def _settings_response(config: AppConfig) -> SettingsResponse:
 
 async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     config = load_config()
-    candidates = await generate_candidates(config, prompt, count)
-    tracks, unresolved = await resolve_candidates(candidates, options.model_dump())
+    draft = await generate_playlist_draft(config, prompt, count)
+    tracks, unresolved = await resolve_candidates(draft["tracks"], options.model_dump())
     return {
-        "name": prompt[:80],
+        "name": draft["title"],
+        "description": draft["description"],
         "prompt": prompt,
         "requested_count": count,
         "resolved_count": len(tracks),
@@ -179,7 +180,6 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
         result["tracks"].insert(0, seed_payload)
         result["tracks"] = result["tracks"][: request.track_count]
         result["resolved_count"] = len(result["tracks"])
-    result["name"] = f"Inspired by {seed.title}"
     result["seed"] = seed_payload
     return result
 
