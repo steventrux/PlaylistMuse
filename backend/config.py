@@ -16,6 +16,8 @@ class AppConfig:
     provider: str = ""
     api_key: str = ""
     model: str = ""
+    fallback_1: str = ""
+    fallback_2: str = ""
     base_url: str = ""
 
     @property
@@ -25,6 +27,16 @@ class AppConfig:
         if self.provider == "ollama":
             return bool(self.base_url)
         return bool(self.api_key or (self.provider == "custom" and self.base_url))
+
+    @property
+    def model_chain(self) -> list[str]:
+        """Return the primary model followed by unique configured fallbacks."""
+        models: list[str] = []
+        for value in (self.model, self.fallback_1, self.fallback_2):
+            model = value.strip()
+            if model and model not in models:
+                models.append(model)
+        return models
 
 
 def load_config() -> AppConfig:
@@ -39,6 +51,12 @@ def load_config() -> AppConfig:
         provider=os.getenv("PLAYLISTMUSE_AI_PROVIDER", values.get("provider", "")).strip(),
         api_key=os.getenv("PLAYLISTMUSE_AI_API_KEY", values.get("api_key", "")).strip(),
         model=os.getenv("PLAYLISTMUSE_AI_MODEL", values.get("model", "")).strip(),
+        fallback_1=os.getenv(
+            "PLAYLISTMUSE_AI_FALLBACK_1", values.get("fallback_1", "")
+        ).strip(),
+        fallback_2=os.getenv(
+            "PLAYLISTMUSE_AI_FALLBACK_2", values.get("fallback_2", "")
+        ).strip(),
         base_url=os.getenv("PLAYLISTMUSE_AI_BASE_URL", values.get("base_url", "")).strip(),
     )
 
