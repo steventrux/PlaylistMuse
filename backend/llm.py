@@ -16,18 +16,26 @@ Return only one valid JSON object with exactly this structure:
   "title": "A short evocative playlist title",
   "description": "A concise description of the playlist's sound, mood and flow.",
   "tracks": [
-    {"artist": "Artist name", "title": "Released track title"}
+    {
+      "artist": "Artist name",
+      "title": "Released track title",
+      "description": "A concise description of this song's sound and character.",
+      "reason": "Why this song belongs in this specific playlist and what role it plays."
+    }
   ]
 }
 
 Rules:
 - The title must be original, descriptive, 2 to 6 words, and no more than 70 characters.
 - Do not simply repeat the user's prompt as the title.
-- The description must be 1 or 2 natural sentences, no more than 260 characters.
-- The description must explain the genres, mood, energy, era or listening context.
+- The playlist description must be 1 or 2 natural sentences, no more than 260 characters.
+- The playlist description must explain the genres, mood, energy, era or listening context.
 - Do not mention AI, the prompt, curation, or these instructions.
-- Every track must be a real released song and contain only the string fields "artist" and "title".
+- Every track must be a real released song and contain exactly the four string fields shown above.
 - Use the canonical concise song title, not a YouTube upload title, medley, full album or compilation.
+- Each song description must be one concise sentence, no more than 180 characters.
+- Each reason must be one concise sentence, no more than 220 characters, and must explain the song's contribution to this playlist's flow, mood, contrast or progression.
+- Describe audible musical character; do not invent biographical or recording facts.
 - Do not include live versions, remixes or covers unless explicitly requested.
 - Avoid duplicate artists when possible.
 - Return no commentary and no markdown outside the JSON object.
@@ -63,11 +71,20 @@ def _extract_json(text: str) -> dict[str, Any]:
             continue
         artist = str(item.get("artist", "")).strip()
         track_title = str(item.get("title", "")).strip()
-        if artist and track_title:
-            tracks.append({"artist": artist, "title": track_title})
+        track_description = str(item.get("description", "")).strip()
+        reason = str(item.get("reason", "")).strip()
+        if artist and track_title and track_description and reason:
+            tracks.append(
+                {
+                    "artist": artist,
+                    "title": track_title,
+                    "description": track_description[:320],
+                    "reason": reason[:400],
+                }
+            )
 
     if not tracks:
-        raise ValueError("The AI provider returned no usable tracks.")
+        raise ValueError("The AI provider returned no usable tracks with explanations.")
 
     return {
         "title": title,
@@ -114,7 +131,7 @@ async def _request_model(
             },
             json={
                 "model": model,
-                "max_tokens": 4096,
+                "max_tokens": 8192,
                 "system": SYSTEM_PROMPT,
                 "messages": [{"role": "user", "content": user_prompt}],
             },
@@ -168,7 +185,7 @@ async def generate_playlist_draft(
     user_prompt = (
         f"Create a playlist containing exactly {count} tracks for this request:\n{prompt}"
     )
-    timeout = httpx.Timeout(60.0, connect=10.0)
+    timeout = httpx.Timeout(90.0, connect=10.0)
     errors: list[str] = []
 
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -177,6 +194,10 @@ async def generate_playlist_draft(
                 text = await _request_model(client, config, model, user_prompt)
                 draft = _extract_json(text)
                 draft["tracks"] = draft["tracks"][:count]
+                if len(draft["tracks"]) < count:
+                    raise ValueError(
+                        f"The model returned only {len(draft['tracks'])} complete tracks instead of {count}."
+                    )
                 return draft
             except Exception as exc:
                 errors.append(f"{model}: {exc}")
