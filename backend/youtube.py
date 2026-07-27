@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import unicodedata
 from functools import lru_cache
 from typing import Any
 
@@ -23,6 +24,18 @@ def _artist_text(result: dict[str, Any]) -> str:
 def _thumbnail(result: dict[str, Any]) -> str | None:
     thumbnails = result.get("thumbnails") or []
     return thumbnails[-1].get("url") if thumbnails else None
+
+
+def _normalize_identity(value: str) -> str:
+    """Normalize catalogue text so punctuation and accents do not create duplicates."""
+    decomposed = unicodedata.normalize("NFKD", str(value).casefold())
+    without_marks = "".join(char for char in decomposed if not unicodedata.combining(char))
+    return " ".join(part for part in re.split(r"[\W_]+", without_marks) if part)
+
+
+def track_identity_key(title: str, artists: str) -> str:
+    """Return a stable song identity independent from its YouTube video ID."""
+    return f"{_normalize_identity(artists)}::{_normalize_identity(title)}"
 
 
 def _serialize_song(result: dict[str, Any]) -> dict[str, Any] | None:
@@ -81,12 +94,18 @@ def _title_score(candidate_title: str, result_title: str) -> float:
 def _search_songs(query: str, limit: int) -> list[dict[str, Any]]:
     results = _client().search(query, filter="songs", limit=limit)
     songs: list[dict[str, Any]] = []
-    seen: set[str] = set()
+    seen_video_ids: set[str] = set()
+    seen_track_keys: set[str] = set()
+
     for result in results:
         song = _serialize_song(result)
-        if not song or song["video_id"] in seen:
+        if not song:
             continue
-        seen.add(song["video_id"])
+        identity = track_identity_key(song["title"], song["artists"])
+        if song["video_id"] in seen_video_ids or identity in seen_track_keys:
+            continue
+        seen_video_ids.add(song["video_id"])
+        seen_track_keys.add(identity)
         songs.append(song)
     return songs
 
@@ -140,12 +159,26 @@ async def resolve_candidates(
     resolved: list[dict[str, Any]] = []
     unresolved: list[dict[str, str]] = []
     seen_video_ids: set[str] = set()
+    seen_candidate_keys: set[str] = set()
+    seen_track_keys: set[str] = set()
 
     for candidate in candidates:
+        candidate_key = track_identity_key(candidate["title"], candidate["artist"])
+        if candidate_key in seen_candidate_keys:
+            continue
+
         track = await asyncio.to_thread(_resolve_one, candidate, exclusions)
-        if track and track["video_id"] not in seen_video_ids:
-            seen_video_ids.add(track["video_id"])
-            resolved.append(track)
-        else:
+        if not track:
             unresolved.append(candidate)
+            continue
+
+        track_key = track_identity_key(track["title"], track["artists"])
+        if track["video_id"] in seen_video_ids or track_key in seen_track_keys:
+            continue
+
+        seen_candidate_keys.add(candidate_key)
+        seen_video_ids.add(track["video_id"])
+        seen_track_keys.add(track_key)
+        resolved.append(track)
+
     return resolved, unresolved
