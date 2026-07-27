@@ -1,0 +1,156 @@
+/* PlaylistMuse controls: solid colours and simple connected/disconnected lights. */
+
+.primary {
+  border: 1px solid #8b5cf6;
+  background: #8b5cf6;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.primary:hover:not(:disabled) {
+  border-color: #a78bfa;
+  background: #a78bfa;
+  box-shadow: 0 9px 22px rgba(139, 92, 246, .24);
+  transform: translateY(-1px);
+}
+
+.primary:active:not(:disabled) {
+  border-color: #7c3aed;
+  background: #7c3aed;
+  box-shadow: none;
+  transform: translateY(0);
+}
+
+.secondary {
+  border: 1px solid rgba(183, 156, 255, .22);
+  background: #1b2140;
+  color: #f8f7ff;
+  box-shadow: none;
+}
+
+.secondary:hover:not(:disabled) {
+  border-color: rgba(183, 156, 255, .5);
+  background: #29315b;
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.secondary:active:not(:disabled) {
+  background: #151a33;
+  transform: translateY(0);
+}
+
+.mode-tabs {
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid rgba(169, 155, 255, .2);
+  background: #090c1b;
+  box-shadow: none;
+}
+
+.mode {
+  border: 1px solid transparent;
+  background: #151a33;
+  color: #b8bdd2;
+  box-shadow: none;
+}
+
+.mode:hover {
+  border-color: rgba(183, 156, 255, .38);
+  background: #29315b;
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.mode.active {
+  border-color: #8b5cf6;
+  background: #8b5cf6;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.mode.active:hover {
+  border-color: #a78bfa;
+  background: #a78bfa;
+}
+
+.home-status {
+  gap: 8px;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: auto;
+  min-width: 48px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(169, 155, 255, .18);
+  border-radius: 10px;
+  background: #11162c;
+  color: #737b99;
+  box-shadow: none;
+  opacity: 1;
+  font-size: .72rem;
+  font-weight: 850;
+  letter-spacing: .04em;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+
+.status-badge::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: none;
+}
+
+.status-badge:hover {
+  transform: translateY(-1px);
+  background: #1b2140;
+}
+
+.status-badge.pending {
+  border-color: rgba(169, 155, 255, .18);
+  background: #11162c;
+  color: #737b99;
+  opacity: .75;
+}
+
+.status-badge.off {
+  border-color: rgba(128, 136, 168, .2);
+  background: #11162c;
+  color: #69718f;
+}
+
+#home-ai-status.on {
+  border-color: rgba(167, 139, 250, .62);
+  background: #281b4d;
+  color: #c4b5fd;
+  box-shadow: 0 0 18px rgba(139, 92, 246, .18);
+}
+
+#home-yt-status.on {
+  border-color: rgba(56, 189, 248, .62);
+  background: #0e3044;
+  color: #7ddcff;
+  box-shadow: 0 0 18px rgba(56, 189, 248, .18);
+}
+
+.status-badge.error {
+  border-color: rgba(251, 113, 133, .5);
+  background: #351521;
+  color: #fda4af;
+}
+
+@media (max-width: 650px) {
+  .status-badge {
+    min-width: 44px;
+    height: 32px;
+    padding: 0 8px;
+  }
+}
