@@ -1,9 +1,9 @@
-/* Match playlist result cards to the selected Seed card treatment. */
+/* Result cards stay neutral until hovered or expanded. */
 
 .track-result-card {
-  border-color: rgba(183, 156, 255, .52);
-  background: var(--brand-gradient-soft);
-  box-shadow: 0 12px 30px rgba(46, 24, 100, .16);
+  border-color: var(--border);
+  background: rgba(8, 11, 27, .72);
+  box-shadow: none;
 }
 
 .track-result-card:hover {
@@ -18,7 +18,8 @@
   box-shadow: 0 15px 34px rgba(46, 24, 100, .22);
 }
 
-.track-result-card.expanded {
+.track-result-card.expanded,
+.track-result-card.expanded:hover {
   border-color: rgba(183, 156, 255, .76);
   background:
     linear-gradient(
