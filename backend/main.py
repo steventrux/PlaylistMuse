@@ -20,7 +20,7 @@ FRONTEND = ROOT / "frontend"
 app = FastAPI(
     title="PlaylistMuse",
     description="AI-assisted playlist creation for YouTube Music",
-    version="0.3.0",
+    version="0.4.0",
 )
 app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
 
@@ -77,6 +77,28 @@ class SeedGenerateRequest(BaseModel):
     options: PlaylistOptions = Field(default_factory=PlaylistOptions)
 
 
+class PlaylistTrackContext(BaseModel):
+    video_id: str | None = Field(default=None, max_length=64)
+    title: str = Field(min_length=1, max_length=300)
+    artists: str = Field(min_length=1, max_length=300)
+    description: str = Field(default="", max_length=500)
+    reason: str = Field(default="", max_length=600)
+
+
+class ReplaceTrackRequest(BaseModel):
+    prompt: str = Field(min_length=3, max_length=1950)
+    playlist_name: str = Field(default="", max_length=100)
+    playlist_description: str = Field(default="", max_length=500)
+    current_track: PlaylistTrackContext
+    existing_tracks: list[PlaylistTrackContext] = Field(default_factory=list, max_length=100)
+    options: PlaylistOptions = Field(default_factory=PlaylistOptions)
+
+    @field_validator("prompt")
+    @classmethod
+    def normalize_prompt(cls, value: str) -> str:
+        return " ".join(value.split())
+
+
 def _settings_response(config: AppConfig) -> SettingsResponse:
     return SettingsResponse(
         provider=config.provider,
@@ -87,6 +109,10 @@ def _settings_response(config: AppConfig) -> SettingsResponse:
         configured=config.configured,
         api_key_set=bool(config.api_key),
     )
+
+
+def _track_key(title: str, artists: str) -> str:
+    return " ".join(f"{artists} {title}".casefold().split())
 
 
 async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
@@ -175,6 +201,12 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
         raise HTTPException(status_code=502, detail=f"Playlist generation failed: {exc}") from exc
 
     seed_payload = seed.model_dump()
+    seed_payload["description"] = (
+        "The reference song that establishes the playlist's core sound, mood and energy."
+    )
+    seed_payload["reason"] = (
+        "It anchors the sequence because every other selection was chosen in response to its musical character."
+    )
     existing_ids = {track.get("video_id") for track in result["tracks"]}
     if seed.video_id not in existing_ids:
         result["tracks"].insert(0, seed_payload)
@@ -182,6 +214,51 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
         result["resolved_count"] = len(result["tracks"])
     result["seed"] = seed_payload
     return result
+
+
+@app.post("/api/playlists/replace-track")
+async def replace_track(request: ReplaceTrackRequest) -> dict:
+    current = request.current_track
+    avoided = "\n".join(
+        f"- {track.artists} — {track.title}" for track in request.existing_tracks
+    )
+    replacement_prompt = (
+        "Suggest exactly 6 strong replacement candidates for one song in an existing playlist.\n"
+        f"Original playlist request: {request.prompt}\n"
+        f"Playlist title: {request.playlist_name or 'Untitled playlist'}\n"
+        f"Playlist description: {request.playlist_description or 'Not provided'}\n"
+        f"Song being replaced: {current.artists} — {current.title}\n"
+        f"Its role in the playlist: {current.reason or 'Maintain the same mood, energy and sequencing role.'}\n"
+        "Choose alternatives that preserve or improve that role while adding variety. "
+        "Do not return the current song or any song already in the playlist.\n"
+        f"Songs to avoid:\n{avoided or '- None'}"
+    )
+
+    try:
+        config = load_config()
+        draft = await generate_playlist_draft(config, replacement_prompt, 6)
+        candidates, _ = await resolve_candidates(draft["tracks"], request.options.model_dump())
+
+        existing_ids = {
+            track.video_id for track in request.existing_tracks if track.video_id
+        }
+        existing_keys = {
+            _track_key(track.title, track.artists) for track in request.existing_tracks
+        }
+        existing_keys.add(_track_key(current.title, current.artists))
+
+        for candidate in candidates:
+            if candidate.get("video_id") in existing_ids:
+                continue
+            if _track_key(candidate.get("title", ""), candidate.get("artists", "")) in existing_keys:
+                continue
+            return {"track": candidate}
+
+        raise ValueError("No suitable non-duplicate replacement could be resolved.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Track replacement failed: {exc}") from exc
 
 
 @app.get("/", include_in_schema=False)
