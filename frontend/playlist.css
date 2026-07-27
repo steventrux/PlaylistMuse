@@ -84,12 +84,13 @@
 .track-heading {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 0;
   min-width: 0;
+  overflow: hidden;
 }
 
 .track-title {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -120,10 +121,6 @@
   .playlist-title-editor svg {
     width: 17px;
     height: 17px;
-  }
-
-  .track-heading {
-    gap: 7px;
   }
 
   .track-duration {
