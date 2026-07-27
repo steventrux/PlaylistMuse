@@ -1,9 +1,10 @@
 (() => {
   'use strict';
 
+  const state = { mode: 'prompt', selectedSeed: null };
   const $ = (id) => document.getElementById(id);
 
-  function setStatus(text = '', error = false) {
+  function message(text = '', error = false) {
     $('status').textContent = text;
     $('status').classList.toggle('error', error);
   }
@@ -15,114 +16,184 @@
     catch { throw new Error(text || `HTTP ${response.status}`); }
     if (!response.ok) {
       const detail = data.detail ?? data.error ?? data.message;
+      if (Array.isArray(detail)) {
+        throw new Error(detail.map((item) => item.msg || item.message || String(item)).join('; '));
+      }
       throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail || data));
     }
     return data;
   }
 
-  function renderTracks(data) {
-    $('playlist-name').textContent = data.name || 'Generated playlist';
-    $('resolved-count').textContent = `${data.resolved_count}/${data.requested_count} resolved`;
-    $('track-list').replaceChildren(...data.tracks.map((track, index) => {
-      const item = document.createElement('li');
-      item.className = 'track';
+  function options() {
+    return {
+      exclude_live: $('exclude-live').checked,
+      exclude_covers: $('exclude-covers').checked,
+      exclude_remixes: $('exclude-remixes').checked,
+    };
+  }
 
-      const art = document.createElement('img');
-      art.loading = 'lazy';
-      art.alt = '';
-      art.src = track.thumbnail_url || 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"/>';
+  function trackCount() {
+    return Math.max(5, Math.min(100, Number($('track-count').value) || 25));
+  }
 
-      const text = document.createElement('div');
-      text.className = 'track-copy';
+  function normalizedPrompt() {
+    return $('prompt').value.trim().replace(/\s+/g, ' ').slice(0, 1950);
+  }
+
+  function selectSeed(seed) {
+    state.selectedSeed = seed;
+    $('selected-seed').replaceChildren();
+
+    const artwork = document.createElement('img');
+    artwork.src = seed.thumbnail_url || '';
+    artwork.alt = '';
+
+    const copy = document.createElement('div');
+    const title = document.createElement('strong');
+    title.textContent = seed.title;
+    const meta = document.createElement('span');
+    meta.textContent = [seed.artists, seed.album, seed.duration].filter(Boolean).join(' · ');
+    copy.append(title, meta);
+
+    const change = document.createElement('button');
+    change.type = 'button';
+    change.className = 'secondary compact-button';
+    change.textContent = 'Change';
+    change.addEventListener('click', () => {
+      state.selectedSeed = null;
+      $('selected-seed').classList.add('hidden');
+      $('seed-results').classList.remove('hidden');
+    });
+
+    $('selected-seed').append(artwork, copy, change);
+    $('selected-seed').classList.remove('hidden');
+    $('seed-results').classList.add('hidden');
+    message('Seed selected. Generate the playlist when ready.');
+  }
+
+  function renderSeedResults(results) {
+    const container = $('seed-results');
+    container.replaceChildren();
+
+    if (!results.length) {
+      const empty = document.createElement('p');
+      empty.className = 'hint';
+      empty.textContent = 'No matching songs found.';
+      container.append(empty);
+      container.classList.remove('hidden');
+      return;
+    }
+
+    results.forEach((seed) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'seed-result';
+
+      const artwork = document.createElement('img');
+      artwork.src = seed.thumbnail_url || '';
+      artwork.alt = '';
+      artwork.loading = 'lazy';
+
+      const copy = document.createElement('span');
+      copy.className = 'seed-result-copy';
       const title = document.createElement('strong');
-      title.textContent = `${index + 1}. ${track.title}`;
-      const meta = document.createElement('span');
-      meta.textContent = [track.artists, track.album, track.duration].filter(Boolean).join(' · ');
-      text.append(title, meta);
+      title.textContent = seed.title;
+      const meta = document.createElement('small');
+      meta.textContent = [seed.artists, seed.album, seed.duration].filter(Boolean).join(' · ');
+      copy.append(title, meta);
 
-      const link = document.createElement('a');
-      link.href = track.url;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      link.textContent = 'Play';
+      button.append(artwork, copy);
+      button.addEventListener('click', () => selectSeed(seed));
+      container.append(button);
+    });
 
-      item.append(art, text, link);
-      return item;
-    }));
-    $('results').classList.remove('hidden');
-    $('results').scrollIntoView({behavior: 'smooth', block: 'start'});
+    container.classList.remove('hidden');
+  }
+
+  async function searchSeed() {
+    const query = $('seed-query').value.trim();
+    if (query.length < 2) return message('Enter an artist or song title.', true);
+
+    const button = $('seed-search');
+    button.disabled = true;
+    button.textContent = 'Searching…';
+    message('Searching YouTube Music…');
+
+    try {
+      const data = await readJson(await fetch(`/api/seeds/search?q=${encodeURIComponent(query)}&limit=8`));
+      renderSeedResults(data.results || []);
+      message(data.results?.length ? 'Choose the seed track.' : 'No matching songs found.', !data.results?.length);
+    } catch (error) {
+      message(error.message || String(error), true);
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Search';
+    }
   }
 
   async function generate() {
-    const prompt = $('prompt').value.trim().replace(/\s+/g, ' ');
-    if (!prompt) return setStatus('Describe the playlist you want.', true);
-
     const button = $('generate');
+    let endpoint;
+    let request;
+
+    if (state.mode === 'prompt') {
+      const prompt = normalizedPrompt();
+      if (!prompt) return message('Describe the playlist you want.', true);
+      endpoint = '/api/playlists/generate';
+      request = { prompt, track_count: trackCount(), options: options() };
+    } else {
+      if (!state.selectedSeed) return message('Search for and select a seed track first.', true);
+      endpoint = '/api/playlists/generate-from-seed';
+      request = { seed: state.selectedSeed, track_count: trackCount(), options: options() };
+    }
+
     button.disabled = true;
     button.textContent = 'Generating…';
-    setStatus('Curating tracks and resolving them on YouTube Music…');
+    message('Generating and resolving tracks on YouTube Music…');
 
     try {
-      const data = await readJson(await fetch('/api/playlists/generate', {
+      const data = await readJson(await fetch(endpoint, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          prompt,
-          track_count: Math.max(5, Math.min(100, Number($('track-count').value) || 25)),
-          options: {
-            exclude_live: $('exclude-live').checked,
-            exclude_covers: $('exclude-covers').checked,
-            exclude_remixes: $('exclude-remixes').checked,
-          },
-        }),
+        body: JSON.stringify(request),
       }));
-      renderTracks(data);
-      setStatus(data.resolved_count ? '' : 'No tracks could be resolved.', !data.resolved_count);
+      sessionStorage.setItem('playlistmuse-generated-playlist', JSON.stringify(data));
+      sessionStorage.setItem('playlistmuse-generation-request', JSON.stringify({mode: state.mode, ...request}));
+      window.location.assign('/static/playlist.html');
     } catch (error) {
-      setStatus(error.message || String(error), true);
-    } finally {
+      message(error.message || String(error), true);
       button.disabled = false;
       button.textContent = 'Generate playlist';
     }
   }
 
-  async function loadSettings() {
-    const data = await readJson(await fetch('/api/settings'));
-    $('ai-provider').value = data.provider || 'gemini';
-    $('ai-model').value = data.model || '';
-    $('ai-base-url').value = data.base_url || '';
-    $('settings-status').textContent = data.configured ? 'Provider configured.' : 'Configuration required.';
-  }
-
-  async function saveSettings() {
-    const button = $('save-settings');
-    button.disabled = true;
-    try {
-      const data = await readJson(await fetch('/api/settings', {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          provider: $('ai-provider').value,
-          model: $('ai-model').value.trim(),
-          api_key: $('ai-key').value.trim(),
-          base_url: $('ai-base-url').value.trim(),
-        }),
-      }));
-      $('ai-key').value = '';
-      $('settings-status').textContent = data.configured ? 'Settings saved.' : 'Saved, but the provider is not fully configured.';
-    } catch (error) {
-      $('settings-status').textContent = error.message || String(error);
-    } finally {
-      button.disabled = false;
-    }
+  function setMode(mode, selectedButton) {
+    state.mode = mode;
+    document.querySelectorAll('.mode').forEach((button) => {
+      button.classList.toggle('active', button === selectedButton);
+      button.setAttribute('aria-selected', String(button === selectedButton));
+    });
+    $('prompt-panel').classList.toggle('hidden', mode !== 'prompt');
+    $('seed-panel').classList.toggle('hidden', mode !== 'seed');
+    message('');
   }
 
   $('generate').addEventListener('click', generate);
-  $('settings-btn').addEventListener('click', async () => {
+  $('seed-search').addEventListener('click', searchSeed);
+  $('seed-query').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      searchSeed();
+    }
+  });
+
+  document.querySelectorAll('.mode').forEach((button) => button.addEventListener('click', () => {
+    setMode(button.dataset.mode, button);
+  }));
+
+  $('settings-btn').addEventListener('click', () => {
     $('settings-dialog').showModal();
-    try { await loadSettings(); }
-    catch (error) { $('settings-status').textContent = error.message || String(error); }
+    window.dispatchEvent(new Event('playlistmuse-settings-opened'));
   });
   $('close-settings').addEventListener('click', () => $('settings-dialog').close());
-  $('save-settings').addEventListener('click', saveSettings);
 })();
