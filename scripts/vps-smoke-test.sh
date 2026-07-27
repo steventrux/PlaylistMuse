@@ -7,6 +7,8 @@ HEALTH_URL="http://127.0.0.1:5770/api/health"
 ROOT_URL="http://127.0.0.1:5770/"
 PLAYLIST_URL="http://127.0.0.1:5770/static/playlist.html"
 PLAYLIST_CSS_URL="http://127.0.0.1:5770/static/playlist.css"
+PLAYLIST_JS_URL="http://127.0.0.1:5770/static/playlist.js"
+OPENAPI_URL="http://127.0.0.1:5770/openapi.json"
 SETTINGS_URL="http://127.0.0.1:5770/api/settings"
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -105,6 +107,22 @@ for required_id in playlist-name playlist-summary playlist-description track-lis
   fi
   echo "OK: $required_id"
 done
+
+playlist_js="$(curl --fail --silent --show-error "$PLAYLIST_JS_URL")"
+for required_text in "track-details" "Open in YouTube Music" "Replace track" "/api/playlists/replace-track"; do
+  if ! grep -Fq "$required_text" <<<"$playlist_js"; then
+    echo "ERROR: playlist script is missing: $required_text" >&2
+    exit 1
+  fi
+  echo "OK: $required_text"
+done
+
+openapi_json="$(curl --fail --silent --show-error "$OPENAPI_URL")"
+if ! grep -Fq '"/api/playlists/replace-track"' <<<"$openapi_json"; then
+  echo "ERROR: replacement API endpoint is missing" >&2
+  exit 1
+fi
+echo "OK: replacement API"
 
 curl --fail --silent --show-error --output /dev/null "$PLAYLIST_CSS_URL"
 echo "OK: playlist.css"
