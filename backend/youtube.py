@@ -129,6 +129,8 @@ def _resolve_one(candidate: dict[str, str], exclusions: dict[str, bool]) -> dict
     if not song:
         return None
     song["match_score"] = round(best[0], 1)
+    song["description"] = candidate.get("description", "")
+    song["reason"] = candidate.get("reason", "")
     return song
 
 
@@ -137,10 +139,12 @@ async def resolve_candidates(
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     resolved: list[dict[str, Any]] = []
     unresolved: list[dict[str, str]] = []
+    seen_video_ids: set[str] = set()
 
     for candidate in candidates:
         track = await asyncio.to_thread(_resolve_one, candidate, exclusions)
-        if track:
+        if track and track["video_id"] not in seen_video_ids:
+            seen_video_ids.add(track["video_id"])
             resolved.append(track)
         else:
             unresolved.append(candidate)
