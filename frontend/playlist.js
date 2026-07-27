@@ -45,7 +45,7 @@
     if (track.duration) {
       const duration = document.createElement('span');
       duration.className = 'track-duration';
-      duration.textContent = track.duration;
+      duration.textContent = ` - ${track.duration}`;
       heading.append(duration);
     }
 
