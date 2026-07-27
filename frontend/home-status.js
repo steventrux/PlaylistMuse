@@ -3,67 +3,72 @@
 
   const $ = (id) => document.getElementById(id);
 
-  function setBadge(element, state, label, title) {
-    element.classList.remove('pending', 'ok', 'warn', 'neutral', 'error');
-    element.classList.add(state);
-    element.textContent = label;
+  function setIndicator(element, connected, title) {
+    element.classList.remove('pending', 'on', 'off', 'error');
+    element.classList.add(connected ? 'on' : 'off');
+    element.title = title;
+    element.setAttribute('aria-label', title);
+  }
+
+  function setPending(element, title) {
+    element.classList.remove('on', 'off', 'error');
+    element.classList.add('pending');
+    element.title = title;
+    element.setAttribute('aria-label', title);
+  }
+
+  function setError(element, title) {
+    element.classList.remove('pending', 'on', 'off');
+    element.classList.add('error');
     element.title = title;
     element.setAttribute('aria-label', title);
   }
 
   async function refreshStatus() {
-    setBadge($('home-ai-status'), 'pending', 'AI checking', 'Checking AI provider configuration');
-    setBadge($('home-yt-status'), 'pending', 'YT checking', 'Checking YouTube Music connection');
+    const aiIndicator = $('home-ai-status');
+    const ytIndicator = $('home-yt-status');
+
+    aiIndicator.textContent = 'AI';
+    ytIndicator.textContent = 'YT';
+    setPending(aiIndicator, 'Checking AI provider configuration');
+    setPending(ytIndicator, 'Checking YouTube Music account connection');
 
     try {
       const response = await fetch('/api/settings');
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const settings = await response.json();
-      setBadge(
-        $('home-ai-status'),
-        settings.configured ? 'ok' : 'warn',
-        settings.configured ? 'AI ready' : 'AI setup',
-        settings.configured ? `AI configured: ${settings.model}` : 'AI provider configuration required',
+      setIndicator(
+        aiIndicator,
+        Boolean(settings.configured),
+        settings.configured
+          ? `AI connected · ${settings.model}`
+          : 'AI not connected · configure a provider in Settings',
       );
     } catch {
-      setBadge($('home-ai-status'), 'error', 'AI error', 'Unable to check AI configuration');
+      setError(aiIndicator, 'Unable to check AI configuration');
     }
 
     try {
       const response = await fetch('/api/youtube/status');
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const status = await response.json();
+      const connected = Boolean(status.account_connected);
 
-      if (status.account_connected) {
-        setBadge(
-          $('home-yt-status'),
-          'ok',
-          'YT connected',
-          'YouTube Music account connected',
-        );
-      } else if (status.catalog_available) {
-        setBadge(
-          $('home-yt-status'),
-          'neutral',
-          'YT public',
-          'Public YouTube Music catalogue available; Google account not connected',
-        );
-      } else {
-        setBadge(
-          $('home-yt-status'),
-          'error',
-          'YT unavailable',
-          status.message || 'YouTube Music unavailable',
-        );
-      }
+      setIndicator(
+        ytIndicator,
+        connected,
+        connected
+          ? 'YouTube Music account connected'
+          : 'YouTube Music account not connected',
+      );
 
-      $('account-status').textContent = status.account_connected
+      $('account-status').textContent = connected
         ? 'Connected with Google'
         : (status.catalog_available
-          ? 'Public catalogue available · Google account not connected'
-          : (status.message || 'YouTube Music unavailable'));
+          ? 'Google account not connected · public catalogue available'
+          : 'Google account not connected');
     } catch {
-      setBadge($('home-yt-status'), 'error', 'YT error', 'Unable to check YouTube Music');
+      setError(ytIndicator, 'Unable to check YouTube Music connection');
       $('account-status').textContent = 'Unable to check YouTube Music.';
     }
   }
