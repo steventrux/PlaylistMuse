@@ -1,0 +1,11 @@
+services:
+  playlistmuse:
+    build: .
+    container_name: playlistmuse
+    ports:
+      - "5766:5766"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
