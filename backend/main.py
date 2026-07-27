@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from backend.config import AppConfig, load_config, save_config
 from backend.llm import generate_playlist_draft
-from backend.youtube import resolve_candidates, search_songs
+from backend.youtube import resolve_candidates, search_songs, track_identity_key
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND = ROOT / "frontend"
@@ -20,7 +20,7 @@ FRONTEND = ROOT / "frontend"
 app = FastAPI(
     title="PlaylistMuse",
     description="AI-assisted playlist creation for YouTube Music",
-    version="0.4.0",
+    version="0.4.1",
 )
 app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
 
@@ -112,7 +112,7 @@ def _settings_response(config: AppConfig) -> SettingsResponse:
 
 
 def _track_key(title: str, artists: str) -> str:
-    return " ".join(f"{artists} {title}".casefold().split())
+    return track_identity_key(title, artists)
 
 
 async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
@@ -201,17 +201,33 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
         raise HTTPException(status_code=502, detail=f"Playlist generation failed: {exc}") from exc
 
     seed_payload = seed.model_dump()
+    seed_key = track_identity_key(seed.title, seed.artists)
+
+    matching_track = next(
+        (
+            track
+            for track in result["tracks"]
+            if track_identity_key(track.get("title", ""), track.get("artists", "")) == seed_key
+        ),
+        None,
+    )
     seed_payload["description"] = (
-        "The reference song that establishes the playlist's core sound, mood and energy."
+        (matching_track or {}).get("description")
+        or "The reference song that establishes the playlist's core sound, mood and energy."
     )
     seed_payload["reason"] = (
-        "It anchors the sequence because every other selection was chosen in response to its musical character."
+        (matching_track or {}).get("reason")
+        or "It anchors the sequence because every other selection was chosen in response to its musical character."
     )
-    existing_ids = {track.get("video_id") for track in result["tracks"]}
-    if seed.video_id not in existing_ids:
-        result["tracks"].insert(0, seed_payload)
-        result["tracks"] = result["tracks"][: request.track_count]
-        result["resolved_count"] = len(result["tracks"])
+
+    remaining_tracks = [
+        track
+        for track in result["tracks"]
+        if track.get("video_id") != seed.video_id
+        and track_identity_key(track.get("title", ""), track.get("artists", "")) != seed_key
+    ]
+    result["tracks"] = [seed_payload, *remaining_tracks][: request.track_count]
+    result["resolved_count"] = len(result["tracks"])
     result["seed"] = seed_payload
     return result
 
