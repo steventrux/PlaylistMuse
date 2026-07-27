@@ -2,7 +2,36 @@
   'use strict';
 
   const STORAGE_KEY = 'playlistmuse-generated-playlist';
+  const REQUEST_KEY = 'playlistmuse-generation-request';
   const $ = (id) => document.getElementById(id);
+  let expandedIndex = null;
+
+  function readStoredJson(key) {
+    try {
+      return JSON.parse(sessionStorage.getItem(key) || 'null');
+    } catch {
+      return null;
+    }
+  }
+
+  function savePlaylist() {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  }
+
+  async function readJson(response) {
+    const text = await response.text();
+    let payload = {};
+    try {
+      payload = text ? JSON.parse(text) : {};
+    } catch {
+      throw new Error(text || `HTTP ${response.status}`);
+    }
+    if (!response.ok) {
+      const detail = payload.detail ?? payload.error ?? payload.message;
+      throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail || payload));
+    }
+    return payload;
+  }
 
   function durationToSeconds(value) {
     if (!value) return 0;
@@ -21,13 +50,118 @@
     return `${totalMinutes} min`;
   }
 
+  function updateSummary() {
+    const totalSeconds = data.tracks.reduce(
+      (total, track) => total + durationToSeconds(track.duration),
+      0,
+    );
+    const durationText = formatPlaylistDuration(totalSeconds);
+    const trackLabel = `${data.tracks.length} ${data.tracks.length === 1 ? 'track' : 'tracks'}`;
+    $('playlist-summary').textContent = durationText ? `${trackLabel} · ${durationText}` : trackLabel;
+  }
+
+  function detailBlock(title, text) {
+    const block = document.createElement('section');
+    block.className = 'track-detail-block';
+
+    const heading = document.createElement('h3');
+    heading.textContent = title;
+
+    const paragraph = document.createElement('p');
+    paragraph.textContent = text;
+
+    block.append(heading, paragraph);
+    return block;
+  }
+
+  function closeOtherTracks(currentItem) {
+    document.querySelectorAll('.track.expanded').forEach((item) => {
+      if (item === currentItem) return;
+      item.classList.remove('expanded');
+      item.setAttribute('aria-expanded', 'false');
+    });
+  }
+
+  function toggleTrack(item, index) {
+    const willExpand = !item.classList.contains('expanded');
+    closeOtherTracks(item);
+    item.classList.toggle('expanded', willExpand);
+    item.setAttribute('aria-expanded', String(willExpand));
+    expandedIndex = willExpand ? index : null;
+    if (willExpand) {
+      item.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+    }
+  }
+
+  function replacementOptions() {
+    return generationRequest?.options || {
+      exclude_live: true,
+      exclude_covers: true,
+      exclude_remixes: true,
+    };
+  }
+
+  async function replaceTrack(index, button, status) {
+    const currentTrack = data.tracks[index];
+    button.disabled = true;
+    button.textContent = 'Replacing…';
+    status.textContent = 'Finding a new track that preserves this song’s role…';
+    status.classList.remove('error');
+
+    const request = {
+      prompt: data.prompt || 'Create a cohesive playlist matching the current selection.',
+      playlist_name: data.name || '',
+      playlist_description: data.description || '',
+      current_track: {
+        video_id: currentTrack.video_id || null,
+        title: currentTrack.title || 'Unknown track',
+        artists: currentTrack.artists || 'Unknown artist',
+        description: currentTrack.description || '',
+        reason: currentTrack.reason || '',
+      },
+      existing_tracks: data.tracks.map((track) => ({
+        video_id: track.video_id || null,
+        title: track.title || 'Unknown track',
+        artists: track.artists || 'Unknown artist',
+        description: track.description || '',
+        reason: track.reason || '',
+      })),
+      options: replacementOptions(),
+    };
+
+    try {
+      const payload = await readJson(await fetch('/api/playlists/replace-track', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(request),
+      }));
+
+      data.tracks[index] = payload.track;
+      data.resolved_count = data.tracks.length;
+      expandedIndex = index;
+      savePlaylist();
+      renderPlaylist();
+    } catch (error) {
+      status.textContent = error.message || String(error);
+      status.classList.add('error');
+      button.disabled = false;
+      button.textContent = 'Replace track';
+    }
+  }
+
   function renderTrack(track, index) {
     const item = document.createElement('li');
-    item.className = 'track';
+    item.className = 'track track-result-card';
+    item.tabIndex = 0;
+    item.setAttribute('role', 'button');
+    item.setAttribute('aria-expanded', String(expandedIndex === index));
+    item.setAttribute('aria-label', `Show details for ${track.title || 'this track'}`);
+    if (expandedIndex === index) item.classList.add('expanded');
 
     const artwork = document.createElement('img');
+    artwork.className = 'track-artwork';
     artwork.loading = 'lazy';
-    artwork.alt = '';
+    artwork.alt = `Cover artwork for ${track.title || 'track'}`;
     artwork.src = track.thumbnail_url || '';
 
     const copy = document.createElement('div');
@@ -39,7 +173,6 @@
     const titleText = document.createElement('span');
     titleText.className = 'track-title';
     titleText.textContent = `${index + 1}. ${track.title || 'Unknown track'}`;
-
     heading.append(titleText);
 
     if (track.duration) {
@@ -55,25 +188,82 @@
     meta.className = 'track-meta';
     meta.textContent = [track.artists, track.album].filter(Boolean).join(' · ');
     meta.title = meta.textContent;
-
     copy.append(heading, meta);
 
-    const link = document.createElement('a');
-    link.href = track.url || `https://music.youtube.com/watch?v=${encodeURIComponent(track.video_id || '')}`;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
-    link.textContent = 'Play';
+    const expandIcon = document.createElement('span');
+    expandIcon.className = 'track-expand-icon';
+    expandIcon.setAttribute('aria-hidden', 'true');
+    expandIcon.innerHTML = '<svg viewBox="0 0 24 24" focusable="false"><path d="m7 10 5 5 5-5"/></svg>';
 
-    item.append(artwork, copy, link);
+    const details = document.createElement('div');
+    details.className = 'track-details';
+    const detailsInner = document.createElement('div');
+    detailsInner.className = 'track-details-inner';
+
+    const explanation = document.createElement('div');
+    explanation.className = 'track-explanation';
+    explanation.append(
+      detailBlock(
+        'About this track',
+        track.description || 'Detailed notes are not available because this playlist was generated before track explanations were introduced.',
+      ),
+      detailBlock(
+        'Why it belongs here',
+        track.reason || 'The role of this track was not stored with this earlier playlist generation.',
+      ),
+    );
+
+    const actions = document.createElement('div');
+    actions.className = 'track-actions';
+
+    const play = document.createElement('a');
+    play.className = 'primary track-action';
+    play.href = track.url || `https://music.youtube.com/watch?v=${encodeURIComponent(track.video_id || '')}`;
+    play.target = '_blank';
+    play.rel = 'noopener noreferrer';
+    play.textContent = 'Open in YouTube Music';
+    play.addEventListener('click', (event) => event.stopPropagation());
+
+    const replace = document.createElement('button');
+    replace.type = 'button';
+    replace.className = 'secondary track-action replace-track-button';
+    replace.textContent = 'Replace track';
+
+    const replaceStatus = document.createElement('p');
+    replaceStatus.className = 'track-replace-status';
+    replaceStatus.setAttribute('aria-live', 'polite');
+
+    replace.addEventListener('click', (event) => {
+      event.stopPropagation();
+      replaceTrack(index, replace, replaceStatus);
+    });
+
+    actions.append(play, replace);
+    detailsInner.append(explanation, actions, replaceStatus);
+    details.append(detailsInner);
+
+    item.append(artwork, copy, expandIcon, details);
+    item.addEventListener('click', (event) => {
+      if (event.target.closest('a, button')) return;
+      toggleTrack(item, index);
+    });
+    item.addEventListener('keydown', (event) => {
+      if (event.target !== item || !['Enter', ' '].includes(event.key)) return;
+      event.preventDefault();
+      toggleTrack(item, index);
+    });
+
     return item;
   }
 
-  let data = null;
-  try {
-    data = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || 'null');
-  } catch {
-    data = null;
+  function renderPlaylist() {
+    updateSummary();
+    $('playlist-description').textContent = data.description || data.prompt || '';
+    $('track-list').replaceChildren(...data.tracks.map(renderTrack));
   }
+
+  const data = readStoredJson(STORAGE_KEY);
+  const generationRequest = readStoredJson(REQUEST_KEY);
 
   if (!data || !Array.isArray(data.tracks)) {
     $('empty-state').classList.remove('hidden');
@@ -85,7 +275,7 @@
   titleInput.value = data.name || 'Generated playlist';
   titleInput.addEventListener('input', () => {
     data.name = titleInput.value.slice(0, 100);
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    savePlaylist();
   });
   titleInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
@@ -94,13 +284,5 @@
     }
   });
 
-  const totalSeconds = data.tracks.reduce(
-    (total, track) => total + durationToSeconds(track.duration),
-    0,
-  );
-  const durationText = formatPlaylistDuration(totalSeconds);
-  const trackLabel = `${data.tracks.length} ${data.tracks.length === 1 ? 'track' : 'tracks'}`;
-  $('playlist-summary').textContent = durationText ? `${trackLabel} · ${durationText}` : trackLabel;
-  $('playlist-description').textContent = data.description || data.prompt || '';
-  $('track-list').replaceChildren(...data.tracks.map(renderTrack));
+  renderPlaylist();
 })();
