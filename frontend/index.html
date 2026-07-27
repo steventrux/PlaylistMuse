@@ -3,29 +3,52 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#10131a">
+  <meta name="theme-color" content="#1a1a1a">
   <title>PlaylistMuse</title>
-  <link rel="stylesheet" href="/static/style.css?v=1">
+  <link rel="stylesheet" href="/static/style.css?v=7">
 </head>
 <body>
   <header class="app-header">
-    <div class="brand">
-      <span class="brand-mark" aria-hidden="true">PM</span>
-      <div>
-        <p class="eyebrow">AI playlist studio</p>
-        <h1>PlaylistMuse</h1>
-      </div>
+    <div>
+      <p class="eyebrow">AI playlist studio</p>
+      <h1>PlaylistMuse</h1>
     </div>
-    <button id="settings-btn" class="secondary" type="button">Settings</button>
+    <div class="header-actions">
+      <div class="home-status" aria-label="Configuration status">
+        <span id="home-ai-status" class="status-badge pending" title="Checking AI provider configuration" aria-label="AI provider status">AI</span>
+        <span id="home-yt-status" class="status-badge pending" title="Checking YouTube Music connection" aria-label="YouTube Music status">YT</span>
+      </div>
+      <button id="settings-btn" class="secondary settings-icon-btn" title="Open application settings" aria-label="Open application settings" type="button">
+        <span aria-hidden="true">⚙</span>
+      </button>
+    </div>
   </header>
 
   <main>
     <section class="hero card">
       <h2>Create a playlist</h2>
-      <label for="prompt">Describe the playlist you want</label>
-      <textarea id="prompt" maxlength="1950" rows="5" placeholder="A nocturnal blues-rock drive through the Alps, gritty guitars and a steady pace..."></textarea>
+      <div class="mode-tabs" role="tablist" aria-label="Playlist creation mode">
+        <button class="mode active" data-mode="prompt" type="button">From Prompt</button>
+        <button class="mode" data-mode="seed" type="button">From Seed</button>
+      </div>
 
-      <div class="controls">
+      <div id="prompt-panel">
+        <label for="prompt">Describe the playlist you want</label>
+        <textarea id="prompt" maxlength="1950" rows="5" placeholder="A nocturnal blues-rock drive through the Alps, gritty guitars, steady pace, mostly 1970s to today..."></textarea>
+      </div>
+
+      <div id="seed-panel" class="hidden">
+        <label for="seed-query">Search for a song on YouTube Music</label>
+        <div class="inline">
+          <input id="seed-query" placeholder="Artist or song title" autocomplete="off">
+          <button id="seed-search" class="secondary" type="button">Search</button>
+        </div>
+        <p class="hint">Choose a track to use as the musical reference for the new playlist.</p>
+        <div id="seed-results" class="seed-results hidden" aria-live="polite"></div>
+        <div id="selected-seed" class="selected-seed hidden" aria-live="polite"></div>
+      </div>
+
+      <div class="grid filters compact-filters">
         <label>Tracks
           <input id="track-count" type="number" min="5" max="100" value="25">
         </label>
@@ -40,49 +63,74 @@
       <button id="generate" class="primary" type="button">Generate playlist</button>
       <p id="status" class="status" aria-live="polite"></p>
     </section>
-
-    <section id="results" class="card hidden" aria-live="polite">
-      <div class="results-head">
-        <div>
-          <p class="eyebrow">Your playlist</p>
-          <h2 id="playlist-name">Generated playlist</h2>
-        </div>
-        <span id="resolved-count" class="pill"></span>
-      </div>
-      <ol id="track-list" class="track-list"></ol>
-    </section>
   </main>
 
   <dialog id="settings-dialog">
-    <form class="dialog-card" method="dialog">
+    <form method="dialog" class="dialog-card settings-dialog-card" novalidate>
       <div class="dialog-head">
-        <h2>AI settings</h2>
-        <button id="close-settings" class="icon" type="button" aria-label="Close">×</button>
+        <h2>Settings</h2>
+        <button id="close-settings" type="button" class="icon" aria-label="Close">×</button>
       </div>
 
-      <label>Provider
-        <select id="ai-provider">
-          <option value="gemini">Google Gemini</option>
-          <option value="openai">OpenAI</option>
-          <option value="anthropic">Anthropic</option>
-          <option value="ollama">Ollama</option>
-          <option value="custom">OpenAI-compatible endpoint</option>
-        </select>
-      </label>
-      <label>Model
-        <input id="ai-model" required placeholder="Provider-specific model name">
-      </label>
-      <label>API key
-        <input id="ai-key" type="password" autocomplete="off" placeholder="Leave blank to keep the saved key">
-      </label>
-      <label>Base URL
-        <input id="ai-base-url" type="url" placeholder="Required for Ollama or a custom endpoint">
-      </label>
-      <p id="settings-status" class="status"></p>
-      <button id="save-settings" class="primary" type="button">Save settings</button>
+      <section class="settings-block">
+        <h3>AI provider</h3>
+        <p id="ai-status" class="settings-status">Checking AI configuration…</p>
+
+        <div class="settings-fields">
+          <label for="ai-provider">Provider
+            <select id="ai-provider">
+              <option value="gemini">Google Gemini</option>
+              <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic</option>
+              <option value="ollama">Ollama</option>
+              <option value="custom">OpenAI-compatible endpoint</option>
+            </select>
+          </label>
+
+          <p id="provider-help" class="field-hint provider-help">
+            <a id="provider-help-link" href="#" target="_blank" rel="noopener noreferrer"></a>
+          </p>
+
+          <label id="api-key-field" for="ai-key">API key
+            <input id="ai-key" type="password" autocomplete="off" placeholder="Enter the provider API key">
+            <span id="api-key-hint" class="field-hint"></span>
+          </label>
+
+          <label id="base-url-field" class="hidden" for="ai-base-url">Server URL
+            <input id="ai-base-url" type="url" placeholder="http://host:11434 or https://example.com/v1">
+          </label>
+
+          <label for="ai-model">Primary model
+            <input id="ai-model" value="gemini-3.6-flash" placeholder="Primary model identifier">
+          </label>
+
+          <div id="fallback-row" class="fallback-row" aria-label="Fallback models">
+            <span class="field-hint fallback-label">Fallbacks</span>
+            <input id="ai-fallback-1" value="gemini-3.5-flash" placeholder="Fallback 1" aria-label="Fallback model 1">
+            <span class="fallback-arrow">→</span>
+            <input id="ai-fallback-2" value="gemini-3.5-flash-lite" placeholder="Fallback 2" aria-label="Fallback model 2">
+          </div>
+        </div>
+
+        <div class="settings-actions">
+          <button id="save-ai" type="button" class="primary">Save AI settings</button>
+        </div>
+      </section>
+
+      <section class="settings-block">
+        <h3>YouTube Music account</h3>
+        <p id="account-status" class="settings-status">Checking connection…</p>
+        <div class="settings-actions">
+          <button id="connect" type="button" class="primary" disabled>Sign in with Google</button>
+          <button id="disconnect" type="button" class="secondary" disabled>Disconnect</button>
+        </div>
+        <p class="field-hint">Public catalogue search is active. Google account linking will be enabled separately.</p>
+      </section>
     </form>
   </dialog>
 
-  <script src="/static/app.js?v=1"></script>
+  <script src="/static/app.js?v=7"></script>
+  <script src="/static/ai-settings.js?v=7"></script>
+  <script src="/static/home-status.js?v=7"></script>
 </body>
 </html>
