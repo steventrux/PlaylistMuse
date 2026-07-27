@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#10131a">
+  <title>PlaylistMuse</title>
+  <link rel="stylesheet" href="/static/style.css?v=1">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">PM</span>
+      <div>
+        <p class="eyebrow">AI playlist studio</p>
+        <h1>PlaylistMuse</h1>
+      </div>
+    </div>
+    <button id="settings-btn" class="secondary" type="button">Settings</button>
+  </header>
+
+  <main>
+    <section class="hero card">
+      <h2>Create a playlist</h2>
+      <label for="prompt">Describe the playlist you want</label>
+      <textarea id="prompt" maxlength="1950" rows="5" placeholder="A nocturnal blues-rock drive through the Alps, gritty guitars and a steady pace..."></textarea>
+
+      <div class="controls">
+        <label>Tracks
+          <input id="track-count" type="number" min="5" max="100" value="25">
+        </label>
+      </div>
+
+      <div class="checks">
+        <label><input id="exclude-live" type="checkbox" checked> Exclude live tracks</label>
+        <label><input id="exclude-covers" type="checkbox" checked> Exclude covers</label>
+        <label><input id="exclude-remixes" type="checkbox" checked> Exclude remixes</label>
+      </div>
+
+      <button id="generate" class="primary" type="button">Generate playlist</button>
+      <p id="status" class="status" aria-live="polite"></p>
+    </section>
+
+    <section id="results" class="card hidden" aria-live="polite">
+      <div class="results-head">
+        <div>
+          <p class="eyebrow">Your playlist</p>
+          <h2 id="playlist-name">Generated playlist</h2>
+        </div>
+        <span id="resolved-count" class="pill"></span>
+      </div>
+      <ol id="track-list" class="track-list"></ol>
+    </section>
+  </main>
+
+  <dialog id="settings-dialog">
+    <form class="dialog-card" method="dialog">
+      <div class="dialog-head">
+        <h2>AI settings</h2>
+        <button id="close-settings" class="icon" type="button" aria-label="Close">×</button>
+      </div>
+
+      <label>Provider
+        <select id="ai-provider">
+          <option value="gemini">Google Gemini</option>
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="ollama">Ollama</option>
+          <option value="custom">OpenAI-compatible endpoint</option>
+        </select>
+      </label>
+      <label>Model
+        <input id="ai-model" required placeholder="Provider-specific model name">
+      </label>
+      <label>API key
+        <input id="ai-key" type="password" autocomplete="off" placeholder="Leave blank to keep the saved key">
+      </label>
+      <label>Base URL
+        <input id="ai-base-url" type="url" placeholder="Required for Ollama or a custom endpoint">
+      </label>
+      <p id="settings-status" class="status"></p>
+      <button id="save-settings" class="primary" type="button">Save settings</button>
+    </form>
+  </dialog>
+
+  <script src="/static/app.js?v=1"></script>
+</body>
+</html>
