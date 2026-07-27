@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#1a1a1a">
+  <title>Playlist · PlaylistMuse</title>
+  <link rel="stylesheet" href="/static/style.css?v=7">
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">AI playlist studio</p>
+      <h1>PlaylistMuse</h1>
+    </div>
+  </header>
+
+  <main class="playlist-shell">
+    <div class="playlist-toolbar">
+      <a class="back-link" href="/">← Create another playlist</a>
+      <span id="resolved-count" class="playlist-meta"></span>
+    </div>
+
+    <section class="card">
+      <p class="eyebrow">Your playlist</p>
+      <h2 id="playlist-name">Generated playlist</h2>
+      <p id="playlist-prompt" class="playlist-meta"></p>
+      <ol id="track-list" class="track-list"></ol>
+      <div id="empty-state" class="empty-state hidden">No generated playlist was found in this browser session.</div>
+    </section>
+  </main>
+
+  <script src="/static/playlist.js?v=7"></script>
+</body>
+</html>
