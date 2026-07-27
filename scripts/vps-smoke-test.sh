@@ -6,6 +6,7 @@ CONTAINER="playlistmuse-test"
 HEALTH_URL="http://127.0.0.1:5770/api/health"
 ROOT_URL="http://127.0.0.1:5770/"
 PLAYLIST_URL="http://127.0.0.1:5770/static/playlist.html"
+PLAYLIST_CSS_URL="http://127.0.0.1:5770/static/playlist.css"
 SETTINGS_URL="http://127.0.0.1:5770/api/settings"
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -62,6 +63,11 @@ echo "Container status:"
 docker compose -f "$COMPOSE_FILE" ps
 
 echo
+echo "Python compilation:"
+docker exec "$CONTAINER" python -m compileall -q backend
+echo "OK: backend compiled"
+
+echo
 echo "Health endpoint:"
 curl --fail --silent --show-error "$HEALTH_URL"
 echo
@@ -88,6 +94,20 @@ for required_text in "From Prompt" "From Seed" "AI provider" "Fallbacks" "YouTub
   fi
   echo "OK: $required_text"
 done
+
+echo
+echo "Playlist result structure:"
+playlist_html="$(curl --fail --silent --show-error "$PLAYLIST_URL")"
+for required_id in playlist-name playlist-summary playlist-description track-list; do
+  if ! grep -Fq "id=\"${required_id}\"" <<<"$playlist_html"; then
+    echo "ERROR: playlist page is missing: $required_id" >&2
+    exit 1
+  fi
+  echo "OK: $required_id"
+done
+
+curl --fail --silent --show-error --output /dev/null "$PLAYLIST_CSS_URL"
+echo "OK: playlist.css"
 
 echo
 echo "Frontend HTTP status:"
