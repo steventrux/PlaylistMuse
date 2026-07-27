@@ -1,0 +1,37 @@
+/* Match playlist result cards to the selected Seed card treatment. */
+
+.track-result-card {
+  border-color: rgba(183, 156, 255, .52);
+  background: var(--brand-gradient-soft);
+  box-shadow: 0 12px 30px rgba(46, 24, 100, .16);
+}
+
+.track-result-card:hover {
+  border-color: rgba(183, 156, 255, .72);
+  background:
+    linear-gradient(
+      135deg,
+      rgba(139, 92, 246, .23),
+      rgba(236, 72, 153, .15) 52%,
+      rgba(56, 189, 248, .19)
+    );
+  box-shadow: 0 15px 34px rgba(46, 24, 100, .22);
+}
+
+.track-result-card.expanded {
+  border-color: rgba(183, 156, 255, .76);
+  background:
+    linear-gradient(
+      135deg,
+      rgba(139, 92, 246, .25),
+      rgba(236, 72, 153, .16) 52%,
+      rgba(56, 189, 248, .21)
+    );
+  box-shadow:
+    0 18px 42px rgba(2, 4, 18, .28),
+    0 14px 34px rgba(46, 24, 100, .22);
+}
+
+.track-result-card.expanded .track-explanation {
+  border-top-color: rgba(183, 156, 255, .28);
+}
