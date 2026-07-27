@@ -249,6 +249,7 @@
 
 .track .track-action {
   display: inline-flex;
+  grid-column: auto;
   align-items: center;
   justify-content: center;
   min-height: 40px;
