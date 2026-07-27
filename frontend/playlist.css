@@ -81,6 +81,58 @@
   line-height: 1.6;
 }
 
+.track-result-card {
+  grid-template-columns: 58px minmax(0, 1fr) 28px;
+  align-items: center;
+  cursor: pointer;
+  overflow: hidden;
+  transition: grid-template-columns 200ms ease, padding 200ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.track-result-card:hover {
+  transform: none;
+  border-color: rgba(183, 156, 255, .42);
+  background: rgba(21, 26, 51, .9);
+}
+
+.track-result-card:focus-visible {
+  outline: 2px solid var(--violet-light);
+  outline-offset: 2px;
+}
+
+.track-result-card.expanded {
+  grid-template-columns: 138px minmax(0, 1fr) 28px;
+  align-items: start;
+  padding: 16px;
+  border-color: rgba(139, 92, 246, .55);
+  background: rgba(18, 22, 47, .96);
+  box-shadow: 0 18px 42px rgba(2, 4, 18, .28);
+}
+
+.track-artwork {
+  width: 58px !important;
+  height: 58px !important;
+  border-radius: 11px !important;
+  transition: width 200ms ease, height 200ms ease, border-radius 200ms ease;
+}
+
+.track-result-card.expanded .track-artwork {
+  grid-row: 1 / span 2;
+  width: 138px !important;
+  height: 138px !important;
+  border-radius: 15px !important;
+  box-shadow: 0 14px 30px rgba(1, 3, 15, .34);
+}
+
+.track-result-card .track-copy {
+  align-self: center;
+}
+
+.track-result-card.expanded .track-copy {
+  align-self: start;
+  padding-top: 3px;
+}
+
 .track-heading {
   display: block;
   min-width: 0;
@@ -109,6 +161,125 @@
   white-space: nowrap;
 }
 
+.track-expand-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  align-self: center;
+  border-radius: 8px;
+  color: var(--text-muted);
+  transition: transform 180ms ease, color 160ms ease, background 160ms ease;
+}
+
+.track-expand-icon svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.track-result-card:hover .track-expand-icon {
+  color: var(--violet-light);
+  background: rgba(139, 92, 246, .1);
+}
+
+.track-result-card.expanded .track-expand-icon {
+  align-self: start;
+  color: var(--violet-light);
+  transform: rotate(180deg);
+}
+
+.track-details {
+  display: grid;
+  grid-column: 2 / -1;
+  grid-template-rows: 0fr;
+  min-width: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: grid-template-rows 220ms ease, opacity 160ms ease, margin-top 200ms ease;
+}
+
+.track-details-inner {
+  min-height: 0;
+  overflow: hidden;
+  cursor: default;
+}
+
+.track-result-card.expanded .track-details {
+  grid-template-rows: 1fr;
+  margin-top: 14px;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.track-explanation {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding-top: 15px;
+  border-top: 1px solid var(--border);
+}
+
+.track-detail-block h3 {
+  margin: 0 0 6px;
+  color: var(--cyan-light);
+  font-size: .76rem;
+  font-weight: 850;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.track-detail-block p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: .9rem;
+  line-height: 1.55;
+}
+
+.track-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.track .track-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 10px 15px;
+  border-radius: 11px;
+  color: #fff;
+  font-size: .86rem;
+  font-weight: 780;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.track .track-action.secondary {
+  color: var(--text-primary);
+}
+
+.track-replace-status {
+  margin: 12px 0 0;
+  color: var(--text-secondary);
+  font-size: .84rem;
+  line-height: 1.45;
+}
+
+.track-replace-status:empty {
+  display: none;
+}
+
+.track-replace-status.error {
+  color: var(--error);
+}
+
 @media (max-width: 650px) {
   .playlist-title-editor {
     grid-template-columns: minmax(0, 1fr) 21px;
@@ -119,7 +290,54 @@
     height: 17px;
   }
 
+  .track-result-card {
+    grid-template-columns: 50px minmax(0, 1fr) 24px;
+  }
+
+  .track-artwork {
+    width: 50px !important;
+    height: 50px !important;
+  }
+
+  .track-result-card.expanded {
+    grid-template-columns: 96px minmax(0, 1fr) 24px;
+    padding: 13px;
+  }
+
+  .track-result-card.expanded .track-artwork {
+    grid-row: auto;
+    width: 96px !important;
+    height: 96px !important;
+  }
+
+  .track-details {
+    grid-column: 1 / -1;
+  }
+
+  .track-explanation {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
   .track-duration {
     font-size: .75rem;
+  }
+
+  .track-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .track .track-action {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .track-result-card,
+  .track-artwork,
+  .track-expand-icon,
+  .track-details {
+    transition: none;
   }
 }
