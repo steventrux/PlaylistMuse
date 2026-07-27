@@ -39,6 +39,14 @@ class AppConfig:
         return models
 
 
+def _environment_or_saved(name: str, saved: str = "") -> str:
+    """Use a non-empty environment override, otherwise keep the saved value."""
+    environment_value = os.getenv(name)
+    if environment_value is not None and environment_value.strip():
+        return environment_value.strip()
+    return str(saved or "").strip()
+
+
 def load_config() -> AppConfig:
     values: dict[str, str] = {}
     if CONFIG_PATH.exists():
@@ -48,16 +56,24 @@ def load_config() -> AppConfig:
             values = {}
 
     return AppConfig(
-        provider=os.getenv("PLAYLISTMUSE_AI_PROVIDER", values.get("provider", "")).strip(),
-        api_key=os.getenv("PLAYLISTMUSE_AI_API_KEY", values.get("api_key", "")).strip(),
-        model=os.getenv("PLAYLISTMUSE_AI_MODEL", values.get("model", "")).strip(),
-        fallback_1=os.getenv(
+        provider=_environment_or_saved(
+            "PLAYLISTMUSE_AI_PROVIDER", values.get("provider", "")
+        ),
+        api_key=_environment_or_saved(
+            "PLAYLISTMUSE_AI_API_KEY", values.get("api_key", "")
+        ),
+        model=_environment_or_saved(
+            "PLAYLISTMUSE_AI_MODEL", values.get("model", "")
+        ),
+        fallback_1=_environment_or_saved(
             "PLAYLISTMUSE_AI_FALLBACK_1", values.get("fallback_1", "")
-        ).strip(),
-        fallback_2=os.getenv(
+        ),
+        fallback_2=_environment_or_saved(
             "PLAYLISTMUSE_AI_FALLBACK_2", values.get("fallback_2", "")
-        ).strip(),
-        base_url=os.getenv("PLAYLISTMUSE_AI_BASE_URL", values.get("base_url", "")).strip(),
+        ),
+        base_url=_environment_or_saved(
+            "PLAYLISTMUSE_AI_BASE_URL", values.get("base_url", "")
+        ),
     )
 
 
