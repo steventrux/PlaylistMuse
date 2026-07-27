@@ -70,14 +70,13 @@ echo
 echo "Settings endpoint:"
 settings_json="$(curl --fail --silent --show-error "$SETTINGS_URL")"
 echo "$settings_json"
-printf '%s' "$settings_json" | python -c '
-import json, sys
-payload = json.load(sys.stdin)
-required = {"provider", "model", "fallback_1", "fallback_2", "base_url", "configured", "api_key_set"}
-missing = sorted(required - payload.keys())
-if missing:
-    raise SystemExit(f"Missing settings fields: {missing}")
-'
+for required_key in provider model fallback_1 fallback_2 base_url configured api_key_set; do
+  if ! grep -Fq "\"${required_key}\":" <<<"$settings_json"; then
+    echo "ERROR: settings response is missing key: $required_key" >&2
+    exit 1
+  fi
+done
+echo "OK: settings schema"
 
 echo
 echo "Frontend structure:"
