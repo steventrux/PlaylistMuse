@@ -10,8 +10,14 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
-from backend.config import AppConfig, api_key_slot, load_config, save_config
-from backend.llm import generate_playlist_draft
+from backend.config import (
+    AppConfig,
+    api_key_matches_provider,
+    api_key_slot,
+    load_config,
+    save_config,
+)
+from backend.llm import generate_playlist_draft, safe_error_message
 from backend.youtube import resolve_candidates, search_songs, track_identity_key
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -34,7 +40,7 @@ OPENROUTER_MODELS = {
 app = FastAPI(
     title="PlaylistMuse",
     description="AI-assisted playlist creation for YouTube Music",
-    version="0.5.0",
+    version="0.6.0",
 )
 app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
 
@@ -130,7 +136,7 @@ def _settings_response(config: AppConfig) -> SettingsResponse:
         fallback_2=config.fallback_2,
         base_url=config.base_url,
         configured=config.configured,
-        api_key_set=bool(config.api_key),
+        api_key_set=api_key_matches_provider(config.provider, config.api_key),
         provider_keys_set={
             provider: config.key_is_saved(provider) for provider in AI_PROVIDERS
         },
@@ -141,17 +147,126 @@ def _track_key(title: str, artists: str) -> str:
     return track_identity_key(title, artists)
 
 
+def _candidate_key(candidate: dict) -> str:
+    return track_identity_key(
+        str(candidate.get("title", "")),
+        str(candidate.get("artist", candidate.get("artists", ""))),
+    )
+
+
+def _replenishment_prompt(
+    original_prompt: str,
+    playlist_title: str,
+    playlist_description: str,
+    missing: int,
+    pool_size: int,
+    tracks: list[dict],
+    attempted_candidates: list[dict],
+) -> str:
+    forbidden_lines: list[str] = []
+    for track in tracks:
+        forbidden_lines.append(
+            f"- {track.get('artists', 'Unknown artist')} — {track.get('title', 'Unknown track')}"
+        )
+    for candidate in attempted_candidates[-100:]:
+        forbidden_lines.append(
+            f"- {candidate.get('artist', 'Unknown artist')} — {candidate.get('title', 'Unknown track')}"
+        )
+    forbidden = "\n".join(dict.fromkeys(forbidden_lines))
+    return (
+        f"The original playlist request is:\n{original_prompt}\n\n"
+        f"Playlist title: {playlist_title}\n"
+        f"Playlist description: {playlist_description}\n"
+        f"The playlist still needs {missing} resolvable songs. Suggest exactly {pool_size} NEW "
+        "replacement candidates that are likely to exist as normal song entries on YouTube Music. "
+        "Use canonical released titles and mainstream artist spelling. Do not repeat any forbidden song.\n"
+        f"Forbidden or already attempted songs:\n{forbidden or '- None'}"
+    )
+
+
 async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     config = load_config()
     draft = await generate_playlist_draft(config, prompt, count)
-    tracks, unresolved = await resolve_candidates(draft["tracks"], options.model_dump())
+    exclusions = options.model_dump()
+    tracks, unresolved = await resolve_candidates(draft["tracks"], exclusions)
+
+    attempted_candidates = list(draft["tracks"])
+    attempted_keys = {_candidate_key(candidate) for candidate in attempted_candidates}
+    resolved_keys = {
+        track_identity_key(track.get("title", ""), track.get("artists", ""))
+        for track in tracks
+    }
+    resolved_ids = {track.get("video_id") for track in tracks if track.get("video_id")}
+    stalled_rounds = 0
+
+    for _round in range(1, 7):
+        missing = count - len(tracks)
+        if missing <= 0:
+            break
+
+        pool_size = min(30, max(8, missing * 2))
+        refill_prompt = _replenishment_prompt(
+            prompt,
+            draft["title"],
+            draft["description"],
+            missing,
+            pool_size,
+            tracks,
+            attempted_candidates,
+        )
+        refill = await generate_playlist_draft(config, refill_prompt, pool_size)
+        fresh_candidates: list[dict] = []
+        for candidate in refill["tracks"]:
+            key = _candidate_key(candidate)
+            if not key or key in attempted_keys:
+                continue
+            attempted_keys.add(key)
+            attempted_candidates.append(candidate)
+            fresh_candidates.append(candidate)
+
+        if not fresh_candidates:
+            stalled_rounds += 1
+            if stalled_rounds >= 2:
+                break
+            continue
+
+        newly_resolved, newly_unresolved = await resolve_candidates(
+            fresh_candidates, exclusions
+        )
+        unresolved.extend(newly_unresolved)
+        added = 0
+        for track in newly_resolved:
+            track_key = track_identity_key(
+                track.get("title", ""), track.get("artists", "")
+            )
+            video_id = track.get("video_id")
+            if track_key in resolved_keys or (video_id and video_id in resolved_ids):
+                continue
+            resolved_keys.add(track_key)
+            if video_id:
+                resolved_ids.add(video_id)
+            tracks.append(track)
+            added += 1
+            if len(tracks) >= count:
+                break
+
+        stalled_rounds = 0 if added else stalled_rounds + 1
+        if stalled_rounds >= 2:
+            break
+
+    if len(tracks) < count:
+        raise ValueError(
+            f"PlaylistMuse found only {len(tracks)} of {count} distinct tracks that could be "
+            "verified on YouTube Music. Try a broader prompt or request fewer tracks."
+        )
+
     return {
         "name": draft["title"],
         "description": draft["description"],
         "prompt": prompt,
         "requested_count": count,
-        "resolved_count": len(tracks),
-        "tracks": tracks,
+        "resolved_count": count,
+        "tracks": tracks[:count],
         "unresolved": unresolved,
     }
 
@@ -172,6 +287,11 @@ async def update_settings(request: SettingsUpdate) -> SettingsResponse:
     provider_api_keys = dict(current.provider_api_keys)
     slot = api_key_slot(request.provider)
     submitted_key = request.api_key.strip()
+    if submitted_key and not api_key_matches_provider(request.provider, submitted_key):
+        raise HTTPException(
+            status_code=400,
+            detail="This API key appears to belong to a different AI provider.",
+        )
     if submitted_key:
         provider_api_keys[slot] = submitted_key
     active_key = provider_api_keys.get(slot, "")
@@ -215,8 +335,11 @@ async def seed_search(
 ) -> dict:
     try:
         songs = await search_songs(q.strip(), limit)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"YouTube Music search failed: {exc}") from exc
+    except Exception as error:
+        raise HTTPException(
+            status_code=502,
+            detail="YouTube Music search is temporarily unavailable.",
+        ) from error
     return {"query": q, "results": songs}
 
 
@@ -224,10 +347,13 @@ async def seed_search(
 async def generate_playlist(request: GenerateRequest) -> dict:
     try:
         return await _generate(request.prompt, request.track_count, request.options)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Playlist generation failed: {exc}") from exc
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=502,
+            detail="Playlist generation failed. Please try again.",
+        ) from error
 
 
 @app.post("/api/playlists/generate-from-seed")
@@ -239,19 +365,24 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
     )
     try:
         result = await _generate(prompt, request.track_count, request.options)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Playlist generation failed: {exc}") from exc
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=502,
+            detail="Playlist generation failed. Please try again.",
+        ) from error
 
     seed_payload = seed.model_dump()
     seed_key = track_identity_key(seed.title, seed.artists)
-
     matching_track = next(
         (
             track
             for track in result["tracks"]
-            if track_identity_key(track.get("title", ""), track.get("artists", "")) == seed_key
+            if track_identity_key(
+                track.get("title", ""), track.get("artists", "")
+            )
+            == seed_key
         ),
         None,
     )
@@ -268,7 +399,8 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
         track
         for track in result["tracks"]
         if track.get("video_id") != seed.video_id
-        and track_identity_key(track.get("title", ""), track.get("artists", "")) != seed_key
+        and track_identity_key(track.get("title", ""), track.get("artists", ""))
+        != seed_key
     ]
     result["tracks"] = [seed_payload, *remaining_tracks][: request.track_count]
     result["resolved_count"] = len(result["tracks"])
@@ -297,8 +429,9 @@ async def replace_track(request: ReplaceTrackRequest) -> dict:
     try:
         config = load_config()
         draft = await generate_playlist_draft(config, replacement_prompt, 6)
-        candidates, _ = await resolve_candidates(draft["tracks"], request.options.model_dump())
-
+        candidates, _ = await resolve_candidates(
+            draft["tracks"], request.options.model_dump()
+        )
         existing_ids = {
             track.video_id for track in request.existing_tracks if track.video_id
         }
@@ -306,19 +439,22 @@ async def replace_track(request: ReplaceTrackRequest) -> dict:
             _track_key(track.title, track.artists) for track in request.existing_tracks
         }
         existing_keys.add(_track_key(current.title, current.artists))
-
         for candidate in candidates:
             if candidate.get("video_id") in existing_ids:
                 continue
-            if _track_key(candidate.get("title", ""), candidate.get("artists", "")) in existing_keys:
+            if _track_key(
+                candidate.get("title", ""), candidate.get("artists", "")
+            ) in existing_keys:
                 continue
             return {"track": candidate}
-
         raise ValueError("No suitable non-duplicate replacement could be resolved.")
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Track replacement failed: {exc}") from exc
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=502,
+            detail="Track replacement failed. Please try again.",
+        ) from error
 
 
 @app.get("/", include_in_schema=False)
