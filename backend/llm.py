@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 import httpx
+
 from backend.config import AppConfig
 
 SYSTEM_PROMPT = """You are PlaylistMuse, an expert music playlist curator.
@@ -43,6 +44,76 @@ Rules:
 
 OPENROUTER_PROVIDERS = {"openrouter_auto", "openrouter_free"}
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+
+def _playlist_response_format(count: int) -> dict[str, Any]:
+    """Return the strict JSON Schema used for OpenRouter structured output."""
+    track_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "artist": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160,
+                "description": "Canonical artist name.",
+            },
+            "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 220,
+                "description": "Canonical released song title.",
+            },
+            "description": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 320,
+                "description": "One concise sentence describing the song's sound.",
+            },
+            "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 400,
+                "description": "One concise sentence explaining its role in this playlist.",
+            },
+        },
+        "required": ["artist", "title", "description", "reason"],
+    }
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "playlist_muse_playlist",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100,
+                    },
+                    "description": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500,
+                    },
+                    "tracks": {
+                        "type": "array",
+                        "minItems": count,
+                        "maxItems": count,
+                        "items": track_schema,
+                    },
+                },
+                "required": ["title", "description", "tracks"],
+            },
+        },
+    }
+
+
+def _openrouter_max_tokens(count: int) -> int:
+    """Allow enough output for track explanations without requesting an excessive limit."""
+    return min(16_384, max(8_192, count * 260))
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -96,8 +167,39 @@ def _extract_json(text: str) -> dict[str, Any]:
     }
 
 
+def _openrouter_error_message(error: Any) -> str:
+    if isinstance(error, dict):
+        message = error.get("message") or error.get("code")
+        metadata = error.get("metadata")
+        error_type = metadata.get("error_type") if isinstance(metadata, dict) else None
+        if message and error_type:
+            return f"{message} ({error_type})"
+        if message:
+            return str(message)
+    return str(error or "Unknown OpenRouter error")
+
+
 def _content_from_openai(data: dict[str, Any]) -> str:
-    return str(data["choices"][0]["message"]["content"])
+    if data.get("error"):
+        raise ValueError(_openrouter_error_message(data["error"]))
+
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise ValueError("The AI provider returned no completion choices.")
+
+    choice = choices[0]
+    if not isinstance(choice, dict):
+        raise ValueError("The AI provider returned an invalid completion choice.")
+    if choice.get("error"):
+        raise ValueError(_openrouter_error_message(choice["error"]))
+    if choice.get("finish_reason") == "error":
+        raise ValueError("The upstream model stopped with a provider error.")
+
+    message = choice.get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("The AI provider returned an empty completion.")
+    return content
 
 
 async def _request_model(
@@ -105,6 +207,7 @@ async def _request_model(
     config: AppConfig,
     model: str,
     user_prompt: str,
+    count: int,
 ) -> str:
     if config.provider == "gemini":
         url = (
@@ -169,9 +272,12 @@ async def _request_model(
             },
             json={
                 "model": model,
-                "temperature": 0.7,
-                "max_tokens": 8192,
-                "response_format": {"type": "json_object"},
+                "temperature": 0.55,
+                "max_tokens": _openrouter_max_tokens(count),
+                "stream": False,
+                "response_format": _playlist_response_format(count),
+                "plugins": [{"id": "response-healing"}],
+                "provider": {"require_parameters": True},
                 "messages": [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt},
@@ -201,6 +307,20 @@ async def _request_model(
     return _content_from_openai(response.json())
 
 
+def _attempt_count(provider: str) -> int:
+    if provider == "openrouter_free":
+        return 3
+    if provider == "openrouter_auto":
+        return 2
+    return 1
+
+
+def _is_non_retryable_http_error(exc: Exception) -> bool:
+    if not isinstance(exc, httpx.HTTPStatusError):
+        return False
+    return exc.response.status_code in {401, 402, 403}
+
+
 async def generate_playlist_draft(
     config: AppConfig, prompt: str, count: int
 ) -> dict[str, Any]:
@@ -208,25 +328,41 @@ async def generate_playlist_draft(
     if not config.configured:
         raise ValueError("Configure an AI provider before generating a playlist.")
 
-    user_prompt = (
+    base_user_prompt = (
         f"Create a playlist containing exactly {count} tracks for this request:\n{prompt}"
     )
-    timeout = httpx.Timeout(90.0, connect=10.0)
+    timeout = httpx.Timeout(120.0, connect=10.0)
     errors: list[str] = []
 
     async with httpx.AsyncClient(timeout=timeout) as client:
         for model in config.model_chain:
-            try:
-                text = await _request_model(client, config, model, user_prompt)
-                draft = _extract_json(text)
-                draft["tracks"] = draft["tracks"][:count]
-                if len(draft["tracks"]) < count:
-                    raise ValueError(
-                        f"The model returned only {len(draft['tracks'])} complete tracks instead of {count}."
+            attempts = _attempt_count(config.provider)
+            for attempt in range(1, attempts + 1):
+                user_prompt = base_user_prompt
+                if attempt > 1:
+                    user_prompt += (
+                        "\nRegenerate the complete playlist from scratch. The previous attempt "
+                        "did not produce a valid, complete JSON object. Return only schema-compliant JSON."
                     )
-                return draft
-            except Exception as exc:
-                errors.append(f"{model}: {exc}")
+                try:
+                    text = await _request_model(
+                        client,
+                        config,
+                        model,
+                        user_prompt,
+                        count,
+                    )
+                    draft = _extract_json(text)
+                    draft["tracks"] = draft["tracks"][:count]
+                    if len(draft["tracks"]) < count:
+                        raise ValueError(
+                            f"The model returned only {len(draft['tracks'])} complete tracks instead of {count}."
+                        )
+                    return draft
+                except Exception as exc:
+                    errors.append(f"{model} attempt {attempt}/{attempts}: {exc}")
+                    if _is_non_retryable_http_error(exc):
+                        break
 
     detail = "; ".join(errors)
     raise ValueError(f"All configured AI models failed. {detail}")
