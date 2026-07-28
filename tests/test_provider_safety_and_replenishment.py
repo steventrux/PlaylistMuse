@@ -2,7 +2,7 @@ import asyncio
 
 import backend.main as main_module
 from backend.config import AppConfig, api_key_matches_provider
-from backend.llm import ProviderRequestError, safe_error_message
+from backend.llm import safe_error_message
 
 
 def test_cross_provider_keys_are_not_considered_configured() -> None:
@@ -16,10 +16,8 @@ def test_cross_provider_keys_are_not_considered_configured() -> None:
 
 
 def test_public_error_redacts_keys_and_urls() -> None:
-    error = ProviderRequestError(
-        "Gemini",
-        400,
-        "Bad request https://example.test/path?key=AIzaVerySecretKey123456789",
+    error = ValueError(
+        "Bad request https://example.test/path?key=AIzaVerySecretKey123456789"
     )
     message = safe_error_message(error)
     assert "AIzaVerySecret" not in message
