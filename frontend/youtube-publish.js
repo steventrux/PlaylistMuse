@@ -34,6 +34,30 @@
     element.classList.toggle('success', kind === 'success');
   }
 
+  function renderPublishedResult(result) {
+    if (!result?.url) return false;
+
+    const button = $('create-youtube-playlist');
+    button.classList.remove('is-loading');
+    button.removeAttribute('aria-busy');
+    button.disabled = true;
+    button.textContent = 'Created on YouTube Music';
+
+    const status = $('youtube-publish-status');
+    status.replaceChildren();
+    status.classList.remove('error');
+    status.classList.add('success');
+    status.append('Playlist created successfully · ');
+
+    const link = document.createElement('a');
+    link.href = result.url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = 'Open in YouTube Music';
+    status.append(link);
+    return true;
+  }
+
   function setPublishingButton(button) {
     const spinner = document.createElement('span');
     spinner.className = 'generation-spinner';
@@ -68,11 +92,12 @@
   async function refreshStatus() {
     const button = $('create-youtube-playlist');
     const summary = $('youtube-publish-account');
+    const alreadyPublished = Boolean(playlist?.youtube_playlist?.url);
 
     try {
       const status = await readJson(await fetch('/api/youtube/status'));
       if (status.account_connected) {
-        button.disabled = false;
+        button.disabled = alreadyPublished;
         summary.textContent = status.account_name
           ? `Connected as ${status.account_name}`
           : 'YouTube Music account connected';
@@ -86,11 +111,17 @@
       button.disabled = true;
       summary.textContent = 'Unable to check the YouTube Music connection';
     }
+
+    if (alreadyPublished) renderPublishedResult(playlist.youtube_playlist);
   }
 
   async function publishPlaylist() {
     if (!playlist || !Array.isArray(playlist.tracks)) {
       setStatus('No generated playlist is available in this browser session.', 'error');
+      return;
+    }
+    if (playlist.youtube_playlist?.url) {
+      renderPublishedResult(playlist.youtube_playlist);
       return;
     }
 
@@ -127,23 +158,7 @@
 
       playlist.youtube_playlist = result;
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify(playlist));
-
-      button.classList.remove('is-loading');
-      button.removeAttribute('aria-busy');
-      button.disabled = true;
-      button.textContent = 'Created on YouTube Music';
-
-      const status = $('youtube-publish-status');
-      status.replaceChildren();
-      status.classList.remove('error');
-      status.classList.add('success');
-      status.append('Playlist created successfully · ');
-      const link = document.createElement('a');
-      link.href = result.url;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      link.textContent = 'Open in YouTube Music';
-      status.append(link);
+      renderPublishedResult(result);
     } catch (error) {
       resetButton();
       setStatus(error.message || String(error), 'error');
