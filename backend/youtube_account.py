@@ -146,24 +146,22 @@ def _account_payload(account: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
-def _validate_youtube_connection_sync(client: Any | None = None) -> dict[str, Any]:
-    """Validate authenticated library access and retrieve profile data when available.
+def _saved_token_is_usable() -> bool:
+    token = _read_json(YOUTUBE_TOKEN_PATH)
+    required = ("scope", "token_type", "access_token", "refresh_token", "expires_at", "expires_in")
+    return all(token.get(field) not in (None, "") for field in required)
 
-    Some YouTube/brand accounts do not expose the account-menu structure expected by
-    ytmusicapi's ``get_account_info`` parser. That must not invalidate an otherwise
-    working OAuth token, so profile enrichment is deliberately best-effort.
+
+def _optional_account_profile_sync(client: Any | None = None) -> dict[str, Any]:
+    """Retrieve account presentation data without deciding connection validity.
+
+    Google returning a refreshable OAuth token is sufficient to consider the account
+    connected. Some regular and brand accounts do not expose the account-menu shape
+    expected by ytmusicapi, so name, handle and photo are best-effort enrichment only.
     """
 
-    ytmusic = client or _ytmusic_client()
     try:
-        ytmusic.get_library_playlists(limit=1)
-    except Exception as error:
-        raise YouTubeAccountError(
-            "Google authorization succeeded, but YouTube Music could not be accessed. "
-            "Open YouTube Music once with this Google account, then try again."
-        ) from error
-
-    try:
+        ytmusic = client or _ytmusic_client()
         account = ytmusic.get_account_info()
     except Exception:
         return {}
@@ -185,19 +183,11 @@ async def youtube_status() -> dict[str, Any]:
     if not settings["configured"]:
         response["message"] = "Configure the Google OAuth client to connect an account"
         return response
-    if not YOUTUBE_TOKEN_PATH.exists():
+    if not _saved_token_is_usable():
         response["message"] = "Google OAuth client configured · account not connected"
         return response
 
-    try:
-        account = await asyncio.to_thread(_validate_youtube_connection_sync)
-    except YouTubeAccountError as error:
-        response["message"] = str(error)
-        return response
-    except Exception:
-        response["message"] = "The saved YouTube Music connection needs to be renewed"
-        return response
-
+    account = await asyncio.to_thread(_optional_account_profile_sync)
     response.update(_account_payload(account))
     response["account_connected"] = True
     response["message"] = (
@@ -319,7 +309,7 @@ def _poll_authorization_sync() -> dict[str, Any]:
 
     _write_secure_json(YOUTUBE_TOKEN_PATH, _token_payload(raw_token))
     _delete(YOUTUBE_PENDING_PATH)
-    account = _validate_youtube_connection_sync()
+    account = _optional_account_profile_sync()
     return {
         "status": "connected",
         "account_connected": True,
@@ -361,12 +351,19 @@ def _create_playlist_sync(
     if not unique_video_ids:
         raise YouTubeAccountError("The playlist contains no valid YouTube Music tracks.")
 
-    result = _ytmusic_client().create_playlist(
-        title=title.strip(),
-        description=description.strip(),
-        privacy_status=privacy_status,
-        video_ids=unique_video_ids,
-    )
+    try:
+        result = _ytmusic_client().create_playlist(
+            title=title.strip(),
+            description=description.strip(),
+            privacy_status=privacy_status,
+            video_ids=unique_video_ids,
+        )
+    except Exception as error:
+        raise YouTubeAccountError(
+            "YouTube Music could not create the playlist with the connected account. "
+            "Open YouTube Music once with that account and try again. If it still fails, "
+            "disconnect and reconnect the account."
+        ) from error
 
     playlist_id: str | None = None
     if isinstance(result, str):
