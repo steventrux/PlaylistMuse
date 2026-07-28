@@ -1,0 +1,85 @@
+/* Dynamic feedback while PlaylistMuse is generating a playlist. */
+
+#generate {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 190px;
+}
+
+#generate.is-loading:disabled {
+  opacity: 1;
+  cursor: wait;
+  border-color: #8b5cf6;
+  background: #7c3aed;
+  color: #ffffff;
+  animation: generation-button-pulse 1.65s ease-in-out infinite;
+}
+
+.generation-spinner {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  border: 2px solid rgba(255, 255, 255, .35);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: generation-spinner-turn .75s linear infinite;
+}
+
+.generation-label {
+  white-space: nowrap;
+}
+
+.generation-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  width: 17px;
+}
+
+.generation-dots span {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .3;
+  animation: generation-dot-wave 1.15s ease-in-out infinite;
+}
+
+.generation-dots span:nth-child(2) { animation-delay: .16s; }
+.generation-dots span:nth-child(3) { animation-delay: .32s; }
+
+@keyframes generation-spinner-turn {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes generation-dot-wave {
+  0%, 60%, 100% {
+    opacity: .28;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes generation-button-pulse {
+  0%, 100% {
+    background: #7c3aed;
+    box-shadow: 0 0 0 rgba(139, 92, 246, 0);
+  }
+  50% {
+    background: #8b5cf6;
+    box-shadow: 0 0 22px rgba(139, 92, 246, .32);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #generate.is-loading:disabled,
+  .generation-spinner,
+  .generation-dots span {
+    animation: none;
+  }
+}
