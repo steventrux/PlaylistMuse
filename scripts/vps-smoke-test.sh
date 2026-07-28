@@ -80,11 +80,13 @@ docker exec "$CONTAINER" python -c "from backend.config import AppConfig, api_ke
 echo "OK: OpenRouter Auto and Free share one saved key"
 
 echo
-echo "OpenRouter structured output safeguards:"
-docker exec "$CONTAINER" python -c "from backend.llm import _attempt_count, _playlist_response_format; f=_playlist_response_format(25); s=f['json_schema']['schema']; assert f['type']=='json_schema'; assert f['json_schema']['strict'] is True; assert s['properties']['tracks']['minItems']==25; assert s['properties']['tracks']['maxItems']==25; assert _attempt_count('openrouter_free')==3"
+echo "AI generation strategy:"
+docker exec "$CONTAINER" python -c "from backend.llm import _attempt_count, _playlist_response_format; full=_playlist_response_format(25, exact_count=True)['json_schema']['schema']['properties']['tracks']; batch=_playlist_response_format(6)['json_schema']['schema']['properties']['tracks']; assert full['minItems']==25 and full['maxItems']==25; assert batch['minItems']==1 and batch['maxItems']==6; assert _attempt_count('openrouter_free')==2"
 grep -Fq 'response-healing' backend/llm.py
 grep -Fq 'require_parameters' backend/llm.py
-echo "OK: OpenRouter JSON Schema, response healing and retry policy"
+grep -Fq '_try_complete_request' backend/llm.py
+grep -Fq '_complete_in_batches' backend/llm.py
+echo "OK: complete request first, batched completion only as fallback"
 
 echo
 echo "Health endpoint:"
