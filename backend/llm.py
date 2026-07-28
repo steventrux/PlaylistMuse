@@ -46,10 +46,14 @@ Rules:
 
 OPENROUTER_PROVIDERS = {"openrouter_auto", "openrouter_free"}
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-OPENROUTER_FREE_BATCH_SIZE = 6
+DEFAULT_BATCH_SIZE = 8
+PROVIDER_BATCH_SIZES = {
+    "openrouter_free": 6,
+    "ollama": 6,
+}
 
 
-def _playlist_response_format(count: int, *, exact_count: bool = True) -> dict[str, Any]:
+def _playlist_response_format(count: int, *, exact_count: bool = False) -> dict[str, Any]:
     """Return the JSON Schema used for OpenRouter structured output."""
     track_schema = {
         "type": "object",
@@ -179,7 +183,10 @@ def _normalize_identity(value: str) -> str:
 
 
 def _candidate_key(track: dict[str, str]) -> str:
-    return f"{_normalize_identity(track.get('artist', ''))}|{_normalize_identity(track.get('title', ''))}"
+    return (
+        f"{_normalize_identity(track.get('artist', ''))}|"
+        f"{_normalize_identity(track.get('title', ''))}"
+    )
 
 
 def _openrouter_error_message(error: Any) -> str:
@@ -224,7 +231,7 @@ async def _request_model(
     user_prompt: str,
     count: int,
     *,
-    exact_count: bool = True,
+    exact_count: bool = False,
 ) -> str:
     if config.provider == "gemini":
         url = (
@@ -325,10 +332,13 @@ async def _request_model(
     return _content_from_openai(response.json())
 
 
+def _batch_size(provider: str, count: int) -> int:
+    preferred = PROVIDER_BATCH_SIZES.get(provider, DEFAULT_BATCH_SIZE)
+    return min(preferred, count)
+
+
 def _attempt_count(provider: str) -> int:
-    if provider == "openrouter_auto":
-        return 2
-    return 1
+    return 2 if provider in OPENROUTER_PROVIDERS else 1
 
 
 def _is_non_retryable_http_error(exc: Exception) -> bool:
@@ -337,7 +347,7 @@ def _is_non_retryable_http_error(exc: Exception) -> bool:
     return exc.response.status_code in {401, 402, 403}
 
 
-def _free_batch_prompt(
+def _batch_prompt(
     prompt: str,
     *,
     total_count: int,
@@ -348,7 +358,8 @@ def _free_batch_prompt(
         f"- {track['artist']} — {track['title']}" for track in collected
     )
     return (
-        f"Build one cohesive playlist containing {total_count} tracks for this request:\n{prompt}\n\n"
+        f"Build one cohesive playlist containing {total_count} tracks for this request:\n"
+        f"{prompt}\n\n"
         f"Return the next batch of up to {batch_count} NEW tracks. "
         "The title and description must describe the complete playlist, not only this batch. "
         "Every returned song must be different from all songs already collected."
@@ -356,83 +367,104 @@ def _free_batch_prompt(
     )
 
 
-async def _generate_openrouter_free_draft(
+async def _generate_batched_draft(
     client: httpx.AsyncClient,
     config: AppConfig,
     prompt: str,
     count: int,
 ) -> dict[str, Any]:
-    """Accumulate short Free-router responses instead of requiring one long completion."""
+    """Accumulate short responses from any provider until the playlist is complete."""
     tracks: list[dict[str, str]] = []
     seen: set[str] = set()
     title = ""
     description = ""
     errors: list[str] = []
-    batch_size = min(OPENROUTER_FREE_BATCH_SIZE, count)
-    max_calls = min(12, max(4, math.ceil(count / batch_size) * 2))
-    stalled_calls = 0
+    batch_size = _batch_size(config.provider, count)
+    max_batches = min(20, max(4, math.ceil(count / batch_size) * 3))
+    stalled_batches = 0
 
-    for call_number in range(1, max_calls + 1):
+    for batch_number in range(1, max_batches + 1):
         remaining = count - len(tracks)
         if remaining <= 0:
             break
+
         requested = min(batch_size, remaining)
-        user_prompt = _free_batch_prompt(
+        user_prompt = _batch_prompt(
             prompt,
             total_count=count,
             batch_count=requested,
             collected=tracks,
         )
+        batch_added = 0
+        stop_for_credentials = False
 
-        try:
-            text = await _request_model(
-                client,
-                config,
-                "openrouter/free",
-                user_prompt,
-                requested,
-                exact_count=False,
-            )
-            draft = _extract_json(text)
-        except Exception as exc:
-            errors.append(f"batch {call_number}/{max_calls}: {exc}")
-            if _is_non_retryable_http_error(exc):
+        for model in config.model_chain:
+            attempts = _attempt_count(config.provider)
+            for attempt in range(1, attempts + 1):
+                attempt_prompt = user_prompt
+                if attempt > 1:
+                    attempt_prompt += (
+                        "\nThe previous response was invalid or added no new tracks. "
+                        "Regenerate this batch with different songs and valid JSON only."
+                    )
+                try:
+                    text = await _request_model(
+                        client,
+                        config,
+                        model,
+                        attempt_prompt,
+                        requested,
+                        exact_count=False,
+                    )
+                    draft = _extract_json(text)
+                except Exception as exc:
+                    errors.append(
+                        f"batch {batch_number}/{max_batches}, {model} "
+                        f"attempt {attempt}/{attempts}: {exc}"
+                    )
+                    if _is_non_retryable_http_error(exc):
+                        stop_for_credentials = True
+                        break
+                    continue
+
+                if not title:
+                    title = draft["title"]
+                    description = draft["description"]
+
+                for track in draft["tracks"]:
+                    key = _candidate_key(track)
+                    if not key or key in seen:
+                        continue
+                    seen.add(key)
+                    tracks.append(track)
+                    batch_added += 1
+                    if len(tracks) >= count or batch_added >= requested:
+                        break
+
+                if batch_added:
+                    break
+                errors.append(
+                    f"batch {batch_number}/{max_batches}, {model} "
+                    f"attempt {attempt}/{attempts}: returned no new non-duplicate tracks"
+                )
+
+            if batch_added or stop_for_credentials:
                 break
-            stalled_calls += 1
-            if stalled_calls >= 3 and tracks:
-                break
-            continue
 
-        if not title:
-            title = draft["title"]
-            description = draft["description"]
-
-        added = 0
-        for track in draft["tracks"]:
-            key = _candidate_key(track)
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            tracks.append(track)
-            added += 1
-            if len(tracks) >= count:
-                break
-
-        if added:
-            stalled_calls = 0
+        if stop_for_credentials:
+            break
+        if batch_added:
+            stalled_batches = 0
         else:
-            stalled_calls += 1
-            errors.append(
-                f"batch {call_number}/{max_calls}: returned no new non-duplicate tracks"
-            )
-            if stalled_calls >= 3:
+            stalled_batches += 1
+            if stalled_batches >= 3:
                 break
 
     if len(tracks) < count:
-        detail = "; ".join(errors[-5:])
+        detail = "; ".join(errors[-8:])
         raise ValueError(
-            f"OpenRouter Free collected {len(tracks)} of {count} unique tracks after "
-            f"{max_calls} short requests. {detail}".strip()
+            f"{config.provider} collected {len(tracks)} of {count} unique tracks after "
+            f"{max_batches} short batches. {detail}".strip()
         )
 
     return {
@@ -445,48 +477,10 @@ async def _generate_openrouter_free_draft(
 async def generate_playlist_draft(
     config: AppConfig, prompt: str, count: int
 ) -> dict[str, Any]:
-    """Generate playlist metadata and canonical track candidates."""
+    """Generate playlist metadata and canonical track candidates in short batches."""
     if not config.configured:
         raise ValueError("Configure an AI provider before generating a playlist.")
 
     timeout = httpx.Timeout(120.0, connect=10.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
-        if config.provider == "openrouter_free":
-            return await _generate_openrouter_free_draft(client, config, prompt, count)
-
-        base_user_prompt = (
-            f"Create a playlist containing exactly {count} tracks for this request:\n{prompt}"
-        )
-        errors: list[str] = []
-
-        for model in config.model_chain:
-            attempts = _attempt_count(config.provider)
-            for attempt in range(1, attempts + 1):
-                user_prompt = base_user_prompt
-                if attempt > 1:
-                    user_prompt += (
-                        "\nRegenerate the complete playlist from scratch. The previous attempt "
-                        "did not produce a valid, complete JSON object. Return only schema-compliant JSON."
-                    )
-                try:
-                    text = await _request_model(
-                        client,
-                        config,
-                        model,
-                        user_prompt,
-                        count,
-                    )
-                    draft = _extract_json(text)
-                    draft["tracks"] = draft["tracks"][:count]
-                    if len(draft["tracks"]) < count:
-                        raise ValueError(
-                            f"The model returned only {len(draft['tracks'])} complete tracks instead of {count}."
-                        )
-                    return draft
-                except Exception as exc:
-                    errors.append(f"{model} attempt {attempt}/{attempts}: {exc}")
-                    if _is_non_retryable_http_error(exc):
-                        break
-
-    detail = "; ".join(errors)
-    raise ValueError(f"All configured AI models failed. {detail}")
+        return await _generate_batched_draft(client, config, prompt, count)
