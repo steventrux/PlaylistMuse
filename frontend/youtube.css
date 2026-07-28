@@ -1,5 +1,9 @@
 /* YouTube Music account connection and playlist publishing. */
 
+.settings-status.error {
+  color: var(--error);
+}
+
 .youtube-settings-fields {
   margin-top: 16px;
 }
