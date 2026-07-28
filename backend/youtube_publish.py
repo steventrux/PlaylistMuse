@@ -1,8 +1,9 @@
-"""Robust YouTube Music playlist publishing.
+"""Reliable playlist publishing through the official YouTube Data API.
 
-A playlist is created empty first, tracks are appended in order, and a failed
-batch is retried one track at a time. This prevents one unavailable video ID
-from aborting the entire playlist.
+The OAuth device flow already grants the ``youtube`` scope required by the
+official playlists and playlistItems endpoints. A private playlist is created
+first, tracks are appended one at a time in order, then the requested privacy
+is applied. Invalid or unavailable videos do not abort the whole playlist.
 """
 
 from __future__ import annotations
@@ -10,13 +11,31 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 import uuid
 from typing import Any
 
-from backend.youtube_account import YouTubeAccountError, _ytmusic_client
+import httpx
+
+from backend.youtube_account import (
+    YOUTUBE_TOKEN_PATH,
+    YouTubeAccountError,
+    _oauth_credentials,
+    _read_json,
+    _write_secure_json,
+)
 
 LOGGER = logging.getLogger("playlistmuse.youtube.publish")
-BATCH_SIZE = 10
+YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3"
+REQUEST_TIMEOUT = 30.0
+
+
+class _GoogleApiError(RuntimeError):
+    def __init__(self, status_code: int, reason: str, message: str):
+        super().__init__(message)
+        self.status_code = status_code
+        self.reason = reason
+        self.message = message
 
 
 def _diagnostic_id() -> str:
@@ -24,75 +43,223 @@ def _diagnostic_id() -> str:
 
 
 def _safe_log_text(value: Any) -> str:
-    """Return a compact diagnostic string without OAuth secrets."""
-
     text = repr(value)
-    patterns = (
+    text = re.sub(
         r"(?i)(access_token|refresh_token|client_secret|authorization)[\s'\":=]+[^,}\s]+",
-        r"(?i)Bearer\s+[A-Za-z0-9._~+/=-]+",
+        r"\1=[REDACTED]",
+        text,
     )
-    for pattern in patterns:
-        text = re.sub(pattern, r"\1=[REDACTED]" if "(" in pattern else "Bearer [REDACTED]", text)
-    return text[:1200]
+    text = re.sub(
+        r"(?i)Bearer\s+[A-Za-z0-9._~+/=-]+",
+        "Bearer [REDACTED]",
+        text,
+    )
+    return text[:1400]
 
 
-def _response_succeeded(result: Any) -> bool:
-    if isinstance(result, str):
-        return "SUCCEEDED" in result.upper()
-    if isinstance(result, dict):
-        if result.get("playlistId") or result.get("id"):
-            return True
-        return "SUCCEEDED" in str(result.get("status", "")).upper()
-    return False
+def _token_is_current(token: dict[str, Any]) -> bool:
+    return bool(
+        str(token.get("access_token", "")).strip()
+        and int(token.get("expires_at", 0) or 0) > int(time.time()) + 60
+    )
 
 
-def _playlist_id(result: Any) -> str | None:
-    if isinstance(result, str):
-        value = result.strip()
-        return value or None
-    if isinstance(result, dict):
-        value = str(result.get("playlistId") or result.get("id") or "").strip()
-        return value or None
-    return None
+def _refresh_access_token() -> str:
+    token = _read_json(YOUTUBE_TOKEN_PATH)
+    refresh_token = str(token.get("refresh_token", "")).strip()
+    if not refresh_token:
+        raise YouTubeAccountError("Reconnect the YouTube Music account before publishing.")
 
-
-def _delete_quietly(client: Any, playlist_id: str) -> None:
     try:
-        client.delete_playlist(playlist_id)
+        fresh = _oauth_credentials().refresh_token(refresh_token)
+    except Exception as error:
+        raise YouTubeAccountError(
+            "The Google authorization expired. Disconnect and reconnect the account."
+        ) from error
+
+    access_token = str(fresh.get("access_token", "")).strip()
+    if not access_token:
+        raise YouTubeAccountError("Google did not return a valid access token.")
+
+    access_expires_in = max(1, int(fresh.get("expires_in", 3600)))
+    token["access_token"] = access_token
+    token["expires_at"] = int(time.time()) + access_expires_in
+    token["token_type"] = str(fresh.get("token_type", token.get("token_type", "Bearer"))) or "Bearer"
+    if fresh.get("scope"):
+        token["scope"] = fresh["scope"]
+    _write_secure_json(YOUTUBE_TOKEN_PATH, token)
+    return access_token
+
+
+def _access_token(force_refresh: bool = False) -> str:
+    token = _read_json(YOUTUBE_TOKEN_PATH)
+    if not force_refresh and _token_is_current(token):
+        return str(token["access_token"])
+    return _refresh_access_token()
+
+
+def _parse_google_error(response: httpx.Response) -> _GoogleApiError:
+    reason = "unknown"
+    message = f"HTTP {response.status_code}"
+    try:
+        payload = response.json()
+        error = payload.get("error", {}) if isinstance(payload, dict) else {}
+        message = str(error.get("message") or message)
+        errors = error.get("errors", [])
+        if isinstance(errors, list) and errors and isinstance(errors[0], dict):
+            reason = str(errors[0].get("reason") or reason)
+        elif error.get("status"):
+            reason = str(error["status"])
     except Exception:
         pass
+    return _GoogleApiError(response.status_code, reason, message)
 
 
-def _add_batch(client: Any, playlist_id: str, video_ids: list[str]) -> tuple[list[str], list[str]]:
-    """Add a batch, retrying individual tracks if the batch is rejected."""
-
-    try:
-        result = client.add_playlist_items(
-            playlistId=playlist_id,
-            videoIds=video_ids,
-            duplicates=False,
+def _request(
+    client: httpx.Client,
+    method: str,
+    path: str,
+    *,
+    params: dict[str, str] | None = None,
+    json_body: dict[str, Any] | None = None,
+) -> httpx.Response:
+    token = _access_token()
+    response = client.request(
+        method,
+        f"{YOUTUBE_API_BASE}/{path.lstrip('/')}",
+        params=params,
+        json=json_body,
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+    )
+    if response.status_code == 401:
+        token = _access_token(force_refresh=True)
+        response = client.request(
+            method,
+            f"{YOUTUBE_API_BASE}/{path.lstrip('/')}",
+            params=params,
+            json=json_body,
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
         )
-        if _response_succeeded(result):
-            return list(video_ids), []
+    if response.is_error:
+        raise _parse_google_error(response)
+    return response
+
+
+def _public_error(error: _GoogleApiError, diagnostic: str) -> YouTubeAccountError:
+    reason = error.reason.lower()
+    if reason in {"youtubesignuprequired", "channelnotfound"}:
+        return YouTubeAccountError(
+            "This Google account does not have an active YouTube channel. Open YouTube, "
+            f"create or select a channel, then reconnect PlaylistMuse. Reference: {diagnostic}."
+        )
+    if reason in {
+        "playlistforbidden",
+        "playlistitemsnotaccessible",
+        "insufficientpermissions",
+        "forbidden",
+    } or error.status_code == 403:
+        if "quota" in reason or "limit" in reason:
+            return YouTubeAccountError(
+                "The YouTube Data API quota or daily playlist limit has been reached. "
+                f"Reference: {diagnostic}."
+            )
+        return YouTubeAccountError(
+            "The connected account is not authorized to create playlists. Verify that "
+            "YouTube Data API v3 is enabled, then disconnect and reconnect the account. "
+            f"Reference: {diagnostic}."
+        )
+    if reason in {"quotaexceeded", "dailylimitexceeded", "ratelimitexceeded"}:
+        return YouTubeAccountError(
+            "The YouTube Data API quota has been reached. Try again after the quota resets. "
+            f"Reference: {diagnostic}."
+        )
+    if reason == "maxplaylistexceeded":
+        return YouTubeAccountError(
+            "This YouTube channel has reached its maximum number of playlists. "
+            f"Reference: {diagnostic}."
+        )
+    if error.status_code == 401:
+        return YouTubeAccountError(
+            "The Google authorization is no longer valid. Disconnect and reconnect the account. "
+            f"Reference: {diagnostic}."
+        )
+    return YouTubeAccountError(
+        "YouTube could not create the playlist. "
+        f"Diagnostic reference: {diagnostic}."
+    )
+
+
+def _create_empty_playlist(
+    client: httpx.Client,
+    title: str,
+    description: str,
+) -> str:
+    response = _request(
+        client,
+        "POST",
+        "playlists",
+        params={"part": "snippet,status"},
+        json_body={
+            "snippet": {
+                "title": title,
+                "description": description,
+            },
+            "status": {"privacyStatus": "private"},
+        },
+    )
+    payload = response.json()
+    playlist_id = str(payload.get("id", "")).strip() if isinstance(payload, dict) else ""
+    if not playlist_id:
+        raise _GoogleApiError(502, "missingPlaylistId", "YouTube returned no playlist ID")
+    return playlist_id
+
+
+def _add_track(client: httpx.Client, playlist_id: str, video_id: str) -> None:
+    _request(
+        client,
+        "POST",
+        "playlistItems",
+        params={"part": "snippet"},
+        json_body={
+            "snippet": {
+                "playlistId": playlist_id,
+                "resourceId": {
+                    "kind": "youtube#video",
+                    "videoId": video_id,
+                },
+            }
+        },
+    )
+
+
+def _set_privacy(
+    client: httpx.Client,
+    playlist_id: str,
+    title: str,
+    description: str,
+    privacy_status: str,
+) -> None:
+    _request(
+        client,
+        "PUT",
+        "playlists",
+        params={"part": "snippet,status"},
+        json_body={
+            "id": playlist_id,
+            "snippet": {
+                "title": title,
+                "description": description,
+            },
+            "status": {"privacyStatus": privacy_status.lower()},
+        },
+    )
+
+
+def _delete_quietly(client: httpx.Client, playlist_id: str) -> None:
+    try:
+        _request(client, "DELETE", "playlists", params={"id": playlist_id})
     except Exception:
         pass
-
-    added: list[str] = []
-    skipped: list[str] = []
-    for video_id in video_ids:
-        try:
-            result = client.add_playlist_items(
-                playlistId=playlist_id,
-                videoIds=[video_id],
-                duplicates=False,
-            )
-            if _response_succeeded(result):
-                added.append(video_id)
-            else:
-                skipped.append(video_id)
-        except Exception:
-            skipped.append(video_id)
-    return added, skipped
 
 
 def _create_playlist_sync(
@@ -105,87 +272,94 @@ def _create_playlist_sync(
         dict.fromkeys(video_id.strip() for video_id in video_ids if video_id.strip())
     )
     if not unique_video_ids:
-        raise YouTubeAccountError("The playlist contains no valid YouTube Music tracks.")
+        raise YouTubeAccountError("The playlist contains no valid YouTube tracks.")
 
+    normalized_title = title.strip()
+    normalized_description = description.strip()
     diagnostic = _diagnostic_id()
-    client = _ytmusic_client()
 
-    # Creating the container separately isolates account/privacy failures from
-    # unavailable tracks. PRIVATE is the least restrictive initial state.
     try:
-        create_result = client.create_playlist(
-            title=title.strip(),
-            description=description.strip(),
-            privacy_status="PRIVATE",
-            video_ids=None,
+        with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
+            playlist_id = _create_empty_playlist(client, normalized_title, normalized_description)
+
+            added: list[str] = []
+            skipped: list[str] = []
+            for video_id in unique_video_ids:
+                try:
+                    _add_track(client, playlist_id, video_id)
+                    added.append(video_id)
+                except _GoogleApiError as error:
+                    reason = error.reason.lower()
+                    if reason in {
+                        "videonotfound",
+                        "invalidresourcetype",
+                        "videoalreadyinplaylist",
+                    } or error.status_code == 404:
+                        skipped.append(video_id)
+                        continue
+                    LOGGER.error(
+                        "YouTube track insert failed [%s] reason=%s status=%s message=%s",
+                        diagnostic,
+                        error.reason,
+                        error.status_code,
+                        _safe_log_text(error.message),
+                    )
+                    if not added:
+                        _delete_quietly(client, playlist_id)
+                    raise _public_error(error, diagnostic) from error
+
+            if not added:
+                _delete_quietly(client, playlist_id)
+                raise YouTubeAccountError(
+                    "YouTube created the playlist container but rejected every track. "
+                    f"Reference: {diagnostic}."
+                )
+
+            applied_privacy = "PRIVATE"
+            privacy_warning = ""
+            if privacy_status != "PRIVATE":
+                try:
+                    _set_privacy(
+                        client,
+                        playlist_id,
+                        normalized_title,
+                        normalized_description,
+                        privacy_status,
+                    )
+                    applied_privacy = privacy_status
+                except _GoogleApiError as error:
+                    privacy_warning = (
+                        "The playlist was kept private because YouTube rejected the selected privacy."
+                    )
+                    LOGGER.warning(
+                        "YouTube privacy update failed [%s] reason=%s status=%s message=%s",
+                        diagnostic,
+                        error.reason,
+                        error.status_code,
+                        _safe_log_text(error.message),
+                    )
+
+    except YouTubeAccountError:
+        raise
+    except _GoogleApiError as error:
+        LOGGER.error(
+            "YouTube playlist create failed [%s] reason=%s status=%s message=%s",
+            diagnostic,
+            error.reason,
+            error.status_code,
+            _safe_log_text(error.message),
         )
+        raise _public_error(error, diagnostic) from error
     except Exception as error:
         LOGGER.exception(
-            "YouTube playlist create failed [%s]: %s",
+            "Unexpected YouTube publish failure [%s]: %s",
             diagnostic,
             _safe_log_text(error),
         )
         raise YouTubeAccountError(
-            "The connected Google account could not create a YouTube Music playlist. "
+            "YouTube could not create the playlist. "
             f"Diagnostic reference: {diagnostic}."
         ) from error
-
-    playlist_id = _playlist_id(create_result)
-    if not playlist_id:
-        LOGGER.error(
-            "YouTube playlist create returned no ID [%s]: %s",
-            diagnostic,
-            _safe_log_text(create_result),
-        )
-        raise YouTubeAccountError(
-            "YouTube Music did not return a playlist ID. "
-            f"Diagnostic reference: {diagnostic}."
-        )
-
-    added: list[str] = []
-    skipped: list[str] = []
-    for start in range(0, len(unique_video_ids), BATCH_SIZE):
-        batch = unique_video_ids[start : start + BATCH_SIZE]
-        batch_added, batch_skipped = _add_batch(client, playlist_id, batch)
-        added.extend(batch_added)
-        skipped.extend(batch_skipped)
-
-    if not added:
-        _delete_quietly(client, playlist_id)
-        LOGGER.error(
-            "YouTube rejected every track [%s], requested=%d",
-            diagnostic,
-            len(unique_video_ids),
-        )
-        raise YouTubeAccountError(
-            "YouTube Music created the playlist container but rejected every track. "
-            f"Diagnostic reference: {diagnostic}."
-        )
-
-    applied_privacy = "PRIVATE"
-    privacy_warning = ""
-    if privacy_status != "PRIVATE":
-        try:
-            edit_result = client.edit_playlist(
-                playlistId=playlist_id,
-                privacyStatus=privacy_status,
-            )
-            if _response_succeeded(edit_result):
-                applied_privacy = privacy_status
-            else:
-                privacy_warning = "The playlist was kept private because YouTube rejected the selected privacy."
-                LOGGER.warning(
-                    "YouTube privacy update failed [%s]: %s",
-                    diagnostic,
-                    _safe_log_text(edit_result),
-                )
-        except Exception as error:
-            privacy_warning = "The playlist was kept private because YouTube rejected the selected privacy."
-            LOGGER.warning(
-                "YouTube privacy update exception [%s]: %s",
-                diagnostic,
-                _safe_log_text(error),
-            )
 
     warning_parts: list[str] = []
     if skipped:
@@ -197,7 +371,7 @@ def _create_playlist_sync(
 
     return {
         "playlist_id": playlist_id,
-        "title": title.strip(),
+        "title": normalized_title,
         "track_count": len(added),
         "requested_track_count": len(unique_video_ids),
         "skipped_count": len(skipped),
