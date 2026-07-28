@@ -75,6 +75,11 @@ docker exec "$CONTAINER" python -c "from backend.youtube import track_identity_k
 echo "OK: alternate uploads share one track identity"
 
 echo
+echo "OpenRouter credential sharing:"
+docker exec "$CONTAINER" python -c "from backend.config import AppConfig, api_key_slot; assert api_key_slot('openrouter_auto') == 'openrouter'; assert api_key_slot('openrouter_free') == 'openrouter'; c=AppConfig(provider_api_keys={'openrouter':'saved'}); assert c.key_is_saved('openrouter_auto') and c.key_is_saved('openrouter_free')"
+echo "OK: OpenRouter Auto and Free share one saved key"
+
+echo
 echo "Health endpoint:"
 curl --fail --silent --show-error "$HEALTH_URL"
 echo
@@ -83,7 +88,7 @@ echo
 echo "Settings endpoint:"
 settings_json="$(curl --fail --silent --show-error "$SETTINGS_URL")"
 echo "$settings_json"
-for required_key in provider model fallback_1 fallback_2 base_url configured api_key_set; do
+for required_key in provider model fallback_1 fallback_2 base_url configured api_key_set provider_keys_set; do
   if ! grep -Fq "\"${required_key}\":" <<<"$settings_json"; then
     echo "ERROR: settings response is missing key: $required_key" >&2
     exit 1
@@ -94,7 +99,7 @@ echo "OK: settings schema"
 echo
 echo "Frontend structure:"
 frontend_html="$(curl --fail --silent --show-error "$ROOT_URL")"
-for required_text in "From Prompt" "From Seed" "AI provider" "Fallbacks" "YouTube Music account"; do
+for required_text in "From Prompt" "From Seed" "AI provider" "Fallbacks" "OpenRouter Auto" "OpenRouter Free" "YouTube Music account"; do
   if ! grep -Fq "$required_text" <<<"$frontend_html"; then
     echo "ERROR: frontend is missing: $required_text" >&2
     exit 1
