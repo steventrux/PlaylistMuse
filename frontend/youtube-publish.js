@@ -66,6 +66,17 @@
     setPrivacyDisabled(alreadyPublished);
   }
 
+  function openYouTubeSettings() {
+    const dialog = $('youtube-settings-dialog');
+    if (!dialog.open) dialog.showModal();
+    window.dispatchEvent(new Event('playlistmuse-settings-opened'));
+  }
+
+  function closeYouTubeSettings() {
+    const dialog = $('youtube-settings-dialog');
+    if (dialog.open) dialog.close();
+  }
+
   function renderPublishedResult(result) {
     if (!result?.url) return false;
 
@@ -135,12 +146,12 @@
           : 'YouTube Music account connected';
         showControls(accountLabel, alreadyPublished);
       } else if (status.credentials_configured) {
-        showUnavailable('Connect your Google account from Settings on the home page before publishing this playlist.');
+        showUnavailable('Connect your Google account before publishing this playlist.');
       } else {
-        showUnavailable('Configure Google OAuth from Settings on the home page before publishing this playlist.');
+        showUnavailable('Configure Google OAuth before publishing this playlist.');
       }
     } catch {
-      showUnavailable('The YouTube Music connection could not be checked. Return to Settings and verify the account.');
+      showUnavailable('The YouTube Music connection could not be checked.');
     }
 
     if (alreadyPublished) renderPublishedResult(playlist.youtube_playlist);
@@ -199,6 +210,8 @@
   document.querySelectorAll('.youtube-privacy-option').forEach((button) => {
     button.addEventListener('click', () => selectPrivacy(button));
   });
+  $('youtube-open-settings').addEventListener('click', openYouTubeSettings);
+  $('close-youtube-settings').addEventListener('click', closeYouTubeSettings);
   $('create-youtube-playlist').addEventListener('click', publishPlaylist);
   window.addEventListener('playlistmuse-status-changed', refreshStatus);
   refreshStatus();
