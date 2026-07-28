@@ -1,8 +1,17 @@
+import asyncio
+import json
+
 from fastapi.testclient import TestClient
 
+import backend.llm as llm_module
 import backend.main as main_module
 from backend.config import AppConfig, api_key_slot
-from backend.llm import _attempt_count, _openrouter_max_tokens, _playlist_response_format
+from backend.llm import (
+    _attempt_count,
+    _batch_size,
+    _openrouter_max_tokens,
+    _playlist_response_format,
+)
 from backend.youtube import track_identity_key
 
 
@@ -26,7 +35,9 @@ def test_openrouter_free_enforces_free_router_and_marks_both_modes(monkeypatch) 
     saved: dict[str, AppConfig] = {}
 
     monkeypatch.setattr(main_module, "load_config", lambda: AppConfig())
-    monkeypatch.setattr(main_module, "save_config", lambda config: saved.setdefault("config", config))
+    monkeypatch.setattr(
+        main_module, "save_config", lambda config: saved.setdefault("config", config)
+    )
 
     client = TestClient(main_module.app)
     response = client.put(
@@ -53,19 +64,92 @@ def test_openrouter_free_enforces_free_router_and_marks_both_modes(monkeypatch) 
     assert saved["config"].provider_api_keys == {"openrouter": "sk-or-test"}
 
 
-def test_openrouter_structured_output_schema_and_retry_policy() -> None:
-    response_format = _playlist_response_format(25)
+def test_openrouter_structured_output_schema_and_batch_policy() -> None:
+    response_format = _playlist_response_format(6)
     schema = response_format["json_schema"]["schema"]
 
     assert response_format["type"] == "json_schema"
     assert response_format["json_schema"]["strict"] is True
     assert schema["additionalProperties"] is False
-    assert schema["properties"]["tracks"]["minItems"] == 25
-    assert schema["properties"]["tracks"]["maxItems"] == 25
+    assert schema["properties"]["tracks"]["minItems"] == 1
+    assert schema["properties"]["tracks"]["maxItems"] == 6
     assert schema["properties"]["tracks"]["items"]["additionalProperties"] is False
-    assert _attempt_count("openrouter_free") == 3
+    assert _attempt_count("openrouter_free") == 2
     assert _attempt_count("openrouter_auto") == 2
-    assert _openrouter_max_tokens(25) >= 8192
+    assert _attempt_count("gemini") == 1
+    assert _batch_size("openrouter_free", 25) == 6
+    assert _batch_size("openai", 25) == 8
+    assert _batch_size("anthropic", 5) == 5
+    assert _openrouter_max_tokens(6) >= 4096
+
+
+def test_all_providers_accumulate_partial_batches_and_remove_duplicates(monkeypatch) -> None:
+    calls: list[tuple[str, int]] = []
+    responses = [
+        [
+            ("Artist A", "Track A"),
+            ("Artist B", "Track B"),
+        ],
+        [
+            ("Artist B", "Track B"),
+            ("Artist C", "Track C"),
+            ("Artist D", "Track D"),
+        ],
+        [
+            ("Artist E", "Track E"),
+        ],
+    ]
+
+    async def fake_request_model(
+        client,
+        config,
+        model,
+        user_prompt,
+        count,
+        *,
+        exact_count=False,
+    ):
+        calls.append((model, count))
+        selected = responses[min(len(calls) - 1, len(responses) - 1)]
+        return json.dumps(
+            {
+                "title": "Complete Playlist",
+                "description": "A complete playlist assembled from several short batches.",
+                "tracks": [
+                    {
+                        "artist": artist,
+                        "title": title,
+                        "description": f"Description for {title}.",
+                        "reason": f"Reason for {title}.",
+                    }
+                    for artist, title in selected
+                ],
+            }
+        )
+
+    monkeypatch.setattr(llm_module, "_request_model", fake_request_model)
+    config = AppConfig(
+        provider="openai",
+        api_key="test-key",
+        model="primary-model",
+        fallback_1="fallback-model",
+    )
+
+    result = asyncio.run(
+        llm_module.generate_playlist_draft(config, "A test playlist", 5)
+    )
+    identities = {
+        (track["artist"].casefold(), track["title"].casefold())
+        for track in result["tracks"]
+    }
+
+    assert result["title"] == "Complete Playlist"
+    assert len(result["tracks"]) == 5
+    assert len(identities) == 5
+    assert len(calls) == 3
+    assert calls[0] == ("primary-model", 5)
+    assert calls[1] == ("primary-model", 3)
+    assert calls[2] == ("primary-model", 1)
 
 
 def test_track_identity_ignores_case_accents_and_punctuation() -> None:
@@ -99,9 +183,21 @@ def test_seed_generation_removes_alternate_upload_of_same_song(monkeypatch) -> N
                     "title": "No One Knows",
                     "artists": "Queens of the Stone Age",
                 },
-                {"video_id": "track-3", "title": "Figure It Out", "artists": "Royal Blood"},
-                {"video_id": "track-4", "title": "Cochise", "artists": "Audioslave"},
-                {"video_id": "track-5", "title": "Go With the Flow", "artists": "Queens of the Stone Age"},
+                {
+                    "video_id": "track-3",
+                    "title": "Figure It Out",
+                    "artists": "Royal Blood",
+                },
+                {
+                    "video_id": "track-4",
+                    "title": "Cochise",
+                    "artists": "Audioslave",
+                },
+                {
+                    "video_id": "track-5",
+                    "title": "Go With the Flow",
+                    "artists": "Queens of the Stone Age",
+                },
             ],
             "unresolved": [],
         }
