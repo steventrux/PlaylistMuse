@@ -18,6 +18,20 @@ def api_key_slot(provider: str) -> str:
     return "openrouter" if provider in OPENROUTER_PROVIDERS else provider
 
 
+def api_key_matches_provider(provider: str, api_key: str) -> bool:
+    """Reject only unmistakable cross-provider key formats."""
+    key = str(api_key or "").strip()
+    if not key:
+        return False
+    if provider == "gemini" and key.startswith(("sk-or-", "sk-")):
+        return False
+    if provider in OPENROUTER_PROVIDERS and key.startswith("AIza"):
+        return False
+    if provider in {"openai", "anthropic"} and key.startswith("sk-or-"):
+        return False
+    return True
+
+
 @dataclass(slots=True)
 class AppConfig:
     provider: str = ""
@@ -34,7 +48,9 @@ class AppConfig:
             return False
         if self.provider == "ollama":
             return bool(self.base_url)
-        return bool(self.api_key or (self.provider == "custom" and self.base_url))
+        if self.provider == "custom" and self.base_url and not self.api_key:
+            return True
+        return api_key_matches_provider(self.provider, self.api_key)
 
     @property
     def model_chain(self) -> list[str]:
@@ -47,8 +63,9 @@ class AppConfig:
         return models
 
     def key_is_saved(self, provider: str) -> bool:
-        """Return whether an API key is stored for the requested provider."""
-        return bool(self.provider_api_keys.get(api_key_slot(provider), "").strip())
+        """Return whether a compatible API key is stored for the requested provider."""
+        key = self.provider_api_keys.get(api_key_slot(provider), "").strip()
+        return api_key_matches_provider(provider, key)
 
 
 def _environment_or_saved(name: str, saved: str = "") -> str:
