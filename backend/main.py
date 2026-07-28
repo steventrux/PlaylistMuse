@@ -19,6 +19,7 @@ from backend.config import (
 )
 from backend.llm import generate_playlist_draft, safe_error_message
 from backend.youtube import resolve_candidates, search_songs, track_identity_key
+from backend.youtube_routes import router as youtube_router
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND = ROOT / "frontend"
@@ -40,8 +41,9 @@ OPENROUTER_MODELS = {
 app = FastAPI(
     title="PlaylistMuse",
     description="AI-assisted playlist creation for YouTube Music",
-    version="0.6.0",
+    version="0.7.0",
 )
+app.include_router(youtube_router)
 app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
 
 
@@ -119,7 +121,7 @@ class ReplaceTrackRequest(BaseModel):
     playlist_name: str = Field(default="", max_length=100)
     playlist_description: str = Field(default="", max_length=500)
     current_track: PlaylistTrackContext
-    existing_tracks: list[PlaylistTrackContext] = Field(default_factory=list, max_length=100)
+    existing_tracks: list[PlaylistTrackContext] = Field(default_factory=list, max_length=300)
     options: PlaylistOptions = Field(default_factory=PlaylistOptions)
 
     @field_validator("prompt")
@@ -166,20 +168,23 @@ def _replenishment_prompt(
     forbidden_lines: list[str] = []
     for track in tracks:
         forbidden_lines.append(
-            f"- {track.get('artists', 'Unknown artist')} — {track.get('title', 'Unknown track')}"
+            f"- {track.get('artists', 'Unknown artist')} — "
+            f"{track.get('title', 'Unknown track')}"
         )
     for candidate in attempted_candidates[-100:]:
         forbidden_lines.append(
-            f"- {candidate.get('artist', 'Unknown artist')} — {candidate.get('title', 'Unknown track')}"
+            f"- {candidate.get('artist', 'Unknown artist')} — "
+            f"{candidate.get('title', 'Unknown track')}"
         )
     forbidden = "\n".join(dict.fromkeys(forbidden_lines))
     return (
         f"The original playlist request is:\n{original_prompt}\n\n"
         f"Playlist title: {playlist_title}\n"
         f"Playlist description: {playlist_description}\n"
-        f"The playlist still needs {missing} resolvable songs. Suggest exactly {pool_size} NEW "
-        "replacement candidates that are likely to exist as normal song entries on YouTube Music. "
-        "Use canonical released titles and mainstream artist spelling. Do not repeat any forbidden song.\n"
+        f"The playlist still needs {missing} resolvable songs. Suggest exactly "
+        f"{pool_size} NEW replacement candidates that are likely to exist as normal "
+        "song entries on YouTube Music. Use canonical released titles and mainstream "
+        "artist spelling. Do not repeat any forbidden song.\n"
         f"Forbidden or already attempted songs:\n{forbidden or '- None'}"
     )
 
@@ -231,13 +236,15 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
             continue
 
         newly_resolved, newly_unresolved = await resolve_candidates(
-            fresh_candidates, exclusions
+            fresh_candidates,
+            exclusions,
         )
         unresolved.extend(newly_unresolved)
         added = 0
         for track in newly_resolved:
             track_key = track_identity_key(
-                track.get("title", ""), track.get("artists", "")
+                track.get("title", ""),
+                track.get("artists", ""),
             )
             video_id = track.get("video_id")
             if track_key in resolved_keys or (video_id and video_id in resolved_ids):
@@ -256,8 +263,9 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
 
     if len(tracks) < count:
         raise ValueError(
-            f"PlaylistMuse found only {len(tracks)} of {count} distinct tracks that could be "
-            "verified on YouTube Music. Try a broader prompt or request fewer tracks."
+            f"PlaylistMuse found only {len(tracks)} of {count} distinct tracks that "
+            "could be verified on YouTube Music. Try a broader prompt or request "
+            "fewer tracks."
         )
 
     return {
@@ -319,15 +327,6 @@ async def update_settings(request: SettingsUpdate) -> SettingsResponse:
     return _settings_response(config)
 
 
-@app.get("/api/youtube/status")
-async def youtube_status() -> dict:
-    return {
-        "catalog_available": True,
-        "account_connected": False,
-        "message": "Public YouTube Music catalogue available",
-    }
-
-
 @app.get("/api/seeds/search")
 async def seed_search(
     q: str = Query(..., min_length=2, max_length=300),
@@ -360,8 +359,9 @@ async def generate_playlist(request: GenerateRequest) -> dict:
 async def generate_from_seed(request: SeedGenerateRequest) -> dict:
     seed = request.seed
     prompt = (
-        f"Create a cohesive playlist inspired by the song '{seed.title}' by {seed.artists}. "
-        "Match its style, mood, energy and musical character while including varied compatible artists."
+        f"Create a cohesive playlist inspired by the song '{seed.title}' by "
+        f"{seed.artists}. Match its style, mood, energy and musical character while "
+        "including varied compatible artists."
     )
     try:
         result = await _generate(prompt, request.track_count, request.options)
@@ -380,7 +380,8 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
             track
             for track in result["tracks"]
             if track_identity_key(
-                track.get("title", ""), track.get("artists", "")
+                track.get("title", ""),
+                track.get("artists", ""),
             )
             == seed_key
         ),
@@ -420,7 +421,8 @@ async def replace_track(request: ReplaceTrackRequest) -> dict:
         f"Playlist title: {request.playlist_name or 'Untitled playlist'}\n"
         f"Playlist description: {request.playlist_description or 'Not provided'}\n"
         f"Song being replaced: {current.artists} — {current.title}\n"
-        f"Its role in the playlist: {current.reason or 'Maintain the same mood, energy and sequencing role.'}\n"
+        f"Its role in the playlist: "
+        f"{current.reason or 'Maintain the same mood, energy and sequencing role.'}\n"
         "Choose alternatives that preserve or improve that role while adding variety. "
         "Do not return the current song or any song already in the playlist.\n"
         f"Songs to avoid:\n{avoided or '- None'}"
@@ -430,7 +432,8 @@ async def replace_track(request: ReplaceTrackRequest) -> dict:
         config = load_config()
         draft = await generate_playlist_draft(config, replacement_prompt, 6)
         candidates, _ = await resolve_candidates(
-            draft["tracks"], request.options.model_dump()
+            draft["tracks"],
+            request.options.model_dump(),
         )
         existing_ids = {
             track.video_id for track in request.existing_tracks if track.video_id
@@ -443,7 +446,8 @@ async def replace_track(request: ReplaceTrackRequest) -> dict:
             if candidate.get("video_id") in existing_ids:
                 continue
             if _track_key(
-                candidate.get("title", ""), candidate.get("artists", "")
+                candidate.get("title", ""),
+                candidate.get("artists", ""),
             ) in existing_keys:
                 continue
             return {"track": candidate}
