@@ -32,6 +32,11 @@
   width: 100%;
 }
 
+.youtube-publish-warning-inline {
+  color: #fda4af;
+  font-weight: 650;
+}
+
 @media (max-width: 520px) {
   .youtube-publish-warning > span {
     align-items: flex-start;
