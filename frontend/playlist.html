@@ -7,11 +7,11 @@
   <title>Playlist · PlaylistMuse</title>
   <link rel="stylesheet" href="/static/style.css?v=8">
   <link rel="stylesheet" href="/static/controls.css?v=4">
-  <link rel="stylesheet" href="/static/playlist.css?v=4">
+  <link rel="stylesheet" href="/static/playlist.css?v=5">
   <link rel="stylesheet" href="/static/playlist-cards.css?v=2">
   <link rel="stylesheet" href="/static/playlist-header.css?v=1">
   <link rel="stylesheet" href="/static/generation.css?v=3">
-  <link rel="stylesheet" href="/static/youtube.css?v=3">
+  <link rel="stylesheet" href="/static/youtube.css?v=4">
 </head>
 <body>
   <header class="app-header">
@@ -42,18 +42,25 @@
       <p id="playlist-description" class="playlist-description"></p>
 
       <section class="youtube-publish" aria-label="Create playlist on YouTube Music">
-        <div class="youtube-publish-copy">
-          <strong>Send to YouTube Music</strong>
-          <span id="youtube-publish-account">Checking account connection…</span>
+        <div id="youtube-publish-warning" class="youtube-publish-warning">
+          <strong>YouTube Music is not ready</strong>
+          <span id="youtube-publish-warning-text">Checking account connection…</span>
         </div>
-        <label class="youtube-privacy" for="youtube-privacy">Privacy
-          <select id="youtube-privacy">
-            <option value="PRIVATE">Private</option>
-            <option value="UNLISTED">Unlisted</option>
-            <option value="PUBLIC">Public</option>
-          </select>
-        </label>
-        <button id="create-youtube-playlist" class="primary" type="button" disabled>Create on YouTube Music</button>
+
+        <div id="youtube-publish-controls" class="youtube-publish-controls hidden">
+          <div class="youtube-publish-copy">
+            <strong>Send to YouTube Music</strong>
+            <span id="youtube-publish-account">Checking account connection…</span>
+          </div>
+
+          <div class="youtube-privacy-group" role="group" aria-label="Playlist privacy">
+            <button class="youtube-privacy-option active" type="button" data-privacy="PRIVATE" aria-pressed="true">Private</button>
+            <button class="youtube-privacy-option" type="button" data-privacy="UNLISTED" aria-pressed="false">Unlisted</button>
+            <button class="youtube-privacy-option" type="button" data-privacy="PUBLIC" aria-pressed="false">Public</button>
+          </div>
+
+          <button id="create-youtube-playlist" class="primary" type="button">Create on YouTube Music</button>
+        </div>
       </section>
       <p id="youtube-publish-status" class="youtube-publish-status" aria-live="polite"></p>
 
@@ -64,6 +71,6 @@
 
   <script src="/static/replacement-history.js?v=3"></script>
   <script src="/static/playlist.js?v=12"></script>
-  <script src="/static/youtube-publish.js?v=2"></script>
+  <script src="/static/youtube-publish.js?v=3"></script>
 </body>
 </html>
