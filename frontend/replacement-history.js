@@ -16,9 +16,12 @@
   }
 
   function trackIdentity(track) {
+    const title = normalize(track?.title);
+    const artists = normalize(track?.artists);
+    if (title && artists) return `track:${artists}::${title}`;
+
     const videoId = String(track?.video_id || '').trim();
-    if (videoId) return `video:${videoId}`;
-    return `track:${normalize(track?.artists)}::${normalize(track?.title)}`;
+    return videoId ? `video:${videoId}` : '';
   }
 
   function trackContext(track) {
