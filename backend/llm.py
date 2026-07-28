@@ -7,7 +7,6 @@ import re
 from typing import Any
 
 import httpx
-
 from backend.config import AppConfig
 
 SYSTEM_PROMPT = """You are PlaylistMuse, an expert music playlist curator.
@@ -41,6 +40,9 @@ Rules:
 - Avoid duplicate artists when possible.
 - Return no commentary and no markdown outside the JSON object.
 """
+
+OPENROUTER_PROVIDERS = {"openrouter_auto", "openrouter_free"}
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -155,6 +157,29 @@ async def _request_model(
         )
         response.raise_for_status()
         return str(response.json()["message"]["content"])
+
+    if config.provider in OPENROUTER_PROVIDERS:
+        response = await client.post(
+            f"{OPENROUTER_BASE_URL}/chat/completions",
+            headers={
+                "authorization": f"Bearer {config.api_key}",
+                "content-type": "application/json",
+                "http-referer": "https://github.com/steventrux/PlaylistMuse",
+                "x-title": "PlaylistMuse",
+            },
+            json={
+                "model": model,
+                "temperature": 0.7,
+                "max_tokens": 8192,
+                "response_format": {"type": "json_object"},
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+            },
+        )
+        response.raise_for_status()
+        return _content_from_openai(response.json())
 
     base_url = config.base_url.rstrip("/") if config.base_url else "https://api.openai.com/v1"
     headers = {"content-type": "application/json"}
