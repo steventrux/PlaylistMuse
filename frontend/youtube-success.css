@@ -1,0 +1,78 @@
+/* Highlighted success state after publishing a playlist to YouTube Music. */
+
+.youtube-publish-controls.is-success {
+  display: block;
+  padding: 0;
+  border-color: rgba(125, 220, 255, .54);
+  background: linear-gradient(135deg, rgba(16, 74, 92, .66), rgba(35, 28, 82, .78));
+  box-shadow:
+    0 14px 34px rgba(3, 18, 34, .28),
+    inset 0 1px 0 rgba(255, 255, 255, .05);
+}
+
+.youtube-publish-success {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-width: 0;
+  padding: 16px 18px;
+}
+
+.youtube-publish-success-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(125, 220, 255, .62);
+  border-radius: 50%;
+  background: rgba(56, 189, 248, .16);
+  color: var(--cyan-light);
+  font-size: 1rem;
+  font-weight: 900;
+  box-shadow: 0 0 22px rgba(56, 189, 248, .16);
+}
+
+.youtube-publish-success-copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.youtube-publish-success-copy p {
+  margin: 0;
+  color: #e8fbff;
+  font-size: .94rem;
+  font-weight: 760;
+  line-height: 1.45;
+}
+
+.youtube-publish-success-copy a {
+  color: var(--cyan-light);
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.youtube-publish-success-copy a:hover {
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.youtube-publish-success-warning {
+  color: #b8dce6;
+  font-size: .82rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 520px) {
+  .youtube-publish-success {
+    align-items: flex-start;
+    padding: 15px;
+  }
+
+  .youtube-publish-success-copy p {
+    font-size: .9rem;
+  }
+}
