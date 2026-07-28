@@ -4,6 +4,7 @@
   const STORAGE_KEY = 'playlistmuse-generated-playlist';
   const $ = (id) => document.getElementById(id);
   let playlist = null;
+  let selectedPrivacy = 'PRIVATE';
 
   try {
     playlist = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || 'null');
@@ -34,6 +35,37 @@
     element.classList.toggle('success', kind === 'success');
   }
 
+  function setPrivacyDisabled(disabled) {
+    document.querySelectorAll('.youtube-privacy-option').forEach((button) => {
+      button.disabled = disabled;
+    });
+  }
+
+  function selectPrivacy(button) {
+    selectedPrivacy = button.dataset.privacy || 'PRIVATE';
+    document.querySelectorAll('.youtube-privacy-option').forEach((option) => {
+      const active = option === button;
+      option.classList.toggle('active', active);
+      option.setAttribute('aria-pressed', String(active));
+    });
+  }
+
+  function showUnavailable(message) {
+    $('youtube-publish-controls').classList.add('hidden');
+    $('youtube-publish-warning').classList.remove('hidden');
+    $('youtube-publish-warning-text').textContent = message;
+  }
+
+  function showControls(accountLabel, alreadyPublished) {
+    $('youtube-publish-warning').classList.add('hidden');
+    $('youtube-publish-controls').classList.remove('hidden');
+    $('youtube-publish-account').textContent = accountLabel;
+
+    const button = $('create-youtube-playlist');
+    button.disabled = alreadyPublished;
+    setPrivacyDisabled(alreadyPublished);
+  }
+
   function renderPublishedResult(result) {
     if (!result?.url) return false;
 
@@ -42,6 +74,7 @@
     button.removeAttribute('aria-busy');
     button.disabled = true;
     button.textContent = 'Created on YouTube Music';
+    setPrivacyDisabled(true);
 
     const status = $('youtube-publish-status');
     status.replaceChildren();
@@ -80,36 +113,34 @@
     button.classList.add('is-loading');
     button.disabled = true;
     button.setAttribute('aria-busy', 'true');
+    setPrivacyDisabled(true);
 
     return () => {
       button.classList.remove('is-loading');
       button.removeAttribute('aria-busy');
       button.disabled = false;
       button.textContent = 'Create on YouTube Music';
+      setPrivacyDisabled(false);
     };
   }
 
   async function refreshStatus() {
-    const button = $('create-youtube-playlist');
-    const summary = $('youtube-publish-account');
     const alreadyPublished = Boolean(playlist?.youtube_playlist?.url);
 
     try {
       const status = await readJson(await fetch('/api/youtube/status'));
       if (status.account_connected) {
-        button.disabled = alreadyPublished;
-        summary.textContent = status.account_name
+        const accountLabel = status.account_name
           ? `Connected as ${status.account_name}`
           : 'YouTube Music account connected';
+        showControls(accountLabel, alreadyPublished);
+      } else if (status.credentials_configured) {
+        showUnavailable('Connect your Google account from Settings on the home page before publishing this playlist.');
       } else {
-        button.disabled = true;
-        summary.textContent = status.credentials_configured
-          ? 'Account not connected · connect it from Settings on the home page'
-          : 'Google OAuth client not configured · open Settings on the home page';
+        showUnavailable('Configure Google OAuth from Settings on the home page before publishing this playlist.');
       }
     } catch {
-      button.disabled = true;
-      summary.textContent = 'Unable to check the YouTube Music connection';
+      showUnavailable('The YouTube Music connection could not be checked. Return to Settings and verify the account.');
     }
 
     if (alreadyPublished) renderPublishedResult(playlist.youtube_playlist);
@@ -151,7 +182,7 @@
         body: JSON.stringify({
           title,
           description: playlist.description || playlist.prompt || '',
-          privacy_status: $('youtube-privacy').value,
+          privacy_status: selectedPrivacy,
           video_ids: videoIds,
         }),
       }));
@@ -165,6 +196,9 @@
     }
   }
 
+  document.querySelectorAll('.youtube-privacy-option').forEach((button) => {
+    button.addEventListener('click', () => selectPrivacy(button));
+  });
   $('create-youtube-playlist').addEventListener('click', publishPlaylist);
   window.addEventListener('playlistmuse-status-changed', refreshStatus);
   refreshStatus();
