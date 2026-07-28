@@ -65,15 +65,20 @@ def test_openrouter_free_enforces_free_router_and_marks_both_modes(monkeypatch) 
 
 
 def test_openrouter_structured_output_schema_and_batch_policy() -> None:
-    response_format = _playlist_response_format(6)
-    schema = response_format["json_schema"]["schema"]
+    batch_format = _playlist_response_format(6)
+    batch_schema = batch_format["json_schema"]["schema"]
+    complete_schema = _playlist_response_format(6, exact_count=True)["json_schema"][
+        "schema"
+    ]
 
-    assert response_format["type"] == "json_schema"
-    assert response_format["json_schema"]["strict"] is True
-    assert schema["additionalProperties"] is False
-    assert schema["properties"]["tracks"]["minItems"] == 1
-    assert schema["properties"]["tracks"]["maxItems"] == 6
-    assert schema["properties"]["tracks"]["items"]["additionalProperties"] is False
+    assert batch_format["type"] == "json_schema"
+    assert batch_format["json_schema"]["strict"] is True
+    assert batch_schema["additionalProperties"] is False
+    assert batch_schema["properties"]["tracks"]["minItems"] == 1
+    assert batch_schema["properties"]["tracks"]["maxItems"] == 6
+    assert complete_schema["properties"]["tracks"]["minItems"] == 6
+    assert complete_schema["properties"]["tracks"]["maxItems"] == 6
+    assert batch_schema["properties"]["tracks"]["items"]["additionalProperties"] is False
     assert _attempt_count("openrouter_free") == 2
     assert _attempt_count("openrouter_auto") == 2
     assert _attempt_count("gemini") == 1
@@ -83,8 +88,58 @@ def test_openrouter_structured_output_schema_and_batch_policy() -> None:
     assert _openrouter_max_tokens(6) >= 4096
 
 
-def test_all_providers_accumulate_partial_batches_and_remove_duplicates(monkeypatch) -> None:
-    calls: list[tuple[str, int]] = []
+def _draft_payload(items: list[tuple[str, str]]) -> str:
+    return json.dumps(
+        {
+            "title": "Complete Playlist",
+            "description": "A complete playlist assembled around one coherent idea.",
+            "tracks": [
+                {
+                    "artist": artist,
+                    "title": title,
+                    "description": f"Description for {title}.",
+                    "reason": f"Reason for {title}.",
+                }
+                for artist, title in items
+            ],
+        }
+    )
+
+
+def test_complete_request_returns_without_using_batches(monkeypatch) -> None:
+    calls: list[tuple[str, int, bool]] = []
+
+    async def fake_request_model(
+        client,
+        config,
+        model,
+        user_prompt,
+        count,
+        *,
+        exact_count=False,
+    ):
+        calls.append((model, count, exact_count))
+        return _draft_payload(
+            [(f"Artist {index}", f"Track {index}") for index in range(1, count + 1)]
+        )
+
+    monkeypatch.setattr(llm_module, "_request_model", fake_request_model)
+    config = AppConfig(
+        provider="openai",
+        api_key="test-key",
+        model="primary-model",
+    )
+
+    result = asyncio.run(
+        llm_module.generate_playlist_draft(config, "A test playlist", 5)
+    )
+
+    assert len(result["tracks"]) == 5
+    assert calls == [("primary-model", 5, True)]
+
+
+def test_partial_complete_request_uses_batches_only_for_missing_tracks(monkeypatch) -> None:
+    calls: list[tuple[str, int, bool]] = []
     responses = [
         [
             ("Artist A", "Track A"),
@@ -109,30 +164,15 @@ def test_all_providers_accumulate_partial_batches_and_remove_duplicates(monkeypa
         *,
         exact_count=False,
     ):
-        calls.append((model, count))
+        calls.append((model, count, exact_count))
         selected = responses[min(len(calls) - 1, len(responses) - 1)]
-        return json.dumps(
-            {
-                "title": "Complete Playlist",
-                "description": "A complete playlist assembled from several short batches.",
-                "tracks": [
-                    {
-                        "artist": artist,
-                        "title": title,
-                        "description": f"Description for {title}.",
-                        "reason": f"Reason for {title}.",
-                    }
-                    for artist, title in selected
-                ],
-            }
-        )
+        return _draft_payload(selected)
 
     monkeypatch.setattr(llm_module, "_request_model", fake_request_model)
     config = AppConfig(
         provider="openai",
         api_key="test-key",
         model="primary-model",
-        fallback_1="fallback-model",
     )
 
     result = asyncio.run(
@@ -146,10 +186,11 @@ def test_all_providers_accumulate_partial_batches_and_remove_duplicates(monkeypa
     assert result["title"] == "Complete Playlist"
     assert len(result["tracks"]) == 5
     assert len(identities) == 5
-    assert len(calls) == 3
-    assert calls[0] == ("primary-model", 5)
-    assert calls[1] == ("primary-model", 3)
-    assert calls[2] == ("primary-model", 1)
+    assert calls == [
+        ("primary-model", 5, True),
+        ("primary-model", 3, False),
+        ("primary-model", 1, False),
+    ]
 
 
 def test_track_identity_ignores_case_accents_and_punctuation() -> None:
