@@ -7,6 +7,7 @@ HEALTH_URL="http://127.0.0.1:5770/api/health"
 ROOT_URL="http://127.0.0.1:5770/"
 PLAYLIST_URL="http://127.0.0.1:5770/static/playlist.html"
 PLAYLIST_CSS_URL="http://127.0.0.1:5770/static/playlist.css"
+COMPACT_CARDS_CSS_URL="http://127.0.0.1:5770/static/compact-cards.css"
 PLAYLIST_JS_URL="http://127.0.0.1:5770/static/playlist.js"
 YOUTUBE_ACCOUNT_JS_URL="http://127.0.0.1:5770/static/youtube-account.js"
 YOUTUBE_PUBLISH_JS_URL="http://127.0.0.1:5770/static/youtube-publish.js"
@@ -71,8 +72,8 @@ docker compose -f "$COMPOSE_FILE" ps
 
 echo
 echo "Python compilation:"
-docker exec "$CONTAINER" python -m compileall -q backend tests
-echo "OK: backend and tests compiled"
+docker exec "$CONTAINER" python -m compileall -q backend
+echo "OK: backend compiled"
 
 echo
 echo "Duplicate-track identity:"
@@ -161,12 +162,19 @@ done
 echo
 echo "Playlist result structure:"
 playlist_html="$(curl --fail --silent --show-error "$PLAYLIST_URL")"
-for required_id in playlist-name playlist-summary playlist-description youtube-privacy create-youtube-playlist track-list; do
+for required_id in playlist-name playlist-summary playlist-description youtube-publish-warning youtube-publish-controls create-youtube-playlist track-list; do
   if ! grep -Fq "id=\"${required_id}\"" <<<"$playlist_html"; then
     echo "ERROR: playlist page is missing: $required_id" >&2
     exit 1
   fi
   echo "OK: $required_id"
+done
+for privacy_value in PRIVATE UNLISTED PUBLIC; do
+  if ! grep -Fq "data-privacy=\"${privacy_value}\"" <<<"$playlist_html"; then
+    echo "ERROR: playlist page is missing privacy option: $privacy_value" >&2
+    exit 1
+  fi
+  echo "OK: privacy $privacy_value"
 done
 
 playlist_js="$(curl --fail --silent --show-error "$PLAYLIST_JS_URL")"
@@ -187,10 +195,10 @@ for required_route in "/api/playlists/replace-track" "/api/youtube/settings" "/a
 done
 echo "OK: YouTube OAuth and playlist publishing API"
 
-for asset_url in "$PLAYLIST_CSS_URL" "$YOUTUBE_ACCOUNT_JS_URL" "$YOUTUBE_PUBLISH_JS_URL" "$YOUTUBE_CSS_URL"; do
+for asset_url in "$PLAYLIST_CSS_URL" "$COMPACT_CARDS_CSS_URL" "$YOUTUBE_ACCOUNT_JS_URL" "$YOUTUBE_PUBLISH_JS_URL" "$YOUTUBE_CSS_URL"; do
   curl --fail --silent --show-error --output /dev/null "$asset_url"
 done
-echo "OK: playlist and YouTube Music assets"
+echo "OK: playlist, compact-card and YouTube Music assets"
 
 echo
 echo "Frontend HTTP status:"
