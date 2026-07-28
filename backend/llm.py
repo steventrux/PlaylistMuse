@@ -272,7 +272,6 @@ async def _request_model(
             },
             json={
                 "model": model,
-                "temperature": 0.55,
                 "max_tokens": _openrouter_max_tokens(count),
                 "stream": False,
                 "response_format": _playlist_response_format(count),
