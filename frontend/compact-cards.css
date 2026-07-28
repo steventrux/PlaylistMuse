@@ -1,20 +1,33 @@
 /* Keep collapsed result cards compact without changing artwork size. */
 
+.track-list {
+  gap: 7px;
+}
+
 .track-result-card:not(.expanded) {
-  padding: 6px 10px;
+  padding: 3px 9px;
 }
 
 .track-result-card:not(.expanded) .track-copy {
-  gap: 1px;
+  gap: 0;
 }
 
 .track-result-card:not(.expanded) .track-heading,
 .track-result-card:not(.expanded) .track-meta {
-  line-height: 1.22;
+  line-height: 1.15;
+}
+
+.track-result-card:not(.expanded) .track-expand-icon {
+  width: 24px;
+  height: 24px;
 }
 
 @media (max-width: 650px) {
+  .track-list {
+    gap: 6px;
+  }
+
   .track-result-card:not(.expanded) {
-    padding: 5px 8px;
+    padding: 2px 7px;
   }
 }
