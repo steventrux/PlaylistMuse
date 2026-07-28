@@ -1,14 +1,23 @@
-/* Dynamic feedback while PlaylistMuse is generating a playlist. */
+/* Dynamic feedback while PlaylistMuse is generating or replacing tracks. */
 
-#generate {
+#generate,
+.replace-track-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
+}
+
+#generate {
   min-width: 190px;
 }
 
-#generate.is-loading:disabled {
+.replace-track-button {
+  min-width: 146px;
+}
+
+#generate.is-loading:disabled,
+.replace-track-button.is-loading:disabled {
   opacity: 1;
   cursor: wait;
   border-color: #8b5cf6;
@@ -78,6 +87,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   #generate.is-loading:disabled,
+  .replace-track-button.is-loading:disabled,
   .generation-spinner,
   .generation-dots span {
     animation: none;
