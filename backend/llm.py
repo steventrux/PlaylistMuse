@@ -189,6 +189,22 @@ def _candidate_key(track: dict[str, str]) -> str:
     )
 
 
+def _unique_tracks(
+    candidates: list[dict[str, str]], *, limit: int | None = None
+) -> list[dict[str, str]]:
+    unique: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for track in candidates:
+        key = _candidate_key(track)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        unique.append(track)
+        if limit is not None and len(unique) >= limit:
+            break
+    return unique
+
+
 def _openrouter_error_message(error: Any) -> str:
     if isinstance(error, dict):
         message = error.get("message") or error.get("code")
@@ -347,6 +363,10 @@ def _is_non_retryable_http_error(exc: Exception) -> bool:
     return exc.response.status_code in {401, 402, 403}
 
 
+def _complete_prompt(prompt: str, count: int) -> str:
+    return f"Create a playlist containing exactly {count} tracks for this request:\n{prompt}"
+
+
 def _batch_prompt(
     prompt: str,
     *,
@@ -367,20 +387,79 @@ def _batch_prompt(
     )
 
 
-async def _generate_batched_draft(
+async def _try_complete_request(
     client: httpx.AsyncClient,
     config: AppConfig,
     prompt: str,
     count: int,
-) -> dict[str, Any]:
-    """Accumulate short responses from any provider until the playlist is complete."""
-    tracks: list[dict[str, str]] = []
-    seen: set[str] = set()
-    title = ""
-    description = ""
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, list[str]]:
+    """Try every configured model on the complete request before using batches."""
+    best_partial: dict[str, Any] | None = None
     errors: list[str] = []
+    base_prompt = _complete_prompt(prompt, count)
+
+    for model in config.model_chain:
+        attempts = _attempt_count(config.provider)
+        for attempt in range(1, attempts + 1):
+            attempt_prompt = base_prompt
+            if attempt > 1:
+                attempt_prompt += (
+                    "\nRegenerate the full playlist from scratch. The previous response was "
+                    "invalid or incomplete. Return all requested tracks in valid JSON."
+                )
+            try:
+                text = await _request_model(
+                    client,
+                    config,
+                    model,
+                    attempt_prompt,
+                    count,
+                    exact_count=True,
+                )
+                draft = _extract_json(text)
+                draft["tracks"] = _unique_tracks(draft["tracks"], limit=count)
+            except Exception as exc:
+                errors.append(
+                    f"complete request, {model} attempt {attempt}/{attempts}: {exc}"
+                )
+                if _is_non_retryable_http_error(exc):
+                    return None, best_partial, errors
+                continue
+
+            if len(draft["tracks"]) >= count:
+                return draft, best_partial, errors
+
+            errors.append(
+                f"complete request, {model} attempt {attempt}/{attempts}: "
+                f"returned {len(draft['tracks'])} of {count} unique tracks"
+            )
+            if best_partial is None or len(draft["tracks"]) > len(best_partial["tracks"]):
+                best_partial = draft
+
+    return None, best_partial, errors
+
+
+async def _complete_in_batches(
+    client: httpx.AsyncClient,
+    config: AppConfig,
+    prompt: str,
+    count: int,
+    *,
+    initial_draft: dict[str, Any] | None = None,
+    previous_errors: list[str] | None = None,
+) -> dict[str, Any]:
+    """Complete a failed full request using short batches for only the missing tracks."""
+    tracks = _unique_tracks((initial_draft or {}).get("tracks", []), limit=count)
+    seen = {_candidate_key(track) for track in tracks}
+    title = str((initial_draft or {}).get("title", "")).strip()
+    description = str((initial_draft or {}).get("description", "")).strip()
+    errors = list(previous_errors or [])
     batch_size = _batch_size(config.provider, count)
-    max_batches = min(20, max(4, math.ceil(count / batch_size) * 3))
+    remaining_at_start = max(0, count - len(tracks))
+    max_batches = min(
+        20,
+        max(3, math.ceil(max(1, remaining_at_start) / batch_size) * 3),
+    )
     stalled_batches = 0
 
     for batch_number in range(1, max_batches + 1):
@@ -461,10 +540,11 @@ async def _generate_batched_draft(
                 break
 
     if len(tracks) < count:
-        detail = "; ".join(errors[-8:])
+        detail = "; ".join(errors[-10:])
         raise ValueError(
-            f"{config.provider} collected {len(tracks)} of {count} unique tracks after "
-            f"{max_batches} short batches. {detail}".strip()
+            f"{config.provider} collected {len(tracks)} of {count} unique tracks. "
+            f"The complete request failed and batched completion could not finish it. "
+            f"{detail}".strip()
         )
 
     return {
@@ -477,10 +557,22 @@ async def _generate_batched_draft(
 async def generate_playlist_draft(
     config: AppConfig, prompt: str, count: int
 ) -> dict[str, Any]:
-    """Generate playlist metadata and canonical track candidates in short batches."""
+    """Try one complete response first, then batch only the missing tracks."""
     if not config.configured:
         raise ValueError("Configure an AI provider before generating a playlist.")
 
     timeout = httpx.Timeout(120.0, connect=10.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
-        return await _generate_batched_draft(client, config, prompt, count)
+        complete, best_partial, errors = await _try_complete_request(
+            client, config, prompt, count
+        )
+        if complete is not None:
+            return complete
+        return await _complete_in_batches(
+            client,
+            config,
+            prompt,
+            count,
+            initial_draft=best_partial,
+            previous_errors=errors,
+        )
