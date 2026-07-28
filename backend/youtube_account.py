@@ -168,6 +168,12 @@ def _optional_account_profile_sync(client: Any | None = None) -> dict[str, Any]:
     return account if isinstance(account, dict) else {}
 
 
+def _validate_youtube_connection_sync(client: Any | None = None) -> dict[str, Any]:
+    """Backward-compatible alias used by existing deployment checks."""
+
+    return _optional_account_profile_sync(client)
+
+
 async def youtube_status() -> dict[str, Any]:
     settings = youtube_settings_response()
     response: dict[str, Any] = {
