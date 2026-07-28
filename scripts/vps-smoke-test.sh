@@ -80,14 +80,13 @@ docker exec "$CONTAINER" python -c "from backend.config import AppConfig, api_ke
 echo "OK: provider keys are shared only where intended"
 
 echo
-echo "Gemini request safety:"
-grep -Fq 'x-goog-api-key' backend/llm.py
-grep -Fq 'responseFormat' backend/llm.py
-if grep -Fq 'params={"key"' backend/llm.py; then
+echo "Gemini request compatibility:"
+docker exec "$CONTAINER" python -c "import inspect; import backend.llm as llm; source=inspect.getsource(llm._request_model); assert getattr(llm, '_playlistmuse_gemini_compat_installed', False); assert 'x-goog-api-key' in source; assert 'responseMimeType' in source; assert 'responseJsonSchema' in source; assert 'responseFormat' not in source"
+if grep -Fq 'params={"key"' backend/llm.py backend/gemini_compat.py; then
   echo "ERROR: Gemini API key is still sent in the URL query string" >&2
   exit 1
 fi
-echo "OK: Gemini key uses a header and structured response format"
+echo "OK: Gemini uses generateContent-compatible structured output"
 
 echo
 echo "AI generation strategy:"
