@@ -10,48 +10,33 @@
   }
 
   function setGeneratingButton(button) {
-    const labels = state.mode === 'seed'
-      ? [
-          'Reading seed track',
-          'Finding compatible songs',
-          'Building the playlist',
-          'Checking YouTube Music',
-        ]
-      : [
-          'Understanding your prompt',
-          'Choosing the tracks',
-          'Building the playlist',
-          'Checking YouTube Music',
-        ];
-    let index = 0;
-
     const spinner = document.createElement('span');
     spinner.className = 'generation-spinner';
     spinner.setAttribute('aria-hidden', 'true');
 
     const label = document.createElement('span');
     label.className = 'generation-label';
-    label.textContent = labels[index];
+    label.textContent = 'Generating';
 
     const dots = document.createElement('span');
     dots.className = 'generation-dots';
     dots.setAttribute('aria-hidden', 'true');
-    dots.append(document.createElement('span'), document.createElement('span'), document.createElement('span'));
+    dots.append(
+      document.createElement('span'),
+      document.createElement('span'),
+      document.createElement('span'),
+    );
 
     button.replaceChildren(spinner, label, dots);
     button.classList.add('is-loading');
     button.disabled = true;
     button.setAttribute('aria-busy', 'true');
-
-    const timer = window.setInterval(() => {
-      index = (index + 1) % labels.length;
-      label.textContent = labels[index];
-    }, 2800);
+    button.setAttribute('aria-label', 'Generating playlist');
 
     return () => {
-      window.clearInterval(timer);
       button.classList.remove('is-loading');
       button.removeAttribute('aria-busy');
+      button.removeAttribute('aria-label');
       button.disabled = false;
       button.textContent = 'Generate playlist';
     };
