@@ -1,7 +1,8 @@
-/* Dynamic feedback while PlaylistMuse is generating or replacing tracks. */
+/* Dynamic feedback while PlaylistMuse is generating, replacing or publishing. */
 
 #generate,
-.replace-track-button {
+.replace-track-button,
+#create-youtube-playlist {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -16,8 +17,13 @@
   min-width: 146px;
 }
 
+#create-youtube-playlist {
+  min-width: 230px;
+}
+
 #generate.is-loading:disabled,
-.replace-track-button.is-loading:disabled {
+.replace-track-button.is-loading:disabled,
+#create-youtube-playlist.is-loading:disabled {
   opacity: 1;
   cursor: wait;
   border-color: #8b5cf6;
@@ -85,9 +91,16 @@
   }
 }
 
+@media (max-width: 520px) {
+  #create-youtube-playlist {
+    min-width: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   #generate.is-loading:disabled,
   .replace-track-button.is-loading:disabled,
+  #create-youtube-playlist.is-loading:disabled,
   .generation-spinner,
   .generation-dots span {
     animation: none;
