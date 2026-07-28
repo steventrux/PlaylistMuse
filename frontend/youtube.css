@@ -126,11 +126,35 @@
 }
 
 .youtube-publish {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 150px auto;
-  align-items: end;
-  gap: 14px;
   margin: 22px 0 4px;
+}
+
+.youtube-publish-warning {
+  display: grid;
+  gap: 5px;
+  padding: 15px 17px;
+  border: 1px solid rgba(251, 113, 133, .48);
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(82, 22, 48, .56), rgba(28, 24, 59, .7));
+  box-shadow: 0 12px 30px rgba(35, 8, 26, .18);
+}
+
+.youtube-publish-warning strong {
+  color: #fecdd3;
+  font-size: .94rem;
+}
+
+.youtube-publish-warning span {
+  color: #fda4af;
+  font-size: .86rem;
+  line-height: 1.45;
+}
+
+.youtube-publish-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
   padding: 16px;
   border: 1px solid rgba(169, 155, 255, .23);
   border-radius: 16px;
@@ -140,7 +164,6 @@
 .youtube-publish-copy {
   display: grid;
   gap: 4px;
-  align-self: center;
   min-width: 0;
 }
 
@@ -154,15 +177,43 @@
   line-height: 1.4;
 }
 
-.youtube-privacy {
-  gap: 6px;
-  color: var(--text-secondary);
-  font-size: .8rem;
+.youtube-privacy-group {
+  display: inline-flex;
+  gap: 5px;
+  padding: 5px;
+  border: 1px solid rgba(169, 155, 255, .2);
+  border-radius: 14px;
+  background: #090c1b;
 }
 
-.youtube-privacy select {
-  min-height: 42px;
-  padding-block: 9px;
+.youtube-privacy-option {
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: #151a33;
+  color: #b8bdd2;
+  font-size: .8rem;
+  font-weight: 750;
+  transition: color 160ms ease, background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.youtube-privacy-option:hover:not(:disabled) {
+  border-color: rgba(183, 156, 255, .38);
+  background: #29315b;
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.youtube-privacy-option.active {
+  border-color: #8b5cf6;
+  background: #8b5cf6;
+  color: #fff;
+}
+
+.youtube-privacy-option.active:hover:not(:disabled) {
+  border-color: #a78bfa;
+  background: #a78bfa;
 }
 
 #create-youtube-playlist {
@@ -193,14 +244,14 @@
   text-decoration: underline;
 }
 
-@media (max-width: 760px) {
-  .youtube-publish {
+@media (max-width: 900px) {
+  .youtube-publish-controls {
     grid-template-columns: 1fr;
     align-items: stretch;
   }
 
-  .youtube-privacy {
-    width: min(220px, 100%);
+  .youtube-privacy-group {
+    justify-self: start;
   }
 
   #create-youtube-playlist {
@@ -218,6 +269,16 @@
   .youtube-auth-link {
     width: 100%;
     justify-content: center;
+  }
+
+  .youtube-privacy-group {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    width: 100%;
+  }
+
+  .youtube-privacy-option {
+    padding-inline: 8px;
   }
 
   #create-youtube-playlist {
