@@ -17,10 +17,24 @@ from backend.youtube import resolve_candidates, search_songs, track_identity_key
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND = ROOT / "frontend"
 
+AI_PROVIDERS = (
+    "gemini",
+    "openai",
+    "anthropic",
+    "openrouter_auto",
+    "openrouter_free",
+    "ollama",
+    "custom",
+)
+OPENROUTER_MODELS = {
+    "openrouter_auto": "openrouter/auto",
+    "openrouter_free": "openrouter/free",
+}
+
 app = FastAPI(
     title="PlaylistMuse",
     description="AI-assisted playlist creation for YouTube Music",
-    version="0.4.1",
+    version="0.5.0",
 )
 app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
 
@@ -33,10 +47,19 @@ class SettingsResponse(BaseModel):
     base_url: str
     configured: bool
     api_key_set: bool
+    provider_keys_set: dict[str, bool]
 
 
 class SettingsUpdate(BaseModel):
-    provider: Literal["gemini", "openai", "anthropic", "ollama", "custom"]
+    provider: Literal[
+        "gemini",
+        "openai",
+        "anthropic",
+        "openrouter_auto",
+        "openrouter_free",
+        "ollama",
+        "custom",
+    ]
     api_key: str = ""
     model: str = Field(min_length=1, max_length=120)
     fallback_1: str = Field(default="", max_length=120)
@@ -108,6 +131,9 @@ def _settings_response(config: AppConfig) -> SettingsResponse:
         base_url=config.base_url,
         configured=config.configured,
         api_key_set=bool(config.api_key),
+        provider_keys_set={
+            provider: config.key_is_saved(provider) for provider in AI_PROVIDERS
+        },
     )
 
 
@@ -143,13 +169,30 @@ async def get_settings() -> SettingsResponse:
 @app.put("/api/settings", response_model=SettingsResponse)
 async def update_settings(request: SettingsUpdate) -> SettingsResponse:
     current = load_config()
+    provider_api_keys = dict(current.provider_api_keys)
+    submitted_key = request.api_key.strip()
+    if submitted_key:
+        provider_api_keys[request.provider] = submitted_key
+    active_key = provider_api_keys.get(request.provider, "")
+
+    model = request.model.strip()
+    fallback_1 = request.fallback_1.strip()
+    fallback_2 = request.fallback_2.strip()
+    base_url = request.base_url.strip()
+    if request.provider in OPENROUTER_MODELS:
+        model = OPENROUTER_MODELS[request.provider]
+        fallback_1 = ""
+        fallback_2 = ""
+        base_url = ""
+
     config = AppConfig(
         provider=request.provider,
-        api_key=request.api_key.strip() or current.api_key,
-        model=request.model.strip(),
-        fallback_1=request.fallback_1.strip(),
-        fallback_2=request.fallback_2.strip(),
-        base_url=request.base_url.strip(),
+        api_key=active_key,
+        model=model,
+        fallback_1=fallback_1,
+        fallback_2=fallback_2,
+        base_url=base_url,
+        provider_api_keys=provider_api_keys,
     )
     save_config(config)
     return _settings_response(config)
