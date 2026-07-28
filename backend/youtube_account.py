@@ -146,11 +146,28 @@ def _account_payload(account: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
-def _get_account_info_sync() -> dict[str, Any]:
-    account = _ytmusic_client().get_account_info()
-    if not isinstance(account, dict):
-        raise YouTubeAccountError("YouTube Music did not return account information.")
-    return account
+def _validate_youtube_connection_sync(client: Any | None = None) -> dict[str, Any]:
+    """Validate authenticated library access and retrieve profile data when available.
+
+    Some YouTube/brand accounts do not expose the account-menu structure expected by
+    ytmusicapi's ``get_account_info`` parser. That must not invalidate an otherwise
+    working OAuth token, so profile enrichment is deliberately best-effort.
+    """
+
+    ytmusic = client or _ytmusic_client()
+    try:
+        ytmusic.get_library_playlists(limit=1)
+    except Exception as error:
+        raise YouTubeAccountError(
+            "Google authorization succeeded, but YouTube Music could not be accessed. "
+            "Open YouTube Music once with this Google account, then try again."
+        ) from error
+
+    try:
+        account = ytmusic.get_account_info()
+    except Exception:
+        return {}
+    return account if isinstance(account, dict) else {}
 
 
 async def youtube_status() -> dict[str, Any]:
@@ -173,7 +190,10 @@ async def youtube_status() -> dict[str, Any]:
         return response
 
     try:
-        account = await asyncio.to_thread(_get_account_info_sync)
+        account = await asyncio.to_thread(_validate_youtube_connection_sync)
+    except YouTubeAccountError as error:
+        response["message"] = str(error)
+        return response
     except Exception:
         response["message"] = "The saved YouTube Music connection needs to be renewed"
         return response
@@ -189,7 +209,14 @@ async def youtube_status() -> dict[str, Any]:
 
 
 def _start_authorization_sync() -> dict[str, Any]:
-    code = _oauth_credentials().get_code()
+    try:
+        code = _oauth_credentials().get_code()
+    except Exception as error:
+        raise YouTubeAccountError(
+            "Google could not create an authorization code. Verify that the OAuth client "
+            "type is TVs and Limited Input devices and that YouTube Data API v3 is enabled."
+        ) from error
+
     required = ("device_code", "user_code", "verification_url", "expires_in", "interval")
     if not all(code.get(name) for name in required):
         raise YouTubeAccountError("Google did not return a valid authorization code.")
@@ -254,7 +281,14 @@ def _poll_authorization_sync() -> dict[str, Any]:
         _delete(YOUTUBE_PENDING_PATH)
         return {"status": "expired", "message": "The Google authorization code expired."}
 
-    raw_token = _oauth_credentials().token_from_code(str(pending["device_code"]))
+    try:
+        raw_token = _oauth_credentials().token_from_code(str(pending["device_code"]))
+    except Exception as error:
+        raise YouTubeAccountError(
+            "Google could not verify the authorization. Check the OAuth client credentials "
+            "and try connecting again."
+        ) from error
+
     if not isinstance(raw_token, dict):
         raise YouTubeAccountError("Google returned an invalid authorization response.")
 
@@ -285,7 +319,7 @@ def _poll_authorization_sync() -> dict[str, Any]:
 
     _write_secure_json(YOUTUBE_TOKEN_PATH, _token_payload(raw_token))
     _delete(YOUTUBE_PENDING_PATH)
-    account = _get_account_info_sync()
+    account = _validate_youtube_connection_sync()
     return {
         "status": "connected",
         "account_connected": True,
