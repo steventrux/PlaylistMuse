@@ -29,6 +29,7 @@
 
   function setStatus(text, kind = '') {
     const element = $('youtube-publish-status');
+    element.classList.remove('hidden');
     element.replaceChildren();
     element.textContent = text;
     element.classList.toggle('error', kind === 'error');
@@ -51,14 +52,18 @@
   }
 
   function showUnavailable(message) {
-    $('youtube-publish-controls').classList.add('hidden');
+    const controls = $('youtube-publish-controls');
+    controls.classList.remove('is-success');
+    controls.classList.add('hidden');
     $('youtube-publish-warning').classList.remove('hidden');
     $('youtube-publish-warning-text').textContent = message;
   }
 
   function showControls(accountLabel, alreadyPublished) {
+    const controls = $('youtube-publish-controls');
+    controls.classList.remove('is-success');
     $('youtube-publish-warning').classList.add('hidden');
-    $('youtube-publish-controls').classList.remove('hidden');
+    controls.classList.remove('hidden');
     $('youtube-publish-account').textContent = accountLabel;
 
     const button = $('create-youtube-playlist');
@@ -80,21 +85,37 @@
   function renderPublishedResult(result) {
     if (!result?.url) return false;
 
+    const controls = $('youtube-publish-controls');
     const button = $('create-youtube-playlist');
-    button.classList.remove('is-loading');
-    button.removeAttribute('aria-busy');
-    button.disabled = true;
-    button.textContent = 'Created on YouTube Music';
-    setPrivacyDisabled(true);
+    if (button) {
+      button.classList.remove('is-loading');
+      button.removeAttribute('aria-busy');
+      button.disabled = true;
+    }
 
-    const status = $('youtube-publish-status');
-    status.replaceChildren();
-    status.classList.remove('error');
-    status.classList.add('success');
+    $('youtube-publish-warning').classList.add('hidden');
+    controls.classList.remove('hidden');
+    controls.classList.add('is-success');
+    controls.replaceChildren();
+    controls.setAttribute('role', 'status');
+    controls.setAttribute('aria-live', 'polite');
 
     const createdCount = Number(result.track_count || 0);
     const requestedCount = Number(result.requested_track_count || createdCount);
-    status.append(
+
+    const success = document.createElement('div');
+    success.className = 'youtube-publish-success';
+
+    const icon = document.createElement('span');
+    icon.className = 'youtube-publish-success-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = '✓';
+
+    const copy = document.createElement('div');
+    copy.className = 'youtube-publish-success-copy';
+
+    const message = document.createElement('p');
+    message.append(
       createdCount === requestedCount
         ? `Playlist created with ${createdCount} tracks · `
         : `Playlist created with ${createdCount} of ${requestedCount} tracks · `,
@@ -105,15 +126,23 @@
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
     link.textContent = 'Open in YouTube Music';
-    status.append(link);
+    message.append(link);
+    copy.append(message);
 
     if (result.warning) {
-      status.append(document.createElement('br'));
       const warning = document.createElement('span');
-      warning.className = 'youtube-publish-warning-inline';
+      warning.className = 'youtube-publish-success-warning';
       warning.textContent = result.warning;
-      status.append(warning);
+      copy.append(warning);
     }
+
+    success.append(icon, copy);
+    controls.append(success);
+
+    const status = $('youtube-publish-status');
+    status.replaceChildren();
+    status.classList.remove('error', 'success');
+    status.classList.add('hidden');
     return true;
   }
 
@@ -152,6 +181,10 @@
 
   async function refreshStatus() {
     const alreadyPublished = Boolean(playlist?.youtube_playlist?.url);
+    if (alreadyPublished) {
+      renderPublishedResult(playlist.youtube_playlist);
+      return;
+    }
 
     try {
       const status = await readJson(await fetch('/api/youtube/status'));
@@ -159,7 +192,7 @@
         const accountLabel = status.account_name
           ? `Connected as ${status.account_name}`
           : 'YouTube Music account connected';
-        showControls(accountLabel, alreadyPublished);
+        showControls(accountLabel, false);
       } else if (status.credentials_configured) {
         showUnavailable('Connect your Google account before publishing this playlist.');
       } else {
@@ -168,8 +201,6 @@
     } catch {
       showUnavailable('The YouTube Music connection could not be checked.');
     }
-
-    if (alreadyPublished) renderPublishedResult(playlist.youtube_playlist);
   }
 
   async function publishPlaylist() {
