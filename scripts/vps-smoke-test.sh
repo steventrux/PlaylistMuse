@@ -12,6 +12,7 @@ PLAYLIST_JS_URL="http://127.0.0.1:5770/static/playlist.js"
 YOUTUBE_ACCOUNT_JS_URL="http://127.0.0.1:5770/static/youtube-account.js"
 YOUTUBE_PUBLISH_JS_URL="http://127.0.0.1:5770/static/youtube-publish.js"
 YOUTUBE_CSS_URL="http://127.0.0.1:5770/static/youtube.css"
+YOUTUBE_RESULTS_CSS_URL="http://127.0.0.1:5770/static/youtube-results.css"
 YOUTUBE_STATUS_URL="http://127.0.0.1:5770/api/youtube/status"
 YOUTUBE_SETTINGS_URL="http://127.0.0.1:5770/api/youtube/settings"
 OPENAPI_URL="http://127.0.0.1:5770/openapi.json"
@@ -107,7 +108,8 @@ echo
 echo "YouTube account service:"
 docker exec "$CONTAINER" python -c "from backend.youtube_account import youtube_settings_response; response=youtube_settings_response(); assert set(response)=={'client_id','client_secret_set','configured'}; assert 'client_secret' not in response"
 docker exec "$CONTAINER" python -c "from backend.youtube_routes import YouTubePlaylistCreateRequest; request=YouTubePlaylistCreateRequest(title='Test', privacy_status='UNLISTED', video_ids=['b','a','b']); assert request.video_ids==['b','a']; assert request.privacy_status=='UNLISTED'"
-echo "OK: YouTube OAuth settings hide secrets and playlist order is preserved"
+docker exec "$CONTAINER" python -c "from backend.youtube_account import _validate_youtube_connection_sync; C=type('C',(),{'get_library_playlists':lambda self,limit=1: [],'get_account_info':lambda self: (_ for _ in ()).throw(RuntimeError('profile unavailable'))}); assert _validate_youtube_connection_sync(C())=={}"
+echo "OK: YouTube OAuth hides secrets, preserves order and accepts missing profile data"
 
 echo
 echo "Health endpoint:"
@@ -162,7 +164,7 @@ done
 echo
 echo "Playlist result structure:"
 playlist_html="$(curl --fail --silent --show-error "$PLAYLIST_URL")"
-for required_id in playlist-name playlist-summary playlist-description youtube-publish-warning youtube-publish-controls create-youtube-playlist track-list; do
+for required_id in playlist-name playlist-summary playlist-description youtube-publish-warning youtube-open-settings youtube-settings-dialog youtube-publish-controls create-youtube-playlist track-list; do
   if ! grep -Fq "id=\"${required_id}\"" <<<"$playlist_html"; then
     echo "ERROR: playlist page is missing: $required_id" >&2
     exit 1
@@ -195,7 +197,7 @@ for required_route in "/api/playlists/replace-track" "/api/youtube/settings" "/a
 done
 echo "OK: YouTube OAuth and playlist publishing API"
 
-for asset_url in "$PLAYLIST_CSS_URL" "$COMPACT_CARDS_CSS_URL" "$YOUTUBE_ACCOUNT_JS_URL" "$YOUTUBE_PUBLISH_JS_URL" "$YOUTUBE_CSS_URL"; do
+for asset_url in "$PLAYLIST_CSS_URL" "$COMPACT_CARDS_CSS_URL" "$YOUTUBE_ACCOUNT_JS_URL" "$YOUTUBE_PUBLISH_JS_URL" "$YOUTUBE_CSS_URL" "$YOUTUBE_RESULTS_CSS_URL"; do
   curl --fail --silent --show-error --output /dev/null "$asset_url"
 done
 echo "OK: playlist, compact-card and YouTube Music assets"
