@@ -1,14 +1,17 @@
 # PlaylistMuse
 
-PlaylistMuse is a standalone, self-hosted web application that turns a natural-language prompt into a playlist and resolves the suggested tracks against the YouTube Music catalogue.
+PlaylistMuse is a standalone, self-hosted web application that turns a natural-language prompt or a seed song into an editable YouTube Music playlist.
 
 ## Features
 
-- Natural-language playlist requests
+- Natural-language playlist requests and seed-song generation
 - Configurable track count from 5 to 100
 - Filters for live recordings, covers and remixes
-- AI providers: Google Gemini, OpenAI, Anthropic, Ollama and OpenAI-compatible endpoints
-- YouTube Music catalogue resolution with fuzzy matching
+- AI providers: Google Gemini, OpenAI, Anthropic, OpenRouter Auto, OpenRouter Free, Ollama and OpenAI-compatible endpoints
+- YouTube Music catalogue resolution with fuzzy matching and automatic replenishment
+- Expandable track details and AI-assisted track replacement
+- Google OAuth device authorization for a YouTube Music account
+- Direct playlist creation with private, unlisted or public visibility
 - Responsive web interface
 - Docker support
 
@@ -16,7 +19,7 @@ PlaylistMuse is a standalone, self-hosted web application that turns a natural-l
 
 ```bash
 cp .env.example .env
-# Add the provider, model and credentials to .env
+# Add the provider, model and credentials to .env, or configure them in the web UI
 docker compose up -d --build
 ```
 
@@ -31,19 +34,37 @@ pip install -r requirements.txt
 uvicorn backend.main:app --reload --port 5766
 ```
 
-## Configuration
+## AI configuration
 
-The preferred method is through environment variables:
+The preferred method is the Settings panel. Environment variables can also be used:
 
 | Variable | Description |
 | --- | --- |
-| `PLAYLISTMUSE_AI_PROVIDER` | `gemini`, `openai`, `anthropic`, `ollama` or `custom` |
+| `PLAYLISTMUSE_AI_PROVIDER` | `gemini`, `openai`, `anthropic`, `openrouter_auto`, `openrouter_free`, `ollama` or `custom` |
 | `PLAYLISTMUSE_AI_API_KEY` | Provider API key; not required for a local Ollama server |
 | `PLAYLISTMUSE_AI_MODEL` | Model identifier supported by the selected provider |
+| `PLAYLISTMUSE_AI_FALLBACK_1` | Optional first fallback model |
+| `PLAYLISTMUSE_AI_FALLBACK_2` | Optional second fallback model |
 | `PLAYLISTMUSE_AI_BASE_URL` | Required for Ollama and custom endpoints |
 | `PLAYLISTMUSE_DATA_DIR` | Persistent configuration directory; default `data` |
 
-Settings can also be saved from the web interface. The generated `data/config.json` file is excluded from Git.
+AI settings are stored in `data/config.json`, which is excluded from Git.
+
+## Connect YouTube Music
+
+PlaylistMuse uses the Google OAuth device authorization flow supported by `ytmusicapi`.
+
+1. Create or select a project in Google Cloud Console.
+2. Enable **YouTube Data API v3**.
+3. Configure the OAuth consent screen for the Google account that will use PlaylistMuse.
+4. Create an OAuth client ID with application type **TVs and Limited Input devices**.
+5. Open PlaylistMuse Settings and enter the Google OAuth client ID and client secret.
+6. Select **Save Google credentials**, then **Connect account**.
+7. Complete the authorization on the Google page using the displayed code.
+
+The OAuth client configuration and refreshable account token are stored in the persistent data directory with file permissions restricted to the application user. They are never returned to the browser after being saved.
+
+When an account is connected, the results page allows the edited playlist title, AI-generated description and current track order to be sent directly to YouTube Music. Visibility can be set to **Private**, **Unlisted** or **Public**.
 
 ## API
 
@@ -51,9 +72,20 @@ Settings can also be saved from the web interface. The generated `data/config.js
 - `GET /api/settings`
 - `PUT /api/settings`
 - `POST /api/playlists/generate`
+- `POST /api/playlists/generate-from-seed`
+- `POST /api/playlists/replace-track`
+- `GET /api/youtube/settings`
+- `PUT /api/youtube/settings`
+- `GET /api/youtube/status`
+- `POST /api/youtube/connect/start`
+- `POST /api/youtube/connect/poll`
+- `DELETE /api/youtube/connection`
+- `POST /api/youtube/playlists`
 
 Interactive API documentation is available at `/docs`.
 
-## Notes
+## Security notes
 
-PlaylistMuse resolves public YouTube Music catalogue results. It does not yet create or modify playlists inside a user's Google account.
+PlaylistMuse is designed for self-hosting. Keep the persistent data volume private, expose the application through HTTPS, restrict access to trusted users and never commit OAuth credentials or tokens to Git.
+
+`ytmusicapi` is an unofficial YouTube Music client. YouTube or Google may change authentication or internal endpoints without notice.
