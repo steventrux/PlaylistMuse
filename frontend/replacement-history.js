@@ -3,7 +3,7 @@
 
   const HISTORY_KEY = 'playlistmuse-replacement-history';
   const MAX_HISTORY = 200;
-  const MAX_EXISTING_TRACKS = 100;
+  const MAX_EXISTING_TRACKS = 300;
   const originalFetch = window.fetch.bind(window);
 
   function normalize(value) {
