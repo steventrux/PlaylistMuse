@@ -101,10 +101,40 @@
     };
   }
 
+  function setReplacingButton(button) {
+    const spinner = document.createElement('span');
+    spinner.className = 'generation-spinner';
+    spinner.setAttribute('aria-hidden', 'true');
+
+    const label = document.createElement('span');
+    label.className = 'generation-label';
+    label.textContent = 'Replacing';
+
+    const dots = document.createElement('span');
+    dots.className = 'generation-dots';
+    dots.setAttribute('aria-hidden', 'true');
+    dots.append(
+      document.createElement('span'),
+      document.createElement('span'),
+      document.createElement('span'),
+    );
+
+    button.replaceChildren(spinner, label, dots);
+    button.classList.add('is-loading');
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+
+    return () => {
+      button.classList.remove('is-loading');
+      button.removeAttribute('aria-busy');
+      button.disabled = false;
+      button.textContent = 'Replace track';
+    };
+  }
+
   async function replaceTrack(index, button, status) {
     const currentTrack = data.tracks[index];
-    button.disabled = true;
-    button.textContent = 'Replacing…';
+    const resetReplacingButton = setReplacingButton(button);
     status.textContent = 'Finding a new track that preserves this song’s role…';
     status.classList.remove('error');
 
@@ -144,8 +174,7 @@
     } catch (error) {
       status.textContent = error.message || String(error);
       status.classList.add('error');
-      button.disabled = false;
-      button.textContent = 'Replace track';
+      resetReplacingButton();
     }
   }
 
