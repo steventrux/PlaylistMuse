@@ -1,0 +1,16 @@
+/* Playlist header layout only. Track cards are intentionally unchanged. */
+
+.playlist-title-editor {
+  width: 100%;
+  max-width: none;
+}
+
+.playlist-title-editor input {
+  width: 100%;
+}
+
+.playlist-summary,
+.playlist-description {
+  width: 100%;
+  max-width: none;
+}
