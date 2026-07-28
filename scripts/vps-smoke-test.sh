@@ -65,9 +65,10 @@ echo "Container status:"
 docker compose -f "$COMPOSE_FILE" ps
 
 echo
-echo "Python compilation:"
-docker exec "$CONTAINER" python -m compileall -q backend
-echo "OK: backend compiled"
+echo "Python compilation and tests:"
+docker exec "$CONTAINER" python -m compileall -q backend tests
+docker exec "$CONTAINER" pytest -q
+echo "OK: backend compiled and tests passed"
 
 echo
 echo "Duplicate-track identity:"
@@ -75,18 +76,28 @@ docker exec "$CONTAINER" python -c "from backend.youtube import track_identity_k
 echo "OK: alternate uploads share one track identity"
 
 echo
-echo "OpenRouter credential sharing:"
-docker exec "$CONTAINER" python -c "from backend.config import AppConfig, api_key_slot; assert api_key_slot('openrouter_auto') == 'openrouter'; assert api_key_slot('openrouter_free') == 'openrouter'; c=AppConfig(provider_api_keys={'openrouter':'saved'}); assert c.key_is_saved('openrouter_auto') and c.key_is_saved('openrouter_free')"
-echo "OK: OpenRouter Auto and Free share one saved key"
+echo "Provider credential separation:"
+docker exec "$CONTAINER" python -c "from backend.config import AppConfig, api_key_matches_provider, api_key_slot; assert api_key_slot('openrouter_auto') == 'openrouter'; assert api_key_slot('openrouter_free') == 'openrouter'; c=AppConfig(provider_api_keys={'openrouter':'sk-or-saved'}); assert c.key_is_saved('openrouter_auto') and c.key_is_saved('openrouter_free'); assert not api_key_matches_provider('gemini','sk-or-v1-wrong'); assert not AppConfig(provider='gemini',api_key='sk-or-v1-wrong',model='gemini-3.6-flash').configured"
+echo "OK: provider keys are shared only where intended"
+
+echo
+echo "Gemini request safety:"
+grep -Fq 'x-goog-api-key' backend/llm.py
+grep -Fq 'responseFormat' backend/llm.py
+if grep -Fq 'params={"key"' backend/llm.py; then
+  echo "ERROR: Gemini API key is still sent in the URL query string" >&2
+  exit 1
+fi
+echo "OK: Gemini key uses a header and structured response format"
 
 echo
 echo "AI generation strategy:"
 docker exec "$CONTAINER" python -c "from backend.llm import _attempt_count, _playlist_response_format; full=_playlist_response_format(25, exact_count=True)['json_schema']['schema']['properties']['tracks']; batch=_playlist_response_format(6)['json_schema']['schema']['properties']['tracks']; assert full['minItems']==25 and full['maxItems']==25; assert batch['minItems']==1 and batch['maxItems']==6; assert _attempt_count('openrouter_free')==2"
 grep -Fq 'response-healing' backend/llm.py
-grep -Fq 'require_parameters' backend/llm.py
 grep -Fq '_try_complete_request' backend/llm.py
 grep -Fq '_complete_in_batches' backend/llm.py
-echo "OK: complete request first, batched completion only as fallback"
+grep -Fq '_replenishment_prompt' backend/main.py
+echo "OK: complete request first, AI batching and YouTube replenishment enabled"
 
 echo
 echo "Health endpoint:"
