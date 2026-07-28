@@ -53,23 +53,17 @@
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const status = await response.json();
       const connected = Boolean(status.account_connected);
+      const connectedLabel = status.account_name
+        ? `YouTube Music connected · ${status.account_name}`
+        : 'YouTube Music account connected';
 
       setIndicator(
         ytIndicator,
         connected,
-        connected
-          ? 'YouTube Music account connected'
-          : 'YouTube Music account not connected',
+        connected ? connectedLabel : 'YouTube Music account not connected',
       );
-
-      $('account-status').textContent = connected
-        ? 'Connected with Google'
-        : (status.catalog_available
-          ? 'Google account not connected · public catalogue available'
-          : 'Google account not connected');
     } catch {
       setError(ytIndicator, 'Unable to check YouTube Music connection');
-      $('account-status').textContent = 'Unable to check YouTube Music.';
     }
   }
 
