@@ -8,6 +8,11 @@ ROOT_URL="http://127.0.0.1:5770/"
 PLAYLIST_URL="http://127.0.0.1:5770/static/playlist.html"
 PLAYLIST_CSS_URL="http://127.0.0.1:5770/static/playlist.css"
 PLAYLIST_JS_URL="http://127.0.0.1:5770/static/playlist.js"
+YOUTUBE_ACCOUNT_JS_URL="http://127.0.0.1:5770/static/youtube-account.js"
+YOUTUBE_PUBLISH_JS_URL="http://127.0.0.1:5770/static/youtube-publish.js"
+YOUTUBE_CSS_URL="http://127.0.0.1:5770/static/youtube.css"
+YOUTUBE_STATUS_URL="http://127.0.0.1:5770/api/youtube/status"
+YOUTUBE_SETTINGS_URL="http://127.0.0.1:5770/api/youtube/settings"
 OPENAPI_URL="http://127.0.0.1:5770/openapi.json"
 SETTINGS_URL="http://127.0.0.1:5770/api/settings"
 
@@ -98,6 +103,12 @@ grep -Fq '_replenishment_prompt' backend/main.py
 echo "OK: complete request first, AI batching and YouTube replenishment enabled"
 
 echo
+echo "YouTube account service:"
+docker exec "$CONTAINER" python -c "from backend.youtube_account import youtube_settings_response; response=youtube_settings_response(); assert set(response)=={'client_id','client_secret_set','configured'}; assert 'client_secret' not in response"
+docker exec "$CONTAINER" python -c "from backend.youtube_routes import YouTubePlaylistCreateRequest; request=YouTubePlaylistCreateRequest(title='Test', privacy_status='UNLISTED', video_ids=['b','a','b']); assert request.video_ids==['b','a']; assert request.privacy_status=='UNLISTED'"
+echo "OK: YouTube OAuth settings hide secrets and playlist order is preserved"
+
+echo
 echo "Health endpoint:"
 curl --fail --silent --show-error "$HEALTH_URL"
 echo
@@ -115,9 +126,31 @@ done
 echo "OK: settings schema"
 
 echo
+echo "YouTube endpoints:"
+youtube_settings_json="$(curl --fail --silent --show-error "$YOUTUBE_SETTINGS_URL")"
+youtube_status_json="$(curl --fail --silent --show-error "$YOUTUBE_STATUS_URL")"
+for required_key in client_id client_secret_set configured; do
+  if ! grep -Fq "\"${required_key}\":" <<<"$youtube_settings_json"; then
+    echo "ERROR: YouTube settings response is missing key: $required_key" >&2
+    exit 1
+  fi
+done
+if grep -Fq 'client_secret"' <<<"$youtube_settings_json"; then
+  echo "ERROR: YouTube client secret was exposed by the settings endpoint" >&2
+  exit 1
+fi
+for required_key in catalog_available credentials_configured account_connected message; do
+  if ! grep -Fq "\"${required_key}\":" <<<"$youtube_status_json"; then
+    echo "ERROR: YouTube status response is missing key: $required_key" >&2
+    exit 1
+  fi
+done
+echo "OK: YouTube Music status and settings API"
+
+echo
 echo "Frontend structure:"
 frontend_html="$(curl --fail --silent --show-error "$ROOT_URL")"
-for required_text in "From Prompt" "From Seed" "AI provider" "Fallbacks" "OpenRouter Auto" "OpenRouter Free" "YouTube Music account"; do
+for required_text in "From Prompt" "From Seed" "AI provider" "Fallbacks" "OpenRouter Auto" "OpenRouter Free" "YouTube Music account" "Google OAuth client ID" "Connect account"; do
   if ! grep -Fq "$required_text" <<<"$frontend_html"; then
     echo "ERROR: frontend is missing: $required_text" >&2
     exit 1
@@ -128,7 +161,7 @@ done
 echo
 echo "Playlist result structure:"
 playlist_html="$(curl --fail --silent --show-error "$PLAYLIST_URL")"
-for required_id in playlist-name playlist-summary playlist-description track-list; do
+for required_id in playlist-name playlist-summary playlist-description youtube-privacy create-youtube-playlist track-list; do
   if ! grep -Fq "id=\"${required_id}\"" <<<"$playlist_html"; then
     echo "ERROR: playlist page is missing: $required_id" >&2
     exit 1
@@ -146,14 +179,18 @@ for required_text in "track-details" "Open in YouTube Music" "Replace track" "/a
 done
 
 openapi_json="$(curl --fail --silent --show-error "$OPENAPI_URL")"
-if ! grep -Fq '"/api/playlists/replace-track"' <<<"$openapi_json"; then
-  echo "ERROR: replacement API endpoint is missing" >&2
-  exit 1
-fi
-echo "OK: replacement API"
+for required_route in "/api/playlists/replace-track" "/api/youtube/settings" "/api/youtube/status" "/api/youtube/connect/start" "/api/youtube/connect/poll" "/api/youtube/connection" "/api/youtube/playlists"; do
+  if ! grep -Fq "\"${required_route}\"" <<<"$openapi_json"; then
+    echo "ERROR: API route is missing: $required_route" >&2
+    exit 1
+  fi
+done
+echo "OK: YouTube OAuth and playlist publishing API"
 
-curl --fail --silent --show-error --output /dev/null "$PLAYLIST_CSS_URL"
-echo "OK: playlist.css"
+for asset_url in "$PLAYLIST_CSS_URL" "$YOUTUBE_ACCOUNT_JS_URL" "$YOUTUBE_PUBLISH_JS_URL" "$YOUTUBE_CSS_URL"; do
+  curl --fail --silent --show-error --output /dev/null "$asset_url"
+done
+echo "OK: playlist and YouTube Music assets"
 
 echo
 echo "Frontend HTTP status:"
