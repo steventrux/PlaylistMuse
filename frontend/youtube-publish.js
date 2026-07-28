@@ -91,7 +91,14 @@
     status.replaceChildren();
     status.classList.remove('error');
     status.classList.add('success');
-    status.append('Playlist created successfully · ');
+
+    const createdCount = Number(result.track_count || 0);
+    const requestedCount = Number(result.requested_track_count || createdCount);
+    status.append(
+      createdCount === requestedCount
+        ? `Playlist created with ${createdCount} tracks · `
+        : `Playlist created with ${createdCount} of ${requestedCount} tracks · `,
+    );
 
     const link = document.createElement('a');
     link.href = result.url;
@@ -99,6 +106,14 @@
     link.rel = 'noopener noreferrer';
     link.textContent = 'Open in YouTube Music';
     status.append(link);
+
+    if (result.warning) {
+      status.append(document.createElement('br'));
+      const warning = document.createElement('span');
+      warning.className = 'youtube-publish-warning-inline';
+      warning.textContent = result.warning;
+      status.append(warning);
+    }
     return true;
   }
 
