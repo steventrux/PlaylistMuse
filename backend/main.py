@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
-from backend.config import AppConfig, load_config, save_config
+from backend.config import AppConfig, api_key_slot, load_config, save_config
 from backend.llm import generate_playlist_draft
 from backend.youtube import resolve_candidates, search_songs, track_identity_key
 
@@ -170,10 +170,11 @@ async def get_settings() -> SettingsResponse:
 async def update_settings(request: SettingsUpdate) -> SettingsResponse:
     current = load_config()
     provider_api_keys = dict(current.provider_api_keys)
+    slot = api_key_slot(request.provider)
     submitted_key = request.api_key.strip()
     if submitted_key:
-        provider_api_keys[request.provider] = submitted_key
-    active_key = provider_api_keys.get(request.provider, "")
+        provider_api_keys[slot] = submitted_key
+    active_key = provider_api_keys.get(slot, "")
 
     model = request.model.strip()
     fallback_1 = request.fallback_1.strip()
