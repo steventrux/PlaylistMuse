@@ -4,6 +4,10 @@
   color: var(--error);
 }
 
+.settings-block .settings-actions {
+  flex-wrap: wrap;
+}
+
 .youtube-settings-fields {
   margin-top: 16px;
 }
@@ -32,6 +36,10 @@
   border: 1px solid rgba(56, 189, 248, .36);
   border-radius: 14px;
   background: rgba(14, 48, 68, .34);
+}
+
+.youtube-account-profile.no-photo {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .youtube-account-profile img {
