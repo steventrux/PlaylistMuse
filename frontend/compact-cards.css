@@ -1,0 +1,20 @@
+/* Keep collapsed result cards compact without changing artwork size. */
+
+.track-result-card:not(.expanded) {
+  padding: 6px 10px;
+}
+
+.track-result-card:not(.expanded) .track-copy {
+  gap: 1px;
+}
+
+.track-result-card:not(.expanded) .track-heading,
+.track-result-card:not(.expanded) .track-meta {
+  line-height: 1.22;
+}
+
+@media (max-width: 650px) {
+  .track-result-card:not(.expanded) {
+    padding: 5px 8px;
+  }
+}
