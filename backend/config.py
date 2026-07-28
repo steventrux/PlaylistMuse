@@ -10,6 +10,12 @@ from typing import Any
 
 DATA_DIR = Path(os.getenv("PLAYLISTMUSE_DATA_DIR", "data"))
 CONFIG_PATH = DATA_DIR / "config.json"
+OPENROUTER_PROVIDERS = {"openrouter_auto", "openrouter_free"}
+
+
+def api_key_slot(provider: str) -> str:
+    """Return the storage slot used by a provider's API key."""
+    return "openrouter" if provider in OPENROUTER_PROVIDERS else provider
 
 
 @dataclass(slots=True)
@@ -42,7 +48,7 @@ class AppConfig:
 
     def key_is_saved(self, provider: str) -> bool:
         """Return whether an API key is stored for the requested provider."""
-        return bool(self.provider_api_keys.get(provider, "").strip())
+        return bool(self.provider_api_keys.get(api_key_slot(provider), "").strip())
 
 
 def _environment_or_saved(name: str, saved: str = "") -> str:
@@ -54,19 +60,20 @@ def _environment_or_saved(name: str, saved: str = "") -> str:
 
 
 def _saved_api_keys(values: dict[str, Any], provider: str) -> dict[str, str]:
-    """Load the per-provider key store and migrate the previous single-key format."""
+    """Load the per-provider key store and migrate older key formats."""
     raw_keys = values.get("api_keys", {})
     keys: dict[str, str] = {}
     if isinstance(raw_keys, dict):
-        keys = {
-            str(name).strip(): str(value).strip()
-            for name, value in raw_keys.items()
-            if str(name).strip() and str(value).strip()
-        }
+        for name, value in raw_keys.items():
+            key_name = api_key_slot(str(name).strip())
+            key_value = str(value).strip()
+            if key_name and key_value:
+                keys[key_name] = key_value
 
     legacy_key = str(values.get("api_key", "") or "").strip()
-    if provider and legacy_key and provider not in keys:
-        keys[provider] = legacy_key
+    slot = api_key_slot(provider)
+    if slot and legacy_key and slot not in keys:
+        keys[slot] = legacy_key
     return keys
 
 
@@ -83,10 +90,11 @@ def load_config() -> AppConfig:
         "PLAYLISTMUSE_AI_PROVIDER", str(values.get("provider", ""))
     )
     provider_api_keys = _saved_api_keys(values, provider)
-    saved_active_key = provider_api_keys.get(provider, "")
+    slot = api_key_slot(provider)
+    saved_active_key = provider_api_keys.get(slot, "")
     active_key = _environment_or_saved("PLAYLISTMUSE_AI_API_KEY", saved_active_key)
-    if provider and active_key:
-        provider_api_keys[provider] = active_key
+    if slot and active_key:
+        provider_api_keys[slot] = active_key
 
     return AppConfig(
         provider=provider,
@@ -110,12 +118,13 @@ def load_config() -> AppConfig:
 def save_config(config: AppConfig) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     keys = {
-        name: value
+        api_key_slot(name): value
         for name, value in config.provider_api_keys.items()
         if name.strip() and value.strip()
     }
-    if config.provider and config.api_key:
-        keys[config.provider] = config.api_key
+    slot = api_key_slot(config.provider)
+    if slot and config.api_key:
+        keys[slot] = config.api_key
 
     payload = {
         "provider": config.provider,
