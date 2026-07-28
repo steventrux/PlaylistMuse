@@ -44,27 +44,41 @@
   }
 
   function writeHistory(history) {
-    const unique = [];
+    const uniqueNewestFirst = [];
     const seen = new Set();
-    for (const track of history) {
+
+    for (const track of [...history].reverse()) {
       const identity = trackIdentity(track);
       if (!identity || seen.has(identity)) continue;
       seen.add(identity);
-      unique.push(trackContext(track));
+      uniqueNewestFirst.push(trackContext(track));
     }
-    sessionStorage.setItem(HISTORY_KEY, JSON.stringify(unique.slice(-MAX_HISTORY)));
+
+    const chronological = uniqueNewestFirst.reverse().slice(-MAX_HISTORY);
+    sessionStorage.setItem(HISTORY_KEY, JSON.stringify(chronological));
   }
 
   function mergeReplacementContext(existingTracks) {
     const merged = [];
     const seen = new Set();
-    for (const track of [...(existingTracks || []), ...readHistory()]) {
+
+    for (const track of existingTracks || []) {
+      const identity = trackIdentity(track);
+      if (!identity || seen.has(identity)) continue;
+      seen.add(identity);
+      merged.push(trackContext(track));
+      if (merged.length >= MAX_EXISTING_TRACKS) return merged;
+    }
+
+    const recentHistory = readHistory().reverse();
+    for (const track of recentHistory) {
       const identity = trackIdentity(track);
       if (!identity || seen.has(identity)) continue;
       seen.add(identity);
       merged.push(trackContext(track));
       if (merged.length >= MAX_EXISTING_TRACKS) break;
     }
+
     return merged;
   }
 
