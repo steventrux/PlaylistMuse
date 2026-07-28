@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import math
 import re
+import unicodedata
 from typing import Any
 
 import httpx
@@ -44,10 +46,11 @@ Rules:
 
 OPENROUTER_PROVIDERS = {"openrouter_auto", "openrouter_free"}
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+OPENROUTER_FREE_BATCH_SIZE = 6
 
 
-def _playlist_response_format(count: int) -> dict[str, Any]:
-    """Return the strict JSON Schema used for OpenRouter structured output."""
+def _playlist_response_format(count: int, *, exact_count: bool = True) -> dict[str, Any]:
+    """Return the JSON Schema used for OpenRouter structured output."""
     track_schema = {
         "type": "object",
         "additionalProperties": False,
@@ -100,7 +103,7 @@ def _playlist_response_format(count: int) -> dict[str, Any]:
                     },
                     "tracks": {
                         "type": "array",
-                        "minItems": count,
+                        "minItems": count if exact_count else 1,
                         "maxItems": count,
                         "items": track_schema,
                     },
@@ -112,8 +115,8 @@ def _playlist_response_format(count: int) -> dict[str, Any]:
 
 
 def _openrouter_max_tokens(count: int) -> int:
-    """Allow enough output for track explanations without requesting an excessive limit."""
-    return min(16_384, max(8_192, count * 260))
+    """Allow enough output for explanations without requesting an excessive limit."""
+    return min(16_384, max(4_096, count * 320))
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -167,6 +170,18 @@ def _extract_json(text: str) -> dict[str, Any]:
     }
 
 
+def _normalize_identity(value: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", value)
+    without_accents = "".join(
+        character for character in decomposed if not unicodedata.combining(character)
+    )
+    return " ".join(re.findall(r"[a-z0-9]+", without_accents.casefold()))
+
+
+def _candidate_key(track: dict[str, str]) -> str:
+    return f"{_normalize_identity(track.get('artist', ''))}|{_normalize_identity(track.get('title', ''))}"
+
+
 def _openrouter_error_message(error: Any) -> str:
     if isinstance(error, dict):
         message = error.get("message") or error.get("code")
@@ -208,6 +223,8 @@ async def _request_model(
     model: str,
     user_prompt: str,
     count: int,
+    *,
+    exact_count: bool = True,
 ) -> str:
     if config.provider == "gemini":
         url = (
@@ -274,7 +291,9 @@ async def _request_model(
                 "model": model,
                 "max_tokens": _openrouter_max_tokens(count),
                 "stream": False,
-                "response_format": _playlist_response_format(count),
+                "response_format": _playlist_response_format(
+                    count, exact_count=exact_count
+                ),
                 "plugins": [{"id": "response-healing"}],
                 "provider": {"require_parameters": True},
                 "messages": [
@@ -307,8 +326,6 @@ async def _request_model(
 
 
 def _attempt_count(provider: str) -> int:
-    if provider == "openrouter_free":
-        return 3
     if provider == "openrouter_auto":
         return 2
     return 1
@@ -320,6 +337,111 @@ def _is_non_retryable_http_error(exc: Exception) -> bool:
     return exc.response.status_code in {401, 402, 403}
 
 
+def _free_batch_prompt(
+    prompt: str,
+    *,
+    total_count: int,
+    batch_count: int,
+    collected: list[dict[str, str]],
+) -> str:
+    avoided = "\n".join(
+        f"- {track['artist']} — {track['title']}" for track in collected
+    )
+    return (
+        f"Build one cohesive playlist containing {total_count} tracks for this request:\n{prompt}\n\n"
+        f"Return the next batch of up to {batch_count} NEW tracks. "
+        "The title and description must describe the complete playlist, not only this batch. "
+        "Every returned song must be different from all songs already collected."
+        + (f"\nSongs already collected and forbidden:\n{avoided}" if avoided else "")
+    )
+
+
+async def _generate_openrouter_free_draft(
+    client: httpx.AsyncClient,
+    config: AppConfig,
+    prompt: str,
+    count: int,
+) -> dict[str, Any]:
+    """Accumulate short Free-router responses instead of requiring one long completion."""
+    tracks: list[dict[str, str]] = []
+    seen: set[str] = set()
+    title = ""
+    description = ""
+    errors: list[str] = []
+    batch_size = min(OPENROUTER_FREE_BATCH_SIZE, count)
+    max_calls = min(12, max(4, math.ceil(count / batch_size) * 2))
+    stalled_calls = 0
+
+    for call_number in range(1, max_calls + 1):
+        remaining = count - len(tracks)
+        if remaining <= 0:
+            break
+        requested = min(batch_size, remaining)
+        user_prompt = _free_batch_prompt(
+            prompt,
+            total_count=count,
+            batch_count=requested,
+            collected=tracks,
+        )
+
+        try:
+            text = await _request_model(
+                client,
+                config,
+                "openrouter/free",
+                user_prompt,
+                requested,
+                exact_count=False,
+            )
+            draft = _extract_json(text)
+        except Exception as exc:
+            errors.append(f"batch {call_number}/{max_calls}: {exc}")
+            if _is_non_retryable_http_error(exc):
+                break
+            stalled_calls += 1
+            if stalled_calls >= 3 and tracks:
+                break
+            continue
+
+        if not title:
+            title = draft["title"]
+            description = draft["description"]
+
+        added = 0
+        for track in draft["tracks"]:
+            key = _candidate_key(track)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            tracks.append(track)
+            added += 1
+            if len(tracks) >= count:
+                break
+
+        if added:
+            stalled_calls = 0
+        else:
+            stalled_calls += 1
+            errors.append(
+                f"batch {call_number}/{max_calls}: returned no new non-duplicate tracks"
+            )
+            if stalled_calls >= 3:
+                break
+
+    if len(tracks) < count:
+        detail = "; ".join(errors[-5:])
+        raise ValueError(
+            f"OpenRouter Free collected {len(tracks)} of {count} unique tracks after "
+            f"{max_calls} short requests. {detail}".strip()
+        )
+
+    return {
+        "title": title,
+        "description": description,
+        "tracks": tracks[:count],
+    }
+
+
 async def generate_playlist_draft(
     config: AppConfig, prompt: str, count: int
 ) -> dict[str, Any]:
@@ -327,13 +449,16 @@ async def generate_playlist_draft(
     if not config.configured:
         raise ValueError("Configure an AI provider before generating a playlist.")
 
-    base_user_prompt = (
-        f"Create a playlist containing exactly {count} tracks for this request:\n{prompt}"
-    )
     timeout = httpx.Timeout(120.0, connect=10.0)
-    errors: list[str] = []
-
     async with httpx.AsyncClient(timeout=timeout) as client:
+        if config.provider == "openrouter_free":
+            return await _generate_openrouter_free_draft(client, config, prompt, count)
+
+        base_user_prompt = (
+            f"Create a playlist containing exactly {count} tracks for this request:\n{prompt}"
+        )
+        errors: list[str] = []
+
         for model in config.model_chain:
             attempts = _attempt_count(config.provider)
             for attempt in range(1, attempts + 1):
