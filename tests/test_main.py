@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 import backend.main as main_module
 from backend.config import AppConfig, api_key_slot
+from backend.llm import _attempt_count, _openrouter_max_tokens, _playlist_response_format
 from backend.youtube import track_identity_key
 
 
@@ -50,6 +51,21 @@ def test_openrouter_free_enforces_free_router_and_marks_both_modes(monkeypatch) 
     assert payload["provider_keys_set"]["openrouter_auto"] is True
     assert payload["provider_keys_set"]["openrouter_free"] is True
     assert saved["config"].provider_api_keys == {"openrouter": "sk-or-test"}
+
+
+def test_openrouter_structured_output_schema_and_retry_policy() -> None:
+    response_format = _playlist_response_format(25)
+    schema = response_format["json_schema"]["schema"]
+
+    assert response_format["type"] == "json_schema"
+    assert response_format["json_schema"]["strict"] is True
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["tracks"]["minItems"] == 25
+    assert schema["properties"]["tracks"]["maxItems"] == 25
+    assert schema["properties"]["tracks"]["items"]["additionalProperties"] is False
+    assert _attempt_count("openrouter_free") == 3
+    assert _attempt_count("openrouter_auto") == 2
+    assert _openrouter_max_tokens(25) >= 8192
 
 
 def test_track_identity_ignores_case_accents_and_punctuation() -> None:
