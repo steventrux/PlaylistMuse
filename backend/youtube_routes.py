@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field, field_validator
 
 from backend.youtube_account import (
     YouTubeAccountError,
-    create_youtube_playlist,
     disconnect_youtube,
     poll_authorization,
     save_youtube_settings,
@@ -17,6 +16,7 @@ from backend.youtube_account import (
     youtube_settings_response,
     youtube_status,
 )
+from backend.youtube_publish import create_youtube_playlist
 
 router = APIRouter(prefix="/api/youtube", tags=["youtube-music"])
 
