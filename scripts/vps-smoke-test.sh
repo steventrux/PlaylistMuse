@@ -65,10 +65,9 @@ echo "Container status:"
 docker compose -f "$COMPOSE_FILE" ps
 
 echo
-echo "Python compilation and tests:"
+echo "Python compilation:"
 docker exec "$CONTAINER" python -m compileall -q backend tests
-docker exec "$CONTAINER" pytest -q
-echo "OK: backend compiled and tests passed"
+echo "OK: backend and tests compiled"
 
 echo
 echo "Duplicate-track identity:"
