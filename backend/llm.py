@@ -1,4 +1,4 @@
-"""Provider-neutral playlist generation with model fallbacks."""
+"""Provider-neutral playlist generation with safe fallbacks."""
 
 from __future__ import annotations
 
@@ -47,80 +47,64 @@ Rules:
 OPENROUTER_PROVIDERS = {"openrouter_auto", "openrouter_free"}
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_BATCH_SIZE = 8
-PROVIDER_BATCH_SIZES = {
-    "openrouter_free": 6,
-    "ollama": 6,
-}
+PROVIDER_BATCH_SIZES = {"openrouter_free": 6, "ollama": 6}
 
 
-def _playlist_response_format(count: int, *, exact_count: bool = False) -> dict[str, Any]:
-    """Return the JSON Schema used for OpenRouter structured output."""
-    track_schema = {
+class ProviderRequestError(ValueError):
+    """A provider failure whose public message contains no credentials or raw URLs."""
+
+    def __init__(self, provider: str, status_code: int | None, message: str) -> None:
+        self.provider = provider
+        self.status_code = status_code
+        super().__init__(message)
+
+
+def _track_schema() -> dict[str, Any]:
+    return {
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            "artist": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 160,
-                "description": "Canonical artist name.",
-            },
-            "title": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 220,
-                "description": "Canonical released song title.",
-            },
-            "description": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 320,
-                "description": "One concise sentence describing the song's sound.",
-            },
-            "reason": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 400,
-                "description": "One concise sentence explaining its role in this playlist.",
-            },
+            "artist": {"type": "string", "minLength": 1, "maxLength": 160},
+            "title": {"type": "string", "minLength": 1, "maxLength": 220},
+            "description": {"type": "string", "minLength": 1, "maxLength": 320},
+            "reason": {"type": "string", "minLength": 1, "maxLength": 400},
         },
         "required": ["artist", "title", "description", "reason"],
     }
+
+
+def _playlist_json_schema(count: int, *, exact_count: bool = False) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "title": {"type": "string", "minLength": 1, "maxLength": 100},
+            "description": {"type": "string", "minLength": 1, "maxLength": 500},
+            "tracks": {
+                "type": "array",
+                "minItems": count if exact_count else 1,
+                "maxItems": count,
+                "items": _track_schema(),
+            },
+        },
+        "required": ["title", "description", "tracks"],
+    }
+
+
+def _playlist_response_format(count: int, *, exact_count: bool = False) -> dict[str, Any]:
+    """Return the OpenRouter/OpenAI JSON Schema response format."""
     return {
         "type": "json_schema",
         "json_schema": {
             "name": "playlist_muse_playlist",
             "strict": True,
-            "schema": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 100,
-                    },
-                    "description": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 500,
-                    },
-                    "tracks": {
-                        "type": "array",
-                        "minItems": count if exact_count else 1,
-                        "maxItems": count,
-                        "items": track_schema,
-                    },
-                },
-                "required": ["title", "description", "tracks"],
-            },
+            "schema": _playlist_json_schema(count, exact_count=exact_count),
         },
     }
 
 
 def _openrouter_max_tokens(count: int) -> int:
-    """Allow enough output for explanations without requesting an excessive limit."""
-    return min(16_384, max(4_096, count * 320))
+    return min(32_768, max(4_096, count * 500))
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -138,7 +122,6 @@ def _extract_json(text: str) -> dict[str, Any]:
     title = str(payload.get("title", "")).strip()
     description = str(payload.get("description", "")).strip()
     raw_tracks = payload.get("tracks")
-
     if not title or len(title) > 100:
         raise ValueError("The AI provider returned an invalid playlist title.")
     if not description or len(description) > 500:
@@ -163,15 +146,9 @@ def _extract_json(text: str) -> dict[str, Any]:
                     "reason": reason[:400],
                 }
             )
-
     if not tracks:
         raise ValueError("The AI provider returned no usable tracks with explanations.")
-
-    return {
-        "title": title,
-        "description": description,
-        "tracks": tracks,
-    }
+    return {"title": title, "description": description, "tracks": tracks}
 
 
 def _normalize_identity(value: str) -> str:
@@ -205,39 +182,86 @@ def _unique_tracks(
     return unique
 
 
-def _openrouter_error_message(error: Any) -> str:
-    if isinstance(error, dict):
-        message = error.get("message") or error.get("code")
-        metadata = error.get("metadata")
-        error_type = metadata.get("error_type") if isinstance(metadata, dict) else None
-        if message and error_type:
-            return f"{message} ({error_type})"
-        if message:
-            return str(message)
-    return str(error or "Unknown OpenRouter error")
+def _safe_provider_message(provider: str, response: httpx.Response) -> str:
+    message = "The provider rejected the request."
+    try:
+        payload = response.json()
+    except (ValueError, json.JSONDecodeError):
+        payload = None
+
+    if isinstance(payload, dict):
+        raw_error = payload.get("error")
+        if isinstance(raw_error, dict):
+            raw_message = raw_error.get("message") or raw_error.get("status")
+        else:
+            raw_message = payload.get("message") or raw_error
+        if raw_message:
+            message = str(raw_message)
+
+    message = re.sub(r"https?://\S+", "", message)
+    message = re.sub(r"(?:AIza|sk-or-|sk-)[A-Za-z0-9_\-]{12,}", "[redacted]", message)
+    message = " ".join(message.split()).strip(" ;,.")
+    if response.status_code in {401, 403}:
+        return f"{provider} rejected the saved API key or its permissions."
+    if response.status_code == 429:
+        return f"{provider} rate limit or quota reached. Try again later."
+    return f"{provider} request failed ({response.status_code}): {message[:260]}"
+
+
+def safe_error_message(error: Exception) -> str:
+    """Return a concise public error without URLs, keys, request bodies or trace detail."""
+    if isinstance(error, ProviderRequestError):
+        return str(error)
+    text = str(error)
+    text = re.sub(r"https?://\S+", "", text)
+    text = re.sub(r"(?:AIza|sk-or-|sk-)[A-Za-z0-9_\-]{12,}", "[redacted]", text)
+    text = re.sub(r"\bkey=[^\s&]+", "key=[redacted]", text, flags=re.IGNORECASE)
+    text = " ".join(text.split()).strip()
+    return text[:420] or "The AI provider could not complete the request."
+
+
+def _raise_for_provider(response: httpx.Response, provider: str) -> None:
+    if response.is_success:
+        return
+    raise ProviderRequestError(
+        provider,
+        response.status_code,
+        _safe_provider_message(provider, response),
+    )
 
 
 def _content_from_openai(data: dict[str, Any]) -> str:
-    if data.get("error"):
-        raise ValueError(_openrouter_error_message(data["error"]))
-
+    error = data.get("error")
+    if error:
+        message = error.get("message") if isinstance(error, dict) else str(error)
+        raise ProviderRequestError("AI provider", None, str(message or "Provider error"))
     choices = data.get("choices")
     if not isinstance(choices, list) or not choices:
         raise ValueError("The AI provider returned no completion choices.")
-
     choice = choices[0]
-    if not isinstance(choice, dict):
-        raise ValueError("The AI provider returned an invalid completion choice.")
-    if choice.get("error"):
-        raise ValueError(_openrouter_error_message(choice["error"]))
-    if choice.get("finish_reason") == "error":
+    if not isinstance(choice, dict) or choice.get("finish_reason") == "error":
         raise ValueError("The upstream model stopped with a provider error.")
-
     message = choice.get("message")
     content = message.get("content") if isinstance(message, dict) else None
     if not isinstance(content, str) or not content.strip():
         raise ValueError("The AI provider returned an empty completion.")
     return content
+
+
+def _gemini_text(data: dict[str, Any]) -> str:
+    candidates = data.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        feedback = data.get("promptFeedback")
+        if isinstance(feedback, dict) and feedback.get("blockReason"):
+            raise ValueError(f"Gemini blocked the request: {feedback['blockReason']}")
+        raise ValueError("Gemini returned no completion candidates.")
+    content = candidates[0].get("content") if isinstance(candidates[0], dict) else None
+    parts = content.get("parts") if isinstance(content, dict) else None
+    texts = [str(part.get("text", "")) for part in (parts or []) if isinstance(part, dict)]
+    text = "".join(texts).strip()
+    if not text:
+        raise ValueError("Gemini returned an empty completion.")
+    return text
 
 
 async def _request_model(
@@ -250,22 +274,30 @@ async def _request_model(
     exact_count: bool = False,
 ) -> str:
     if config.provider == "gemini":
-        url = (
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{model}:generateContent"
-        )
         response = await client.post(
-            url,
-            params={"key": config.api_key},
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            headers={
+                "x-goog-api-key": config.api_key,
+                "content-type": "application/json",
+            },
             json={
                 "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
                 "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
-                "generationConfig": {"responseMimeType": "application/json"},
+                "generationConfig": {
+                    "maxOutputTokens": min(65_536, max(8_192, count * 520)),
+                    "responseFormat": {
+                        "text": {
+                            "mimeType": "application/json",
+                            "schema": _playlist_json_schema(
+                                count, exact_count=exact_count
+                            ),
+                        }
+                    },
+                },
             },
         )
-        response.raise_for_status()
-        data = response.json()
-        return str(data["candidates"][0]["content"]["parts"][0]["text"])
+        _raise_for_provider(response, "Gemini")
+        return _gemini_text(response.json())
 
     if config.provider == "anthropic":
         response = await client.post(
@@ -277,13 +309,17 @@ async def _request_model(
             },
             json={
                 "model": model,
-                "max_tokens": 8192,
+                "max_tokens": min(32_000, max(8_192, count * 500)),
                 "system": SYSTEM_PROMPT,
                 "messages": [{"role": "user", "content": user_prompt}],
             },
         )
-        response.raise_for_status()
-        return str(response.json()["content"][0]["text"])
+        _raise_for_provider(response, "Anthropic")
+        data = response.json()
+        content = data.get("content")
+        if not isinstance(content, list) or not content:
+            raise ValueError("Anthropic returned an empty completion.")
+        return str(content[0].get("text", ""))
 
     if config.provider == "ollama":
         response = await client.post(
@@ -298,8 +334,8 @@ async def _request_model(
                 ],
             },
         )
-        response.raise_for_status()
-        return str(response.json()["message"]["content"])
+        _raise_for_provider(response, "Ollama")
+        return str(response.json().get("message", {}).get("content", ""))
 
     if config.provider in OPENROUTER_PROVIDERS:
         response = await client.post(
@@ -325,7 +361,7 @@ async def _request_model(
                 ],
             },
         )
-        response.raise_for_status()
+        _raise_for_provider(response, "OpenRouter")
         return _content_from_openai(response.json())
 
     base_url = config.base_url.rstrip("/") if config.base_url else "https://api.openai.com/v1"
@@ -344,23 +380,24 @@ async def _request_model(
             ],
         },
     )
-    response.raise_for_status()
+    _raise_for_provider(response, "OpenAI-compatible provider")
     return _content_from_openai(response.json())
 
 
 def _batch_size(provider: str, count: int) -> int:
-    preferred = PROVIDER_BATCH_SIZES.get(provider, DEFAULT_BATCH_SIZE)
-    return min(preferred, count)
+    return min(PROVIDER_BATCH_SIZES.get(provider, DEFAULT_BATCH_SIZE), count)
 
 
 def _attempt_count(provider: str) -> int:
     return 2 if provider in OPENROUTER_PROVIDERS else 1
 
 
-def _is_non_retryable_http_error(exc: Exception) -> bool:
-    if not isinstance(exc, httpx.HTTPStatusError):
-        return False
-    return exc.response.status_code in {401, 402, 403}
+def _is_non_retryable_http_error(error: Exception) -> bool:
+    if isinstance(error, ProviderRequestError):
+        return error.status_code in {401, 402, 403}
+    if isinstance(error, httpx.HTTPStatusError):
+        return error.response.status_code in {401, 402, 403}
+    return False
 
 
 def _complete_prompt(prompt: str, count: int) -> str:
@@ -379,8 +416,7 @@ def _batch_prompt(
     )
     return (
         f"Build one cohesive playlist containing {total_count} tracks for this request:\n"
-        f"{prompt}\n\n"
-        f"Return the next batch of up to {batch_count} NEW tracks. "
+        f"{prompt}\n\nReturn the next batch of up to {batch_count} NEW tracks. "
         "The title and description must describe the complete playlist, not only this batch. "
         "Every returned song must be different from all songs already collected."
         + (f"\nSongs already collected and forbidden:\n{avoided}" if avoided else "")
@@ -393,7 +429,6 @@ async def _try_complete_request(
     prompt: str,
     count: int,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, list[str]]:
-    """Try every configured model on the complete request before using batches."""
     best_partial: dict[str, Any] | None = None
     errors: list[str] = []
     base_prompt = _complete_prompt(prompt, count)
@@ -418,24 +453,22 @@ async def _try_complete_request(
                 )
                 draft = _extract_json(text)
                 draft["tracks"] = _unique_tracks(draft["tracks"], limit=count)
-            except Exception as exc:
+            except Exception as error:
                 errors.append(
-                    f"complete request, {model} attempt {attempt}/{attempts}: {exc}"
+                    f"{model} complete attempt {attempt}/{attempts}: "
+                    f"{safe_error_message(error)}"
                 )
-                if _is_non_retryable_http_error(exc):
+                if _is_non_retryable_http_error(error):
                     return None, best_partial, errors
                 continue
 
             if len(draft["tracks"]) >= count:
                 return draft, best_partial, errors
-
             errors.append(
-                f"complete request, {model} attempt {attempt}/{attempts}: "
-                f"returned {len(draft['tracks'])} of {count} unique tracks"
+                f"{model} returned {len(draft['tracks'])} of {count} unique tracks"
             )
             if best_partial is None or len(draft["tracks"]) > len(best_partial["tracks"]):
                 best_partial = draft
-
     return None, best_partial, errors
 
 
@@ -448,7 +481,6 @@ async def _complete_in_batches(
     initial_draft: dict[str, Any] | None = None,
     previous_errors: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Complete a failed full request using short batches for only the missing tracks."""
     tracks = _unique_tracks((initial_draft or {}).get("tracks", []), limit=count)
     seen = {_candidate_key(track) for track in tracks}
     title = str((initial_draft or {}).get("title", "")).strip()
@@ -456,17 +488,13 @@ async def _complete_in_batches(
     errors = list(previous_errors or [])
     batch_size = _batch_size(config.provider, count)
     remaining_at_start = max(0, count - len(tracks))
-    max_batches = min(
-        20,
-        max(3, math.ceil(max(1, remaining_at_start) / batch_size) * 3),
-    )
+    max_batches = min(20, max(3, math.ceil(max(1, remaining_at_start) / batch_size) * 3))
     stalled_batches = 0
 
     for batch_number in range(1, max_batches + 1):
         remaining = count - len(tracks)
         if remaining <= 0:
             break
-
         requested = min(batch_size, remaining)
         user_prompt = _batch_prompt(
             prompt,
@@ -496,12 +524,12 @@ async def _complete_in_batches(
                         exact_count=False,
                     )
                     draft = _extract_json(text)
-                except Exception as exc:
+                except Exception as error:
                     errors.append(
-                        f"batch {batch_number}/{max_batches}, {model} "
-                        f"attempt {attempt}/{attempts}: {exc}"
+                        f"{model} batch {batch_number} attempt {attempt}/{attempts}: "
+                        f"{safe_error_message(error)}"
                     )
-                    if _is_non_retryable_http_error(exc):
+                    if _is_non_retryable_http_error(error):
                         stop_for_credentials = True
                         break
                     continue
@@ -509,7 +537,6 @@ async def _complete_in_batches(
                 if not title:
                     title = draft["title"]
                     description = draft["description"]
-
                 for track in draft["tracks"]:
                     key = _candidate_key(track)
                     if not key or key in seen:
@@ -519,14 +546,8 @@ async def _complete_in_batches(
                     batch_added += 1
                     if len(tracks) >= count or batch_added >= requested:
                         break
-
                 if batch_added:
                     break
-                errors.append(
-                    f"batch {batch_number}/{max_batches}, {model} "
-                    f"attempt {attempt}/{attempts}: returned no new non-duplicate tracks"
-                )
-
             if batch_added or stop_for_credentials:
                 break
 
@@ -540,18 +561,12 @@ async def _complete_in_batches(
                 break
 
     if len(tracks) < count:
-        detail = "; ".join(errors[-10:])
+        last_error = errors[-1] if errors else "No additional valid tracks were returned."
         raise ValueError(
-            f"{config.provider} collected {len(tracks)} of {count} unique tracks. "
-            f"The complete request failed and batched completion could not finish it. "
-            f"{detail}".strip()
+            f"The AI provider produced {len(tracks)} of {count} unique tracks. "
+            f"{safe_error_message(ValueError(last_error))}"
         )
-
-    return {
-        "title": title,
-        "description": description,
-        "tracks": tracks[:count],
-    }
+    return {"title": title, "description": description, "tracks": tracks[:count]}
 
 
 async def generate_playlist_draft(
@@ -559,9 +574,8 @@ async def generate_playlist_draft(
 ) -> dict[str, Any]:
     """Try one complete response first, then batch only the missing tracks."""
     if not config.configured:
-        raise ValueError("Configure an AI provider before generating a playlist.")
-
-    timeout = httpx.Timeout(120.0, connect=10.0)
+        raise ValueError("Configure a valid AI provider and API key before generating a playlist.")
+    timeout = httpx.Timeout(150.0, connect=10.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
         complete, best_partial, errors = await _try_complete_request(
             client, config, prompt, count
