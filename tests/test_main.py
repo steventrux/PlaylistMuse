@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 import backend.main as main_module
+from backend.config import AppConfig, api_key_slot
 from backend.youtube import track_identity_key
 
 
@@ -9,6 +10,46 @@ def test_health() -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
     assert response.json() == {"status": "healthy", "application": "PlaylistMuse"}
+
+
+def test_openrouter_modes_share_one_api_key_slot() -> None:
+    assert api_key_slot("openrouter_auto") == "openrouter"
+    assert api_key_slot("openrouter_free") == "openrouter"
+
+    config = AppConfig(provider_api_keys={"openrouter": "saved-key"})
+    assert config.key_is_saved("openrouter_auto")
+    assert config.key_is_saved("openrouter_free")
+
+
+def test_openrouter_free_enforces_free_router_and_marks_both_modes(monkeypatch) -> None:
+    saved: dict[str, AppConfig] = {}
+
+    monkeypatch.setattr(main_module, "load_config", lambda: AppConfig())
+    monkeypatch.setattr(main_module, "save_config", lambda config: saved.setdefault("config", config))
+
+    client = TestClient(main_module.app)
+    response = client.put(
+        "/api/settings",
+        json={
+            "provider": "openrouter_free",
+            "api_key": "sk-or-test",
+            "model": "paid/model-should-not-be-used",
+            "fallback_1": "paid/fallback",
+            "fallback_2": "paid/fallback-2",
+            "base_url": "https://wrong.example/v1",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["model"] == "openrouter/free"
+    assert payload["fallback_1"] == ""
+    assert payload["fallback_2"] == ""
+    assert payload["base_url"] == ""
+    assert payload["configured"] is True
+    assert payload["provider_keys_set"]["openrouter_auto"] is True
+    assert payload["provider_keys_set"]["openrouter_free"] is True
+    assert saved["config"].provider_api_keys == {"openrouter": "sk-or-test"}
 
 
 def test_track_identity_ignores_case_accents_and_punctuation() -> None:
