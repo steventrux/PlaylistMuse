@@ -8,11 +8,11 @@
   <link rel="stylesheet" href="/static/style.css?v=8">
   <link rel="stylesheet" href="/static/controls.css?v=4">
   <link rel="stylesheet" href="/static/playlist.css?v=5">
-  <link rel="stylesheet" href="/static/compact-cards.css?v=1">
   <link rel="stylesheet" href="/static/playlist-cards.css?v=2">
+  <link rel="stylesheet" href="/static/compact-cards.css?v=2">
   <link rel="stylesheet" href="/static/playlist-header.css?v=1">
   <link rel="stylesheet" href="/static/generation.css?v=3">
-  <link rel="stylesheet" href="/static/youtube.css?v=4">
+  <link rel="stylesheet" href="/static/youtube.css?v=5">
 </head>
 <body>
   <header class="app-header">
@@ -45,7 +45,10 @@
       <section class="youtube-publish" aria-label="Create playlist on YouTube Music">
         <div id="youtube-publish-warning" class="youtube-publish-warning">
           <strong>YouTube Music is not ready</strong>
-          <span id="youtube-publish-warning-text">Checking account connection…</span>
+          <span>
+            <span id="youtube-publish-warning-text">Checking account connection…</span>
+            <button id="youtube-open-settings" class="youtube-warning-link" type="button">Open Settings</button>
+          </span>
         </div>
 
         <div id="youtube-publish-controls" class="youtube-publish-controls hidden">
@@ -70,8 +73,60 @@
     </section>
   </main>
 
+  <dialog id="youtube-settings-dialog">
+    <form method="dialog" class="dialog-card settings-dialog-card" novalidate>
+      <div class="dialog-head">
+        <h2>YouTube Music Settings</h2>
+        <button id="close-youtube-settings" type="button" class="icon" aria-label="Close">×</button>
+      </div>
+
+      <section class="settings-block youtube-results-settings">
+        <h3>YouTube Music account</h3>
+        <p id="account-status" class="settings-status">Checking connection…</p>
+
+        <div id="youtube-account-profile" class="youtube-account-profile hidden">
+          <img id="youtube-account-photo" alt="Connected YouTube account profile">
+          <div>
+            <strong id="youtube-account-name">Connected account</strong>
+            <span id="youtube-account-handle">YouTube Music</span>
+          </div>
+        </div>
+
+        <div class="settings-fields youtube-settings-fields">
+          <label for="youtube-client-id">Google OAuth client ID
+            <input id="youtube-client-id" type="text" autocomplete="off" placeholder="OAuth client ID">
+          </label>
+          <label for="youtube-client-secret">Google OAuth client secret
+            <input id="youtube-client-secret" type="password" autocomplete="off" placeholder="OAuth client secret">
+          </label>
+          <span id="youtube-credentials-hint" class="field-hint"></span>
+        </div>
+
+        <p class="field-hint youtube-settings-help">
+          Use a Google OAuth client of type <strong>TVs and Limited Input devices</strong> with the YouTube Data API enabled.
+          <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Open Google Cloud credentials</a>
+        </p>
+
+        <div class="settings-actions">
+          <button id="save-youtube" type="button" class="secondary">Save Google credentials</button>
+          <button id="connect" type="button" class="primary" disabled>Connect account</button>
+          <button id="disconnect" type="button" class="secondary" disabled>Disconnect</button>
+        </div>
+
+        <div id="youtube-device-flow" class="youtube-device-flow hidden" aria-live="polite">
+          <p>Open the Google authorization page and confirm access using this code:</p>
+          <div class="youtube-device-code-row">
+            <code id="youtube-user-code" class="youtube-device-code"></code>
+            <a id="youtube-authorization-link" class="youtube-auth-link" href="#" target="_blank" rel="noopener noreferrer">Open Google authorization</a>
+          </div>
+        </div>
+      </section>
+    </form>
+  </dialog>
+
   <script src="/static/replacement-history.js?v=3"></script>
   <script src="/static/playlist.js?v=12"></script>
-  <script src="/static/youtube-publish.js?v=3"></script>
+  <script src="/static/youtube-account.js?v=2"></script>
+  <script src="/static/youtube-publish.js?v=4"></script>
 </body>
 </html>
