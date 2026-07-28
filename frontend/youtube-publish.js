@@ -106,14 +106,6 @@
     const success = document.createElement('div');
     success.className = 'youtube-publish-success';
 
-    const icon = document.createElement('span');
-    icon.className = 'youtube-publish-success-icon';
-    icon.setAttribute('aria-hidden', 'true');
-    icon.textContent = '✓';
-
-    const copy = document.createElement('div');
-    copy.className = 'youtube-publish-success-copy';
-
     const message = document.createElement('p');
     message.append(
       createdCount === requestedCount
@@ -127,16 +119,15 @@
     link.rel = 'noopener noreferrer';
     link.textContent = 'Open in YouTube Music';
     message.append(link);
-    copy.append(message);
+    success.append(message);
 
     if (result.warning) {
       const warning = document.createElement('span');
       warning.className = 'youtube-publish-success-warning';
       warning.textContent = result.warning;
-      copy.append(warning);
+      success.append(warning);
     }
 
-    success.append(icon, copy);
     controls.append(success);
 
     const status = $('youtube-publish-status');
