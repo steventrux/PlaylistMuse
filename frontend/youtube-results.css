@@ -1,0 +1,40 @@
+/* YouTube Music settings access from the playlist results page. */
+
+.youtube-publish-warning > span {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.youtube-warning-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--cyan-light);
+  font-size: inherit;
+  font-weight: 800;
+  line-height: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.youtube-warning-link:hover {
+  color: #ffffff;
+}
+
+.youtube-results-settings {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+#youtube-settings-dialog .dialog-card {
+  width: 100%;
+}
+
+@media (max-width: 520px) {
+  .youtube-publish-warning > span {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
