@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 from typing import Any
 
 import httpx
@@ -14,6 +15,18 @@ MUSICBRAINZ_VERSION = "0.7.0"
 MUSICBRAINZ_REPOSITORY = "https://github.com/steventrux/PlaylistMuse"
 MATCH_THRESHOLD = 72.0
 MIN_REQUEST_INTERVAL_SECONDS = 1.05
+
+_UNDESIRED_VERSION_TERMS = {
+    "karaoke": 45.0,
+    "tribute": 40.0,
+    "cover": 35.0,
+    "live": 35.0,
+    "rehearsal": 30.0,
+    "demo": 28.0,
+    "remix": 28.0,
+    "instrumental": 18.0,
+    "radio edit": 8.0,
+}
 
 _rate_limit_lock = asyncio.Lock()
 _last_request_started = 0.0
@@ -68,15 +81,17 @@ def _string_ids(values: Any) -> list[str]:
     return identifiers
 
 
+def _release_group(release: dict[str, Any]) -> dict[str, Any]:
+    value = release.get("release-group")
+    return value if isinstance(value, dict) else {}
+
+
 def _release_group_ids(recording: dict[str, Any]) -> list[str]:
     identifiers: list[str] = []
     for release in recording.get("releases") or []:
         if not isinstance(release, dict):
             continue
-        release_group = release.get("release-group")
-        if not isinstance(release_group, dict):
-            continue
-        identifier = str(release_group.get("id", "")).strip()
+        identifier = str(_release_group(release).get("id", "")).strip()
         if identifier and identifier not in identifiers:
             identifiers.append(identifier)
     return identifiers[:20]
@@ -93,10 +108,106 @@ def _tag_names(recording: dict[str, Any]) -> list[str]:
     return tags[:20]
 
 
+def _date_year(value: Any) -> int | None:
+    match = re.match(r"^(\d{4})", str(value or "").strip())
+    return int(match.group(1)) if match else None
+
+
+def _release_date(release: dict[str, Any]) -> str | None:
+    release_group = _release_group(release)
+    for value in (release.get("date"), release_group.get("first-release-date")):
+        text = str(value or "").strip()
+        if text:
+            return text
+    return None
+
+
+def _release_secondary_types(release: dict[str, Any]) -> list[str]:
+    values = _release_group(release).get("secondary-types") or []
+    return [str(value).strip() for value in values if str(value).strip()]
+
+
+def _term_penalty(values: list[str]) -> float:
+    text = " ".join(values).casefold()
+    return min(
+        60.0,
+        sum(
+            penalty
+            for term, penalty in _UNDESIRED_VERSION_TERMS.items()
+            if term in text
+        ),
+    )
+
+
+def _release_quality(release: dict[str, Any]) -> float:
+    release_group = _release_group(release)
+    status = str(release.get("status", "")).strip().casefold()
+    primary_type = str(release_group.get("primary-type", "")).strip().casefold()
+    secondary_types = {value.casefold() for value in _release_secondary_types(release)}
+
+    score = 0.0
+    if status == "official":
+        score += 45.0
+    elif status == "bootleg":
+        score -= 45.0
+
+    score += {
+        "album": 25.0,
+        "single": 22.0,
+        "ep": 18.0,
+        "broadcast": -20.0,
+    }.get(primary_type, 0.0)
+
+    if "live" in secondary_types:
+        score -= 45.0
+    if "remix" in secondary_types or "dj-mix" in secondary_types:
+        score -= 30.0
+    if "mixtape/street" in secondary_types:
+        score -= 20.0
+    if "compilation" in secondary_types:
+        score -= 8.0
+    if _release_date(release):
+        score += 5.0
+
+    score -= _term_penalty(
+        [str(release.get("title", "")), *secondary_types]
+    )
+    return score
+
+
+def _preferred_release(recording: dict[str, Any]) -> dict[str, Any]:
+    releases = [
+        release
+        for release in (recording.get("releases") or [])
+        if isinstance(release, dict)
+    ]
+    if not releases:
+        return {}
+
+    def rank(release: dict[str, Any]) -> tuple[float, int]:
+        year = _date_year(_release_date(release))
+        return _release_quality(release), -(year or 9999)
+
+    return max(releases, key=rank)
+
+
+def _duration_score(expected_ms: int | None, actual_ms: Any) -> tuple[float | None, int | None]:
+    if expected_ms is None:
+        return None, None
+    try:
+        actual = int(actual_ms)
+    except (TypeError, ValueError):
+        return None, None
+    delta = abs(actual - expected_ms)
+    score = max(0.0, 100.0 - (delta / 300.0))
+    return round(score, 1), delta
+
+
 def _candidate_payload(
     recording: dict[str, Any],
     input_title: str,
     input_artists: str,
+    expected_duration_ms: int | None,
 ) -> dict[str, Any]:
     artist_text, artists = _artist_credit(recording)
     title = str(recording.get("title", "")).strip()
@@ -107,29 +218,56 @@ def _candidate_payload(
 
     title_score = float(fuzz.token_set_ratio(input_title, title))
     artist_score = float(fuzz.token_set_ratio(input_artists, artist_text))
-    confidence = round(
+    lexical_score = round(
         search_score * 0.20 + title_score * 0.45 + artist_score * 0.35,
         1,
     )
 
-    releases = [
-        release
-        for release in (recording.get("releases") or [])
-        if isinstance(release, dict)
-    ]
-    preferred_release = next(
-        (release for release in releases if release.get("status") == "Official"),
-        releases[0] if releases else {},
+    preferred_release = _preferred_release(recording)
+    release_group = _release_group(preferred_release)
+    release_quality_raw = _release_quality(preferred_release) if preferred_release else 0.0
+    release_quality_score = round(max(0.0, min(100.0, release_quality_raw + 20.0)), 1)
+    duration_score, duration_delta_ms = _duration_score(
+        expected_duration_ms,
+        recording.get("length"),
     )
+    version_penalty = _term_penalty(
+        [
+            str(recording.get("disambiguation", "")),
+            str(preferred_release.get("title", "")),
+            str(preferred_release.get("status", "")),
+            *_release_secondary_types(preferred_release),
+        ]
+    )
+    if str(preferred_release.get("status", "")).strip().casefold() == "bootleg":
+        version_penalty = min(60.0, version_penalty + 35.0)
+
+    if duration_score is None:
+        confidence = lexical_score * 0.80 + release_quality_score * 0.20
+    else:
+        confidence = (
+            lexical_score * 0.60
+            + duration_score * 0.30
+            + release_quality_score * 0.10
+        )
+    confidence = round(max(0.0, confidence - version_penalty), 1)
 
     return {
-        "matched": bool(recording.get("id")) and confidence >= MATCH_THRESHOLD,
+        "matched": bool(recording.get("id"))
+        and lexical_score >= MATCH_THRESHOLD
+        and confidence >= MATCH_THRESHOLD,
         "confidence": confidence,
+        "lexical_score": lexical_score,
         "search_score": round(search_score, 1),
         "title_score": round(title_score, 1),
         "artist_score": round(artist_score, 1),
+        "duration_score": duration_score,
+        "duration_delta_ms": duration_delta_ms,
+        "version_penalty": round(version_penalty, 1),
+        "release_quality_score": release_quality_score,
         "recording_mbid": str(recording.get("id", "")).strip() or None,
         "recording_title": title or None,
+        "recording_disambiguation": str(recording.get("disambiguation", "")).strip() or None,
         "length_ms": recording.get("length"),
         "first_release_date": recording.get("first-release-date") or None,
         "artists": artists,
@@ -137,6 +275,10 @@ def _candidate_payload(
         "tags": _tag_names(recording),
         "release_mbid": str(preferred_release.get("id", "")).strip() or None,
         "release_title": str(preferred_release.get("title", "")).strip() or None,
+        "release_status": str(preferred_release.get("status", "")).strip() or None,
+        "release_date": _release_date(preferred_release),
+        "release_group_primary_type": str(release_group.get("primary-type", "")).strip() or None,
+        "release_group_secondary_types": _release_secondary_types(preferred_release),
         "release_group_mbids": _release_group_ids(recording),
     }
 
@@ -185,12 +327,18 @@ class MusicBrainzClient:
         if self._owns_client:
             await self._client.aclose()
 
-    async def search_track(self, title: str, artists: str) -> dict[str, Any] | None:
+    async def search_track(
+        self,
+        title: str,
+        artists: str,
+        *,
+        duration_ms: int | None = None,
+    ) -> dict[str, Any] | None:
         """Return the best MusicBrainz candidate and confidence diagnostics."""
         query = build_recording_query(title, artists)
         response = await _rate_limited_get(
             self._client,
-            params={"query": query, "fmt": "json", "limit": 5},
+            params={"query": query, "fmt": "json", "limit": 10},
         )
         response.raise_for_status()
         payload = response.json()
@@ -199,10 +347,19 @@ class MusicBrainzClient:
             return None
 
         candidates = [
-            _candidate_payload(recording, title, artists)
+            _candidate_payload(recording, title, artists, duration_ms)
             for recording in recordings
             if isinstance(recording, dict)
         ]
         if not candidates:
             return None
-        return max(candidates, key=lambda item: float(item.get("confidence", 0.0)))
+
+        def rank(item: dict[str, Any]) -> tuple[float, float, float, float]:
+            return (
+                float(item.get("confidence", 0.0)),
+                float(item.get("duration_score") or 0.0),
+                float(item.get("release_quality_score", 0.0)),
+                float(item.get("lexical_score", 0.0)),
+            )
+
+        return max(candidates, key=rank)
