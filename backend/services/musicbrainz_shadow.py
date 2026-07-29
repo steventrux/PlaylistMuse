@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import os
@@ -11,8 +12,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 from backend.config import DATA_DIR
-from backend.metadata.musicbrainz import MusicBrainzClient
 from backend.metadata.musicbrainz_decision import with_musicbrainz_decision
+from backend.metadata.musicbrainz_policy import (
+    PolicyAwareMusicBrainzClient,
+    normalize_exclusions,
+)
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_SAMPLE_SIZE = 5
@@ -106,26 +110,46 @@ def _task_finished(task: asyncio.Task[Any]) -> None:
         LOGGER.warning("MusicBrainz shadow task failed: %s", error)
 
 
+def _accepts_exclusions(search_track: Callable[..., Any]) -> bool:
+    """Preserve compatibility with simple test and integration clients."""
+    try:
+        parameters = inspect.signature(search_track).parameters.values()
+    except (TypeError, ValueError):
+        return True
+    return any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        or parameter.name == "exclusions"
+        for parameter in parameters
+    )
+
+
 async def run_musicbrainz_shadow(
     tracks: list[dict[str, Any]],
     *,
-    client_factory: Callable[[], Any] = MusicBrainzClient,
+    options: Any = None,
+    client_factory: Callable[[], Any] = PolicyAwareMusicBrainzClient,
     output_path: Path | None = None,
     sample_size: int | None = None,
 ) -> dict[str, Any]:
-    """Collect MusicBrainz metadata for a sample and append one private NDJSON record."""
+    """Collect policy-aware metadata and append one private NDJSON record."""
     selected = _snapshot_tracks(tracks)[: sample_size or musicbrainz_shadow_sample_size()]
+    exclusions = normalize_exclusions(options)
     results: list[dict[str, Any]] = []
 
     async with client_factory() as client:
         for track in selected:
             try:
+                kwargs: dict[str, Any] = {
+                    "duration_ms": track.get("duration_ms"),
+                }
+                if _accepts_exclusions(client.search_track):
+                    kwargs["exclusions"] = exclusions
                 raw_match = await client.search_track(
                     track["title"],
                     track["artists"],
-                    duration_ms=track.get("duration_ms"),
+                    **kwargs,
                 )
-                match = with_musicbrainz_decision(raw_match)
+                match = with_musicbrainz_decision(raw_match, exclusions)
                 results.append({"input": track, "musicbrainz": match})
             except Exception as error:  # Shadow mode must never affect the user flow.
                 LOGGER.info(
@@ -148,10 +172,11 @@ async def run_musicbrainz_shadow(
         if isinstance(item.get("musicbrainz"), dict)
     ]
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "track_count": len(tracks),
         "sampled_count": len(selected),
+        "exclusions": exclusions,
         "matched_count": decisions.count("matched"),
         "ambiguous_count": decisions.count("ambiguous"),
         "rejected_count": decisions.count("rejected"),
@@ -162,8 +187,11 @@ async def run_musicbrainz_shadow(
     return payload
 
 
-def schedule_musicbrainz_shadow(tracks: list[dict[str, Any]]) -> bool:
-    """Schedule shadow enrichment without delaying or changing playlist generation."""
+def schedule_musicbrainz_shadow(
+    tracks: list[dict[str, Any]],
+    options: Any = None,
+) -> bool:
+    """Schedule shadow enrichment with the playlist's live/remix/cover policy."""
     if not musicbrainz_shadow_enabled():
         return False
 
@@ -176,7 +204,7 @@ def schedule_musicbrainz_shadow(tracks: list[dict[str, Any]]) -> bool:
     except RuntimeError:
         return False
 
-    task = loop.create_task(run_musicbrainz_shadow(snapshots))
+    task = loop.create_task(run_musicbrainz_shadow(snapshots, options=options))
     _BACKGROUND_TASKS.add(task)
     task.add_done_callback(_task_finished)
     return True
