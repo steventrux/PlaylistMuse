@@ -75,7 +75,15 @@ def _track_key(title: str, artists: str) -> str:
 
 async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     """Compatibility wrapper preserving the existing route integration point."""
-    return await generate_playlist_service(prompt, count, options)
+    return await generate_playlist_service(
+        prompt,
+        count,
+        options,
+        load_config_fn=load_config,
+        generate_playlist_draft_fn=generate_playlist_draft,
+        resolve_candidates_fn=resolve_candidates,
+        track_identity_key_fn=track_identity_key,
+    )
 
 
 @app.get("/api/health")
