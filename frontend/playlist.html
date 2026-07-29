@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="/static/playlist-header.css?v=1">
   <link rel="stylesheet" href="/static/generation.css?v=3">
   <link rel="stylesheet" href="/static/youtube.css?v=5">
-  <link rel="stylesheet" href="/static/youtube-results.css?v=2">
+  <link rel="stylesheet" href="/static/youtube-results.css?v=3">
   <link rel="stylesheet" href="/static/youtube-success.css?v=1">
 </head>
 <body>
@@ -45,10 +45,15 @@
       <p id="playlist-description" class="playlist-description"></p>
 
       <section class="youtube-publish" aria-label="Create playlist on YouTube Music">
-        <div id="youtube-publish-warning" class="youtube-publish-warning">
+        <div id="youtube-publish-loading" class="youtube-publish-loading" role="status" aria-live="polite">
+          <span class="youtube-status-spinner" aria-hidden="true"></span>
+          <span>Checking YouTube Music…</span>
+        </div>
+
+        <div id="youtube-publish-warning" class="youtube-publish-warning hidden">
           <strong>YouTube Music is not ready</strong>
           <span>
-            <span id="youtube-publish-warning-text">Checking account connection…</span>
+            <span id="youtube-publish-warning-text"></span>
             <button id="youtube-open-settings" class="youtube-warning-link" type="button">Open Settings</button>
           </span>
         </div>
@@ -56,7 +61,7 @@
         <div id="youtube-publish-controls" class="youtube-publish-controls hidden">
           <div class="youtube-publish-copy">
             <strong>Send to YouTube Music</strong>
-            <span id="youtube-publish-account">Checking account connection…</span>
+            <span id="youtube-publish-account">YouTube Music account connected</span>
           </div>
 
           <div class="youtube-privacy-group" role="group" aria-label="Playlist privacy">
@@ -129,6 +134,6 @@
   <script src="/static/replacement-history.js?v=3"></script>
   <script src="/static/playlist.js?v=12"></script>
   <script src="/static/youtube-account.js?v=2"></script>
-  <script src="/static/youtube-publish.js?v=6"></script>
+  <script src="/static/youtube-publish.js?v=7"></script>
 </body>
 </html>
