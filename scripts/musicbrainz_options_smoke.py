@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -26,6 +28,8 @@ ALL_EXCLUDED = {
     "exclude_covers": True,
     "exclude_remixes": True,
 }
+RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+MAX_LOOKUP_ATTEMPTS = 3
 
 SCENARIOS: tuple[dict[str, Any], ...] = (
     {
@@ -92,25 +96,43 @@ def _compact(match: dict[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
+def _retryable(error: Exception) -> bool:
+    if isinstance(error, httpx.TransportError):
+        return True
+    if isinstance(error, httpx.HTTPStatusError):
+        return error.response.status_code in RETRYABLE_STATUS_CODES
+    return False
+
+
 async def _lookup(
     client: PolicyAwareMusicBrainzClient,
     sample: dict[str, Any],
     exclusions: dict[str, bool],
 ) -> dict[str, Any]:
-    try:
-        raw = await client.search_track(
-            sample["title"],
-            sample["artists"],
-            duration_ms=sample.get("duration_ms"),
-            exclusions=exclusions,
-        )
-        decided = with_musicbrainz_decision(raw, exclusions)
-        return {"match": _compact(decided), "error": None}
-    except Exception as error:  # Real-service diagnostics belong in the report.
-        return {
-            "match": None,
-            "error": f"{type(error).__name__}: {error}",
-        }
+    for attempt in range(1, MAX_LOOKUP_ATTEMPTS + 1):
+        try:
+            raw = await client.search_track(
+                sample["title"],
+                sample["artists"],
+                duration_ms=sample.get("duration_ms"),
+                exclusions=exclusions,
+            )
+            decided = with_musicbrainz_decision(raw, exclusions)
+            return {
+                "match": _compact(decided),
+                "error": None,
+                "attempts": attempt,
+            }
+        except Exception as error:  # Real-service diagnostics belong in the report.
+            if attempt < MAX_LOOKUP_ATTEMPTS and _retryable(error):
+                await asyncio.sleep(float(attempt * 2))
+                continue
+            return {
+                "match": None,
+                "error": f"{type(error).__name__}: {error}",
+                "attempts": attempt,
+            }
+    raise AssertionError("unreachable")
 
 
 def _excluded_reasons(match: dict[str, Any]) -> set[str]:
@@ -194,7 +216,7 @@ async def run_option_matrix() -> dict[str, Any]:
     failed_scenarios = [item["scenario"]["id"] for item in results if not item["success"]]
     success = not failed_scenarios and baseline_result["success"]
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "scenario_count": len(results),
         "successful_scenarios": sum(1 for item in results if item["success"]),
         "failed_scenarios": failed_scenarios,
