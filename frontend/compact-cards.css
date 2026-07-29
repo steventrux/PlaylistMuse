@@ -1,4 +1,4 @@
-/* Match collapsed result cards to the balanced selected-seed card proportions. */
+/* Match collapsed result cards to the selected-seed card proportions. */
 
 .track-list {
   gap: 9px;
@@ -6,10 +6,13 @@
 
 .track-result-card:not(.expanded) {
   grid-template-columns: 54px minmax(0, 1fr) 28px;
+  grid-template-rows: 54px;
   min-height: 0;
   padding: 11px;
   column-gap: 13px;
+  row-gap: 0;
   align-items: center;
+  border-radius: 15px;
 }
 
 .track-result-card:not(.expanded) .track-artwork {
@@ -27,6 +30,12 @@
   align-self: center;
 }
 
+/* A zero-height details row still inherited the parent grid gap.
+   Remove it entirely while collapsed; expanded-card rules remain untouched. */
+.track-result-card:not(.expanded) .track-details {
+  display: none;
+}
+
 @media (max-width: 650px) {
   .track-list {
     gap: 8px;
@@ -34,6 +43,7 @@
 
   .track-result-card:not(.expanded) {
     grid-template-columns: 48px minmax(0, 1fr) 24px;
+    grid-template-rows: 48px;
     padding: 11px;
     column-gap: 11px;
   }
