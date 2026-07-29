@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping
 
+from rapidfuzz import fuzz
+
 from backend.metadata.musicbrainz import (
     MATCH_THRESHOLD,
     MusicBrainzClient,
@@ -42,6 +44,9 @@ _CATEGORY_PENALTIES = {
     "cover": 35.0,
     "alternate": 28.0,
 }
+
+_RELATIONSHIP_CHECK_LIMIT = 5
+_EQUIVALENT_DURATION_DELTA_MS = 5_000
 
 
 def normalize_exclusions(value: Any = None) -> dict[str, bool]:
@@ -152,6 +157,59 @@ def _rank(item: Mapping[str, Any]) -> tuple[float, float, float, int, float]:
     )
 
 
+def _optional_int(value: Any) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _equivalent_recordings(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
+    """Identify duplicate MB recordings without merging genuinely different versions."""
+    left_title = str(left.get("recording_title", "")).strip()
+    right_title = str(right.get("recording_title", "")).strip()
+    if not left_title or not right_title:
+        return False
+    if fuzz.token_set_ratio(left_title, right_title) < 95:
+        return False
+
+    left_length = _optional_int(left.get("length_ms"))
+    right_length = _optional_int(right.get("length_ms"))
+    if left_length is None or right_length is None:
+        return left_title.casefold() == right_title.casefold()
+    return abs(left_length - right_length) <= _EQUIVALENT_DURATION_DELTA_MS
+
+
+def _propagate_relationship_evidence(
+    candidates: list[dict[str, Any]],
+    exclusions: Any,
+) -> list[dict[str, Any]]:
+    """Share version evidence among duplicate MBIDs for the same recording."""
+    propagated: list[dict[str, Any]] = []
+    for candidate in candidates:
+        categories = list(candidate.get("relationship_version_categories") or [])
+        evidence_mbids: list[str] = []
+        for source in candidates:
+            if not _equivalent_recordings(candidate, source):
+                continue
+            source_mbid = str(source.get("recording_mbid", "")).strip()
+            source_categories = source.get("relationship_version_categories") or []
+            if source_categories and source_mbid and source_mbid not in evidence_mbids:
+                evidence_mbids.append(source_mbid)
+            for value in source_categories:
+                category = str(value).strip().casefold()
+                if category and category not in categories:
+                    categories.append(category)
+
+        enriched = {
+            **candidate,
+            "relationship_version_categories": categories,
+            "relationship_evidence_recording_mbids": evidence_mbids,
+        }
+        propagated.append(apply_musicbrainz_policy(enriched, exclusions))
+    return propagated
+
+
 class PolicyAwareMusicBrainzClient(MusicBrainzClient):
     """MusicBrainz client that ranks versions according to PlaylistMuse options."""
 
@@ -223,12 +281,14 @@ class PolicyAwareMusicBrainzClient(MusicBrainzClient):
                 pool = close_candidates
 
         ordered = sorted(pool, key=_rank, reverse=True)
-        active = normalize_exclusions(exclusions)
-        relationship_checks = 3 if any(active.values()) else 1
         enriched_candidates = [
             await self._enrich_candidate(candidate, exclusions)
-            for candidate in ordered[:relationship_checks]
+            for candidate in ordered[:_RELATIONSHIP_CHECK_LIMIT]
         ]
+        enriched_candidates = _propagate_relationship_evidence(
+            enriched_candidates,
+            exclusions,
+        )
 
         policy_compatible = [
             item
