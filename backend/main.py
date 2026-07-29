@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from backend.catalogs.youtube_music import youtube_music_catalog
 from backend.config import (
     AppConfig,
     api_key_matches_provider,
@@ -25,7 +26,6 @@ from backend.schemas import (
     SettingsUpdate,
 )
 from backend.services.playlist_generation import generate_playlist as generate_playlist_service
-from backend.youtube import resolve_candidates, search_songs, track_identity_key
 from backend.youtube_routes import router as youtube_router
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -44,6 +44,12 @@ OPENROUTER_MODELS = {
     "openrouter_auto": "openrouter/auto",
     "openrouter_free": "openrouter/free",
 }
+
+# Compatibility aliases preserve the route and test integration points while all
+# catalogue behaviour is supplied by the YouTube Music adapter.
+search_songs = youtube_music_catalog.search_songs
+resolve_candidates = youtube_music_catalog.resolve_candidates
+track_identity_key = youtube_music_catalog.track_identity_key
 
 app = FastAPI(
     title="PlaylistMuse",
@@ -79,6 +85,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
         prompt,
         count,
         options,
+        catalog=youtube_music_catalog,
         load_config_fn=load_config,
         generate_playlist_draft_fn=generate_playlist_draft,
         resolve_candidates_fn=resolve_candidates,
