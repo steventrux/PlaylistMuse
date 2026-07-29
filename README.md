@@ -50,9 +50,11 @@ The preferred method is the Settings panel. Environment variables can also be us
 
 AI settings are stored in `data/config.json`, which is excluded from Git.
 
-## MusicBrainz shadow metadata
+## MusicBrainz metadata and exclusion validation
 
-MusicBrainz integration is currently an opt-in diagnostic mode. It runs after playlist generation, does not change playlist tracks or API responses, and has no controls in the web interface.
+MusicBrainz shadow collection is an opt-in diagnostic mode. It runs after playlist generation, does not change playlist tracks or API responses, and has no controls in the web interface.
+
+An additional experimental active filter can validate already resolved YouTube Music tracks before they are returned. It is disabled by default. When enabled, MusicBrainz is queried neutrally and the three existing structured playlist selectors are applied afterwards. Tracks with explicit evidence for a selected live, cover or remix exclusion are removed and the normal replenishment loop requests replacements. Missing or temporarily unavailable MusicBrainz data fails open and does not break playlist creation.
 
 | Variable | Description |
 | --- | --- |
@@ -60,8 +62,10 @@ MusicBrainz integration is currently an opt-in diagnostic mode. It runs after pl
 | `PLAYLISTMUSE_MUSICBRAINZ_SHADOW_SAMPLE` | Number of final tracks sampled per playlist, from 1 to 10; default `5` |
 | `PLAYLISTMUSE_MUSICBRAINZ_CONTACT` | Optional contact URL or email included in the MusicBrainz User-Agent |
 | `PLAYLISTMUSE_MUSICBRAINZ_SHADOW_PATH` | Optional NDJSON output path; default `data/musicbrainz-shadow.ndjson` |
+| `PLAYLISTMUSE_MUSICBRAINZ_ACTIVE_FILTER` | Set to `true` to enable synchronous exclusion validation; default `false` |
+| `PLAYLISTMUSE_MUSICBRAINZ_ACTIVE_PATH` | Optional NDJSON output path; default `data/musicbrainz-active.ndjson` |
 
-The collector records candidate MBIDs, artist MBIDs, ISRCs, release metadata and tags for later comparison. Requests are serialized to respect MusicBrainz rate limits. The NDJSON file is private application data, is created with restricted file permissions where supported and is excluded from Git.
+The collectors record candidate MBIDs, artist MBIDs, ISRCs, release metadata, tags, relationship evidence, retry attempts and exclusion decisions. Requests are serialized to respect MusicBrainz rate limits. NDJSON files are private application data, are created with restricted file permissions where supported and are excluded from Git.
 
 ## Connect YouTube Music
 
