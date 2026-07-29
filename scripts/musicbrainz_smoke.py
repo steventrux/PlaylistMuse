@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from backend.metadata.musicbrainz import MusicBrainzClient
 from backend.metadata.musicbrainz_decision import with_musicbrainz_decision
+from backend.metadata.musicbrainz_policy import PolicyAwareMusicBrainzClient
 
 SAMPLE_TRACKS: tuple[dict[str, Any], ...] = (
     {"title": "Back in Black", "artists": "AC/DC", "duration_ms": 255000},
@@ -24,19 +24,26 @@ SAMPLE_TRACKS: tuple[dict[str, Any], ...] = (
     {"title": "Billie Jean", "artists": "Michael Jackson", "duration_ms": 294000},
 )
 
+DEFAULT_EXCLUSIONS = {
+    "exclude_live": True,
+    "exclude_covers": True,
+    "exclude_remixes": True,
+}
+
 
 async def run_smoke_test() -> dict[str, Any]:
     results: list[dict[str, Any]] = []
 
-    async with MusicBrainzClient(timeout_seconds=15.0) as client:
+    async with PolicyAwareMusicBrainzClient(timeout_seconds=15.0) as client:
         for sample in SAMPLE_TRACKS:
             try:
                 raw_match = await client.search_track(
                     sample["title"],
                     sample["artists"],
                     duration_ms=sample["duration_ms"],
+                    exclusions=DEFAULT_EXCLUSIONS,
                 )
-                match = with_musicbrainz_decision(raw_match)
+                match = with_musicbrainz_decision(raw_match, DEFAULT_EXCLUSIONS)
                 results.append(
                     {
                         "input": sample,
@@ -68,7 +75,7 @@ async def run_smoke_test() -> dict[str, Any]:
         if isinstance(result.get("musicbrainz"), dict)
         and result["musicbrainz"].get("decision") == "matched"
         and (
-            float(result["musicbrainz"].get("version_penalty") or 0) > 10
+            result["musicbrainz"].get("policy_excluded_categories")
             or (
                 result["musicbrainz"].get("duration_delta_ms") is not None
                 and int(result["musicbrainz"]["duration_delta_ms"]) > 15000
@@ -78,8 +85,9 @@ async def run_smoke_test() -> dict[str, Any]:
 
     classified_count = matched_count + ambiguous_count + rejected_count
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "sample_count": len(SAMPLE_TRACKS),
+        "exclusions": DEFAULT_EXCLUSIONS,
         "matched_count": matched_count,
         "ambiguous_count": ambiguous_count,
         "rejected_count": rejected_count,
