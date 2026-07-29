@@ -6,4 +6,5 @@ venv/
 .env
 data/*.json
 data/*.tmp
+data/*.ndjson
 .DS_Store
