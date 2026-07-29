@@ -8,9 +8,9 @@ from copy import deepcopy
 from typing import Any
 
 from backend.metadata import musicbrainz
+from backend.schemas import PlaylistOptions
 from backend.services import musicbrainz_shadow
 from backend.services import playlist_generation
-from backend.schemas import PlaylistOptions
 
 
 class FakeResponse:
@@ -30,6 +30,7 @@ def _track(index: int) -> dict[str, Any]:
         "title": f"Song {index}",
         "artists": f"Artist {index}",
         "album": "Album",
+        "duration": "4:15",
         "description": "Description",
         "reason": "Reason",
     }
@@ -65,7 +66,12 @@ def test_musicbrainz_client_returns_canonical_metadata(monkeypatch) -> None:
                         "id": "release-mbid",
                         "title": "Back in Black",
                         "status": "Official",
-                        "release-group": {"id": "release-group-mbid"},
+                        "date": "1980-07-25",
+                        "release-group": {
+                            "id": "release-group-mbid",
+                            "primary-type": "Album",
+                            "first-release-date": "1980-07-25",
+                        },
                     }
                 ],
             }
@@ -75,13 +81,15 @@ def test_musicbrainz_client_returns_canonical_metadata(monkeypatch) -> None:
     async def fake_get(client: object, *, params: dict[str, Any]) -> FakeResponse:
         del client
         assert params["fmt"] == "json"
-        assert params["limit"] == 5
+        assert params["limit"] == 10
         assert "Back in Black" in params["query"]
         return FakeResponse(payload)
 
     monkeypatch.setattr(musicbrainz, "_rate_limited_get", fake_get)
     client = musicbrainz.MusicBrainzClient(client=object())
-    result = asyncio.run(client.search_track("Back in Black", "AC/DC"))
+    result = asyncio.run(
+        client.search_track("Back in Black", "AC/DC", duration_ms=255000)
+    )
 
     assert result is not None
     assert result["matched"] is True
@@ -89,8 +97,85 @@ def test_musicbrainz_client_returns_canonical_metadata(monkeypatch) -> None:
     assert result["artists"] == [{"name": "AC/DC", "mbid": "artist-mbid"}]
     assert result["isrcs"] == ["AUAP08000046"]
     assert result["tags"] == ["hard rock"]
+    assert result["duration_delta_ms"] == 0
     assert result["release_mbid"] == "release-mbid"
+    assert result["release_title"] == "Back in Black"
+    assert result["release_group_primary_type"] == "Album"
     assert result["release_group_mbids"] == ["release-group-mbid"]
+
+
+def test_musicbrainz_client_prefers_studio_version(monkeypatch) -> None:
+    payload = {
+        "recordings": [
+            {
+                "id": "live-recording",
+                "score": "100",
+                "title": "Gimme Shelter",
+                "length": 364000,
+                "first-release-date": "1991",
+                "disambiguation": "live",
+                "artist-credit": [
+                    {"artist": {"id": "stones", "name": "The Rolling Stones"}}
+                ],
+                "releases": [
+                    {
+                        "id": "live-release",
+                        "title": "Live USA",
+                        "status": "Bootleg",
+                        "date": "1991",
+                        "release-group": {
+                            "id": "live-group",
+                            "primary-type": "Album",
+                            "secondary-types": ["Live"],
+                        },
+                    }
+                ],
+            },
+            {
+                "id": "studio-recording",
+                "score": "100",
+                "title": "Gimme Shelter",
+                "length": 271000,
+                "first-release-date": "1969-12-05",
+                "artist-credit": [
+                    {"artist": {"id": "stones", "name": "The Rolling Stones"}}
+                ],
+                "releases": [
+                    {
+                        "id": "studio-release",
+                        "title": "Let It Bleed",
+                        "status": "Official",
+                        "date": "1969-12-05",
+                        "release-group": {
+                            "id": "studio-group",
+                            "primary-type": "Album",
+                            "first-release-date": "1969-12-05",
+                        },
+                    }
+                ],
+            },
+        ]
+    }
+
+    async def fake_get(client: object, *, params: dict[str, Any]) -> FakeResponse:
+        del client, params
+        return FakeResponse(payload)
+
+    monkeypatch.setattr(musicbrainz, "_rate_limited_get", fake_get)
+    client = musicbrainz.MusicBrainzClient(client=object())
+    result = asyncio.run(
+        client.search_track(
+            "Gimme Shelter",
+            "The Rolling Stones",
+            duration_ms=271000,
+        )
+    )
+
+    assert result is not None
+    assert result["recording_mbid"] == "studio-recording"
+    assert result["release_title"] == "Let It Bleed"
+    assert result["duration_delta_ms"] == 0
+    assert result["version_penalty"] == 0
 
 
 def test_shadow_mode_is_disabled_by_default(monkeypatch) -> None:
@@ -98,6 +183,12 @@ def test_shadow_mode_is_disabled_by_default(monkeypatch) -> None:
 
     assert musicbrainz_shadow.musicbrainz_shadow_enabled() is False
     assert musicbrainz_shadow.schedule_musicbrainz_shadow([_track(1)]) is False
+
+
+def test_duration_parser_supports_track_durations() -> None:
+    assert musicbrainz_shadow._duration_ms("4:15") == 255000
+    assert musicbrainz_shadow._duration_ms("1:02:03") == 3723000
+    assert musicbrainz_shadow._duration_ms("invalid") is None
 
 
 def test_shadow_collector_writes_private_ndjson_without_mutating_tracks(tmp_path) -> None:
@@ -112,7 +203,14 @@ def test_shadow_collector_writes_private_ndjson_without_mutating_tracks(tmp_path
         async def __aexit__(self, exc_type, exc, traceback) -> None:
             del exc_type, exc, traceback
 
-        async def search_track(self, title: str, artists: str) -> dict[str, Any]:
+        async def search_track(
+            self,
+            title: str,
+            artists: str,
+            *,
+            duration_ms: int | None = None,
+        ) -> dict[str, Any]:
+            assert duration_ms == 255000
             return {
                 "matched": True,
                 "recording_mbid": f"mbid-{title}",
@@ -138,6 +236,8 @@ def test_shadow_collector_writes_private_ndjson_without_mutating_tracks(tmp_path
         "video_id": "video-1",
         "title": "Song 1",
         "artists": "Artist 1",
+        "duration": "4:15",
+        "duration_ms": 255000,
     }
     assert stored["results"][0]["musicbrainz"]["recording_mbid"] == "mbid-Song 1"
 
