@@ -50,6 +50,19 @@ The preferred method is the Settings panel. Environment variables can also be us
 
 AI settings are stored in `data/config.json`, which is excluded from Git.
 
+## MusicBrainz shadow metadata
+
+MusicBrainz integration is currently an opt-in diagnostic mode. It runs after playlist generation, does not change playlist tracks or API responses, and has no controls in the web interface.
+
+| Variable | Description |
+| --- | --- |
+| `PLAYLISTMUSE_MUSICBRAINZ_SHADOW` | Set to `true` to enable background metadata collection; default `false` |
+| `PLAYLISTMUSE_MUSICBRAINZ_SHADOW_SAMPLE` | Number of final tracks sampled per playlist, from 1 to 10; default `5` |
+| `PLAYLISTMUSE_MUSICBRAINZ_CONTACT` | Optional contact URL or email included in the MusicBrainz User-Agent |
+| `PLAYLISTMUSE_MUSICBRAINZ_SHADOW_PATH` | Optional NDJSON output path; default `data/musicbrainz-shadow.ndjson` |
+
+The collector records candidate MBIDs, artist MBIDs, ISRCs, release metadata and tags for later comparison. Requests are serialized to respect MusicBrainz rate limits. The NDJSON file is private application data, is created with restricted file permissions where supported and is excluded from Git.
+
 ## Connect YouTube Music
 
 PlaylistMuse uses the Google OAuth device authorization flow supported by `ytmusicapi`.
