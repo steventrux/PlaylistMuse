@@ -179,8 +179,8 @@ def test_catalog_moves_musicbrainz_rejections_to_unresolved(monkeypatch) -> None
     candidate = {
         "artist": "Disturbed",
         "title": "The Sound of Silence",
-        "description": "Description",
-        "reason": "Reason",
+        "description": "A resolved YouTube Music track.",
+        "reason": "It fits the playlist.",
     }
     resolved = _track()
 
