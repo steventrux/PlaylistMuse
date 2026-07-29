@@ -8,8 +8,8 @@ from backend.schemas import PlaylistOptions
 from backend.youtube import resolve_candidates, track_identity_key
 
 
-def _candidate_key(candidate: dict) -> str:
-    return track_identity_key(
+def _candidate_key(candidate: dict, identity_key) -> str:
+    return identity_key(
         str(candidate.get("title", "")),
         str(candidate.get("artist", candidate.get("artists", ""))),
     )
@@ -52,17 +52,30 @@ async def generate_playlist(
     prompt: str,
     count: int,
     options: PlaylistOptions,
+    *,
+    load_config_fn=None,
+    generate_playlist_draft_fn=None,
+    resolve_candidates_fn=None,
+    track_identity_key_fn=None,
 ) -> dict:
     """Generate, resolve and replenish one playlist using the existing behaviour."""
-    config = load_config()
-    draft = await generate_playlist_draft(config, prompt, count)
+    load_config_fn = load_config_fn or load_config
+    generate_playlist_draft_fn = generate_playlist_draft_fn or generate_playlist_draft
+    resolve_candidates_fn = resolve_candidates_fn or resolve_candidates
+    track_identity_key_fn = track_identity_key_fn or track_identity_key
+
+    config = load_config_fn()
+    draft = await generate_playlist_draft_fn(config, prompt, count)
     exclusions = options.model_dump()
-    tracks, unresolved = await resolve_candidates(draft["tracks"], exclusions)
+    tracks, unresolved = await resolve_candidates_fn(draft["tracks"], exclusions)
 
     attempted_candidates = list(draft["tracks"])
-    attempted_keys = {_candidate_key(candidate) for candidate in attempted_candidates}
+    attempted_keys = {
+        _candidate_key(candidate, track_identity_key_fn)
+        for candidate in attempted_candidates
+    }
     resolved_keys = {
-        track_identity_key(track.get("title", ""), track.get("artists", ""))
+        track_identity_key_fn(track.get("title", ""), track.get("artists", ""))
         for track in tracks
     }
     resolved_ids = {track.get("video_id") for track in tracks if track.get("video_id")}
@@ -83,10 +96,10 @@ async def generate_playlist(
             tracks,
             attempted_candidates,
         )
-        refill = await generate_playlist_draft(config, refill_prompt, pool_size)
+        refill = await generate_playlist_draft_fn(config, refill_prompt, pool_size)
         fresh_candidates: list[dict] = []
         for candidate in refill["tracks"]:
-            key = _candidate_key(candidate)
+            key = _candidate_key(candidate, track_identity_key_fn)
             if not key or key in attempted_keys:
                 continue
             attempted_keys.add(key)
@@ -99,14 +112,14 @@ async def generate_playlist(
                 break
             continue
 
-        newly_resolved, newly_unresolved = await resolve_candidates(
+        newly_resolved, newly_unresolved = await resolve_candidates_fn(
             fresh_candidates,
             exclusions,
         )
         unresolved.extend(newly_unresolved)
         added = 0
         for track in newly_resolved:
-            track_key = track_identity_key(
+            track_key = track_identity_key_fn(
                 track.get("title", ""),
                 track.get("artists", ""),
             )
