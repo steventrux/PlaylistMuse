@@ -47,6 +47,8 @@ _CATEGORY_PENALTIES = {
 
 _RELATIONSHIP_CHECK_LIMIT = 5
 _EQUIVALENT_DURATION_DELTA_MS = 5_000
+_EQUIVALENT_TEXT_SCORE = 95
+_EQUIVALENT_RELEASE_SCORE = 90
 
 
 def normalize_exclusions(value: Any = None) -> dict[str, bool]:
@@ -165,19 +167,36 @@ def _optional_int(value: Any) -> int | None:
 
 
 def _equivalent_recordings(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
-    """Identify duplicate MB recordings without merging genuinely different versions."""
+    """Identify duplicate MB recordings without merging distinct performances."""
     left_title = str(left.get("recording_title", "")).strip()
     right_title = str(right.get("recording_title", "")).strip()
     if not left_title or not right_title:
         return False
-    if fuzz.token_set_ratio(left_title, right_title) < 95:
+    if fuzz.token_set_ratio(left_title, right_title) < _EQUIVALENT_TEXT_SCORE:
         return False
 
     left_length = _optional_int(left.get("length_ms"))
     right_length = _optional_int(right.get("length_ms"))
     if left_length is None or right_length is None:
-        return left_title.casefold() == right_title.casefold()
-    return abs(left_length - right_length) <= _EQUIVALENT_DURATION_DELTA_MS
+        if left_title.casefold() != right_title.casefold():
+            return False
+    elif abs(left_length - right_length) > _EQUIVALENT_DURATION_DELTA_MS:
+        return False
+
+    left_year = _optional_int(left.get("effective_release_year"))
+    right_year = _optional_int(right.get("effective_release_year"))
+    if left_year is not None and right_year is not None and left_year != right_year:
+        return False
+
+    left_release = str(left.get("release_title", "")).strip()
+    right_release = str(right.get("release_title", "")).strip()
+    if (
+        left_release
+        and right_release
+        and fuzz.token_set_ratio(left_release, right_release) < _EQUIVALENT_RELEASE_SCORE
+    ):
+        return False
+    return True
 
 
 def _propagate_relationship_evidence(
