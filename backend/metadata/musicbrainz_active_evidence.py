@@ -102,9 +102,7 @@ def _history_entry(recording: Mapping[str, Any], input_title: str) -> dict[str, 
     }
 
 
-async def search_title_history(client: Any, title: str) -> list[dict[str, Any]]:
-    """Search exact-title recordings for chronology-based cover evidence."""
-    query = f"recording:{_lucene_quote(str(title).strip())}"
+async def _search_history(client: Any, query: str, title: str) -> list[dict[str, Any]]:
     response = await _rate_limited_get(
         client,
         params={"query": query, "fmt": "json", "limit": 100},
@@ -125,20 +123,47 @@ async def search_title_history(client: Any, title: str) -> list[dict[str, Any]]:
     return entries
 
 
+async def search_title_history(client: Any, title: str) -> list[dict[str, Any]]:
+    """Search exact-title recordings across all artists."""
+    query = f"recording:{_lucene_quote(str(title).strip())}"
+    return await _search_history(client, query, title)
+
+
+async def search_artist_title_history(
+    client: Any,
+    title: str,
+    artists: str,
+) -> list[dict[str, Any]]:
+    """Search exact-title recordings for the current artist only."""
+    query = (
+        f"recording:{_lucene_quote(str(title).strip())} AND "
+        f"artistname:{_lucene_quote(str(artists).strip())}"
+    )
+    return await _search_history(client, query, title)
+
+
 def infer_cover_from_history(
     match: Mapping[str, Any] | None,
     *,
     title: str,
     artists: str,
     history: list[dict[str, Any]],
+    current_artist_history: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
-    """Infer a cover only when an exact-title different artist clearly predates it."""
+    """Infer a cover only when an exact-title different artist clearly predates it.
+
+    Active filtering supplies a dedicated title-and-current-artist search. This prevents
+    a later remaster or compilation date from making the original performer look newer
+    than another artist. If that dedicated search has no reliable current-artist date,
+    the active filter fails open and does not infer a cover.
+    """
     if not isinstance(match, Mapping):
         return None
 
+    current_pool = history if current_artist_history is None else current_artist_history
     current_entries = [
         item
-        for item in history
+        for item in current_pool
         if float(item.get("search_score", 0.0) or 0.0) >= _MIN_SEARCH_SCORE
         and fuzz.token_set_ratio(artists, str(item.get("artists", "")))
         >= _MIN_ARTIST_SCORE
@@ -148,6 +173,10 @@ def infer_cover_from_history(
         for item in current_entries
         if item.get("first_release_year") is not None
     ]
+
+    if current_artist_history is not None and not current_years:
+        return None
+
     fallback_year = match.get("effective_release_year")
     try:
         current_year = min(current_years) if current_years else int(fallback_year)
@@ -185,6 +214,9 @@ def infer_cover_from_history(
         "title": title,
         "current_artists": artists,
         "current_earliest_year": current_year,
+        "current_year_source": (
+            "artist_title_search" if current_artist_history is not None else "title_history"
+        ),
         "earlier_recording_mbid": earliest.get("recording_mbid"),
         "earlier_artists": earliest.get("artists"),
         "earlier_year": earliest.get("first_release_year"),
@@ -198,16 +230,22 @@ async def infer_cover_evidence(
     match: Mapping[str, Any] | None,
     source: Mapping[str, Any],
 ) -> dict[str, Any] | None:
-    """Fetch title chronology and return conservative cover evidence."""
+    """Fetch current-artist and cross-artist chronology for conservative evidence."""
     raw_client = getattr(client, "_client", client)
     title = str(source.get("title", "")).strip()
     artists = str(source.get("artists", "")).strip()
     if not title or not artists:
         return None
+
+    current_artist_history = await search_artist_title_history(raw_client, title, artists)
+    if not current_artist_history:
+        return None
+
     history = await search_title_history(raw_client, title)
     return infer_cover_from_history(
         match,
         title=title,
         artists=artists,
         history=history,
+        current_artist_history=current_artist_history,
     )
