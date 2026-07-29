@@ -7,6 +7,7 @@ from backend.catalogs.youtube_music import youtube_music_catalog
 from backend.config import load_config
 from backend.llm import generate_playlist_draft
 from backend.schemas import PlaylistOptions
+from backend.services.musicbrainz_shadow import schedule_musicbrainz_shadow
 
 # Compatibility aliases retained for existing tests and integration patch points.
 resolve_candidates = youtube_music_catalog.resolve_candidates
@@ -63,10 +64,12 @@ async def generate_playlist(
     generate_playlist_draft_fn=None,
     resolve_candidates_fn=None,
     track_identity_key_fn=None,
+    shadow_scheduler_fn=None,
 ) -> dict:
     """Generate, resolve and replenish one playlist using the existing behaviour."""
     load_config_fn = load_config_fn or load_config
     generate_playlist_draft_fn = generate_playlist_draft_fn or generate_playlist_draft
+    shadow_scheduler_fn = shadow_scheduler_fn or schedule_musicbrainz_shadow
 
     if catalog is None:
         resolve_candidates_fn = resolve_candidates_fn or resolve_candidates
@@ -156,12 +159,14 @@ async def generate_playlist(
             "fewer tracks."
         )
 
+    final_tracks = tracks[:count]
+    shadow_scheduler_fn(final_tracks)
     return {
         "name": draft["title"],
         "description": draft["description"],
         "prompt": prompt,
         "requested_count": count,
         "resolved_count": count,
-        "tracks": tracks[:count],
+        "tracks": final_tracks,
         "unresolved": unresolved,
     }
