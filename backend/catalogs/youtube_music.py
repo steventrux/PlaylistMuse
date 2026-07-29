@@ -5,10 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from backend import youtube
+from backend.services.musicbrainz_filter import filter_musicbrainz_tracks
 
 
 class YouTubeMusicCatalog:
-    """Delegate catalogue operations to the existing YouTube Music module."""
+    """Resolve through YouTube Music, then optionally validate version exclusions."""
 
     async def search_songs(
         self,
@@ -22,7 +23,18 @@ class YouTubeMusicCatalog:
         candidates: list[dict[str, str]],
         exclusions: dict[str, bool],
     ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
-        return await youtube.resolve_candidates(candidates, exclusions)
+        resolved, unresolved = await youtube.resolve_candidates(candidates, exclusions)
+        accepted, rejected = await filter_musicbrainz_tracks(resolved, exclusions)
+        unresolved.extend(
+            {
+                "artist": str(track.get("artists", "")),
+                "title": str(track.get("title", "")),
+                "description": str(track.get("description", "")),
+                "reason": str(track.get("reason", "")),
+            }
+            for track in rejected
+        )
+        return accepted, unresolved
 
     def track_identity_key(self, title: str, artists: str) -> str:
         return youtube.track_identity_key(title, artists)
