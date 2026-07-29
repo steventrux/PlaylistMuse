@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from backend.catalogs.base import MusicCatalog
+from backend.catalogs.youtube_music import youtube_music_catalog
 from backend.config import load_config
 from backend.llm import generate_playlist_draft
 from backend.schemas import PlaylistOptions
-from backend.youtube import resolve_candidates, track_identity_key
+
+# Compatibility aliases retained for existing tests and integration patch points.
+resolve_candidates = youtube_music_catalog.resolve_candidates
+track_identity_key = youtube_music_catalog.track_identity_key
 
 
 def _candidate_key(candidate: dict, identity_key) -> str:
@@ -53,6 +58,7 @@ async def generate_playlist(
     count: int,
     options: PlaylistOptions,
     *,
+    catalog: MusicCatalog | None = None,
     load_config_fn=None,
     generate_playlist_draft_fn=None,
     resolve_candidates_fn=None,
@@ -61,8 +67,13 @@ async def generate_playlist(
     """Generate, resolve and replenish one playlist using the existing behaviour."""
     load_config_fn = load_config_fn or load_config
     generate_playlist_draft_fn = generate_playlist_draft_fn or generate_playlist_draft
-    resolve_candidates_fn = resolve_candidates_fn or resolve_candidates
-    track_identity_key_fn = track_identity_key_fn or track_identity_key
+
+    if catalog is None:
+        resolve_candidates_fn = resolve_candidates_fn or resolve_candidates
+        track_identity_key_fn = track_identity_key_fn or track_identity_key
+    else:
+        resolve_candidates_fn = resolve_candidates_fn or catalog.resolve_candidates
+        track_identity_key_fn = track_identity_key_fn or catalog.track_identity_key
 
     config = load_config_fn()
     draft = await generate_playlist_draft_fn(config, prompt, count)
