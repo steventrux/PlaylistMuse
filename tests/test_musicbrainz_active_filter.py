@@ -60,6 +60,7 @@ def _cover_match() -> dict[str, Any]:
         "lexical_score": 100.0,
         "duration_delta_ms": 0,
         "version_categories": ["cover"],
+        "relationship_version_categories": ["cover"],
         "policy_excluded_categories": [],
         "active_exclusions": {
             "exclude_live": False,
