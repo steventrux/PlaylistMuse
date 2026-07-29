@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 from backend.config import DATA_DIR
 from backend.metadata.musicbrainz import MusicBrainzClient
+from backend.metadata.musicbrainz_decision import with_musicbrainz_decision
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_SAMPLE_SIZE = 5
@@ -119,11 +120,12 @@ async def run_musicbrainz_shadow(
     async with client_factory() as client:
         for track in selected:
             try:
-                match = await client.search_track(
+                raw_match = await client.search_track(
                     track["title"],
                     track["artists"],
                     duration_ms=track.get("duration_ms"),
                 )
+                match = with_musicbrainz_decision(raw_match)
                 results.append({"input": track, "musicbrainz": match})
             except Exception as error:  # Shadow mode must never affect the user flow.
                 LOGGER.info(
@@ -140,17 +142,20 @@ async def run_musicbrainz_shadow(
                     }
                 )
 
+    decisions = [
+        item["musicbrainz"].get("decision")
+        for item in results
+        if isinstance(item.get("musicbrainz"), dict)
+    ]
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "track_count": len(tracks),
         "sampled_count": len(selected),
-        "matched_count": sum(
-            1
-            for item in results
-            if isinstance(item.get("musicbrainz"), dict)
-            and item["musicbrainz"].get("matched") is True
-        ),
+        "matched_count": decisions.count("matched"),
+        "ambiguous_count": decisions.count("ambiguous"),
+        "rejected_count": decisions.count("rejected"),
+        "error_count": sum(1 for item in results if item.get("error")),
         "results": results,
     }
     await asyncio.to_thread(_append_record, output_path or musicbrainz_shadow_path(), payload)
