@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+import httpx
+
 from backend.config import DATA_DIR
 from backend.metadata.musicbrainz_decision import with_musicbrainz_decision
 from backend.metadata.musicbrainz_policy import (
@@ -21,6 +23,9 @@ from backend.metadata.musicbrainz_policy import (
 LOGGER = logging.getLogger(__name__)
 DEFAULT_SAMPLE_SIZE = 5
 MAX_SAMPLE_SIZE = 10
+MAX_LOOKUP_ATTEMPTS = 3
+RETRY_DELAYS_SECONDS = (1.0, 2.0)
+RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 _BACKGROUND_TASKS: set[asyncio.Task[Any]] = set()
 
 
@@ -123,6 +128,41 @@ def _accepts_exclusions(search_track: Callable[..., Any]) -> bool:
     )
 
 
+def _retryable(error: Exception) -> bool:
+    if isinstance(error, httpx.TransportError):
+        return True
+    if isinstance(error, httpx.HTTPStatusError):
+        return error.response.status_code in RETRYABLE_STATUS_CODES
+    return False
+
+
+async def _lookup_with_retry(
+    client: Any,
+    track: dict[str, Any],
+    exclusions: dict[str, bool],
+    *,
+    sleep_fn: Callable[[float], Any] = asyncio.sleep,
+) -> tuple[dict[str, Any] | None, int, Exception | None]:
+    kwargs: dict[str, Any] = {"duration_ms": track.get("duration_ms")}
+    if _accepts_exclusions(client.search_track):
+        kwargs["exclusions"] = exclusions
+
+    for attempt in range(1, MAX_LOOKUP_ATTEMPTS + 1):
+        try:
+            match = await client.search_track(
+                track["title"],
+                track["artists"],
+                **kwargs,
+            )
+            return match, attempt, None
+        except Exception as error:  # Shadow mode must never affect the user flow.
+            if attempt >= MAX_LOOKUP_ATTEMPTS or not _retryable(error):
+                return None, attempt, error
+            await sleep_fn(RETRY_DELAYS_SECONDS[attempt - 1])
+
+    raise AssertionError("unreachable")
+
+
 async def run_musicbrainz_shadow(
     tracks: list[dict[str, Any]],
     *,
@@ -130,6 +170,7 @@ async def run_musicbrainz_shadow(
     client_factory: Callable[[], Any] = PolicyAwareMusicBrainzClient,
     output_path: Path | None = None,
     sample_size: int | None = None,
+    sleep_fn: Callable[[float], Any] = asyncio.sleep,
 ) -> dict[str, Any]:
     """Collect policy-aware metadata and append one private NDJSON record."""
     selected = _snapshot_tracks(tracks)[: sample_size or musicbrainz_shadow_sample_size()]
@@ -138,33 +179,38 @@ async def run_musicbrainz_shadow(
 
     async with client_factory() as client:
         for track in selected:
-            try:
-                kwargs: dict[str, Any] = {
-                    "duration_ms": track.get("duration_ms"),
-                }
-                if _accepts_exclusions(client.search_track):
-                    kwargs["exclusions"] = exclusions
-                raw_match = await client.search_track(
-                    track["title"],
-                    track["artists"],
-                    **kwargs,
-                )
+            raw_match, attempts, error = await _lookup_with_retry(
+                client,
+                track,
+                exclusions,
+                sleep_fn=sleep_fn,
+            )
+            if error is None:
                 match = with_musicbrainz_decision(raw_match, exclusions)
-                results.append({"input": track, "musicbrainz": match})
-            except Exception as error:  # Shadow mode must never affect the user flow.
-                LOGGER.info(
-                    "MusicBrainz shadow lookup failed for %s — %s: %s",
-                    track["artists"],
-                    track["title"],
-                    error,
-                )
                 results.append(
                     {
                         "input": track,
-                        "musicbrainz": None,
-                        "error": type(error).__name__,
+                        "musicbrainz": match,
+                        "attempts": attempts,
                     }
                 )
+                continue
+
+            LOGGER.info(
+                "MusicBrainz shadow lookup failed for %s — %s after %s attempt(s): %s",
+                track["artists"],
+                track["title"],
+                attempts,
+                error,
+            )
+            results.append(
+                {
+                    "input": track,
+                    "musicbrainz": None,
+                    "error": type(error).__name__,
+                    "attempts": attempts,
+                }
+            )
 
     decisions = [
         item["musicbrainz"].get("decision")
