@@ -51,8 +51,22 @@
     });
   }
 
+  function showChecking() {
+    const loading = $('youtube-publish-loading');
+    const controls = $('youtube-publish-controls');
+    loading.classList.remove('hidden');
+    $('youtube-publish-warning').classList.add('hidden');
+    controls.classList.remove('is-success');
+    controls.classList.add('hidden');
+  }
+
+  function hideChecking() {
+    $('youtube-publish-loading').classList.add('hidden');
+  }
+
   function showUnavailable(message) {
     const controls = $('youtube-publish-controls');
+    hideChecking();
     controls.classList.remove('is-success');
     controls.classList.add('hidden');
     $('youtube-publish-warning').classList.remove('hidden');
@@ -61,6 +75,7 @@
 
   function showControls(accountLabel, alreadyPublished) {
     const controls = $('youtube-publish-controls');
+    hideChecking();
     controls.classList.remove('is-success');
     $('youtube-publish-warning').classList.add('hidden');
     controls.classList.remove('hidden');
@@ -87,6 +102,7 @@
 
     const controls = $('youtube-publish-controls');
     const button = $('create-youtube-playlist');
+    hideChecking();
     if (button) {
       button.classList.remove('is-loading');
       button.removeAttribute('aria-busy');
@@ -177,6 +193,7 @@
       return;
     }
 
+    showChecking();
     try {
       const status = await readJson(await fetch('/api/youtube/status'));
       if (status.account_connected) {
