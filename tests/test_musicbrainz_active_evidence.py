@@ -45,9 +45,12 @@ def test_relationship_cover_is_strong_active_evidence() -> None:
 
 
 def test_van_halen_cover_is_inferred_from_earlier_exact_title_artist() -> None:
-    match = {"effective_release_year": 1978, "work_relationships": []}
+    match = {"effective_release_year": 1980, "work_relationships": []}
     history = [
         _history_item("The Kinks", 1964, "kinks"),
+        _history_item("Van Halen", 1980, "van-halen-late"),
+    ]
+    current_artist_history = [
         _history_item("Van Halen", 1978, "van-halen"),
     ]
 
@@ -56,26 +59,57 @@ def test_van_halen_cover_is_inferred_from_earlier_exact_title_artist() -> None:
         title="You Really Got Me",
         artists="Van Halen",
         history=history,
+        current_artist_history=current_artist_history,
     )
 
     assert result is not None
     assert result["earlier_artists"] == "The Kinks"
+    assert result["current_earliest_year"] == 1978
+    assert result["current_year_source"] == "artist_title_search"
     assert result["year_gap"] == 14
     assert result["work_relationship_present"] is False
 
 
-def test_beatles_original_is_not_inferred_as_cover() -> None:
-    match = {"effective_release_year": 1967, "work_relationships": []}
-    history = [
-        _history_item("The Beatles", 1967, "beatles"),
-        _history_item("Joe Cocker", 1968, "joe-cocker"),
+def test_beatles_original_uses_artist_specific_1967_history() -> None:
+    match = {
+        "effective_release_year": 1992,
+        "work_relationships": [{"work_mbid": "work"}],
+    }
+    broad_history = [
+        _history_item("The Young Idea", 1968, "young-idea"),
+        _history_item("The Beatles", 1992, "beatles-late"),
+    ]
+    current_artist_history = [
+        _history_item("The Beatles", 1967, "beatles-original"),
+        _history_item("The Beatles", 1992, "beatles-late"),
     ]
 
     result = evidence.infer_cover_from_history(
         match,
         title="With a Little Help From My Friends",
         artists="The Beatles",
-        history=history,
+        history=broad_history,
+        current_artist_history=current_artist_history,
+    )
+
+    assert result is None
+
+
+def test_missing_current_artist_history_fails_open() -> None:
+    match = {
+        "effective_release_year": 1992,
+        "work_relationships": [{"work_mbid": "work"}],
+    }
+    broad_history = [
+        _history_item("Earlier Artist", 1968, "earlier"),
+    ]
+
+    result = evidence.infer_cover_from_history(
+        match,
+        title="With a Little Help From My Friends",
+        artists="Current Artist",
+        history=broad_history,
+        current_artist_history=[],
     )
 
     assert result is None
@@ -88,6 +122,9 @@ def test_work_link_allows_one_year_cover_gap_for_joe_cocker() -> None:
     }
     history = [
         _history_item("The Beatles", 1967, "beatles"),
+        _history_item("Joe Cocker", 1984, "joe-cocker-compilation"),
+    ]
+    current_artist_history = [
         _history_item("Joe Cocker", 1968, "joe-cocker"),
         _history_item("Joe Cocker", 1984, "joe-cocker-compilation"),
     ]
@@ -97,6 +134,7 @@ def test_work_link_allows_one_year_cover_gap_for_joe_cocker() -> None:
         title="With a Little Help From My Friends",
         artists="Joe Cocker",
         history=history,
+        current_artist_history=current_artist_history,
     )
 
     assert result is not None
@@ -221,6 +259,7 @@ def test_filter_blocks_cover_inferred_from_history(tmp_path: Path) -> None:
             "earlier_artists": "The Kinks",
             "earlier_year": 1964,
             "current_earliest_year": 1978,
+            "current_year_source": "artist_title_search",
             "year_gap": 14,
         }
 
