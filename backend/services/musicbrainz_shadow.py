@@ -42,17 +42,47 @@ def musicbrainz_shadow_path() -> Path:
     return Path(configured) if configured else DATA_DIR / "musicbrainz-shadow.ndjson"
 
 
+def _duration_ms(value: Any) -> int | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parts = [int(part) for part in text.split(":")]
+    except ValueError:
+        return None
+    if len(parts) == 2:
+        minutes, seconds = parts
+        total_seconds = minutes * 60 + seconds
+    elif len(parts) == 3:
+        hours, minutes, seconds = parts
+        total_seconds = hours * 3600 + minutes * 60 + seconds
+    else:
+        return None
+    if min(parts) < 0 or seconds >= 60 or (len(parts) == 3 and minutes >= 60):
+        return None
+    return total_seconds * 1000
+
+
 def _snapshot_tracks(tracks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [
-        {
+    snapshots: list[dict[str, Any]] = []
+    for track in tracks:
+        title = str(track.get("title", "")).strip()
+        artists = str(track.get("artists", "")).strip()
+        if not title or not artists:
+            continue
+        snapshot: dict[str, Any] = {
             "video_id": track.get("video_id"),
-            "title": str(track.get("title", "")).strip(),
-            "artists": str(track.get("artists", "")).strip(),
+            "title": title,
+            "artists": artists,
         }
-        for track in tracks
-        if str(track.get("title", "")).strip()
-        and str(track.get("artists", "")).strip()
-    ]
+        duration = str(track.get("duration", "")).strip()
+        duration_ms = _duration_ms(duration)
+        if duration:
+            snapshot["duration"] = duration
+        if duration_ms is not None:
+            snapshot["duration_ms"] = duration_ms
+        snapshots.append(snapshot)
+    return snapshots
 
 
 def _append_record(path: Path, payload: dict[str, Any]) -> None:
@@ -89,7 +119,11 @@ async def run_musicbrainz_shadow(
     async with client_factory() as client:
         for track in selected:
             try:
-                match = await client.search_track(track["title"], track["artists"])
+                match = await client.search_track(
+                    track["title"],
+                    track["artists"],
+                    duration_ms=track.get("duration_ms"),
+                )
                 results.append({"input": track, "musicbrainz": match})
             except Exception as error:  # Shadow mode must never affect the user flow.
                 LOGGER.info(
