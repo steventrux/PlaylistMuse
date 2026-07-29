@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from backend.metadata.musicbrainz import MusicBrainzClient
+from backend.metadata.musicbrainz_decision import with_musicbrainz_decision
 
 SAMPLE_TRACKS: tuple[dict[str, Any], ...] = (
     {"title": "Back in Black", "artists": "AC/DC", "duration_ms": 255000},
@@ -30,11 +31,12 @@ async def run_smoke_test() -> dict[str, Any]:
     async with MusicBrainzClient(timeout_seconds=15.0) as client:
         for sample in SAMPLE_TRACKS:
             try:
-                match = await client.search_track(
+                raw_match = await client.search_track(
                     sample["title"],
                     sample["artists"],
                     duration_ms=sample["duration_ms"],
                 )
+                match = with_musicbrainz_decision(raw_match)
                 results.append(
                     {
                         "input": sample,
@@ -51,29 +53,45 @@ async def run_smoke_test() -> dict[str, Any]:
                     }
                 )
 
-    matched_count = sum(
-        1
+    decisions = [
+        result["musicbrainz"].get("decision")
         for result in results
         if isinstance(result.get("musicbrainz"), dict)
-        and result["musicbrainz"].get("matched") is True
-    )
-    canonical_count = sum(
-        1
-        for result in results
-        if isinstance(result.get("musicbrainz"), dict)
-        and result["musicbrainz"].get("matched") is True
-        and (result["musicbrainz"].get("duration_delta_ms") or 0) <= 15000
-        and (result["musicbrainz"].get("version_penalty") or 0) <= 10
-    )
+    ]
+    matched_count = decisions.count("matched")
+    ambiguous_count = decisions.count("ambiguous")
+    rejected_count = decisions.count("rejected")
     error_count = sum(1 for result in results if result.get("error"))
+    false_positive_count = sum(
+        1
+        for result in results
+        if isinstance(result.get("musicbrainz"), dict)
+        and result["musicbrainz"].get("decision") == "matched"
+        and (
+            float(result["musicbrainz"].get("version_penalty") or 0) > 10
+            or (
+                result["musicbrainz"].get("duration_delta_ms") is not None
+                and int(result["musicbrainz"]["duration_delta_ms"]) > 15000
+            )
+        )
+    )
 
+    classified_count = matched_count + ambiguous_count + rejected_count
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "sample_count": len(SAMPLE_TRACKS),
         "matched_count": matched_count,
-        "canonical_count": canonical_count,
+        "ambiguous_count": ambiguous_count,
+        "rejected_count": rejected_count,
         "error_count": error_count,
-        "success": matched_count >= 4 and canonical_count >= 4 and error_count <= 1,
+        "false_positive_count": false_positive_count,
+        "success": (
+            matched_count >= 3
+            and classified_count + error_count == len(SAMPLE_TRACKS)
+            and ambiguous_count >= 1
+            and false_positive_count == 0
+            and error_count <= 1
+        ),
         "results": results,
     }
 
