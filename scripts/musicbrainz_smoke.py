@@ -15,12 +15,12 @@ if str(ROOT) not in sys.path:
 
 from backend.metadata.musicbrainz import MusicBrainzClient
 
-SAMPLE_TRACKS: tuple[tuple[str, str], ...] = (
-    ("Back in Black", "AC/DC"),
-    ("Gimme Shelter", "The Rolling Stones"),
-    ("Time", "Pink Floyd"),
-    ("Smells Like Teen Spirit", "Nirvana"),
-    ("Billie Jean", "Michael Jackson"),
+SAMPLE_TRACKS: tuple[dict[str, Any], ...] = (
+    {"title": "Back in Black", "artists": "AC/DC", "duration_ms": 255000},
+    {"title": "Gimme Shelter", "artists": "The Rolling Stones", "duration_ms": 271000},
+    {"title": "Time", "artists": "Pink Floyd", "duration_ms": 413000},
+    {"title": "Smells Like Teen Spirit", "artists": "Nirvana", "duration_ms": 301000},
+    {"title": "Billie Jean", "artists": "Michael Jackson", "duration_ms": 294000},
 )
 
 
@@ -28,12 +28,16 @@ async def run_smoke_test() -> dict[str, Any]:
     results: list[dict[str, Any]] = []
 
     async with MusicBrainzClient(timeout_seconds=15.0) as client:
-        for title, artists in SAMPLE_TRACKS:
+        for sample in SAMPLE_TRACKS:
             try:
-                match = await client.search_track(title, artists)
+                match = await client.search_track(
+                    sample["title"],
+                    sample["artists"],
+                    duration_ms=sample["duration_ms"],
+                )
                 results.append(
                     {
-                        "input": {"title": title, "artists": artists},
+                        "input": sample,
                         "musicbrainz": match,
                         "error": None,
                     }
@@ -41,7 +45,7 @@ async def run_smoke_test() -> dict[str, Any]:
             except Exception as error:  # Real-service diagnostics belong in the report.
                 results.append(
                     {
-                        "input": {"title": title, "artists": artists},
+                        "input": sample,
                         "musicbrainz": None,
                         "error": f"{type(error).__name__}: {error}",
                     }
@@ -53,14 +57,23 @@ async def run_smoke_test() -> dict[str, Any]:
         if isinstance(result.get("musicbrainz"), dict)
         and result["musicbrainz"].get("matched") is True
     )
+    canonical_count = sum(
+        1
+        for result in results
+        if isinstance(result.get("musicbrainz"), dict)
+        and result["musicbrainz"].get("matched") is True
+        and (result["musicbrainz"].get("duration_delta_ms") or 0) <= 15000
+        and (result["musicbrainz"].get("version_penalty") or 0) <= 10
+    )
     error_count = sum(1 for result in results if result.get("error"))
 
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "sample_count": len(SAMPLE_TRACKS),
         "matched_count": matched_count,
+        "canonical_count": canonical_count,
         "error_count": error_count,
-        "success": matched_count >= 4 and error_count <= 1,
+        "success": matched_count >= 4 and canonical_count >= 4 and error_count <= 1,
         "results": results,
     }
 
