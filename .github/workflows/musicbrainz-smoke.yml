@@ -1,14 +1,6 @@
 name: MusicBrainz smoke test
 
 on:
-  push:
-    branches:
-      - phase-0-regression-safety
-    paths:
-      - scripts/musicbrainz_options_smoke.py
-      - backend/metadata/musicbrainz_policy.py
-      - backend/metadata/musicbrainz_relations.py
-      - .github/workflows/musicbrainz-smoke.yml
   workflow_dispatch:
 
 permissions:
