@@ -113,6 +113,14 @@ async def _lookup(
         }
 
 
+def _excluded_reasons(match: dict[str, Any]) -> set[str]:
+    return {
+        str(reason)
+        for reason in (match.get("decision_reasons") or [])
+        if str(reason).startswith("excluded_")
+    }
+
+
 async def run_option_matrix() -> dict[str, Any]:
     results: list[dict[str, Any]] = []
 
@@ -129,12 +137,26 @@ async def run_option_matrix() -> dict[str, Any]:
             excluded_match = excluded.get("match") or {}
             allowed_categories = set(allowed_match.get("version_categories") or [])
             excluded_categories = set(excluded_match.get("version_categories") or [])
+            allowed_policy_categories = set(
+                allowed_match.get("policy_excluded_categories") or []
+            )
+            excluded_policy_categories = set(
+                excluded_match.get("policy_excluded_categories") or []
+            )
             excluded_reasons = set(excluded_match.get("decision_reasons") or [])
 
             checks = {
                 "allowed_category_detected": scenario["category"] in allowed_categories,
-                "allowed_is_match": allowed_match.get("decision") == "matched",
-                "excluded_category_detected": scenario["category"] in excluded_categories,
+                "allowed_not_policy_blocked": scenario["category"]
+                not in allowed_policy_categories,
+                "allowed_has_no_exclusion_reason": scenario["reason"]
+                not in _excluded_reasons(allowed_match),
+                "allowed_is_classified": allowed_match.get("decision")
+                in {"matched", "ambiguous"},
+                "excluded_category_detected": scenario["category"]
+                in excluded_categories,
+                "excluded_policy_applied": scenario["category"]
+                in excluded_policy_categories,
                 "excluded_is_not_match": excluded_match.get("decision") != "matched",
                 "excluded_reason_present": scenario["reason"] in excluded_reasons,
                 "no_errors": not allowed.get("error") and not excluded.get("error"),
@@ -155,8 +177,10 @@ async def run_option_matrix() -> dict[str, Any]:
 
     baseline_match = baseline.get("match") or {}
     baseline_checks = {
-        "matched_with_all_exclusions": baseline_match.get("decision") == "matched",
+        "classified_without_policy_rejection": baseline_match.get("decision")
+        in {"matched", "ambiguous"},
         "no_excluded_categories": not baseline_match.get("policy_excluded_categories"),
+        "no_exclusion_reasons": not _excluded_reasons(baseline_match),
         "no_error": not baseline.get("error"),
     }
     baseline_result = {
@@ -170,7 +194,7 @@ async def run_option_matrix() -> dict[str, Any]:
     failed_scenarios = [item["scenario"]["id"] for item in results if not item["success"]]
     success = not failed_scenarios and baseline_result["success"]
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "scenario_count": len(results),
         "successful_scenarios": sum(1 for item in results if item["success"]),
         "failed_scenarios": failed_scenarios,
