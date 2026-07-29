@@ -5,11 +5,21 @@
 }
 
 .track-result-card:not(.expanded) {
-  padding: 3px 9px;
+  height: 68px;
+  min-height: 68px;
+  padding: 4px 9px;
+  align-items: center;
+  align-content: center;
+}
+
+.track-result-card:not(.expanded) .track-artwork,
+.track-result-card:not(.expanded) .track-copy,
+.track-result-card:not(.expanded) .track-expand-icon {
+  align-self: center;
 }
 
 .track-result-card:not(.expanded) .track-copy {
-  gap: 0;
+  gap: 1px;
 }
 
 .track-result-card:not(.expanded) .track-heading,
@@ -28,6 +38,8 @@
   }
 
   .track-result-card:not(.expanded) {
-    padding: 2px 7px;
+    height: 60px;
+    min-height: 60px;
+    padding: 4px 7px;
   }
 }
