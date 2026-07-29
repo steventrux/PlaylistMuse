@@ -1,5 +1,33 @@
 /* YouTube Music settings access from the playlist results page. */
 
+.youtube-publish-loading {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 74px;
+  padding: 16px;
+  border: 1px solid rgba(169, 155, 255, .23);
+  border-radius: 16px;
+  background: rgba(8, 11, 27, .64);
+  color: var(--text-secondary);
+  font-size: .88rem;
+  font-weight: 650;
+}
+
+.youtube-status-spinner {
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+  border: 2px solid rgba(183, 156, 255, .25);
+  border-top-color: var(--violet-light);
+  border-radius: 50%;
+  animation: youtube-status-spin .8s linear infinite;
+}
+
+@keyframes youtube-status-spin {
+  to { transform: rotate(360deg); }
+}
+
 .youtube-publish-warning > span {
   display: flex;
   align-items: baseline;
@@ -38,8 +66,18 @@
 }
 
 @media (max-width: 520px) {
+  .youtube-publish-loading {
+    min-height: 68px;
+  }
+
   .youtube-publish-warning > span {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .youtube-status-spinner {
+    animation-duration: 1.6s;
   }
 }
