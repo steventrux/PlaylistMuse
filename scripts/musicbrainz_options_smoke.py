@@ -48,9 +48,9 @@ SCENARIOS: tuple[dict[str, Any], ...] = (
     },
     {
         "id": "remix",
-        "title": "Blue Monday 1988",
+        "title": "Blue Monday 1988 (12'' mix)",
         "artists": "New Order",
-        "duration_ms": None,
+        "duration_ms": 430_000,
         "category": "remix",
         "option": "exclude_remixes",
         "reason": "excluded_remix",
@@ -80,6 +80,9 @@ def _compact(match: dict[str, Any] | None) -> dict[str, Any] | None:
         "version_categories": match.get("version_categories"),
         "relationship_version_categories": match.get(
             "relationship_version_categories"
+        ),
+        "relationship_evidence_recording_mbids": match.get(
+            "relationship_evidence_recording_mbids"
         ),
         "policy_excluded_categories": match.get("policy_excluded_categories"),
         "relationship_lookup_complete": match.get("relationship_lookup_complete"),
@@ -167,7 +170,7 @@ async def run_option_matrix() -> dict[str, Any]:
     failed_scenarios = [item["scenario"]["id"] for item in results if not item["success"]]
     success = not failed_scenarios and baseline_result["success"]
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "scenario_count": len(results),
         "successful_scenarios": sum(1 for item in results if item["success"]),
         "failed_scenarios": failed_scenarios,
