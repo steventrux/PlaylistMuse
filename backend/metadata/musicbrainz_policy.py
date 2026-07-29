@@ -12,6 +12,10 @@ from backend.metadata.musicbrainz import (
     _rate_limited_get,
     build_recording_query,
 )
+from backend.metadata.musicbrainz_relations import (
+    enrich_match_with_relationships,
+    lookup_recording_relationships,
+)
 
 _DEFAULT_EXCLUSIONS = {
     "exclude_live": True,
@@ -57,7 +61,7 @@ def _contains_term(text: str, term: str) -> bool:
 
 
 def musicbrainz_version_categories(match: Mapping[str, Any]) -> list[str]:
-    """Detect version families independently from the user's exclusion choices."""
+    """Detect version families from text plus MusicBrainz relationships."""
     secondary_types = match.get("release_group_secondary_types") or []
     text = " ".join(
         [
@@ -69,6 +73,11 @@ def musicbrainz_version_categories(match: Mapping[str, Any]) -> list[str]:
     categories: list[str] = []
     for category, terms in _CATEGORY_TERMS.items():
         if any(_contains_term(text, term) for term in terms):
+            categories.append(category)
+
+    for value in match.get("relationship_version_categories") or []:
+        category = str(value).strip().casefold()
+        if category in _CATEGORY_TERMS and category not in categories:
             categories.append(category)
     return categories
 
@@ -132,8 +141,41 @@ def apply_musicbrainz_policy(
     return result
 
 
+def _rank(item: Mapping[str, Any]) -> tuple[float, float, float, int, float]:
+    year = int(item.get("effective_release_year") or 9999)
+    return (
+        float(item.get("confidence", 0.0)),
+        float(item.get("duration_score") or 0.0),
+        float(item.get("release_quality_score", 0.0)),
+        -year,
+        float(item.get("lexical_score", 0.0)),
+    )
+
+
 class PolicyAwareMusicBrainzClient(MusicBrainzClient):
     """MusicBrainz client that ranks versions according to PlaylistMuse options."""
+
+    async def _enrich_candidate(
+        self,
+        candidate: dict[str, Any],
+        exclusions: Any,
+    ) -> dict[str, Any]:
+        recording_mbid = str(candidate.get("recording_mbid", "")).strip()
+        if not recording_mbid:
+            return candidate
+        try:
+            relationship_data = await lookup_recording_relationships(
+                self._client,
+                recording_mbid,
+            )
+        except Exception as error:
+            return {
+                **candidate,
+                "relationship_lookup_complete": False,
+                "relationship_lookup_error": type(error).__name__,
+            }
+        enriched = enrich_match_with_relationships(candidate, relationship_data)
+        return apply_musicbrainz_policy(enriched, exclusions)
 
     async def search_track(
         self,
@@ -170,14 +212,6 @@ class PolicyAwareMusicBrainzClient(MusicBrainzClient):
         ]
         pool = exact_candidates or candidates
 
-        policy_compatible = [
-            item
-            for item in pool
-            if not item.get("policy_excluded_categories")
-        ]
-        if policy_compatible:
-            pool = policy_compatible
-
         if duration_ms is not None:
             close_candidates = [
                 item
@@ -188,14 +222,18 @@ class PolicyAwareMusicBrainzClient(MusicBrainzClient):
             if close_candidates:
                 pool = close_candidates
 
-        def rank(item: dict[str, Any]) -> tuple[float, float, float, int, float]:
-            year = int(item.get("effective_release_year") or 9999)
-            return (
-                float(item.get("confidence", 0.0)),
-                float(item.get("duration_score") or 0.0),
-                float(item.get("release_quality_score", 0.0)),
-                -year,
-                float(item.get("lexical_score", 0.0)),
-            )
+        ordered = sorted(pool, key=_rank, reverse=True)
+        active = normalize_exclusions(exclusions)
+        relationship_checks = 3 if any(active.values()) else 1
+        enriched_candidates = [
+            await self._enrich_candidate(candidate, exclusions)
+            for candidate in ordered[:relationship_checks]
+        ]
 
-        return max(pool, key=rank)
+        policy_compatible = [
+            item
+            for item in enriched_candidates
+            if not item.get("policy_excluded_categories")
+        ]
+        final_pool = policy_compatible or enriched_candidates or ordered
+        return max(final_pool, key=_rank)
