@@ -81,7 +81,7 @@ def test_musicbrainz_client_returns_canonical_metadata(monkeypatch) -> None:
     async def fake_get(client: object, *, params: dict[str, Any]) -> FakeResponse:
         del client
         assert params["fmt"] == "json"
-        assert params["limit"] == 10
+        assert params["limit"] == 25
         assert "Back in Black" in params["query"]
         return FakeResponse(payload)
 
@@ -176,6 +176,11 @@ def test_musicbrainz_client_prefers_studio_version(monkeypatch) -> None:
     assert result["release_title"] == "Let It Bleed"
     assert result["duration_delta_ms"] == 0
     assert result["version_penalty"] == 0
+
+
+def test_term_matching_does_not_treat_alive_as_live() -> None:
+    assert musicbrainz._term_penalty(["The Sounds Alive Promotion Sampler"]) == 0
+    assert musicbrainz._term_penalty(["Live at Wembley"]) == 35
 
 
 def test_shadow_mode_is_disabled_by_default(monkeypatch) -> None:
