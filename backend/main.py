@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, field_validator
 
 from backend.config import (
     AppConfig,
@@ -18,6 +16,15 @@ from backend.config import (
     save_config,
 )
 from backend.llm import generate_playlist_draft, safe_error_message
+from backend.schemas import (
+    GenerateRequest,
+    PlaylistOptions,
+    ReplaceTrackRequest,
+    SeedGenerateRequest,
+    SettingsResponse,
+    SettingsUpdate,
+)
+from backend.services.playlist_generation import generate_playlist as generate_playlist_service
 from backend.youtube import resolve_candidates, search_songs, track_identity_key
 from backend.youtube_routes import router as youtube_router
 
@@ -47,89 +54,6 @@ app.include_router(youtube_router)
 app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
 
 
-class SettingsResponse(BaseModel):
-    provider: str
-    model: str
-    fallback_1: str
-    fallback_2: str
-    base_url: str
-    configured: bool
-    api_key_set: bool
-    provider_keys_set: dict[str, bool]
-
-
-class SettingsUpdate(BaseModel):
-    provider: Literal[
-        "gemini",
-        "openai",
-        "anthropic",
-        "openrouter_auto",
-        "openrouter_free",
-        "ollama",
-        "custom",
-    ]
-    api_key: str = ""
-    model: str = Field(min_length=1, max_length=120)
-    fallback_1: str = Field(default="", max_length=120)
-    fallback_2: str = Field(default="", max_length=120)
-    base_url: str = ""
-
-
-class PlaylistOptions(BaseModel):
-    exclude_live: bool = True
-    exclude_covers: bool = True
-    exclude_remixes: bool = True
-
-
-class GenerateRequest(BaseModel):
-    prompt: str = Field(min_length=3, max_length=1950)
-    track_count: int = Field(default=25, ge=5, le=100)
-    options: PlaylistOptions = Field(default_factory=PlaylistOptions)
-
-    @field_validator("prompt")
-    @classmethod
-    def normalize_prompt(cls, value: str) -> str:
-        return " ".join(value.split())
-
-
-class SeedTrack(BaseModel):
-    video_id: str = Field(min_length=3, max_length=32)
-    title: str = Field(min_length=1, max_length=300)
-    artists: str = Field(min_length=1, max_length=300)
-    album: str | None = None
-    duration: str | None = None
-    thumbnail_url: str | None = None
-    url: str | None = None
-
-
-class SeedGenerateRequest(BaseModel):
-    seed: SeedTrack
-    track_count: int = Field(default=25, ge=5, le=100)
-    options: PlaylistOptions = Field(default_factory=PlaylistOptions)
-
-
-class PlaylistTrackContext(BaseModel):
-    video_id: str | None = Field(default=None, max_length=64)
-    title: str = Field(min_length=1, max_length=300)
-    artists: str = Field(min_length=1, max_length=300)
-    description: str = Field(default="", max_length=500)
-    reason: str = Field(default="", max_length=600)
-
-
-class ReplaceTrackRequest(BaseModel):
-    prompt: str = Field(min_length=3, max_length=1950)
-    playlist_name: str = Field(default="", max_length=100)
-    playlist_description: str = Field(default="", max_length=500)
-    current_track: PlaylistTrackContext
-    existing_tracks: list[PlaylistTrackContext] = Field(default_factory=list, max_length=300)
-    options: PlaylistOptions = Field(default_factory=PlaylistOptions)
-
-    @field_validator("prompt")
-    @classmethod
-    def normalize_prompt(cls, value: str) -> str:
-        return " ".join(value.split())
-
-
 def _settings_response(config: AppConfig) -> SettingsResponse:
     return SettingsResponse(
         provider=config.provider,
@@ -149,134 +73,9 @@ def _track_key(title: str, artists: str) -> str:
     return track_identity_key(title, artists)
 
 
-def _candidate_key(candidate: dict) -> str:
-    return track_identity_key(
-        str(candidate.get("title", "")),
-        str(candidate.get("artist", candidate.get("artists", ""))),
-    )
-
-
-def _replenishment_prompt(
-    original_prompt: str,
-    playlist_title: str,
-    playlist_description: str,
-    missing: int,
-    pool_size: int,
-    tracks: list[dict],
-    attempted_candidates: list[dict],
-) -> str:
-    forbidden_lines: list[str] = []
-    for track in tracks:
-        forbidden_lines.append(
-            f"- {track.get('artists', 'Unknown artist')} — "
-            f"{track.get('title', 'Unknown track')}"
-        )
-    for candidate in attempted_candidates[-100:]:
-        forbidden_lines.append(
-            f"- {candidate.get('artist', 'Unknown artist')} — "
-            f"{candidate.get('title', 'Unknown track')}"
-        )
-    forbidden = "\n".join(dict.fromkeys(forbidden_lines))
-    return (
-        f"The original playlist request is:\n{original_prompt}\n\n"
-        f"Playlist title: {playlist_title}\n"
-        f"Playlist description: {playlist_description}\n"
-        f"The playlist still needs {missing} resolvable songs. Suggest exactly "
-        f"{pool_size} NEW replacement candidates that are likely to exist as normal "
-        "song entries on YouTube Music. Use canonical released titles and mainstream "
-        "artist spelling. Do not repeat any forbidden song.\n"
-        f"Forbidden or already attempted songs:\n{forbidden or '- None'}"
-    )
-
-
 async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
-    config = load_config()
-    draft = await generate_playlist_draft(config, prompt, count)
-    exclusions = options.model_dump()
-    tracks, unresolved = await resolve_candidates(draft["tracks"], exclusions)
-
-    attempted_candidates = list(draft["tracks"])
-    attempted_keys = {_candidate_key(candidate) for candidate in attempted_candidates}
-    resolved_keys = {
-        track_identity_key(track.get("title", ""), track.get("artists", ""))
-        for track in tracks
-    }
-    resolved_ids = {track.get("video_id") for track in tracks if track.get("video_id")}
-    stalled_rounds = 0
-
-    for _round in range(1, 7):
-        missing = count - len(tracks)
-        if missing <= 0:
-            break
-
-        pool_size = min(30, max(8, missing * 2))
-        refill_prompt = _replenishment_prompt(
-            prompt,
-            draft["title"],
-            draft["description"],
-            missing,
-            pool_size,
-            tracks,
-            attempted_candidates,
-        )
-        refill = await generate_playlist_draft(config, refill_prompt, pool_size)
-        fresh_candidates: list[dict] = []
-        for candidate in refill["tracks"]:
-            key = _candidate_key(candidate)
-            if not key or key in attempted_keys:
-                continue
-            attempted_keys.add(key)
-            attempted_candidates.append(candidate)
-            fresh_candidates.append(candidate)
-
-        if not fresh_candidates:
-            stalled_rounds += 1
-            if stalled_rounds >= 2:
-                break
-            continue
-
-        newly_resolved, newly_unresolved = await resolve_candidates(
-            fresh_candidates,
-            exclusions,
-        )
-        unresolved.extend(newly_unresolved)
-        added = 0
-        for track in newly_resolved:
-            track_key = track_identity_key(
-                track.get("title", ""),
-                track.get("artists", ""),
-            )
-            video_id = track.get("video_id")
-            if track_key in resolved_keys or (video_id and video_id in resolved_ids):
-                continue
-            resolved_keys.add(track_key)
-            if video_id:
-                resolved_ids.add(video_id)
-            tracks.append(track)
-            added += 1
-            if len(tracks) >= count:
-                break
-
-        stalled_rounds = 0 if added else stalled_rounds + 1
-        if stalled_rounds >= 2:
-            break
-
-    if len(tracks) < count:
-        raise ValueError(
-            f"PlaylistMuse found only {len(tracks)} of {count} distinct tracks that "
-            "could be verified on YouTube Music. Try a broader prompt or request "
-            "fewer tracks."
-        )
-
-    return {
-        "name": draft["title"],
-        "description": draft["description"],
-        "prompt": prompt,
-        "requested_count": count,
-        "resolved_count": count,
-        "tracks": tracks[:count],
-        "unresolved": unresolved,
-    }
+    """Compatibility wrapper preserving the existing route integration point."""
+    return await generate_playlist_service(prompt, count, options)
 
 
 @app.get("/api/health")
