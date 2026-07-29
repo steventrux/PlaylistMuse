@@ -1,37 +1,52 @@
-/* Keep collapsed result cards balanced without changing artwork size. */
+/* Balance collapsed result cards with larger artwork and readable typography. */
 
 .track-list {
   gap: 8px;
 }
 
 .track-result-card:not(.expanded) {
-  height: auto;
-  min-height: 74px;
-  padding: 7px 10px;
+  grid-template-columns: 66px minmax(0, 1fr) 28px;
+  min-height: 84px;
+  padding: 8px 10px;
   align-items: center;
+  column-gap: 14px;
 }
 
-.track-result-card:not(.expanded) .track-artwork,
-.track-result-card:not(.expanded) .track-copy,
-.track-result-card:not(.expanded) .track-expand-icon {
+.track-result-card:not(.expanded) .track-artwork {
+  width: 66px !important;
+  height: 66px !important;
   align-self: center;
 }
 
 .track-result-card:not(.expanded) .track-copy {
-  gap: 2px;
+  display: grid;
+  align-self: center;
+  align-content: center;
+  gap: 3px;
 }
 
 .track-result-card:not(.expanded) .track-heading {
-  line-height: 1.2;
+  line-height: 1.28;
+}
+
+.track-result-card:not(.expanded) .track-title {
+  font-size: .96rem;
+  font-weight: 790;
+}
+
+.track-result-card:not(.expanded) .track-duration {
+  font-size: .86rem;
 }
 
 .track-result-card:not(.expanded) .track-meta {
-  line-height: 1.25;
+  font-size: .86rem;
+  line-height: 1.28;
 }
 
 .track-result-card:not(.expanded) .track-expand-icon {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
+  align-self: center;
 }
 
 @media (max-width: 650px) {
@@ -40,8 +55,23 @@
   }
 
   .track-result-card:not(.expanded) {
-    height: auto;
-    min-height: 64px;
-    padding: 6px 8px;
+    grid-template-columns: 56px minmax(0, 1fr) 24px;
+    min-height: 72px;
+    padding: 7px 8px;
+    column-gap: 11px;
+  }
+
+  .track-result-card:not(.expanded) .track-artwork {
+    width: 56px !important;
+    height: 56px !important;
+  }
+
+  .track-result-card:not(.expanded) .track-title {
+    font-size: .9rem;
+  }
+
+  .track-result-card:not(.expanded) .track-duration,
+  .track-result-card:not(.expanded) .track-meta {
+    font-size: .8rem;
   }
 }
