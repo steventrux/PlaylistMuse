@@ -1,13 +1,21 @@
 name: MusicBrainz smoke test
 
 on:
+  push:
+    branches:
+      - phase-0-regression-safety
+    paths:
+      - scripts/musicbrainz_options_smoke.py
+      - backend/metadata/musicbrainz_policy.py
+      - backend/metadata/musicbrainz_relations.py
+      - .github/workflows/musicbrainz-smoke.yml
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  smoke:
+  option-matrix:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
 
@@ -24,15 +32,15 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
 
-      - name: Run real MusicBrainz smoke test
+      - name: Run real MusicBrainz option matrix
         env:
           PLAYLISTMUSE_MUSICBRAINZ_CONTACT: https://github.com/steventrux/PlaylistMuse
-        run: python scripts/musicbrainz_smoke.py
+        run: python scripts/musicbrainz_options_smoke.py
 
-      - name: Upload smoke report
+      - name: Upload option matrix report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: musicbrainz-smoke-report
-          path: artifacts/musicbrainz-smoke-report.json
+          name: musicbrainz-options-smoke-report
+          path: artifacts/musicbrainz-options-smoke-report.json
           if-no-files-found: warn
