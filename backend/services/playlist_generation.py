@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+
 from backend.catalogs.base import MusicCatalog
 from backend.catalogs.youtube_music import youtube_music_catalog
 from backend.config import load_config
@@ -52,6 +54,31 @@ def _replenishment_prompt(
         "artist spelling. Do not repeat any forbidden song.\n"
         f"Forbidden or already attempted songs:\n{forbidden or '- None'}"
     )
+
+
+def _scheduler_accepts_options(scheduler) -> bool:
+    """Keep one-argument test and integration hooks working unchanged."""
+    try:
+        parameters = inspect.signature(scheduler).parameters.values()
+    except (TypeError, ValueError):
+        return True
+    positional = [
+        parameter
+        for parameter in parameters
+        if parameter.kind
+        in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    return any(
+        parameter.kind is inspect.Parameter.VAR_POSITIONAL
+        for parameter in parameters
+    ) or len(positional) >= 2
+
+
+def _schedule_shadow(scheduler, tracks: list[dict], options: PlaylistOptions) -> None:
+    if _scheduler_accepts_options(scheduler):
+        scheduler(tracks, options)
+    else:
+        scheduler(tracks)
 
 
 async def generate_playlist(
@@ -160,7 +187,7 @@ async def generate_playlist(
         )
 
     final_tracks = tracks[:count]
-    shadow_scheduler_fn(final_tracks)
+    _schedule_shadow(shadow_scheduler_fn, final_tracks, options)
     return {
         "name": draft["title"],
         "description": draft["description"],
