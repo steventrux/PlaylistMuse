@@ -112,7 +112,12 @@ def apply_musicbrainz_policy(
 
     confidence = round(max(0.0, _base_confidence(result) - penalty), 1)
     lexical_score = float(result.get("lexical_score", 0.0) or 0.0)
-    matched = bool(result.get("recording_mbid")) and lexical_score >= MATCH_THRESHOLD and confidence >= MATCH_THRESHOLD
+    matched = (
+        bool(result.get("recording_mbid"))
+        and not excluded_categories
+        and lexical_score >= MATCH_THRESHOLD
+        and confidence >= MATCH_THRESHOLD
+    )
 
     result.update(
         {
