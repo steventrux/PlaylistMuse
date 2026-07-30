@@ -135,7 +135,7 @@ def test_successful_release_group_lookup_is_cached_per_album(
 
 
 def test_existing_youtube_api_paths_are_preserved() -> None:
-    paths = {route.path for route in app.routes}
+    paths = set(app.openapi()["paths"])
 
     assert "/api/artwork/track" in paths
     assert "/api/artwork/images/{filename}" in paths
