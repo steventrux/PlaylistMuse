@@ -145,3 +145,11 @@ def test_existing_youtube_api_paths_are_preserved() -> None:
     assert "/api/youtube/connect/poll" in paths
     assert "/api/youtube/connection" in paths
     assert "/api/youtube/playlists" in paths
+
+
+def test_track_cards_prioritize_stable_youtube_artwork() -> None:
+    source = Path("frontend/playlist.js").read_text(encoding="utf-8")
+
+    assert "return track.thumbnail_url || track.album_artwork_url || '';" in source
+    assert "updateTrackArtwork" not in source
+    assert "const remaining = data.tracks" not in source
