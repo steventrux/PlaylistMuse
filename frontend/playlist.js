@@ -3,6 +3,7 @@
 
   const STORAGE_KEY = 'playlistmuse-generated-playlist';
   const REQUEST_KEY = 'playlistmuse-generation-request';
+  const ARTWORK_ENDPOINT = '/api/artwork/track';
   const $ = (id) => document.getElementById(id);
   let expandedIndex = null;
 
@@ -58,6 +59,120 @@
     const durationText = formatPlaylistDuration(totalSeconds);
     const trackLabel = `${data.tracks.length} ${data.tracks.length === 1 ? 'track' : 'tracks'}`;
     $('playlist-summary').textContent = durationText ? `${trackLabel} · ${durationText}` : trackLabel;
+  }
+
+  function trackArtworkUrl(track) {
+    return track.album_artwork_url || track.thumbnail_url || '';
+  }
+
+  function representativeIndexes(length) {
+    if (!length) return [];
+    const last = length - 1;
+    return [...new Set([
+      0,
+      Math.round(last / 3),
+      Math.round((last * 2) / 3),
+      last,
+    ])];
+  }
+
+  function playlistCoverUrls() {
+    const urls = [];
+    const add = (track) => {
+      const url = trackArtworkUrl(track);
+      if (url && !urls.includes(url)) urls.push(url);
+    };
+
+    representativeIndexes(data.tracks.length).forEach((index) => add(data.tracks[index]));
+    data.tracks.forEach(add);
+    return urls.slice(0, 4);
+  }
+
+  function renderPlaylistCover() {
+    const container = $('playlist-cover-grid');
+    const urls = playlistCoverUrls();
+    const tiles = [];
+
+    for (let index = 0; index < 4; index += 1) {
+      const url = urls[index];
+      if (url) {
+        const image = document.createElement('img');
+        image.src = url;
+        image.alt = '';
+        image.loading = index === 0 ? 'eager' : 'lazy';
+        tiles.push(image);
+      } else {
+        const placeholder = document.createElement('span');
+        placeholder.className = 'playlist-cover-placeholder';
+        tiles.push(placeholder);
+      }
+    }
+
+    container.replaceChildren(...tiles);
+    const musicBrainzCount = data.tracks.filter(
+      (track) => track.artwork_source === 'musicbrainz',
+    ).length;
+    $('playlist-cover-status').textContent = musicBrainzCount
+      ? `Playlist cover updated with ${Math.min(musicBrainzCount, 4)} album artworks.`
+      : 'Playlist cover created from YouTube Music thumbnails.';
+  }
+
+  function updateTrackArtwork(index) {
+    const image = document.querySelector(
+      `.track[data-track-index="${index}"] .track-artwork`,
+    );
+    const track = data.tracks[index];
+    const url = track ? trackArtworkUrl(track) : '';
+    if (image && url) image.src = url;
+  }
+
+  async function enrichTrackArtwork(index) {
+    const track = data.tracks[index];
+    if (!track || track.artwork_checked) return;
+
+    if (!track.title || !track.artists || !track.album) {
+      track.artwork_checked = true;
+      track.artwork_source = 'youtube';
+      savePlaylist();
+      return;
+    }
+
+    try {
+      const payload = await readJson(await fetch(ARTWORK_ENDPOINT, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          title: track.title,
+          artists: track.artists,
+          album: track.album,
+          thumbnail_url: track.thumbnail_url || null,
+        }),
+      }));
+
+      track.artwork_checked = true;
+      track.artwork_source = payload.source || 'youtube';
+      if (payload.source === 'musicbrainz' && payload.artwork_url) {
+        track.album_artwork_url = payload.artwork_url;
+        track.release_group_mbid = payload.release_group_mbid || null;
+        track.release_group_title = payload.release_group_title || null;
+      }
+      savePlaylist();
+      updateTrackArtwork(index);
+      renderPlaylistCover();
+    } catch (error) {
+      console.debug('Album artwork enrichment skipped:', error);
+    }
+  }
+
+  async function enrichArtwork() {
+    const priority = representativeIndexes(data.tracks.length);
+    const remaining = data.tracks
+      .map((_, index) => index)
+      .filter((index) => !priority.includes(index));
+
+    for (const index of [...priority, ...remaining]) {
+      await enrichTrackArtwork(index);
+    }
   }
 
   function detailBlock(title, text) {
@@ -171,6 +286,7 @@
       expandedIndex = index;
       savePlaylist();
       renderPlaylist();
+      void enrichTrackArtwork(index);
     } catch (error) {
       status.textContent = error.message || String(error);
       status.classList.add('error');
@@ -181,6 +297,7 @@
   function renderTrack(track, index) {
     const item = document.createElement('li');
     item.className = 'track track-result-card';
+    item.dataset.trackIndex = String(index);
     item.tabIndex = 0;
     item.setAttribute('role', 'button');
     item.setAttribute('aria-expanded', String(expandedIndex === index));
@@ -190,8 +307,9 @@
     const artwork = document.createElement('img');
     artwork.className = 'track-artwork';
     artwork.loading = 'lazy';
-    artwork.alt = `Cover artwork for ${track.title || 'track'}`;
-    artwork.src = track.thumbnail_url || '';
+    artwork.alt = `Album artwork for ${track.title || 'track'}`;
+    const artworkUrl = trackArtworkUrl(track);
+    if (artworkUrl) artwork.src = artworkUrl;
 
     const copy = document.createElement('div');
     copy.className = 'track-copy';
@@ -289,6 +407,7 @@
     updateSummary();
     $('playlist-description').textContent = data.description || data.prompt || '';
     $('track-list').replaceChildren(...data.tracks.map(renderTrack));
+    renderPlaylistCover();
   }
 
   const data = readStoredJson(STORAGE_KEY);
@@ -314,4 +433,5 @@
   });
 
   renderPlaylist();
+  void enrichArtwork();
 })();
