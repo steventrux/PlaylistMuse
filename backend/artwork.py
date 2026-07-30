@@ -8,7 +8,6 @@ import json
 import logging
 import os
 import re
-import time
 import unicodedata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -32,7 +31,6 @@ MIN_MATCH_SCORE = 80.0
 ARTWORK_DIR = DATA_DIR / "artwork"
 ARTWORK_IMAGE_DIR = ARTWORK_DIR / "images"
 ARTWORK_CACHE_PATH = ARTWORK_DIR / "release-groups.json"
-ARTWORK_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 _cache_lock = asyncio.Lock()
 _musicbrainz_lock = asyncio.Lock()
@@ -268,7 +266,7 @@ async def _download_cover(
     release_group_mbid: str,
     source_url: str,
 ) -> str:
-    response = await client.get(source_url)
+    response = await client.get(source_url, headers={"Accept": "image/*"})
     response.raise_for_status()
     content_type = response.headers.get("content-type", "")
     if not content_type.casefold().startswith("image/"):
@@ -279,6 +277,7 @@ async def _download_cover(
 
     digest = hashlib.sha256(release_group_mbid.encode("utf-8")).hexdigest()
     filename = f"{digest}{_extension(content_type)}"
+    ARTWORK_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     destination = ARTWORK_IMAGE_DIR / filename
     if not destination.exists():
         temporary = destination.with_suffix(destination.suffix + ".tmp")
