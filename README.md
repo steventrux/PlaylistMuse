@@ -9,8 +9,7 @@ PlaylistMuse is a standalone, self-hosted web application that turns a natural-l
 - Filters for live recordings, covers and remixes
 - AI providers: Google Gemini, OpenAI, Anthropic, OpenRouter Auto, OpenRouter Free, Ollama and OpenAI-compatible endpoints
 - YouTube Music catalogue resolution with fuzzy matching and automatic replenishment
-- Release-group album artwork from MusicBrainz and the Cover Art Archive
-- Automatic playlist-cover mosaic with an immediate YouTube Music version
+- Automatic playlist-cover mosaic built from YouTube Music thumbnails
 - Expandable track details and AI-assisted track replacement
 - Google OAuth device authorization for a YouTube Music account
 - Direct playlist creation with private, unlisted or public visibility
@@ -52,21 +51,11 @@ The preferred method is the Settings panel. Environment variables can also be us
 
 AI settings are stored in `data/config.json`, which is excluded from Git.
 
-## Album and playlist artwork
+## Playlist artwork
 
-The results page immediately displays a complete playlist mosaic made from YouTube Music thumbnails. Track-card images remain unchanged.
+The results page immediately builds a four-tile playlist mosaic from representative YouTube Music thumbnails. The first, approximately one-third, approximately two-thirds and final positions are used so that the cover reflects the full playlist rather than only its opening tracks.
 
-PlaylistMuse then selects four representative positions and:
-
-1. sends all four artist/album pairs in one request;
-2. performs one combined MusicBrainz release-group search;
-3. caches only the resulting release-group MBIDs under `PLAYLISTMUSE_DATA_DIR/artwork`;
-4. loads the four `front-500` Cover Art Archive images in parallel in the browser;
-5. replaces the complete mosaic in one atomic update when the images are ready.
-
-The user never waits on an empty mosaic. Missing metadata, low-confidence matches, unavailable cover art and temporary service errors leave the immediate YouTube Music mosaic unchanged. Cached successful lookups are retained for 180 days and missing results for 7 days.
-
-Set `PLAYLISTMUSE_MUSICBRAINZ_CONTACT` to an email address or project URL to identify the application in the MusicBrainz User-Agent. When it is empty, PlaylistMuse uses its public repository URL.
+The mosaic is rendered locally in the browser, requires no additional API requests and is refreshed immediately when a representative track is replaced. Track-card images use the same stable YouTube Music thumbnails.
 
 ## Connect YouTube Music
 
@@ -92,7 +81,6 @@ When an account is connected, the results page allows the edited playlist title,
 - `POST /api/playlists/generate`
 - `POST /api/playlists/generate-from-seed`
 - `POST /api/playlists/replace-track`
-- `POST /api/artwork/playlist`
 - `GET /api/youtube/settings`
 - `PUT /api/youtube/settings`
 - `GET /api/youtube/status`
