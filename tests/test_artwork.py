@@ -39,6 +39,12 @@ def test_batch_query_combines_album_artist_pairs() -> None:
     assert " OR " in query
 
 
+def test_release_group_cover_uses_direct_front_500_endpoint() -> None:
+    assert artwork._cover_art_url("release-group-mbid") == (
+        "https://coverartarchive.org/release-group/release-group-mbid/front-500"
+    )
+
+
 def test_missing_album_returns_youtube_fallback_without_lookup(monkeypatch) -> None:
     called = False
 
