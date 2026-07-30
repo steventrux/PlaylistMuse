@@ -7,7 +7,6 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from backend.artwork_routes import router as artwork_router
 from backend.youtube_account import (
     YouTubeAccountError,
     disconnect_youtube,
@@ -20,7 +19,6 @@ from backend.youtube_account import (
 from backend.youtube_publish import create_youtube_playlist
 
 router = APIRouter(prefix="/api")
-router.include_router(artwork_router)
 
 
 class YouTubeSettingsUpdate(BaseModel):
