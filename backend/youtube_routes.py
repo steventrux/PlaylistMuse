@@ -7,6 +7,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
+from backend.artwork_routes import router as artwork_router
 from backend.youtube_account import (
     YouTubeAccountError,
     disconnect_youtube,
@@ -18,7 +19,8 @@ from backend.youtube_account import (
 )
 from backend.youtube_publish import create_youtube_playlist
 
-router = APIRouter(prefix="/api/youtube", tags=["youtube-music"])
+router = APIRouter(prefix="/api")
+router.include_router(artwork_router)
 
 
 class YouTubeSettingsUpdate(BaseModel):
@@ -51,12 +53,12 @@ class YouTubePlaylistCreateRequest(BaseModel):
         return normalized
 
 
-@router.get("/settings")
+@router.get("/youtube/settings", tags=["youtube-music"])
 async def get_youtube_settings() -> dict:
     return youtube_settings_response()
 
 
-@router.put("/settings")
+@router.put("/youtube/settings", tags=["youtube-music"])
 async def update_youtube_settings(request: YouTubeSettingsUpdate) -> dict:
     try:
         return save_youtube_settings(request.client_id, request.client_secret)
@@ -69,12 +71,12 @@ async def update_youtube_settings(request: YouTubeSettingsUpdate) -> dict:
         ) from error
 
 
-@router.get("/status")
+@router.get("/youtube/status", tags=["youtube-music"])
 async def get_youtube_status() -> dict:
     return await youtube_status()
 
 
-@router.post("/connect/start")
+@router.post("/youtube/connect/start", tags=["youtube-music"])
 async def begin_youtube_connection() -> dict:
     try:
         return await start_authorization()
@@ -90,7 +92,7 @@ async def begin_youtube_connection() -> dict:
         ) from error
 
 
-@router.post("/connect/poll")
+@router.post("/youtube/connect/poll", tags=["youtube-music"])
 async def poll_youtube_connection() -> dict:
     try:
         return await poll_authorization()
@@ -103,12 +105,12 @@ async def poll_youtube_connection() -> dict:
         ) from error
 
 
-@router.delete("/connection")
+@router.delete("/youtube/connection", tags=["youtube-music"])
 async def delete_youtube_connection() -> dict:
     return await disconnect_youtube()
 
 
-@router.post("/playlists")
+@router.post("/youtube/playlists", tags=["youtube-music"])
 async def publish_youtube_playlist(request: YouTubePlaylistCreateRequest) -> dict:
     try:
         return await create_youtube_playlist(
