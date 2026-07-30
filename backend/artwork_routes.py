@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from backend.artwork import artwork_image_path, resolve_track_artwork
 
-router = APIRouter(prefix="/api/artwork", tags=["artwork"])
+router = APIRouter(prefix="/artwork", tags=["artwork"])
 
 
 class TrackArtworkRequest(BaseModel):
