@@ -24,25 +24,19 @@ def test_release_group_candidate_requires_album_and_artist_match() -> None:
     assert artwork._candidate_score(wrong_artist, "Back in Black", "AC/DC") == 0
 
 
-def test_preferred_cover_uses_front_500_thumbnail() -> None:
-    payload = {
-        "images": [
-            {
-                "front": False,
-                "approved": True,
-                "image": "http://example.test/other.jpg",
-                "thumbnails": {"500": "http://example.test/other-500.jpg"},
-            },
-            {
-                "front": True,
-                "approved": True,
-                "image": "http://example.test/front.jpg",
-                "thumbnails": {"500": "http://example.test/front-500.jpg"},
-            },
+def test_batch_query_combines_album_artist_pairs() -> None:
+    query = artwork._release_group_query(
+        [
+            ("AC/DC", "Back in Black"),
+            ("Pink Floyd", "The Wall"),
         ]
-    }
+    )
 
-    assert artwork._preferred_cover_url(payload) == "https://example.test/front-500.jpg"
+    assert 'releasegroup:"Back in Black"' in query
+    assert 'artistname:"AC/DC"' in query
+    assert 'releasegroup:"The Wall"' in query
+    assert 'artistname:"Pink Floyd"' in query
+    assert " OR " in query
 
 
 def test_missing_album_returns_youtube_fallback_without_lookup(monkeypatch) -> None:
@@ -53,92 +47,103 @@ def test_missing_album_returns_youtube_fallback_without_lookup(monkeypatch) -> N
         called = True
         raise AssertionError("MusicBrainz must not be queried without an album")
 
-    monkeypatch.setattr(artwork, "_find_release_group", fail_if_called)
+    monkeypatch.setattr(artwork, "_search_release_groups", fail_if_called)
 
     result = asyncio.run(
-        artwork.resolve_track_artwork(
-            title="Song",
-            artists="Artist",
-            album=None,
-            thumbnail_url="https://example.test/youtube.jpg",
+        artwork.resolve_playlist_artwork(
+            [
+                {
+                    "title": "Song",
+                    "artists": "Artist",
+                    "album": None,
+                    "thumbnail_url": "https://example.test/youtube.jpg",
+                }
+            ]
         )
     )
 
-    assert result == {
-        "source": "youtube",
-        "artwork_url": "https://example.test/youtube.jpg",
-        "release_group_mbid": None,
-        "release_group_title": None,
-    }
+    assert result == [
+        {
+            "source": "youtube",
+            "artwork_url": "https://example.test/youtube.jpg",
+            "release_group_mbid": None,
+            "release_group_title": None,
+        }
+    ]
     assert called is False
 
 
-def test_successful_release_group_lookup_is_cached_per_album(
+def test_playlist_lookup_uses_one_search_and_caches_release_groups(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    image_dir = tmp_path / "images"
-    image_dir.mkdir()
     monkeypatch.setattr(artwork, "ARTWORK_DIR", tmp_path)
-    monkeypatch.setattr(artwork, "ARTWORK_IMAGE_DIR", image_dir)
     monkeypatch.setattr(artwork, "ARTWORK_CACHE_PATH", tmp_path / "release-groups.json")
 
     lookup_calls = 0
 
-    async def fake_find_release_group(client, album, artists):
+    async def fake_search_release_groups(client, items):
         nonlocal lookup_calls
         del client
         lookup_calls += 1
-        assert album == "Back in Black"
-        assert artists == "AC/DC"
-        return {"id": "release-group-mbid", "title": "Back in Black"}
+        assert set(items) == {
+            ("AC/DC", "Back in Black"),
+            ("Pink Floyd", "The Wall"),
+        }
+        return {
+            artwork._identity("AC/DC", "Back in Black"): {
+                "id": "acdc-release-group",
+                "title": "Back in Black",
+            },
+            artwork._identity("Pink Floyd", "The Wall"): {
+                "id": "floyd-release-group",
+                "title": "The Wall",
+            },
+        }
 
-    async def fake_cover_url(client, release_group_mbid):
-        del client
-        assert release_group_mbid == "release-group-mbid"
-        return "https://example.test/front-500.jpg"
+    monkeypatch.setattr(artwork, "_search_release_groups", fake_search_release_groups)
 
-    async def fake_download(client, release_group_mbid, source_url):
-        del client
-        assert release_group_mbid == "release-group-mbid"
-        assert source_url == "https://example.test/front-500.jpg"
-        filename = f"{'a' * 64}.jpg"
-        (image_dir / filename).write_bytes(b"image")
-        return filename
+    tracks = [
+        {
+            "title": "Hells Bells",
+            "artists": "AC/DC",
+            "album": "Back in Black",
+            "thumbnail_url": "https://example.test/hells-bells.jpg",
+        },
+        {
+            "title": "You Shook Me All Night Long",
+            "artists": "AC/DC",
+            "album": "Back in Black",
+            "thumbnail_url": "https://example.test/you-shook-me.jpg",
+        },
+        {
+            "title": "Another Brick in the Wall",
+            "artists": "Pink Floyd",
+            "album": "The Wall",
+            "thumbnail_url": "https://example.test/the-wall.jpg",
+        },
+    ]
 
-    monkeypatch.setattr(artwork, "_find_release_group", fake_find_release_group)
-    monkeypatch.setattr(artwork, "_release_group_cover_url", fake_cover_url)
-    monkeypatch.setattr(artwork, "_download_cover", fake_download)
+    first = asyncio.run(artwork.resolve_playlist_artwork(tracks))
+    second = asyncio.run(artwork.resolve_playlist_artwork(tracks))
 
-    request = {
-        "title": "Hells Bells",
-        "artists": "AC/DC",
-        "album": "Back in Black",
-        "thumbnail_url": "https://example.test/youtube.jpg",
-    }
-    first = asyncio.run(artwork.resolve_track_artwork(**request))
-    second = asyncio.run(
-        artwork.resolve_track_artwork(
-            **{**request, "title": "You Shook Me All Night Long"}
-        )
-    )
-
-    expected = {
-        "source": "musicbrainz",
-        "artwork_url": f"/api/artwork/images/{'a' * 64}.jpg",
-        "release_group_mbid": "release-group-mbid",
-        "release_group_title": "Back in Black",
-    }
-    assert first == expected
-    assert second == expected
     assert lookup_calls == 1
+    assert first == second
+    assert first[0]["artwork_url"] == (
+        "https://coverartarchive.org/release-group/acdc-release-group/front-500"
+    )
+    assert first[1]["release_group_mbid"] == "acdc-release-group"
+    assert first[2]["release_group_title"] == "The Wall"
+    assert (tmp_path / "release-groups.json").is_file()
+    assert not (tmp_path / "images").exists()
 
 
-def test_existing_youtube_api_paths_are_preserved() -> None:
+def test_public_artwork_api_is_batch_only() -> None:
     paths = set(app.openapi()["paths"])
 
-    assert "/api/artwork/track" in paths
-    assert "/api/artwork/images/{filename}" in paths
+    assert "/api/artwork/playlist" in paths
+    assert "/api/artwork/track" not in paths
+    assert "/api/artwork/images/{filename}" not in paths
     assert "/api/youtube/settings" in paths
     assert "/api/youtube/status" in paths
     assert "/api/youtube/connect/start" in paths
@@ -147,9 +152,13 @@ def test_existing_youtube_api_paths_are_preserved() -> None:
     assert "/api/youtube/playlists" in paths
 
 
-def test_track_cards_prioritize_stable_youtube_artwork() -> None:
+def test_frontend_shows_youtube_mosaic_before_one_batch_upgrade() -> None:
     source = Path("frontend/playlist.js").read_text(encoding="utf-8")
 
-    assert "return track.thumbnail_url || track.album_artwork_url || '';" in source
-    assert "updateTrackArtwork" not in source
-    assert "const remaining = data.tracks" not in source
+    assert "const ARTWORK_ENDPOINT = '/api/artwork/playlist';" in source
+    assert "renderPlaylistCover(fallbackUrls);" in source
+    assert "Promise.all(tracks.map" in source
+    assert "if (track.thumbnail_url) artwork.src = track.thumbnail_url;" in source
+    assert "enrichTrackArtwork" not in source
+    assert "album_artwork_url" not in source
+    assert "/api/artwork/track" not in source
