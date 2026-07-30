@@ -54,17 +54,17 @@ AI settings are stored in `data/config.json`, which is excluded from Git.
 
 ## Album and playlist artwork
 
-The results page is displayed immediately with YouTube Music thumbnails. Album artwork enrichment then runs separately and never changes track selection or delays playlist generation.
+The results page is displayed immediately with stable YouTube Music artwork on every track card. MusicBrainz runs separately and never changes track selection, track order or the images already shown in the list.
 
-For tracks that include both an album and an artist, PlaylistMuse:
+PlaylistMuse selects four representative positions in the playlist and:
 
-1. searches the matching MusicBrainz release group;
+1. searches the matching MusicBrainz release group using album and artist;
 2. retrieves its representative image from the Cover Art Archive;
 3. stores the image and lookup result under `PLAYLISTMUSE_DATA_DIR/artwork`;
-4. replaces the track thumbnail when a reliable match is available;
-5. builds a four-tile playlist cover from representative positions in the playlist.
+4. preloads the four selected images;
+5. reveals the complete playlist-cover mosaic in a single update.
 
-Missing metadata, low-confidence matches and temporary service errors keep the existing YouTube Music image. Cached successful lookups are retained for 180 days and missing results for 7 days.
+Missing metadata, low-confidence matches and temporary service errors use the existing YouTube Music image in the mosaic. Cached successful lookups are retained for 180 days and missing results for 7 days.
 
 Set `PLAYLISTMUSE_MUSICBRAINZ_CONTACT` to an email address or project URL to identify the application in the MusicBrainz User-Agent. When it is empty, PlaylistMuse uses its public repository URL.
 
