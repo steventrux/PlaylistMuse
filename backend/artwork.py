@@ -1,4 +1,4 @@
-"""Non-blocking album artwork lookup through MusicBrainz release groups."""
+"""Fast, non-blocking playlist artwork lookup through MusicBrainz release groups."""
 
 from __future__ import annotations
 
@@ -10,8 +10,7 @@ import os
 import re
 import unicodedata
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import httpx
 from rapidfuzz import fuzz
@@ -21,15 +20,13 @@ from backend.config import DATA_DIR
 LOGGER = logging.getLogger(__name__)
 
 MUSICBRAINZ_RELEASE_GROUP_URL = "https://musicbrainz.org/ws/2/release-group/"
-COVER_ART_ARCHIVE_URL = "https://coverartarchive.org/release-group"
+COVER_ART_ARCHIVE_RELEASE_GROUP_URL = "https://coverartarchive.org/release-group"
 MIN_REQUEST_INTERVAL_SECONDS = 1.05
 POSITIVE_CACHE_TTL = timedelta(days=180)
 NEGATIVE_CACHE_TTL = timedelta(days=7)
-MAX_IMAGE_BYTES = 8 * 1024 * 1024
 MIN_MATCH_SCORE = 80.0
 
 ARTWORK_DIR = DATA_DIR / "artwork"
-ARTWORK_IMAGE_DIR = ARTWORK_DIR / "images"
 ARTWORK_CACHE_PATH = ARTWORK_DIR / "release-groups.json"
 
 _cache_lock = asyncio.Lock()
@@ -48,6 +45,10 @@ def _normalize(value: Any) -> str:
 def _cache_key(artists: str, album: str) -> str:
     identity = f"{_normalize(artists)}::{_normalize(album)}"
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+
+def _identity(artists: str, album: str) -> tuple[str, str]:
+    return _normalize(artists), _normalize(album)
 
 
 def _lucene_quote(value: str) -> str:
@@ -87,17 +88,17 @@ def _write_cache_sync(payload: dict[str, dict[str, Any]]) -> None:
         pass
 
 
-async def _cached_entry(key: str) -> dict[str, Any] | None:
+async def _read_cache() -> dict[str, dict[str, Any]]:
     async with _cache_lock:
-        cache = await asyncio.to_thread(_read_cache_sync)
-        entry = cache.get(key)
-        return dict(entry) if isinstance(entry, dict) else None
+        return await asyncio.to_thread(_read_cache_sync)
 
 
-async def _store_entry(key: str, entry: dict[str, Any]) -> None:
+async def _store_entries(entries: Mapping[str, dict[str, Any]]) -> None:
+    if not entries:
+        return
     async with _cache_lock:
         cache = await asyncio.to_thread(_read_cache_sync)
-        cache[key] = entry
+        cache.update(entries)
         await asyncio.to_thread(_write_cache_sync, cache)
 
 
@@ -118,6 +119,22 @@ def _fallback(thumbnail_url: str | None) -> dict[str, Any]:
         "artwork_url": thumbnail_url,
         "release_group_mbid": None,
         "release_group_title": None,
+    }
+
+
+def _cover_art_url(release_group_mbid: str) -> str:
+    return f"{COVER_ART_ARCHIVE_RELEASE_GROUP_URL}/{release_group_mbid}/front-500"
+
+
+def _musicbrainz_result(entry: Mapping[str, Any]) -> dict[str, Any] | None:
+    mbid = str(entry.get("release_group_mbid", "")).strip()
+    if entry.get("status") != "found" or not mbid:
+        return None
+    return {
+        "source": "musicbrainz",
+        "artwork_url": _cover_art_url(mbid),
+        "release_group_mbid": mbid,
+        "release_group_title": entry.get("release_group_title"),
     }
 
 
@@ -166,6 +183,17 @@ def _candidate_score(candidate: Mapping[str, Any], album: str, artists: str) -> 
     return round(max(0.0, min(100.0, score)), 1)
 
 
+def _release_group_query(items: Sequence[tuple[str, str]]) -> str:
+    clauses = [
+        "("
+        f"releasegroup:{_lucene_quote(album)} AND "
+        f"artistname:{_lucene_quote(artists)}"
+        ")"
+        for artists, album in items
+    ]
+    return " OR ".join(dict.fromkeys(clauses))
+
+
 async def _musicbrainz_get(
     client: httpx.AsyncClient,
     *,
@@ -183,145 +211,78 @@ async def _musicbrainz_get(
         return await client.get(MUSICBRAINZ_RELEASE_GROUP_URL, params=params)
 
 
-async def _find_release_group(
+async def _search_release_groups(
     client: httpx.AsyncClient,
-    album: str,
-    artists: str,
-) -> dict[str, Any] | None:
-    query = (
-        f"releasegroup:{_lucene_quote(album.strip())} AND "
-        f"artistname:{_lucene_quote(artists.strip())}"
-    )
+    items: Sequence[tuple[str, str]],
+) -> dict[tuple[str, str], dict[str, Any]]:
+    """Resolve up to four artist/album pairs with one MusicBrainz request."""
+    unique_items = list(dict.fromkeys(items))
+    if not unique_items:
+        return {}
+
     response = await _musicbrainz_get(
         client,
-        params={"query": query, "fmt": "json", "limit": 10},
+        params={
+            "query": _release_group_query(unique_items),
+            "fmt": "json",
+            "limit": 100,
+        },
     )
     response.raise_for_status()
     payload = response.json()
-    candidates = payload.get("release-groups") if isinstance(payload, Mapping) else None
-    if not isinstance(candidates, list):
-        return None
+    raw_candidates = payload.get("release-groups") if isinstance(payload, Mapping) else None
+    candidates = [
+        dict(candidate)
+        for candidate in (raw_candidates or [])
+        if isinstance(candidate, Mapping)
+    ]
 
-    ranked: list[tuple[float, dict[str, Any]]] = []
-    for candidate in candidates:
-        if not isinstance(candidate, Mapping):
+    matches: dict[tuple[str, str], dict[str, Any]] = {}
+    for artists, album in unique_items:
+        ranked = [
+            (_candidate_score(candidate, album, artists), candidate)
+            for candidate in candidates
+        ]
+        ranked = [item for item in ranked if item[0] >= MIN_MATCH_SCORE]
+        if ranked:
+            matches[_identity(artists, album)] = max(ranked, key=lambda item: item[0])[1]
+    return matches
+
+
+async def resolve_playlist_artwork(
+    tracks: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return artwork for a playlist cover with at most one MusicBrainz request."""
+    results = [_fallback(str(track.get("thumbnail_url") or "").strip() or None) for track in tracks]
+    cache = await _read_cache()
+
+    pending: dict[str, dict[str, Any]] = {}
+    for index, track in enumerate(tracks):
+        artists = str(track.get("artists") or "").strip()
+        album = str(track.get("album") or "").strip()
+        if not artists or not album:
             continue
-        score = _candidate_score(candidate, album, artists)
-        if score >= MIN_MATCH_SCORE:
-            ranked.append((score, dict(candidate)))
-    return max(ranked, key=lambda item: item[0])[1] if ranked else None
 
+        key = _cache_key(artists, album)
+        entry = cache.get(key)
+        if isinstance(entry, Mapping) and _entry_is_fresh(entry):
+            cached_result = _musicbrainz_result(entry)
+            if cached_result is not None:
+                results[index] = cached_result
+            continue
 
-def _preferred_cover_url(payload: Any) -> str | None:
-    images = payload.get("images") if isinstance(payload, Mapping) else None
-    if not isinstance(images, list):
-        return None
+        item = pending.setdefault(
+            key,
+            {
+                "artists": artists,
+                "album": album,
+                "indexes": [],
+            },
+        )
+        item["indexes"].append(index)
 
-    usable = [image for image in images if isinstance(image, Mapping)]
-    selected = next(
-        (image for image in usable if image.get("front") and image.get("approved", True)),
-        None,
-    )
-    selected = selected or next(
-        (image for image in usable if image.get("approved", True)),
-        None,
-    )
-    selected = selected or (usable[0] if usable else None)
-    if not selected:
-        return None
-
-    thumbnails = selected.get("thumbnails")
-    if isinstance(thumbnails, Mapping):
-        for key in ("500", "large", "250", "1200"):
-            value = str(thumbnails.get(key, "")).strip()
-            if value:
-                return value.replace("http://", "https://", 1)
-    image = str(selected.get("image", "")).strip()
-    return image.replace("http://", "https://", 1) if image else None
-
-
-async def _release_group_cover_url(
-    client: httpx.AsyncClient,
-    release_group_mbid: str,
-) -> str | None:
-    response = await client.get(f"{COVER_ART_ARCHIVE_URL}/{release_group_mbid}")
-    if response.status_code == 404:
-        return None
-    response.raise_for_status()
-    return _preferred_cover_url(response.json())
-
-
-def _extension(content_type: str) -> str:
-    normalized = content_type.split(";", 1)[0].strip().casefold()
-    return {
-        "image/png": ".png",
-        "image/webp": ".webp",
-        "image/jpeg": ".jpg",
-        "image/jpg": ".jpg",
-    }.get(normalized, ".jpg")
-
-
-async def _download_cover(
-    client: httpx.AsyncClient,
-    release_group_mbid: str,
-    source_url: str,
-) -> str:
-    response = await client.get(source_url, headers={"Accept": "image/*"})
-    response.raise_for_status()
-    content_type = response.headers.get("content-type", "")
-    if not content_type.casefold().startswith("image/"):
-        raise ValueError("Cover Art Archive returned a non-image response.")
-    content = response.content
-    if not content or len(content) > MAX_IMAGE_BYTES:
-        raise ValueError("Cover Art Archive image is empty or too large.")
-
-    digest = hashlib.sha256(release_group_mbid.encode("utf-8")).hexdigest()
-    filename = f"{digest}{_extension(content_type)}"
-    ARTWORK_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
-    destination = ARTWORK_IMAGE_DIR / filename
-    if not destination.exists():
-        temporary = destination.with_suffix(destination.suffix + ".tmp")
-        temporary.write_bytes(content)
-        temporary.replace(destination)
-    return filename
-
-
-def artwork_image_path(filename: str) -> Path | None:
-    if not re.fullmatch(r"[a-f0-9]{64}\.(?:jpg|png|webp)", filename):
-        return None
-    path = ARTWORK_IMAGE_DIR / filename
-    return path if path.is_file() else None
-
-
-async def resolve_track_artwork(
-    *,
-    title: str,
-    artists: str,
-    album: str | None,
-    thumbnail_url: str | None,
-) -> dict[str, Any]:
-    """Return release-group artwork without affecting playlist generation."""
-    del title  # The release group is matched deliberately from album + artist only.
-
-    clean_album = str(album or "").strip()
-    clean_artists = str(artists or "").strip()
-    fallback = _fallback(thumbnail_url)
-    if not clean_album or not clean_artists:
-        return fallback
-
-    key = _cache_key(clean_artists, clean_album)
-    cached = await _cached_entry(key)
-    if cached and _entry_is_fresh(cached):
-        if cached.get("status") != "found":
-            return fallback
-        filename = str(cached.get("image_filename", ""))
-        if artwork_image_path(filename):
-            return {
-                "source": "musicbrainz",
-                "artwork_url": f"/api/artwork/images/{filename}",
-                "release_group_mbid": cached.get("release_group_mbid"),
-                "release_group_title": cached.get("release_group_title"),
-            }
+    if not pending:
+        return results
 
     headers = {
         "User-Agent": _user_agent(),
@@ -330,57 +291,44 @@ async def resolve_track_artwork(
     try:
         async with httpx.AsyncClient(
             headers=headers,
-            timeout=httpx.Timeout(10.0),
+            timeout=httpx.Timeout(8.0),
             follow_redirects=True,
         ) as client:
-            release_group = await _find_release_group(client, clean_album, clean_artists)
-            if release_group is None:
-                await _store_entry(
-                    key,
-                    {"status": "missing", "cached_at": _utc_now().isoformat()},
-                )
-                return fallback
+            search_items = [
+                (str(item["artists"]), str(item["album"]))
+                for item in pending.values()
+            ]
+            matches = await _search_release_groups(client, search_items)
+    except (httpx.HTTPError, ValueError, json.JSONDecodeError) as error:
+        LOGGER.info("Playlist artwork enrichment failed open: %s", error)
+        return results
 
-            mbid = str(release_group.get("id", "")).strip()
-            release_group_title = str(release_group.get("title", "")).strip() or None
-            if not mbid:
-                return fallback
+    now = _utc_now().isoformat()
+    cache_updates: dict[str, dict[str, Any]] = {}
+    for key, item in pending.items():
+        artists = str(item["artists"])
+        album = str(item["album"])
+        match = matches.get(_identity(artists, album))
+        mbid = str((match or {}).get("id", "")).strip()
+        if not match or not mbid:
+            cache_updates[key] = {"status": "missing", "cached_at": now}
+            continue
 
-            cover_url = await _release_group_cover_url(client, mbid)
-            if not cover_url:
-                await _store_entry(
-                    key,
-                    {
-                        "status": "missing",
-                        "release_group_mbid": mbid,
-                        "release_group_title": release_group_title,
-                        "cached_at": _utc_now().isoformat(),
-                    },
-                )
-                return fallback
+        entry = {
+            "status": "found",
+            "release_group_mbid": mbid,
+            "release_group_title": str(match.get("title", "")).strip() or None,
+            "cached_at": now,
+        }
+        cache_updates[key] = entry
+        resolved = _musicbrainz_result(entry)
+        if resolved is not None:
+            for index in item["indexes"]:
+                results[index] = resolved
 
-            filename = await _download_cover(client, mbid, cover_url)
-            await _store_entry(
-                key,
-                {
-                    "status": "found",
-                    "release_group_mbid": mbid,
-                    "release_group_title": release_group_title,
-                    "image_filename": filename,
-                    "cached_at": _utc_now().isoformat(),
-                },
-            )
-            return {
-                "source": "musicbrainz",
-                "artwork_url": f"/api/artwork/images/{filename}",
-                "release_group_mbid": mbid,
-                "release_group_title": release_group_title,
-            }
-    except (httpx.HTTPError, OSError, ValueError, json.JSONDecodeError) as error:
-        LOGGER.info(
-            "Album artwork enrichment failed open for %s — %s: %s",
-            clean_artists,
-            clean_album,
-            error,
-        )
-        return fallback
+    try:
+        await _store_entries(cache_updates)
+    except OSError as error:
+        LOGGER.info("Playlist artwork cache could not be updated: %s", error)
+
+    return results
