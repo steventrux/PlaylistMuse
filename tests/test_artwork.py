@@ -144,8 +144,9 @@ def test_playlist_lookup_uses_one_search_and_caches_release_groups(
     assert not (tmp_path / "images").exists()
 
 
-def test_public_artwork_api_is_batch_only() -> None:
-    paths = set(app.openapi()["paths"])
+def test_public_artwork_api_is_batch_only_and_capped_at_four() -> None:
+    schema = app.openapi()
+    paths = set(schema["paths"])
 
     assert "/api/artwork/playlist" in paths
     assert "/api/artwork/track" not in paths
@@ -156,6 +157,9 @@ def test_public_artwork_api_is_batch_only() -> None:
     assert "/api/youtube/connect/poll" in paths
     assert "/api/youtube/connection" in paths
     assert "/api/youtube/playlists" in paths
+
+    request_schema = schema["components"]["schemas"]["PlaylistArtworkRequest"]
+    assert request_schema["properties"]["tracks"]["maxItems"] == 4
 
 
 def test_frontend_shows_youtube_mosaic_before_one_batch_upgrade() -> None:
