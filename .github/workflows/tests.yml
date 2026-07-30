@@ -19,6 +19,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt -r requirements-dev.txt
       - name: Run Python tests
-        run: pytest -q
+        run: python -m pytest -q
       - name: Check frontend JavaScript syntax
         run: node --check frontend/playlist.js
