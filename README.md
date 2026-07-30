@@ -9,6 +9,8 @@ PlaylistMuse is a standalone, self-hosted web application that turns a natural-l
 - Filters for live recordings, covers and remixes
 - AI providers: Google Gemini, OpenAI, Anthropic, OpenRouter Auto, OpenRouter Free, Ollama and OpenAI-compatible endpoints
 - YouTube Music catalogue resolution with fuzzy matching and automatic replenishment
+- Release-group album artwork from MusicBrainz and the Cover Art Archive
+- Automatic playlist-cover mosaic with YouTube Music fallback artwork
 - Expandable track details and AI-assisted track replacement
 - Google OAuth device authorization for a YouTube Music account
 - Direct playlist creation with private, unlisted or public visibility
@@ -50,6 +52,22 @@ The preferred method is the Settings panel. Environment variables can also be us
 
 AI settings are stored in `data/config.json`, which is excluded from Git.
 
+## Album and playlist artwork
+
+The results page is displayed immediately with YouTube Music thumbnails. Album artwork enrichment then runs separately and never changes track selection or delays playlist generation.
+
+For tracks that include both an album and an artist, PlaylistMuse:
+
+1. searches the matching MusicBrainz release group;
+2. retrieves its representative image from the Cover Art Archive;
+3. stores the image and lookup result under `PLAYLISTMUSE_DATA_DIR/artwork`;
+4. replaces the track thumbnail when a reliable match is available;
+5. builds a four-tile playlist cover from representative positions in the playlist.
+
+Missing metadata, low-confidence matches and temporary service errors keep the existing YouTube Music image. Cached successful lookups are retained for 180 days and missing results for 7 days.
+
+Set `PLAYLISTMUSE_MUSICBRAINZ_CONTACT` to an email address or project URL to identify the application in the MusicBrainz User-Agent. When it is empty, PlaylistMuse uses its public repository URL.
+
 ## Connect YouTube Music
 
 PlaylistMuse uses the Google OAuth device authorization flow supported by `ytmusicapi`.
@@ -74,6 +92,8 @@ When an account is connected, the results page allows the edited playlist title,
 - `POST /api/playlists/generate`
 - `POST /api/playlists/generate-from-seed`
 - `POST /api/playlists/replace-track`
+- `POST /api/artwork/track`
+- `GET /api/artwork/images/{filename}`
 - `GET /api/youtube/settings`
 - `PUT /api/youtube/settings`
 - `GET /api/youtube/status`
