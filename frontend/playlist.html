@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="/static/playlist.css?v=5">
   <link rel="stylesheet" href="/static/playlist-cards.css?v=2">
   <link rel="stylesheet" href="/static/compact-cards.css?v=7">
-  <link rel="stylesheet" href="/static/playlist-header.css?v=1">
+  <link rel="stylesheet" href="/static/playlist-header.css?v=2">
   <link rel="stylesheet" href="/static/generation.css?v=3">
   <link rel="stylesheet" href="/static/youtube.css?v=5">
   <link rel="stylesheet" href="/static/youtube-results.css?v=3">
@@ -32,17 +32,26 @@
     <section class="card playlist-card">
       <p class="eyebrow">Your playlist</p>
 
-      <label class="playlist-title-editor" for="playlist-name">
-        <span class="visually-hidden">Edit playlist title</span>
-        <input id="playlist-name" type="text" maxlength="100" value="Generated playlist" title="Edit playlist title before sending it to YouTube Music">
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16v4Z" />
-          <path d="m13.5 6.5 4 4" />
-        </svg>
-      </label>
+      <div class="playlist-overview">
+        <div class="playlist-cover" aria-label="Generated playlist cover">
+          <div id="playlist-cover-grid" class="playlist-cover-grid" aria-hidden="true"></div>
+          <span id="playlist-cover-status" class="visually-hidden" aria-live="polite"></span>
+        </div>
 
-      <p id="playlist-summary" class="playlist-summary"></p>
-      <p id="playlist-description" class="playlist-description"></p>
+        <div class="playlist-overview-copy">
+          <label class="playlist-title-editor" for="playlist-name">
+            <span class="visually-hidden">Edit playlist title</span>
+            <input id="playlist-name" type="text" maxlength="100" value="Generated playlist" title="Edit playlist title before sending it to YouTube Music">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16v4Z" />
+              <path d="m13.5 6.5 4 4" />
+            </svg>
+          </label>
+
+          <p id="playlist-summary" class="playlist-summary"></p>
+          <p id="playlist-description" class="playlist-description"></p>
+        </div>
+      </div>
 
       <section class="youtube-publish" aria-label="Create playlist on YouTube Music">
         <div id="youtube-publish-loading" class="youtube-publish-loading" role="status" aria-live="polite">
@@ -132,7 +141,7 @@
   </dialog>
 
   <script src="/static/replacement-history.js?v=3"></script>
-  <script src="/static/playlist.js?v=12"></script>
+  <script src="/static/playlist.js?v=13"></script>
   <script src="/static/youtube-account.js?v=2"></script>
   <script src="/static/youtube-publish.js?v=7"></script>
 </body>
