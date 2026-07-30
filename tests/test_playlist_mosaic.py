@@ -19,6 +19,8 @@ def test_playlist_mosaic_uses_youtube_thumbnails_without_remote_lookup() -> None
     source = Path("frontend/playlist.js").read_text(encoding="utf-8")
 
     assert "representativeIndexes" in source
+    assert "Math.round(last / 3)" in source
+    assert "Math.round((last * 2) / 3)" in source
     assert "playlist-cover-grid" in source
     assert "track.thumbnail_url" in source
     assert "renderPlaylistCover();" in source
