@@ -6,5 +6,4 @@ venv/
 .env
 data/*.json
 data/*.tmp
-data/artwork/
 .DS_Store
