@@ -3,10 +3,8 @@
 
   const STORAGE_KEY = 'playlistmuse-generated-playlist';
   const REQUEST_KEY = 'playlistmuse-generation-request';
-  const ARTWORK_ENDPOINT = '/api/artwork/playlist';
   const $ = (id) => document.getElementById(id);
   let expandedIndex = null;
-  let coverRequestId = 0;
 
   function readStoredJson(key) {
     try {
@@ -73,20 +71,18 @@
     ])];
   }
 
-  function representativeTracks() {
-    return representativeIndexes(data.tracks.length)
-      .map((index) => data.tracks[index])
-      .filter(Boolean);
-  }
-
   function coverPlaceholder() {
     const placeholder = document.createElement('span');
     placeholder.className = 'playlist-cover-placeholder';
     return placeholder;
   }
 
-  function renderPlaylistCover(urls, musicBrainzCount = 0) {
+  function renderPlaylistCover() {
+    const urls = representativeIndexes(data.tracks.length)
+      .map((index) => data.tracks[index]?.thumbnail_url || '')
+      .filter(Boolean);
     const tiles = [];
+
     for (let index = 0; index < 4; index += 1) {
       const url = urls[index];
       if (url) {
@@ -100,68 +96,8 @@
       }
     }
 
-    const container = $('playlist-cover-grid');
-    container.replaceChildren(...tiles);
-    container.classList.remove('is-loading');
-    container.classList.add('is-ready');
-    $('playlist-cover-status').textContent = musicBrainzCount
-      ? `Playlist cover created with ${musicBrainzCount} release-group artworks.`
-      : 'Playlist cover created from YouTube Music thumbnails.';
-  }
-
-  function preloadImage(url, fallbackUrl) {
-    return new Promise((resolve) => {
-      if (!url) {
-        resolve(fallbackUrl || '');
-        return;
-      }
-
-      const image = new Image();
-      image.onload = () => resolve(url);
-      image.onerror = () => resolve(fallbackUrl || '');
-      image.src = url;
-    });
-  }
-
-  async function enrichPlaylistCover() {
-    const requestId = ++coverRequestId;
-    const tracks = representativeTracks();
-    const fallbackUrls = tracks.map((track) => track.thumbnail_url || '');
-
-    // The page is never left waiting for MusicBrainz.
-    renderPlaylistCover(fallbackUrls);
-    if (!tracks.length) return;
-
-    try {
-      const payload = await readJson(await fetch(ARTWORK_ENDPOINT, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          tracks: tracks.map((track) => ({
-            title: track.title || 'Unknown track',
-            artists: track.artists || 'Unknown artist',
-            album: track.album || null,
-            thumbnail_url: track.thumbnail_url || null,
-          })),
-        }),
-      }));
-
-      const results = Array.isArray(payload.tracks) ? payload.tracks : [];
-      const resolvedUrls = await Promise.all(tracks.map((track, index) => {
-        const fallbackUrl = track.thumbnail_url || '';
-        return preloadImage(results[index]?.artwork_url || fallbackUrl, fallbackUrl);
-      }));
-
-      if (requestId !== coverRequestId) return;
-      const musicBrainzCount = results.filter(
-        (result) => result?.source === 'musicbrainz',
-      ).length;
-      if (musicBrainzCount) {
-        renderPlaylistCover(resolvedUrls, musicBrainzCount);
-      }
-    } catch (error) {
-      console.debug('Playlist artwork enrichment skipped:', error);
-    }
+    $('playlist-cover-grid').replaceChildren(...tiles);
+    $('playlist-cover-status').textContent = 'Playlist cover created from YouTube Music thumbnails.';
   }
 
   function detailBlock(title, text) {
@@ -275,7 +211,6 @@
       expandedIndex = index;
       savePlaylist();
       renderPlaylist();
-      void enrichPlaylistCover();
     } catch (error) {
       status.textContent = error.message || String(error);
       status.classList.add('error');
@@ -286,7 +221,6 @@
   function renderTrack(track, index) {
     const item = document.createElement('li');
     item.className = 'track track-result-card';
-    item.dataset.trackIndex = String(index);
     item.tabIndex = 0;
     item.setAttribute('role', 'button');
     item.setAttribute('aria-expanded', String(expandedIndex === index));
@@ -296,8 +230,8 @@
     const artwork = document.createElement('img');
     artwork.className = 'track-artwork';
     artwork.loading = 'lazy';
-    artwork.alt = `Artwork for ${track.title || 'track'}`;
-    if (track.thumbnail_url) artwork.src = track.thumbnail_url;
+    artwork.alt = `Cover artwork for ${track.title || 'track'}`;
+    artwork.src = track.thumbnail_url || '';
 
     const copy = document.createElement('div');
     copy.className = 'track-copy';
@@ -395,7 +329,7 @@
     updateSummary();
     $('playlist-description').textContent = data.description || data.prompt || '';
     $('track-list').replaceChildren(...data.tracks.map(renderTrack));
-    renderPlaylistCover(representativeTracks().map((track) => track.thumbnail_url || ''));
+    renderPlaylistCover();
   }
 
   const data = readStoredJson(STORAGE_KEY);
@@ -421,5 +355,4 @@
   });
 
   renderPlaylist();
-  void enrichPlaylistCover();
 })();
