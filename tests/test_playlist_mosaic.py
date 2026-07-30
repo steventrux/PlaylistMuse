@@ -32,9 +32,20 @@ def test_musicbrainz_files_and_configuration_are_absent() -> None:
     assert not Path("backend/artwork.py").exists()
     assert not Path("backend/artwork_routes.py").exists()
 
-    env_example = Path(".env.example").read_text(encoding="utf-8").casefold()
-    readme = Path("README.md").read_text(encoding="utf-8").casefold()
+    checked_paths = [
+        Path(".env.example"),
+        Path("README.md"),
+        Path("backend"),
+        Path("frontend"),
+    ]
+    text = []
+    for path in checked_paths:
+        files = path.rglob("*") if path.is_dir() else [path]
+        for file in files:
+            if file.is_file() and file.suffix in {"", ".py", ".js", ".html", ".css", ".md"}:
+                text.append(file.read_text(encoding="utf-8").casefold())
 
-    assert "musicbrainz" not in env_example
-    assert "musicbrainz" not in readme
-    assert "cover art archive" not in readme
+    combined = "\n".join(text)
+    assert "musicbrainz" not in combined
+    assert "coverartarchive" not in combined
+    assert "cover art archive" not in combined
