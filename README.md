@@ -10,7 +10,7 @@ PlaylistMuse is a standalone, self-hosted web application that turns a natural-l
 - AI providers: Google Gemini, OpenAI, Anthropic, OpenRouter Auto, OpenRouter Free, Ollama and OpenAI-compatible endpoints
 - YouTube Music catalogue resolution with fuzzy matching and automatic replenishment
 - Release-group album artwork from MusicBrainz and the Cover Art Archive
-- Automatic playlist-cover mosaic with immediate YouTube Music fallback artwork
+- Automatic playlist-cover mosaic with an immediate YouTube Music version
 - Expandable track details and AI-assisted track replacement
 - Google OAuth device authorization for a YouTube Music account
 - Direct playlist creation with private, unlisted or public visibility
@@ -64,7 +64,7 @@ PlaylistMuse then selects four representative positions and:
 4. loads the four `front-500` Cover Art Archive images in parallel in the browser;
 5. replaces the complete mosaic in one atomic update when the images are ready.
 
-Missing metadata, low-confidence matches, unavailable cover art and temporary service errors leave the immediate YouTube Music mosaic unchanged. Cached successful lookups are retained for 180 days and missing results for 7 days.
+The user never waits on an empty mosaic. Missing metadata, low-confidence matches, unavailable cover art and temporary service errors leave the immediate YouTube Music mosaic unchanged. Cached successful lookups are retained for 180 days and missing results for 7 days.
 
 Set `PLAYLISTMUSE_MUSICBRAINZ_CONTACT` to an email address or project URL to identify the application in the MusicBrainz User-Agent. When it is empty, PlaylistMuse uses its public repository URL.
 
