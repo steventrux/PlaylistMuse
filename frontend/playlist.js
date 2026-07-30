@@ -6,6 +6,7 @@
   const ARTWORK_ENDPOINT = '/api/artwork/track';
   const $ = (id) => document.getElementById(id);
   let expandedIndex = null;
+  let coverRevealPromise = null;
 
   function readStoredJson(key) {
     try {
@@ -61,7 +62,11 @@
     $('playlist-summary').textContent = durationText ? `${trackLabel} · ${durationText}` : trackLabel;
   }
 
-  function trackArtworkUrl(track) {
+  function trackCardArtworkUrl(track) {
+    return track.thumbnail_url || track.album_artwork_url || '';
+  }
+
+  function playlistArtworkUrl(track) {
     return track.album_artwork_url || track.thumbnail_url || '';
   }
 
@@ -76,10 +81,21 @@
     ])];
   }
 
+  function representativeArtworkReady() {
+    return representativeIndexes(data.tracks.length).every((index) => {
+      const track = data.tracks[index];
+      return !track
+        || track.artwork_checked
+        || !track.title
+        || !track.artists
+        || !track.album;
+    });
+  }
+
   function playlistCoverUrls() {
     const urls = [];
     const add = (track) => {
-      const url = trackArtworkUrl(track);
+      const url = playlistArtworkUrl(track);
       if (url && !urls.includes(url)) urls.push(url);
     };
 
@@ -88,42 +104,74 @@
     return urls.slice(0, 4);
   }
 
-  function renderPlaylistCover() {
-    const container = $('playlist-cover-grid');
-    const urls = playlistCoverUrls();
-    const tiles = [];
-
-    for (let index = 0; index < 4; index += 1) {
-      const url = urls[index];
-      if (url) {
-        const image = document.createElement('img');
-        image.src = url;
-        image.alt = '';
-        image.loading = index === 0 ? 'eager' : 'lazy';
-        tiles.push(image);
-      } else {
-        const placeholder = document.createElement('span');
-        placeholder.className = 'playlist-cover-placeholder';
-        tiles.push(placeholder);
-      }
-    }
-
-    container.replaceChildren(...tiles);
-    const musicBrainzCount = data.tracks.filter(
-      (track) => track.artwork_source === 'musicbrainz',
-    ).length;
-    $('playlist-cover-status').textContent = musicBrainzCount
-      ? `Playlist cover updated with ${Math.min(musicBrainzCount, 4)} album artworks.`
-      : 'Playlist cover created from YouTube Music thumbnails.';
+  function coverPlaceholder() {
+    const placeholder = document.createElement('span');
+    placeholder.className = 'playlist-cover-placeholder';
+    return placeholder;
   }
 
-  function updateTrackArtwork(index) {
-    const image = document.querySelector(
-      `.track[data-track-index="${index}"] .track-artwork`,
+  function renderPlaylistCoverLoading() {
+    const container = $('playlist-cover-grid');
+    if (container.classList.contains('is-ready')) return;
+    container.classList.remove('is-ready');
+    container.classList.add('is-loading');
+    container.replaceChildren(
+      coverPlaceholder(),
+      coverPlaceholder(),
+      coverPlaceholder(),
+      coverPlaceholder(),
     );
-    const track = data.tracks[index];
-    const url = track ? trackArtworkUrl(track) : '';
-    if (image && url) image.src = url;
+    $('playlist-cover-status').textContent = 'Preparing playlist cover.';
+  }
+
+  function preloadImage(url) {
+    return new Promise((resolve) => {
+      const image = new Image();
+      image.onload = () => resolve(url);
+      image.onerror = () => resolve(null);
+      image.src = url;
+    });
+  }
+
+  function revealPlaylistCover() {
+    if (coverRevealPromise) return coverRevealPromise;
+
+    coverRevealPromise = (async () => {
+      const urls = playlistCoverUrls();
+      const loadedUrls = (await Promise.all(urls.map(preloadImage))).filter(Boolean);
+      const tiles = [];
+
+      for (let index = 0; index < 4; index += 1) {
+        const url = loadedUrls[index];
+        if (url) {
+          const image = document.createElement('img');
+          image.src = url;
+          image.alt = '';
+          image.loading = 'eager';
+          tiles.push(image);
+        } else {
+          tiles.push(coverPlaceholder());
+        }
+      }
+
+      const container = $('playlist-cover-grid');
+      container.replaceChildren(...tiles);
+      requestAnimationFrame(() => {
+        container.classList.remove('is-loading');
+        container.classList.add('is-ready');
+      });
+
+      const musicBrainzCount = representativeIndexes(data.tracks.length).filter(
+        (index) => data.tracks[index]?.artwork_source === 'musicbrainz',
+      ).length;
+      $('playlist-cover-status').textContent = musicBrainzCount
+        ? `Playlist cover created with ${musicBrainzCount} album artworks.`
+        : 'Playlist cover created from YouTube Music thumbnails.';
+    })().finally(() => {
+      coverRevealPromise = null;
+    });
+
+    return coverRevealPromise;
   }
 
   async function enrichTrackArtwork(index) {
@@ -157,22 +205,20 @@
         track.release_group_title = payload.release_group_title || null;
       }
       savePlaylist();
-      updateTrackArtwork(index);
-      renderPlaylistCover();
     } catch (error) {
+      track.artwork_checked = true;
+      track.artwork_source = 'youtube';
+      savePlaylist();
       console.debug('Album artwork enrichment skipped:', error);
     }
   }
 
   async function enrichArtwork() {
     const priority = representativeIndexes(data.tracks.length);
-    const remaining = data.tracks
-      .map((_, index) => index)
-      .filter((index) => !priority.includes(index));
-
-    for (const index of [...priority, ...remaining]) {
+    for (const index of priority) {
       await enrichTrackArtwork(index);
     }
+    await revealPlaylistCover();
   }
 
   function detailBlock(title, text) {
@@ -286,7 +332,11 @@
       expandedIndex = index;
       savePlaylist();
       renderPlaylist();
-      void enrichTrackArtwork(index);
+
+      if (representativeIndexes(data.tracks.length).includes(index)) {
+        await enrichTrackArtwork(index);
+        await revealPlaylistCover();
+      }
     } catch (error) {
       status.textContent = error.message || String(error);
       status.classList.add('error');
@@ -307,8 +357,8 @@
     const artwork = document.createElement('img');
     artwork.className = 'track-artwork';
     artwork.loading = 'lazy';
-    artwork.alt = `Album artwork for ${track.title || 'track'}`;
-    const artworkUrl = trackArtworkUrl(track);
+    artwork.alt = `Artwork for ${track.title || 'track'}`;
+    const artworkUrl = trackCardArtworkUrl(track);
     if (artworkUrl) artwork.src = artworkUrl;
 
     const copy = document.createElement('div');
@@ -407,7 +457,14 @@
     updateSummary();
     $('playlist-description').textContent = data.description || data.prompt || '';
     $('track-list').replaceChildren(...data.tracks.map(renderTrack));
-    renderPlaylistCover();
+
+    const cover = $('playlist-cover-grid');
+    if (!cover.classList.contains('is-ready')) {
+      renderPlaylistCoverLoading();
+    }
+    if (representativeArtworkReady()) {
+      void revealPlaylistCover();
+    }
   }
 
   const data = readStoredJson(STORAGE_KEY);
