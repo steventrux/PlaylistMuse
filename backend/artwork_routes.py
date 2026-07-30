@@ -1,12 +1,11 @@
-"""FastAPI routes for optional album artwork enrichment."""
+"""FastAPI routes for optional playlist artwork enrichment."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter
 from pydantic import BaseModel, Field, field_validator
 
-from backend.artwork import artwork_image_path, resolve_track_artwork
+from backend.artwork import resolve_playlist_artwork
 
 router = APIRouter(prefix="/artwork", tags=["artwork"])
 
@@ -29,17 +28,14 @@ class TrackArtworkRequest(BaseModel):
         return normalized or None
 
 
-@router.post("/track")
-async def track_artwork(request: TrackArtworkRequest) -> dict:
-    return await resolve_track_artwork(**request.model_dump())
+class PlaylistArtworkRequest(BaseModel):
+    tracks: list[TrackArtworkRequest] = Field(min_length=1, max_length=4)
 
 
-@router.get("/images/{filename}")
-async def artwork_image(filename: str) -> FileResponse:
-    path = artwork_image_path(filename)
-    if path is None:
-        raise HTTPException(status_code=404, detail="Artwork not found.")
-    return FileResponse(
-        path,
-        headers={"Cache-Control": "public, max-age=2592000, immutable"},
-    )
+@router.post("/playlist")
+async def playlist_artwork(request: PlaylistArtworkRequest) -> dict:
+    return {
+        "tracks": await resolve_playlist_artwork(
+            [track.model_dump() for track in request.tracks]
+        )
+    }
