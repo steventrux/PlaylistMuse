@@ -7,6 +7,14 @@
   let playlist = null;
   let selectedPrivacy = 'PRIVATE';
 
+  function loadFooterStatus() {
+    if (document.querySelector('script[data-playlistmuse-footer-status]')) return;
+    const script = document.createElement('script');
+    script.src = '/static/home-status.js?v=12';
+    script.dataset.playlistmuseFooterStatus = 'true';
+    document.body.append(script);
+  }
+
   try {
     playlist = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || 'null');
   } catch {
@@ -229,5 +237,6 @@
   $('close-youtube-settings').addEventListener('click', closeYouTubeSettings);
   $('create-youtube-playlist').addEventListener('click', publishPlaylist);
   window.addEventListener('playlistmuse-status-changed', refreshStatus);
+  loadFooterStatus();
   refreshStatus();
 })();
