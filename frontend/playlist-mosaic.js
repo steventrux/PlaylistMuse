@@ -42,11 +42,13 @@
       .map((index) => list[index]);
     const orderedTracks = [...representativeTracks, ...list];
     const urls = [];
+    const seen = new Set();
 
     for (const track of orderedTracks) {
       const url = thumbnailUrl(track);
-      if (!url || urls.includes(url)) continue;
+      if (!url || seen.has(url)) continue;
 
+      seen.add(url);
       urls.push(url);
       if (urls.length === limit) break;
     }
