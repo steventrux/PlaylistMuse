@@ -75,7 +75,7 @@
   function openYouTubeSettings() {
     const dialog = $('youtube-settings-dialog');
     if (!dialog.open) dialog.showModal();
-    window.dispatchEvent(new Event('playlistmuse-settings-opened'));
+    window.dispatchEvent(new Event('playlistmuse-youtube-settings-opened'));
   }
 
   function closeYouTubeSettings() {
