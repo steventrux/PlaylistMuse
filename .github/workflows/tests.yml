@@ -23,14 +23,46 @@ jobs:
       - name: Validate and apply reviewed source patch
         run: |
           set -euo pipefail
+          sha256sum .audit-patch-*
           cat .audit-patch-* > /tmp/repository-audit.patch
           git apply --check /tmp/repository-audit.patch
           git apply /tmp/repository-audit.patch
           python - <<'PY'
           from pathlib import Path
+          import re
 
-          path = Path("backend/youtube_account.py")
-          path.write_text(path.read_text(encoding="utf-8").rstrip() + "\n", encoding="utf-8")
+          account_path = Path("backend/youtube_account.py")
+          account_path.write_text(
+              account_path.read_text(encoding="utf-8").rstrip() + "\n",
+              encoding="utf-8",
+          )
+
+          settings_path = Path("frontend/ai-settings.js")
+          source = settings_path.read_text(encoding="utf-8")
+          replacement = """  function rememberSettings(data, fallbackProvider = '') {
+            loadedProvider = data.provider || fallbackProvider;
+            loadedSettings = {
+              model: data.model || '',
+              fallback_1: data.fallback_1 || '',
+              fallback_2: data.fallback_2 || '',
+              base_url: data.base_url || '',
+            };
+            providerKeysSet = data.provider_keys_set || {};
+            configuredProviders = {};
+            if (data.configured && loadedProvider) configuredProviders[loadedProvider] = true;
+          }
+
+          function modelChain(data) {"""
+          source, count = re.subn(
+              r"  function rememberSettings\(.*?^  function modelChain\(data\) \{",
+              replacement,
+              source,
+              count=1,
+              flags=re.DOTALL | re.MULTILINE,
+          )
+          if count != 1:
+              raise SystemExit("Could not normalize rememberSettings")
+          settings_path.write_text(source, encoding="utf-8")
           PY
           git diff --check
           python -m compileall -q backend tests
