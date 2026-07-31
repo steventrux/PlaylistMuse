@@ -76,6 +76,39 @@ def test_save_config_preserves_multiple_provider_profiles(
     assert loaded.configuration_for("gemini").configured is True
 
 
+def test_incomplete_profile_does_not_replace_working_provider(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _set_config_path(monkeypatch, tmp_path)
+    save_config(
+        AppConfig(
+            provider="gemini",
+            api_key="AIza-gemini-key",
+            model="gemini-test",
+            provider_api_keys={"gemini": "AIza-gemini-key"},
+        )
+    )
+
+    current = load_config()
+    save_config(
+        AppConfig(
+            provider="anthropic",
+            api_key="",
+            model="claude-test",
+            provider_api_keys=current.provider_api_keys,
+            provider_profiles=current.provider_profiles,
+        )
+    )
+
+    loaded = load_config()
+
+    assert loaded.provider == "gemini"
+    assert loaded.configured is True
+    assert loaded.profile_for("anthropic")["model"] == "claude-test"
+    assert loaded.configuration_for("anthropic").configured is False
+
+
 def test_activate_ai_provider_switches_to_saved_profile(
     monkeypatch,
     tmp_path: Path,
