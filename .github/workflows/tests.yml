@@ -26,7 +26,7 @@ jobs:
       - name: Check Python source
         run: |
           python -m compileall -q backend tests
-          ruff check backend tests
+          ruff check --select E4,E7,E9,F backend tests
       - name: Run Python tests
         run: python -m pytest -q
       - name: Check frontend JavaScript syntax
