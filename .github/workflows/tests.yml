@@ -1,77 +1,44 @@
-name: Apply repository audit
+name: Tests
 
 on:
   pull_request:
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: repository-audit
+  group: playlistmuse-tests
   cancel-in-progress: true
 
 jobs:
-  apply:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+  test:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          ref: feature-release-group-artwork
-          fetch-depth: 0
-      - name: Validate and publish reviewed source patch
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: Check Python source
         run: |
-          set -euo pipefail
-          cat .audit-patch-* > /tmp/repository-audit.patch
-          git apply --check /tmp/repository-audit.patch
-          git apply /tmp/repository-audit.patch
-          python - <<'PY'
-          from pathlib import Path
-          import re
-
-          account_path = Path("backend/youtube_account.py")
-          account_path.write_text(
-              account_path.read_text(encoding="utf-8").rstrip() + "\n",
-              encoding="utf-8",
-          )
-
-          settings_path = Path("frontend/ai-settings.js")
-          source = settings_path.read_text(encoding="utf-8")
-          replacement = """  function rememberSettings(data, fallbackProvider = '') {
-            loadedProvider = data.provider || fallbackProvider;
-            loadedSettings = {
-              model: data.model || '',
-              fallback_1: data.fallback_1 || '',
-              fallback_2: data.fallback_2 || '',
-              base_url: data.base_url || '',
-            };
-            providerKeysSet = data.provider_keys_set || {};
-            configuredProviders = {};
-            if (data.configured && loadedProvider) configuredProviders[loadedProvider] = true;
-          }
-
-          function modelChain(data) {"""
-          source, count = re.subn(
-              r"  function rememberSettings\(.*?^  function modelChain\(data\) \{",
-              replacement,
-              source,
-              count=1,
-              flags=re.DOTALL | re.MULTILINE,
-          )
-          if count != 1:
-              raise SystemExit("Could not normalize rememberSettings")
-          settings_path.write_text(source, encoding="utf-8")
-          PY
-          git diff --check
           python -m compileall -q backend tests
+          ruff check backend tests
+      - name: Run Python tests
+        run: python -m pytest -q
+      - name: Check frontend JavaScript syntax
+        run: |
           for file in frontend/*.js tests/*.cjs; do
             node --check "$file"
           done
+      - name: Run frontend unit tests
+        run: node --test tests/*.cjs
+      - name: Check deployment files
+        run: |
           bash -n scripts/*.sh
-          rm .audit-patch-*
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "refactor: optimize repository internals"
-          git push origin HEAD:feature-release-group-artwork
+          cp .env.example .env
+          docker compose -f docker-compose.yml config --quiet
+          docker compose -f docker-compose.playlistmuse.yml config --quiet
