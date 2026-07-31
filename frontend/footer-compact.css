@@ -1,0 +1,71 @@
+/* Compact footer indicators positioned close to the page content. */
+
+body > main {
+  flex: 0 0 auto;
+  padding-bottom: 14px;
+}
+
+.app-footer {
+  padding-top: 0;
+  padding-bottom: 22px;
+}
+
+.footer-indicators {
+  gap: 8px;
+}
+
+.footer-indicator {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+}
+
+.footer-indicator:hover,
+.footer-indicator:focus-visible {
+  transform: translateY(-1px);
+}
+
+.footer-indicator svg {
+  width: 21px;
+  height: 21px;
+}
+
+.footer-indicator::after {
+  bottom: calc(100% + 8px);
+}
+
+.footer-indicator.ai.on {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .08),
+    0 0 0 1px rgba(183, 156, 255, .12),
+    0 0 18px rgba(56, 189, 248, .22),
+    0 0 26px rgba(139, 92, 246, .14);
+}
+
+.footer-indicator.youtube.on {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .08),
+    0 0 0 1px rgba(183, 156, 255, .12),
+    0 0 18px rgba(236, 72, 153, .2),
+    0 0 26px rgba(56, 189, 248, .12);
+}
+
+@media (max-width: 650px) {
+  body > main {
+    padding-bottom: 12px;
+  }
+
+  .app-footer {
+    padding-bottom: 18px;
+  }
+
+  .footer-indicator {
+    width: 34px;
+    height: 34px;
+  }
+
+  .footer-indicator svg {
+    width: 20px;
+    height: 20px;
+  }
+}
