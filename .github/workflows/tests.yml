@@ -7,7 +7,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: repository-audit-${{ github.event.pull_request.number }}
+  group: repository-audit
   cancel-in-progress: true
 
 jobs:
@@ -18,15 +18,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref }}
+          ref: feature-release-group-artwork
           fetch-depth: 0
-      - name: Verify and apply reviewed patch
+      - name: Validate and apply reviewed source patch
         run: |
           set -euo pipefail
           cat .audit-patch-* > /tmp/repository-audit.patch
-          echo "8fbbac21f4561b81119030dd3fbcb5074db64eadec33afdb65b15ca914a9d8ae  /tmp/repository-audit.patch" | sha256sum --check
           git apply --check /tmp/repository-audit.patch
           git apply /tmp/repository-audit.patch
+          git diff --check
+          python -m compileall -q backend tests
+          for file in frontend/*.js tests/*.cjs; do
+            node --check "$file"
+          done
+          bash -n scripts/*.sh
           rm .audit-patch-*
           cat > .github/workflows/tests.yml <<'YAML'
           name: Tests
@@ -39,7 +44,7 @@ jobs:
             contents: read
 
           concurrency:
-            group: tests-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+            group: playlistmuse-tests
             cancel-in-progress: true
 
           jobs:
@@ -79,4 +84,4 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -m "refactor: optimize repository internals"
-          git push origin HEAD:${{ github.head_ref }}
+          git push origin HEAD:feature-release-group-artwork
