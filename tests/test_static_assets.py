@@ -113,40 +113,35 @@ def test_home_and_results_share_page_width_and_complete_wordmark() -> None:
     assert "overflow: visible" in layout
 
 
-def test_footer_indicators_replace_header_badges_and_open_settings() -> None:
+def test_header_indicators_open_settings_without_neon() -> None:
     index = _html("index.html")
-    playlist = _html("playlist.html")
     status = _script("home-status.js")
     layout = _style("layout.css")
-    compact = _style("footer-compact.css")
 
     assert 'id="home-ai-status"' not in index
     assert 'id="home-yt-status"' not in index
-    assert 'class="home-status"' not in index
-    assert "footer-ai-status" in status
-    assert "footer-youtube-status" in status
+    assert "header-ai-status" in status
+    assert "header-youtube-status" in status
+    assert "header-service-status" in status
+    assert "createHeaderStatus" in status
+    assert "document.body.append(footer)" not in status
     assert "brain-outline" in status
     assert "brain-bolt" in status
     assert "youtube-body" in status
-    assert "data-tooltip" in status
     assert "element.dataset.tooltip = tooltip" in status
     assert "homeAiSettings.click()" in status
     assert "$('setup-next')?.click()" in status
     assert "$('youtube-open-settings').click()" in status
     assert "window.location.assign('/')" in status
-    assert 'link[href^="/static/layout.css"]' in status
-    assert "/static/layout.css?v=3" in status
-    assert 'data-playlistmuse-footer-status src="/static/home-status.js?v=13"' in playlist
-    assert '<script src="/static/youtube-publish.js?v=11"></script>' in playlist
-    assert ".footer-indicator.youtube.on" in layout
-    assert "rgba(236, 72, 153" in layout
-    assert "rgba(56, 189, 248" in layout
+    assert ".header-indicator.ai.on" in layout
+    assert ".header-indicator.youtube.on" in layout
+    assert "width: 28px" in layout
+    assert "height: 28px" in layout
+    assert "width: 16px" in layout
+    assert layout.count("box-shadow: none;") >= 3
+    assert "0 0 14px" not in layout
+    assert "0 0 20px" not in layout
     assert "#ff0000" not in layout.lower()
-    assert "footer-compact.css?v=2" in layout
-    assert "width: 28px" in compact
-    assert "height: 28px" in compact
-    assert "width: 16px" in compact
-    assert "padding-bottom: 4px" in compact
 
 
 def test_results_page_exposes_only_youtube_settings() -> None:
