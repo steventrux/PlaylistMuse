@@ -4,6 +4,7 @@
   const STORAGE_KEY = 'playlistmuse-generated-playlist';
   const REQUEST_KEY = 'playlistmuse-generation-request';
   const $ = (id) => document.getElementById(id);
+  const {readJson, setLoadingButton} = window.PlaylistMuseCommon;
   let expandedIndex = null;
 
   function readStoredJson(key) {
@@ -16,21 +17,6 @@
 
   function savePlaylist() {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  }
-
-  async function readJson(response) {
-    const text = await response.text();
-    let payload = {};
-    try {
-      payload = text ? JSON.parse(text) : {};
-    } catch {
-      throw new Error(text || `HTTP ${response.status}`);
-    }
-    if (!response.ok) {
-      const detail = payload.detail ?? payload.error ?? payload.message;
-      throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail || payload));
-    }
-    return payload;
   }
 
   function durationToSeconds(value) {
@@ -135,40 +121,12 @@
     };
   }
 
-  function setReplacingButton(button) {
-    const spinner = document.createElement('span');
-    spinner.className = 'generation-spinner';
-    spinner.setAttribute('aria-hidden', 'true');
-
-    const label = document.createElement('span');
-    label.className = 'generation-label';
-    label.textContent = 'Replacing';
-
-    const dots = document.createElement('span');
-    dots.className = 'generation-dots';
-    dots.setAttribute('aria-hidden', 'true');
-    dots.append(
-      document.createElement('span'),
-      document.createElement('span'),
-      document.createElement('span'),
-    );
-
-    button.replaceChildren(spinner, label, dots);
-    button.classList.add('is-loading');
-    button.disabled = true;
-    button.setAttribute('aria-busy', 'true');
-
-    return () => {
-      button.classList.remove('is-loading');
-      button.removeAttribute('aria-busy');
-      button.disabled = false;
-      button.textContent = 'Replace track';
-    };
-  }
-
   async function replaceTrack(index, button, status) {
     const currentTrack = data.tracks[index];
-    const resetReplacingButton = setReplacingButton(button);
+    const resetReplacingButton = setLoadingButton(button, {
+      label: 'Replacing',
+      resetText: 'Replace track',
+    });
     status.textContent = 'Finding a new track that preserves this song’s role…';
     status.classList.remove('error');
 

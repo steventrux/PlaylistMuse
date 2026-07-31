@@ -37,6 +37,8 @@ OPENROUTER_MODELS = {
     "openrouter_auto": "openrouter/auto",
     "openrouter_free": "openrouter/free",
 }
+MAX_REPLENISHMENT_ROUNDS = 6
+MAX_STALLED_ROUNDS = 2
 
 app = FastAPI(
     title="PlaylistMuse",
@@ -45,6 +47,10 @@ app = FastAPI(
 )
 app.include_router(youtube_router)
 app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
+
+
+def _normalize_prompt_text(value: str) -> str:
+    return " ".join(value.split())
 
 
 class SettingsResponse(BaseModel):
@@ -89,7 +95,7 @@ class GenerateRequest(BaseModel):
     @field_validator("prompt")
     @classmethod
     def normalize_prompt(cls, value: str) -> str:
-        return " ".join(value.split())
+        return _normalize_prompt_text(value)
 
 
 class SeedTrack(BaseModel):
@@ -127,7 +133,7 @@ class ReplaceTrackRequest(BaseModel):
     @field_validator("prompt")
     @classmethod
     def normalize_prompt(cls, value: str) -> str:
-        return " ".join(value.split())
+        return _normalize_prompt_text(value)
 
 
 def _settings_response(config: AppConfig) -> SettingsResponse:
@@ -143,10 +149,6 @@ def _settings_response(config: AppConfig) -> SettingsResponse:
             provider: config.key_is_saved(provider) for provider in AI_PROVIDERS
         },
     )
-
-
-def _track_key(title: str, artists: str) -> str:
-    return track_identity_key(title, artists)
 
 
 def _candidate_key(candidate: dict) -> str:
@@ -204,7 +206,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     resolved_ids = {track.get("video_id") for track in tracks if track.get("video_id")}
     stalled_rounds = 0
 
-    for _round in range(1, 7):
+    for _ in range(MAX_REPLENISHMENT_ROUNDS):
         missing = count - len(tracks)
         if missing <= 0:
             break
@@ -231,7 +233,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
 
         if not fresh_candidates:
             stalled_rounds += 1
-            if stalled_rounds >= 2:
+            if stalled_rounds >= MAX_STALLED_ROUNDS:
                 break
             continue
 
@@ -258,7 +260,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
                 break
 
         stalled_rounds = 0 if added else stalled_rounds + 1
-        if stalled_rounds >= 2:
+        if stalled_rounds >= MAX_STALLED_ROUNDS:
             break
 
     if len(tracks) < count:
@@ -439,13 +441,14 @@ async def replace_track(request: ReplaceTrackRequest) -> dict:
             track.video_id for track in request.existing_tracks if track.video_id
         }
         existing_keys = {
-            _track_key(track.title, track.artists) for track in request.existing_tracks
+            track_identity_key(track.title, track.artists)
+            for track in request.existing_tracks
         }
-        existing_keys.add(_track_key(current.title, current.artists))
+        existing_keys.add(track_identity_key(current.title, current.artists))
         for candidate in candidates:
             if candidate.get("video_id") in existing_ids:
                 continue
-            if _track_key(
+            if track_identity_key(
                 candidate.get("title", ""),
                 candidate.get("artists", ""),
             ) in existing_keys:

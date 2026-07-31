@@ -12,6 +12,21 @@ from rapidfuzz import fuzz
 from ytmusicapi import YTMusic
 
 
+_IDENTITY_SPLIT_RE = re.compile(r"[\W_]+")
+_TITLE_TOKEN_RE = re.compile(r"[a-z0-9]+")
+_LIVE_RE = re.compile(r"\b(live|concert|session)\b")
+_REMIX_RE = re.compile(r"\b(remix|mix|edit|mashup)\b")
+_COVER_RE = re.compile(r"\b(cover|tribute|karaoke)\b")
+_COLLECTION_TERMS = (
+    "medley",
+    "full album",
+    "greatest hits",
+    "best of",
+    "compilation",
+    "complete album",
+)
+
+
 @lru_cache(maxsize=1)
 def _client() -> YTMusic:
     return YTMusic()
@@ -30,7 +45,7 @@ def _normalize_identity(value: str) -> str:
     """Normalize catalogue text so punctuation and accents do not create duplicates."""
     decomposed = unicodedata.normalize("NFKD", str(value).casefold())
     without_marks = "".join(char for char in decomposed if not unicodedata.combining(char))
-    return " ".join(part for part in re.split(r"[\W_]+", without_marks) if part)
+    return " ".join(part for part in _IDENTITY_SPLIT_RE.split(without_marks) if part)
 
 
 def track_identity_key(title: str, artists: str) -> str:
@@ -58,11 +73,11 @@ def _serialize_song(result: dict[str, Any]) -> dict[str, Any] | None:
 
 def _is_excluded(title: str, *, live: bool, covers: bool, remixes: bool) -> bool:
     normalized = title.casefold()
-    if live and re.search(r"\b(live|concert|session)\b", normalized):
+    if live and _LIVE_RE.search(normalized):
         return True
-    if remixes and re.search(r"\b(remix|mix|edit|mashup)\b", normalized):
+    if remixes and _REMIX_RE.search(normalized):
         return True
-    if covers and re.search(r"\b(cover|tribute|karaoke)\b", normalized):
+    if covers and _COVER_RE.search(normalized):
         return True
     return False
 
@@ -71,21 +86,13 @@ def _looks_like_collection(candidate_title: str, result_title: str) -> bool:
     """Reject collection-style uploads when a normal single track was requested."""
     candidate = candidate_title.casefold()
     result = result_title.casefold()
-    collection_terms = (
-        "medley",
-        "full album",
-        "greatest hits",
-        "best of",
-        "compilation",
-        "complete album",
-    )
-    return any(term in result and term not in candidate for term in collection_terms)
+    return any(term in result and term not in candidate for term in _COLLECTION_TERMS)
 
 
 def _title_score(candidate_title: str, result_title: str) -> float:
     """Reward close titles and penalize noisy YouTube-style suffixes."""
-    candidate_tokens = set(re.findall(r"[a-z0-9]+", candidate_title.casefold()))
-    result_tokens = set(re.findall(r"[a-z0-9]+", result_title.casefold()))
+    candidate_tokens = set(_TITLE_TOKEN_RE.findall(candidate_title.casefold()))
+    result_tokens = set(_TITLE_TOKEN_RE.findall(result_title.casefold()))
     extra_tokens = max(0, len(result_tokens - candidate_tokens))
     penalty = min(28, extra_tokens * 2.5)
     return max(0.0, fuzz.token_set_ratio(candidate_title, result_title) - penalty)
@@ -118,6 +125,9 @@ def _resolve_one(candidate: dict[str, str], exclusions: dict[str, bool]) -> dict
     query = f"{candidate['artist']} {candidate['title']}"
     results = _client().search(query, filter="songs", limit=8)
     best: tuple[float, dict[str, Any]] | None = None
+    exclude_live = exclusions.get("exclude_live", True)
+    exclude_covers = exclusions.get("exclude_covers", True)
+    exclude_remixes = exclusions.get("exclude_remixes", True)
 
     for result in results:
         video_id = result.get("videoId")
@@ -127,9 +137,9 @@ def _resolve_one(candidate: dict[str, str], exclusions: dict[str, bool]) -> dict
             continue
         if _is_excluded(
             title,
-            live=exclusions.get("exclude_live", True),
-            covers=exclusions.get("exclude_covers", True),
-            remixes=exclusions.get("exclude_remixes", True),
+            live=exclude_live,
+            covers=exclude_covers,
+            remixes=exclude_remixes,
         ):
             continue
         if _looks_like_collection(candidate["title"], title):

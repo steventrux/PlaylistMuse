@@ -3,6 +3,7 @@
 
   const STORAGE_KEY = 'playlistmuse-generated-playlist';
   const $ = (id) => document.getElementById(id);
+  const {readJson, setLoadingButton} = window.PlaylistMuseCommon;
   let playlist = null;
   let selectedPrivacy = 'PRIVATE';
 
@@ -10,21 +11,6 @@
     playlist = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || 'null');
   } catch {
     playlist = null;
-  }
-
-  async function readJson(response) {
-    const text = await response.text();
-    let payload = {};
-    try {
-      payload = text ? JSON.parse(text) : {};
-    } catch {
-      throw new Error(text || `HTTP ${response.status}`);
-    }
-    if (!response.ok) {
-      const detail = payload.detail ?? payload.error ?? payload.message;
-      throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail || payload));
-    }
-    return payload;
   }
 
   function setStatus(text, kind = '') {
@@ -153,39 +139,6 @@
     return true;
   }
 
-  function setPublishingButton(button) {
-    const spinner = document.createElement('span');
-    spinner.className = 'generation-spinner';
-    spinner.setAttribute('aria-hidden', 'true');
-
-    const label = document.createElement('span');
-    label.className = 'generation-label';
-    label.textContent = 'Creating';
-
-    const dots = document.createElement('span');
-    dots.className = 'generation-dots';
-    dots.setAttribute('aria-hidden', 'true');
-    dots.append(
-      document.createElement('span'),
-      document.createElement('span'),
-      document.createElement('span'),
-    );
-
-    button.replaceChildren(spinner, label, dots);
-    button.classList.add('is-loading');
-    button.disabled = true;
-    button.setAttribute('aria-busy', 'true');
-    setPrivacyDisabled(true);
-
-    return () => {
-      button.classList.remove('is-loading');
-      button.removeAttribute('aria-busy');
-      button.disabled = false;
-      button.textContent = 'Create on YouTube Music';
-      setPrivacyDisabled(false);
-    };
-  }
-
   async function refreshStatus() {
     const alreadyPublished = Boolean(playlist?.youtube_playlist?.url);
     if (alreadyPublished) {
@@ -237,7 +190,12 @@
     }
 
     const button = $('create-youtube-playlist');
-    const resetButton = setPublishingButton(button);
+    const resetButton = setLoadingButton(button, {
+      label: 'Creating',
+      resetText: 'Create on YouTube Music',
+      onStart: () => setPrivacyDisabled(true),
+      onReset: () => setPrivacyDisabled(false),
+    });
     setStatus('Creating the playlist in your YouTube Music account…');
 
     try {

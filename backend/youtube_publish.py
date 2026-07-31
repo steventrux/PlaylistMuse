@@ -17,17 +17,25 @@ from typing import Any
 
 import httpx
 
+from backend.storage import read_json_object, write_secure_json
 from backend.youtube_account import (
     YOUTUBE_TOKEN_PATH,
     YouTubeAccountError,
     _oauth_credentials,
-    _read_json,
-    _write_secure_json,
 )
 
 LOGGER = logging.getLogger("playlistmuse.youtube.publish")
 YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3"
 REQUEST_TIMEOUT = 30.0
+_SENSITIVE_FIELD_RE = re.compile(
+    r'(?i)(access_token|refresh_token|client_secret|authorization)[\s\'":=]+[^,}\s]+'
+)
+_BEARER_TOKEN_RE = re.compile(r"(?i)Bearer\s+[A-Za-z0-9._~+/=-]+")
+_SKIPPABLE_TRACK_REASONS = {
+    "videonotfound",
+    "invalidresourcetype",
+    "videoalreadyinplaylist",
+}
 
 
 class _GoogleApiError(RuntimeError):
@@ -44,16 +52,8 @@ def _diagnostic_id() -> str:
 
 def _safe_log_text(value: Any) -> str:
     text = repr(value)
-    text = re.sub(
-        r"(?i)(access_token|refresh_token|client_secret|authorization)[\s'\":=]+[^,}\s]+",
-        r"\1=[REDACTED]",
-        text,
-    )
-    text = re.sub(
-        r"(?i)Bearer\s+[A-Za-z0-9._~+/=-]+",
-        "Bearer [REDACTED]",
-        text,
-    )
+    text = _SENSITIVE_FIELD_RE.sub(r"\1=[REDACTED]", text)
+    text = _BEARER_TOKEN_RE.sub("Bearer [REDACTED]", text)
     return text[:1400]
 
 
@@ -65,7 +65,7 @@ def _token_is_current(token: dict[str, Any]) -> bool:
 
 
 def _refresh_access_token() -> str:
-    token = _read_json(YOUTUBE_TOKEN_PATH)
+    token = read_json_object(YOUTUBE_TOKEN_PATH)
     refresh_token = str(token.get("refresh_token", "")).strip()
     if not refresh_token:
         raise YouTubeAccountError("Reconnect the YouTube Music account before publishing.")
@@ -84,15 +84,17 @@ def _refresh_access_token() -> str:
     access_expires_in = max(1, int(fresh.get("expires_in", 3600)))
     token["access_token"] = access_token
     token["expires_at"] = int(time.time()) + access_expires_in
-    token["token_type"] = str(fresh.get("token_type", token.get("token_type", "Bearer"))) or "Bearer"
+    token["token_type"] = (
+        str(fresh.get("token_type", token.get("token_type", "Bearer"))) or "Bearer"
+    )
     if fresh.get("scope"):
         token["scope"] = fresh["scope"]
-    _write_secure_json(YOUTUBE_TOKEN_PATH, token)
+    write_secure_json(YOUTUBE_TOKEN_PATH, token)
     return access_token
 
 
 def _access_token(force_refresh: bool = False) -> str:
-    token = _read_json(YOUTUBE_TOKEN_PATH)
+    token = read_json_object(YOUTUBE_TOKEN_PATH)
     if not force_refresh and _token_is_current(token):
         return str(token["access_token"])
     return _refresh_access_token()
@@ -123,23 +125,23 @@ def _request(
     params: dict[str, str] | None = None,
     json_body: dict[str, Any] | None = None,
 ) -> httpx.Response:
-    token = _access_token()
-    response = client.request(
-        method,
-        f"{YOUTUBE_API_BASE}/{path.lstrip('/')}",
-        params=params,
-        json=json_body,
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-    )
-    if response.status_code == 401:
-        token = _access_token(force_refresh=True)
-        response = client.request(
+    url = f"{YOUTUBE_API_BASE}/{path.lstrip('/')}"
+
+    def send(token: str) -> httpx.Response:
+        return client.request(
             method,
-            f"{YOUTUBE_API_BASE}/{path.lstrip('/')}",
+            url,
             params=params,
             json=json_body,
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json",
+            },
         )
+
+    response = send(_access_token())
+    if response.status_code == 401:
+        response = send(_access_token(force_refresh=True))
     if response.is_error:
         raise _parse_google_error(response)
     return response
@@ -290,11 +292,7 @@ def _create_playlist_sync(
                     added.append(video_id)
                 except _GoogleApiError as error:
                     reason = error.reason.lower()
-                    if reason in {
-                        "videonotfound",
-                        "invalidresourcetype",
-                        "videoalreadyinplaylist",
-                    } or error.status_code == 404:
+                    if reason in _SKIPPABLE_TRACK_REASONS or error.status_code == 404:
                         skipped.append(video_id)
                         continue
                     LOGGER.error(
