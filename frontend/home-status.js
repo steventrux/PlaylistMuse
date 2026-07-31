@@ -20,6 +20,7 @@
 
     button.disabled = !configured;
     button.setAttribute('aria-disabled', String(!configured));
+    button.classList.toggle('hidden', !configured);
     warning.classList.toggle('hidden', configured || state === 'pending');
 
     if (state === 'unconfigured') {
@@ -87,8 +88,6 @@
     ]);
   }
 
-  $('ai-open-settings').addEventListener('click', () => $('settings-btn').click());
   window.addEventListener('playlistmuse-status-changed', refreshStatus);
-  window.addEventListener('playlistmuse-settings-opened', refreshStatus);
   void refreshStatus();
 })();
