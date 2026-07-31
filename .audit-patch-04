@@ -1,0 +1,201 @@
+   base_url: data.base_url || '',
++    };
++    providerKeysSet = data.provider_keys_set || {};
++    configuredProviders = {};
++    if (data.configured && loadedProvider) configuredProviders[loadedProvider] = true;
++  }
++
++  function modelChain(data) {
++    return [data.model, data.fallback_1, data.fallback_2]
++      .filter(Boolean)
++      .join(' → ');
+   }
+ 
+   function refreshProviderLabels() {
+@@ -142,16 +150,7 @@
+     $('ai-status').textContent = 'Checking AI configuration…';
+     try {
+       const data = await readJson(await fetch('/api/settings'));
+-      loadedProvider = data.provider || 'gemini';
+-      loadedSettings = {
+-        model: data.model || '',
+-        fallback_1: data.fallback_1 || '',
+-        fallback_2: data.fallback_2 || '',
+-        base_url: data.base_url || '',
+-      };
+-      providerKeysSet = data.provider_keys_set || {};
+-      configuredProviders = {};
+-      if (data.configured && loadedProvider) configuredProviders[loadedProvider] = true;
++      rememberSettings(data, 'gemini');
+ 
+       $('ai-provider').value = loadedProvider;
+       $('ai-key').value = '';
+@@ -160,7 +159,7 @@
+       refreshProviderLabels();
+ 
+       if (data.configured) {
+-        const chain = [data.model, data.fallback_1, data.fallback_2].filter(Boolean).join(' → ');
++        const chain = modelChain(data);
+         $('ai-status').textContent = `Configured: ${chain}`;
+         $('ai-status').classList.add('ok');
+       } else {
+@@ -193,22 +192,13 @@
+         }),
+       }));
+ 
+-      loadedProvider = data.provider;
+-      loadedSettings = {
+-        model: data.model || '',
+-        fallback_1: data.fallback_1 || '',
+-        fallback_2: data.fallback_2 || '',
+-        base_url: data.base_url || '',
+-      };
+-      providerKeysSet = data.provider_keys_set || {};
+-      configuredProviders = {};
+-      if (data.configured && loadedProvider) configuredProviders[loadedProvider] = true;
++      rememberSettings(data);
+       $('ai-key').value = '';
+       applyProviderValues(loadedProvider);
+       setProviderFields();
+       refreshProviderLabels();
+ 
+-      const chain = [data.model, data.fallback_1, data.fallback_2].filter(Boolean).join(' → ');
++      const chain = modelChain(data);
+       $('ai-status').textContent = data.configured
+         ? `Saved: ${chain}`
+         : 'Saved, but the provider is not fully configured.';
+diff --git a/frontend/app.js b/frontend/app.js
+index cfd2714..2b3886f 100644
+--- a/frontend/app.js
++++ b/frontend/app.js
+@@ -3,60 +3,13 @@
+ 
+   const state = { mode: 'prompt', selectedSeed: null };
+   const $ = (id) => document.getElementById(id);
++  const {readJson, setLoadingButton} = window.PlaylistMuseCommon;
+ 
+   function message(text = '', error = false) {
+     $('status').textContent = text;
+     $('status').classList.toggle('error', error);
+   }
+ 
+-  function setGeneratingButton(button) {
+-    const spinner = document.createElement('span');
+-    spinner.className = 'generation-spinner';
+-    spinner.setAttribute('aria-hidden', 'true');
+-
+-    const label = document.createElement('span');
+-    label.className = 'generation-label';
+-    label.textContent = 'Generating';
+-
+-    const dots = document.createElement('span');
+-    dots.className = 'generation-dots';
+-    dots.setAttribute('aria-hidden', 'true');
+-    dots.append(
+-      document.createElement('span'),
+-      document.createElement('span'),
+-      document.createElement('span'),
+-    );
+-
+-    button.replaceChildren(spinner, label, dots);
+-    button.classList.add('is-loading');
+-    button.disabled = true;
+-    button.setAttribute('aria-busy', 'true');
+-    button.setAttribute('aria-label', 'Generating playlist');
+-
+-    return () => {
+-      button.classList.remove('is-loading');
+-      button.removeAttribute('aria-busy');
+-      button.removeAttribute('aria-label');
+-      button.disabled = false;
+-      button.textContent = 'Generate playlist';
+-    };
+-  }
+-
+-  async function readJson(response) {
+-    const text = await response.text();
+-    let data = {};
+-    try { data = text ? JSON.parse(text) : {}; }
+-    catch { throw new Error(text || `HTTP ${response.status}`); }
+-    if (!response.ok) {
+-      const detail = data.detail ?? data.error ?? data.message;
+-      if (Array.isArray(detail)) {
+-        throw new Error(detail.map((item) => item.msg || item.message || String(item)).join('; '));
+-      }
+-      throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail || data));
+-    }
+-    return data;
+-  }
+-
+   function options() {
+     return {
+       exclude_live: $('exclude-live').checked,
+@@ -153,7 +106,10 @@
+     message('Searching YouTube Music…');
+ 
+     try {
+-      const data = await readJson(await fetch(`/api/seeds/search?q=${encodeURIComponent(query)}&limit=8`));
++      const data = await readJson(
++        await fetch(`/api/seeds/search?q=${encodeURIComponent(query)}&limit=8`),
++        {flattenValidationErrors: true},
++      );
+       renderSeedResults(data.results || []);
+       message(data.results?.length ? 'Choose the seed track.' : 'No matching songs found.', !data.results?.length);
+     } catch (error) {
+@@ -180,15 +136,22 @@
+       request = { seed: state.selectedSeed, track_count: trackCount(), options: options() };
+     }
+ 
+-    const resetGeneratingButton = setGeneratingButton(button);
++    const resetGeneratingButton = setLoadingButton(button, {
++      label: 'Generating',
++      resetText: 'Generate playlist',
++      ariaLabel: 'Generating playlist',
++    });
+     message('Generating and resolving tracks on YouTube Music…');
+ 
+     try {
+-      const data = await readJson(await fetch(endpoint, {
+-        method: 'POST',
+-        headers: {'Content-Type': 'application/json'},
+-        body: JSON.stringify(request),
+-      }));
++      const data = await readJson(
++        await fetch(endpoint, {
++          method: 'POST',
++          headers: {'Content-Type': 'application/json'},
++          body: JSON.stringify(request),
++        }),
++        {flattenValidationErrors: true},
++      );
+       sessionStorage.setItem('playlistmuse-generated-playlist', JSON.stringify(data));
+       sessionStorage.setItem('playlistmuse-generation-request', JSON.stringify({mode: state.mode, ...request}));
+       window.location.assign('/static/playlist.html');
+diff --git a/frontend/common.js b/frontend/common.js
+new file mode 100644
+index 0000000..48987bd
+--- /dev/null
++++ b/frontend/common.js
+@@ -0,0 +1,90 @@
++(function (root, factory) {
++  'use strict';
++
++  const api = factory();
++
++  if (typeof module === 'object' && module.exports) {
++    module.exports = api;
++  }
++  if (root) {
++    root.PlaylistMuseCommon = api;
++  }
++}(typeof globalThis !== 'undefined' ? globalThis : this, () => {
++  'use strict';
++
++  async function readJson(response, options = {}) {
++    const text = await response.text();
++    let payload = {};
++
++    try {
++      payload = text ? JSON.parse(text) : {};
++    } catch {
++      throw new Error(text || `HTTP ${response
