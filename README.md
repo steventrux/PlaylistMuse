@@ -24,7 +24,7 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Open `http://localhost:5766`.
+Open `http://localhost:5780`.
 
 ## Local development
 
