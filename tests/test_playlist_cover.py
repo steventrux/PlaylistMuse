@@ -49,7 +49,7 @@ def test_thumbnail_urls_are_deduplicated_and_host_validated() -> None:
     ]
 
 
-def test_build_playlist_cover_returns_square_jpeg() -> None:
+def test_build_playlist_cover_returns_square_baseline_jpeg() -> None:
     urls = [f"https://i.ytimg.com/{index}" for index in range(4)]
     colors = [
         (255, 0, 0),
@@ -67,6 +67,8 @@ def test_build_playlist_cover_returns_square_jpeg() -> None:
     with Image.open(BytesIO(encoded)) as cover:
         assert cover.format == "JPEG"
         assert cover.size == (playlist_cover.COVER_SIZE, playlist_cover.COVER_SIZE)
+        assert not cover.info.get("progressive")
+        assert not cover.info.get("progression")
         assert cover.getpixel((64, 64))[0] > 200
         assert cover.getpixel((448, 64))[1] > 200
         assert cover.getpixel((64, 448))[2] > 200
@@ -104,9 +106,77 @@ def test_upload_playlist_cover_uses_hero_multipart_and_refreshes_401(
     assert params == {"part": "snippet", "uploadType": "multipart"}
     assert b'"playlistId":"playlist-id"' in content
     assert b'"type":"hero"' in content
+    assert b'"width"' not in content
+    assert b'"height"' not in content
     assert cover in content
     assert headers["Authorization"] == "Bearer fresh"
     assert headers["Content-Type"].startswith("multipart/related; boundary=")
+
+
+def test_upload_playlist_cover_retries_retryable_server_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cover = _image_bytes((20, 30, 40))
+    monkeypatch.setattr(playlist_cover, "build_playlist_cover", lambda *args: cover)
+    sleeps: list[float] = []
+    statuses = iter((500, 503, 200))
+    calls = 0
+
+    class Client:
+        def post(self, url, params, content, headers):
+            nonlocal calls
+            calls += 1
+            return httpx.Response(
+                next(statuses),
+                request=httpx.Request("POST", url),
+            )
+
+    monkeypatch.setattr(playlist_cover.time, "sleep", sleeps.append)
+
+    playlist_cover.upload_playlist_cover(
+        Client(),
+        "playlist-id",
+        ["https://i.ytimg.com/example"] * 4,
+        lambda force_refresh: "token",
+    )
+
+    assert calls == playlist_cover.COVER_UPLOAD_MAX_ATTEMPTS
+    assert sleeps == list(playlist_cover.COVER_UPLOAD_RETRY_DELAYS_SECONDS)
+
+
+def test_upload_playlist_cover_reports_google_error_detail_without_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cover = _image_bytes((20, 30, 40))
+    monkeypatch.setattr(playlist_cover, "build_playlist_cover", lambda *args: cover)
+    calls = 0
+
+    class Client:
+        def post(self, url, params, content, headers):
+            nonlocal calls
+            calls += 1
+            return httpx.Response(
+                400,
+                json={
+                    "error": {
+                        "status": "INVALID_ARGUMENT",
+                        "message": "Invalid playlist image.",
+                    }
+                },
+                request=httpx.Request("POST", url),
+            )
+
+    with pytest.raises(playlist_cover.PlaylistCoverError) as raised:
+        playlist_cover.upload_playlist_cover(
+            Client(),
+            "playlist-id",
+            ["https://i.ytimg.com/example"] * 4,
+            lambda force_refresh: "token",
+        )
+
+    assert calls == 1
+    assert "INVALID_ARGUMENT" in str(raised.value)
+    assert "Invalid playlist image" in str(raised.value)
 
 
 def test_playlist_survives_cover_failure(monkeypatch: pytest.MonkeyPatch) -> None:
