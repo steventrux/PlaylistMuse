@@ -113,7 +113,7 @@ def test_home_and_results_share_page_width_and_complete_wordmark() -> None:
     assert "overflow: visible" in layout
 
 
-def test_header_indicators_open_settings_without_neon() -> None:
+def test_header_indicators_show_active_provider_without_neon() -> None:
     index = _html("index.html")
     status = _script("home-status.js")
     layout = _style("layout.css")
@@ -126,7 +126,14 @@ def test_header_indicators_open_settings_without_neon() -> None:
     assert "createHeaderStatus" in status
     assert "document.body.append(footer)" not in status
     assert "brain-outline" in status
-    assert "brain-bolt" in status
+    assert "providerIcons" in status
+    assert "gemini:" in status
+    assert "openai:" in status
+    assert "anthropic:" in status
+    assert "openrouter_auto:" in status
+    assert "ollama:" in status
+    assert "custom:" in status
+    assert "providerIcons[provider] || brainIcon" in status
     assert "youtube-body" in status
     assert "element.dataset.tooltip = tooltip" in status
     assert "homeAiSettings.click()" in status
@@ -135,13 +142,27 @@ def test_header_indicators_open_settings_without_neon() -> None:
     assert "window.location.assign('/')" in status
     assert ".header-indicator.ai.on" in layout
     assert ".header-indicator.youtube.on" in layout
-    assert "width: 28px" in layout
-    assert "height: 28px" in layout
-    assert "width: 16px" in layout
+    assert "width: 32px" in layout
+    assert "height: 32px" in layout
+    assert "width: 19px" in layout
     assert layout.count("box-shadow: none;") >= 3
     assert "0 0 14px" not in layout
     assert "0 0 20px" not in layout
     assert "#ff0000" not in layout.lower()
+
+
+def test_ai_settings_can_manage_and_activate_multiple_profiles() -> None:
+    ai_settings = _script("ai-settings.js")
+
+    assert "/api/ai/profiles" in ai_settings
+    assert "/api/ai/activate" in ai_settings
+    assert "providerProfiles" in ai_settings
+    assert "activeProvider" in ai_settings
+    assert "Use this AI" in ai_settings
+    assert "activateSelectedProvider" in ai_settings
+    assert "● " in ai_settings
+    assert "✓ " in ai_settings
+    assert "playlistmuse-status-changed" in ai_settings
 
 
 def test_results_page_exposes_only_youtube_settings() -> None:
