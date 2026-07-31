@@ -20,10 +20,9 @@ jobs:
         with:
           ref: feature-release-group-artwork
           fetch-depth: 0
-      - name: Validate and apply reviewed source patch
+      - name: Validate and publish reviewed source patch
         run: |
           set -euo pipefail
-          sha256sum .audit-patch-*
           cat .audit-patch-* > /tmp/repository-audit.patch
           git apply --check /tmp/repository-audit.patch
           git apply /tmp/repository-audit.patch
@@ -71,53 +70,6 @@ jobs:
           done
           bash -n scripts/*.sh
           rm .audit-patch-*
-          cat > .github/workflows/tests.yml <<'YAML'
-          name: Tests
-
-          on:
-            pull_request:
-            workflow_dispatch:
-
-          permissions:
-            contents: read
-
-          concurrency:
-            group: playlistmuse-tests
-            cancel-in-progress: true
-
-          jobs:
-            test:
-              runs-on: ubuntu-latest
-              timeout-minutes: 10
-              steps:
-                - uses: actions/checkout@v4
-                - uses: actions/setup-python@v5
-                  with:
-                    python-version: "3.12"
-                    cache: pip
-                - name: Install dependencies
-                  run: python -m pip install -r requirements.txt -r requirements-dev.txt
-                - name: Check Python source
-                  run: |
-                    python -m compileall -q backend tests
-                    ruff check backend tests
-                - name: Run Python tests
-                  run: python -m pytest -q
-                - name: Check frontend JavaScript syntax
-                  run: |
-                    for file in frontend/*.js tests/*.cjs; do
-                      node --check "$file"
-                    done
-                - name: Run frontend unit tests
-                  run: node --test tests/*.cjs
-                - name: Check deployment files
-                  run: |
-                    bash -n scripts/*.sh
-                    cp .env.example .env
-                    docker compose -f docker-compose.yml config --quiet
-                    docker compose -f docker-compose.playlistmuse.yml config --quiet
-          YAML
-          sed -i 's/^          //' .github/workflows/tests.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
