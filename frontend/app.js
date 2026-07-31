@@ -86,17 +86,28 @@
     if (dialog.open) dialog.close();
   }
 
-  async function showInitialSetupIfRequired() {
+  async function acknowledgeInitialSetup() {
     try {
-      const status = await readJson(await fetch('/api/onboarding'));
-      if (!status.required) return;
-
       await readJson(await fetch('/api/onboarding/acknowledge', {
         method: 'POST',
+        cache: 'no-store',
       }));
-      openSetup('ai', 'onboarding');
     } catch {
-      // Setup warnings remain available even if onboarding state cannot be persisted.
+      // The wizard is already visible; warnings remain available if persistence fails.
+    }
+  }
+
+  async function showInitialSetupIfRequired() {
+    try {
+      const status = await readJson(await fetch('/api/onboarding', {
+        cache: 'no-store',
+      }));
+      if (!status.required) return;
+
+      openSetup('ai', 'onboarding');
+      void acknowledgeInitialSetup();
+    } catch {
+      // Setup warnings remain available if onboarding state cannot be checked.
     }
   }
 
