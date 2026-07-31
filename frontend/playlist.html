@@ -33,9 +33,12 @@
       <p class="eyebrow">Your playlist</p>
 
       <div class="playlist-overview">
-        <div class="playlist-cover" aria-label="Generated playlist cover">
+        <div
+          class="playlist-cover"
+          role="img"
+          aria-label="Playlist cover assembled from representative YouTube Music thumbnails"
+        >
           <div id="playlist-cover-grid" class="playlist-cover-grid" aria-hidden="true"></div>
-          <span id="playlist-cover-status" class="visually-hidden" aria-live="polite"></span>
         </div>
 
         <div class="playlist-overview-copy">
@@ -141,7 +144,8 @@
   </dialog>
 
   <script src="/static/replacement-history.js?v=3"></script>
-  <script src="/static/playlist.js?v=16"></script>
+  <script src="/static/playlist-mosaic.js?v=1"></script>
+  <script src="/static/playlist.js?v=17"></script>
   <script src="/static/youtube-account.js?v=2"></script>
   <script src="/static/youtube-publish.js?v=7"></script>
 </body>
