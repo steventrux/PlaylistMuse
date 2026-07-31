@@ -25,6 +25,10 @@
   min-width: 0;
 }
 
+.setup-dialog-card .dialog-head {
+  margin-bottom: 20px;
+}
+
 .setup-dialog-card .dialog-head h2 {
   margin-bottom: 0;
 }
@@ -129,6 +133,10 @@
     padding: 20px;
   }
 
+  .setup-dialog-card .dialog-head {
+    margin-bottom: 18px;
+  }
+
   .setup-dialog-card .fallback-row {
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   }
@@ -147,6 +155,10 @@
     max-height: calc(100vh - 18px);
     padding: 17px;
     border-radius: 18px;
+  }
+
+  .setup-dialog-card .dialog-head {
+    margin-bottom: 16px;
   }
 
   .setup-progress {
