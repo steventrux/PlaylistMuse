@@ -1,7 +1,7 @@
 import asyncio
 
 from backend.config import AppConfig
-from backend.gemini_compat import _gemini_json_schema, _request_model
+from backend.llm import _gemini_json_schema, _request_model
 
 
 class _FakeResponse:
@@ -77,3 +77,10 @@ def test_gemini_generate_content_uses_direct_structured_output_fields() -> None:
     assert "responseFormat" not in generation_config
     assert client.request["headers"]["x-goog-api-key"] == "AIza-test-key"
     assert "key=" not in client.request["url"]
+
+
+def test_gemini_compatibility_is_integrated_into_llm_module() -> None:
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    assert not (root / "backend/gemini_compat.py").exists()

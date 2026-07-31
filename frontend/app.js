@@ -3,58 +3,11 @@
 
   const state = { mode: 'prompt', selectedSeed: null };
   const $ = (id) => document.getElementById(id);
+  const {readJson, setLoadingButton} = window.PlaylistMuseCommon;
 
   function message(text = '', error = false) {
     $('status').textContent = text;
     $('status').classList.toggle('error', error);
-  }
-
-  function setGeneratingButton(button) {
-    const spinner = document.createElement('span');
-    spinner.className = 'generation-spinner';
-    spinner.setAttribute('aria-hidden', 'true');
-
-    const label = document.createElement('span');
-    label.className = 'generation-label';
-    label.textContent = 'Generating';
-
-    const dots = document.createElement('span');
-    dots.className = 'generation-dots';
-    dots.setAttribute('aria-hidden', 'true');
-    dots.append(
-      document.createElement('span'),
-      document.createElement('span'),
-      document.createElement('span'),
-    );
-
-    button.replaceChildren(spinner, label, dots);
-    button.classList.add('is-loading');
-    button.disabled = true;
-    button.setAttribute('aria-busy', 'true');
-    button.setAttribute('aria-label', 'Generating playlist');
-
-    return () => {
-      button.classList.remove('is-loading');
-      button.removeAttribute('aria-busy');
-      button.removeAttribute('aria-label');
-      button.disabled = false;
-      button.textContent = 'Generate playlist';
-    };
-  }
-
-  async function readJson(response) {
-    const text = await response.text();
-    let data = {};
-    try { data = text ? JSON.parse(text) : {}; }
-    catch { throw new Error(text || `HTTP ${response.status}`); }
-    if (!response.ok) {
-      const detail = data.detail ?? data.error ?? data.message;
-      if (Array.isArray(detail)) {
-        throw new Error(detail.map((item) => item.msg || item.message || String(item)).join('; '));
-      }
-      throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail || data));
-    }
-    return data;
   }
 
   function options() {
@@ -153,7 +106,10 @@
     message('Searching YouTube Music…');
 
     try {
-      const data = await readJson(await fetch(`/api/seeds/search?q=${encodeURIComponent(query)}&limit=8`));
+      const data = await readJson(
+        await fetch(`/api/seeds/search?q=${encodeURIComponent(query)}&limit=8`),
+        {flattenValidationErrors: true},
+      );
       renderSeedResults(data.results || []);
       message(data.results?.length ? 'Choose the seed track.' : 'No matching songs found.', !data.results?.length);
     } catch (error) {
@@ -180,15 +136,22 @@
       request = { seed: state.selectedSeed, track_count: trackCount(), options: options() };
     }
 
-    const resetGeneratingButton = setGeneratingButton(button);
+    const resetGeneratingButton = setLoadingButton(button, {
+      label: 'Generating',
+      resetText: 'Generate playlist',
+      ariaLabel: 'Generating playlist',
+    });
     message('Generating and resolving tracks on YouTube Music…');
 
     try {
-      const data = await readJson(await fetch(endpoint, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(request),
-      }));
+      const data = await readJson(
+        await fetch(endpoint, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(request),
+        }),
+        {flattenValidationErrors: true},
+      );
       sessionStorage.setItem('playlistmuse-generated-playlist', JSON.stringify(data));
       sessionStorage.setItem('playlistmuse-generation-request', JSON.stringify({mode: state.mode, ...request}));
       window.location.assign('/static/playlist.html');

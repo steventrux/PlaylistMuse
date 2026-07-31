@@ -49,6 +49,35 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_BATCH_SIZE = 8
 PROVIDER_BATCH_SIZES = {"openrouter_free": 6, "ollama": 6}
 
+_GEMINI_SCHEMA_KEYS = {
+    "$id",
+    "$defs",
+    "$ref",
+    "$anchor",
+    "type",
+    "format",
+    "title",
+    "description",
+    "enum",
+    "items",
+    "prefixItems",
+    "minItems",
+    "maxItems",
+    "minimum",
+    "maximum",
+    "anyOf",
+    "oneOf",
+    "properties",
+    "additionalProperties",
+    "required",
+    "propertyOrdering",
+}
+
+_CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
+_URL_RE = re.compile(r"https?://\S+")
+_API_KEY_RE = re.compile(r"(?:AIza|sk-or-|sk-)[A-Za-z0-9_\-]{12,}")
+_QUERY_KEY_RE = re.compile(r"\bkey=[^\s&]+", re.IGNORECASE)
+
 
 class ProviderRequestError(ValueError):
     """A provider failure whose public message contains no credentials or raw URLs."""
@@ -71,6 +100,27 @@ def _track_schema() -> dict[str, Any]:
         },
         "required": ["artist", "title", "description", "reason"],
     }
+
+
+def _gemini_json_schema(value: Any) -> Any:
+    """Keep only JSON Schema keywords supported by Gemini structured output."""
+    if isinstance(value, list):
+        return [_gemini_json_schema(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+
+    cleaned: dict[str, Any] = {}
+    for key, item in value.items():
+        if key not in _GEMINI_SCHEMA_KEYS:
+            continue
+        if key == "properties" and isinstance(item, dict):
+            cleaned[key] = {
+                str(property_name): _gemini_json_schema(property_schema)
+                for property_name, property_schema in item.items()
+            }
+        else:
+            cleaned[key] = _gemini_json_schema(item)
+    return cleaned
 
 
 def _playlist_json_schema(count: int, *, exact_count: bool = False) -> dict[str, Any]:
@@ -109,7 +159,7 @@ def _openrouter_max_tokens(count: int) -> int:
 
 def _extract_json(text: str) -> dict[str, Any]:
     cleaned = text.strip()
-    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.IGNORECASE)
+    cleaned = _CODE_FENCE_RE.sub("", cleaned)
     start = cleaned.find("{")
     end = cleaned.rfind("}")
     if start < 0 or end <= start:
@@ -186,7 +236,7 @@ def _safe_provider_message(provider: str, response: httpx.Response) -> str:
     message = "The provider rejected the request."
     try:
         payload = response.json()
-    except (ValueError, json.JSONDecodeError):
+    except ValueError:
         payload = None
 
     if isinstance(payload, dict):
@@ -198,8 +248,8 @@ def _safe_provider_message(provider: str, response: httpx.Response) -> str:
         if raw_message:
             message = str(raw_message)
 
-    message = re.sub(r"https?://\S+", "", message)
-    message = re.sub(r"(?:AIza|sk-or-|sk-)[A-Za-z0-9_\-]{12,}", "[redacted]", message)
+    message = _URL_RE.sub("", message)
+    message = _API_KEY_RE.sub("[redacted]", message)
     message = " ".join(message.split()).strip(" ;,.")
     if response.status_code in {401, 403}:
         return f"{provider} rejected the saved API key or its permissions."
@@ -213,11 +263,15 @@ def safe_error_message(error: Exception) -> str:
     if isinstance(error, ProviderRequestError):
         return str(error)
     text = str(error)
-    text = re.sub(r"https?://\S+", "", text)
-    text = re.sub(r"(?:AIza|sk-or-|sk-)[A-Za-z0-9_\-]{12,}", "[redacted]", text)
-    text = re.sub(r"\bkey=[^\s&]+", "key=[redacted]", text, flags=re.IGNORECASE)
+    text = _URL_RE.sub("", text)
+    text = _API_KEY_RE.sub("[redacted]", text)
+    text = _QUERY_KEY_RE.sub("key=[redacted]", text)
     text = " ".join(text.split()).strip()
-    return text[:420] or "The AI provider could not complete the request."
+    message = text[:420] or "The AI provider could not complete the request."
+    if message.startswith("The AI provider produced"):
+        summary = message.split(".", 1)[0].strip()
+        return f"{summary}. Try again or select another configured AI provider."
+    return message
 
 
 def _raise_for_provider(response: httpx.Response, provider: str) -> None:
@@ -285,14 +339,10 @@ async def _request_model(
                 "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
                 "generationConfig": {
                     "maxOutputTokens": min(65_536, max(8_192, count * 520)),
-                    "responseFormat": {
-                        "text": {
-                            "mimeType": "application/json",
-                            "schema": _playlist_json_schema(
-                                count, exact_count=exact_count
-                            ),
-                        }
-                    },
+                    "responseMimeType": "application/json",
+                    "responseJsonSchema": _gemini_json_schema(
+                        _playlist_json_schema(count, exact_count=exact_count)
+                    ),
                 },
             },
         )
