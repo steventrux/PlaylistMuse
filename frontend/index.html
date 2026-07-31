@@ -7,7 +7,7 @@
   <title>PlaylistMuse</title>
   <link rel="stylesheet" href="/static/style.css?v=8">
   <link rel="stylesheet" href="/static/controls.css?v=4">
-  <link rel="stylesheet" href="/static/generation.css?v=3">
+  <link rel="stylesheet" href="/static/generation.css?v=4">
   <link rel="stylesheet" href="/static/youtube.css?v=3">
 </head>
 <body>
@@ -65,7 +65,15 @@
         <label><input id="exclude-remixes" type="checkbox" checked> Exclude remixes</label>
       </div>
 
-      <button id="generate" class="primary" type="button">Generate playlist</button>
+      <div id="ai-generation-warning" class="ai-generation-warning hidden" role="status" aria-live="polite">
+        <strong id="ai-generation-warning-title">AI provider not configured</strong>
+        <span>
+          <span id="ai-generation-warning-text">Configure an AI provider before generating a playlist.</span>
+          <button id="ai-open-settings" class="ai-warning-link" type="button">Open AI Settings</button>
+        </span>
+      </div>
+
+      <button id="generate" class="primary" type="button" disabled aria-disabled="true">Generate playlist</button>
       <p id="status" class="status" aria-live="polite"></p>
     </section>
   </main>
@@ -173,6 +181,6 @@
   <script src="/static/app.js?v=10"></script>
   <script src="/static/ai-settings.js?v=9"></script>
   <script src="/static/youtube-account.js?v=3"></script>
-  <script src="/static/home-status.js?v=9"></script>
+  <script src="/static/home-status.js?v=10"></script>
 </body>
 </html>
