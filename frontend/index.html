@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/static/controls.css?v=4">
   <link rel="stylesheet" href="/static/generation.css?v=4">
   <link rel="stylesheet" href="/static/youtube.css?v=3">
+  <link rel="stylesheet" href="/static/onboarding.css?v=1">
 </head>
 <body>
   <header class="app-header">
@@ -21,11 +22,6 @@
         <span id="home-ai-status" class="status-badge pending" title="Checking AI provider configuration" aria-label="AI connection status">AI</span>
         <span id="home-yt-status" class="status-badge pending" title="Checking YouTube Music account connection" aria-label="YouTube Music connection status">YT</span>
       </div>
-      <button id="settings-btn" class="secondary settings-icon-btn" title="Open application settings" aria-label="Open application settings" type="button">
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="M4 7h10M18 7h2M14 4v6M4 17h2M10 17h10M6 14v6M4 12h5M13 12h7M9 9v6" />
-        </svg>
-      </button>
     </div>
   </header>
 
@@ -78,32 +74,26 @@
     </section>
   </main>
 
-  <dialog id="settings-dialog">
-    <form method="dialog" class="dialog-card settings-dialog-card" novalidate>
+  <dialog id="setup-dialog">
+    <form method="dialog" class="dialog-card settings-dialog-card setup-dialog-card" novalidate>
       <div class="dialog-head">
-        <h2>Settings</h2>
-        <button id="close-settings" type="button" class="icon" aria-label="Close">×</button>
-      </div>
-
-      <section class="settings-block">
-        <h3>Choose what to configure</h3>
-        <p class="settings-status">AI and YouTube Music settings are managed separately.</p>
-        <div class="settings-actions">
-          <button id="open-ai-settings" type="button" class="primary">AI provider</button>
-          <button id="open-youtube-settings" type="button" class="secondary">YouTube Music</button>
+        <div>
+          <p id="setup-eyebrow" class="eyebrow">Initial configuration</p>
+          <h2 id="setup-title">Set up PlaylistMuse</h2>
         </div>
-      </section>
-    </form>
-  </dialog>
-
-  <dialog id="ai-settings-dialog">
-    <form method="dialog" class="dialog-card settings-dialog-card" novalidate>
-      <div class="dialog-head">
-        <h2>AI Settings</h2>
-        <button id="close-ai-settings" type="button" class="icon" aria-label="Close">×</button>
+        <button id="close-setup" type="button" class="icon" aria-label="Close">×</button>
       </div>
 
-      <section class="settings-block">
+      <ol id="setup-progress" class="setup-progress" aria-label="Initial setup progress">
+        <li id="setup-progress-ai" class="active"><span>1</span> AI provider</li>
+        <li id="setup-progress-youtube"><span>2</span> YouTube Music</li>
+      </ol>
+
+      <p id="setup-intro" class="setup-intro">
+        Configure the AI provider first, then optionally connect YouTube Music for direct playlist publishing.
+      </p>
+
+      <section id="setup-ai-step" class="settings-block setup-step">
         <h3>AI provider</h3>
         <p id="ai-status" class="settings-status">Checking AI configuration…</p>
 
@@ -149,17 +139,8 @@
           <button id="save-ai" type="button" class="primary">Save AI settings</button>
         </div>
       </section>
-    </form>
-  </dialog>
 
-  <dialog id="youtube-settings-dialog">
-    <form method="dialog" class="dialog-card settings-dialog-card" novalidate>
-      <div class="dialog-head">
-        <h2>YouTube Music Settings</h2>
-        <button id="close-youtube-settings" type="button" class="icon" aria-label="Close">×</button>
-      </div>
-
-      <section class="settings-block">
+      <section id="setup-youtube-step" class="settings-block setup-step hidden">
         <h3>YouTube Music account</h3>
         <p id="account-status" class="settings-status">Checking connection…</p>
 
@@ -200,14 +181,23 @@
           </div>
         </div>
       </section>
+
+      <div id="setup-navigation" class="setup-navigation">
+        <button id="setup-skip" type="button" class="secondary">Skip for now</button>
+        <div class="setup-navigation-actions">
+          <button id="setup-back" type="button" class="secondary hidden">Back</button>
+          <button id="setup-next" type="button" class="primary">Continue to YouTube</button>
+          <button id="setup-finish" type="button" class="primary hidden">Finish setup</button>
+        </div>
+      </div>
     </form>
   </dialog>
 
   <script src="/static/replacement-history.js?v=3"></script>
   <script src="/static/common.js?v=1"></script>
-  <script src="/static/app.js?v=11"></script>
   <script src="/static/ai-settings.js?v=10"></script>
   <script src="/static/youtube-account.js?v=4"></script>
   <script src="/static/home-status.js?v=11"></script>
+  <script src="/static/app.js?v=12"></script>
 </body>
 </html>
