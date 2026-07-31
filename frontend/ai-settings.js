@@ -62,53 +62,70 @@
     },
   };
 
-  let loadedProvider = '';
-  let loadedSettings = null;
+  let activeProvider = '';
+  let providerProfiles = {};
   let providerKeysSet = {};
-  let configuredProviders = {};
 
-  function rememberSettings(data, fallbackProvider = '') {
-    loadedProvider = data.provider || fallbackProvider;
-    loadedSettings = {
-      model: data.model || '',
-      fallback_1: data.fallback_1 || '',
-      fallback_2: data.fallback_2 || '',
-      base_url: data.base_url || '',
-    };
-    providerKeysSet = data.provider_keys_set || {};
-    configuredProviders = {};
-    if (data.configured && loadedProvider) configuredProviders[loadedProvider] = true;
+  function ensureActivateButton() {
+    let button = $('activate-ai');
+    if (button) return button;
+    button = document.createElement('button');
+    button.id = 'activate-ai';
+    button.type = 'button';
+    button.className = 'secondary hidden';
+    button.textContent = 'Use this AI';
+    $('save-ai').insertAdjacentElement('afterend', button);
+    button.addEventListener('click', activateSelectedProvider);
+    return button;
   }
 
-  function modelChain(data) {
-    return [data.model, data.fallback_1, data.fallback_2]
+  function profileFor(provider) {
+    const defaults = providerDefaults[provider] || providerDefaults.custom;
+    const saved = providerProfiles[provider] || {};
+    return {
+      model: saved.model || defaults.primary,
+      fallback_1: saved.fallback_1 || '',
+      fallback_2: saved.fallback_2 || '',
+      base_url: saved.base_url || '',
+      configured: Boolean(saved.configured),
+      active: provider === activeProvider,
+    };
+  }
+
+  function modelChain(profile) {
+    return [profile.model, profile.fallback_1, profile.fallback_2]
       .filter(Boolean)
       .join(' → ');
+  }
+
+  function rememberProfiles(data) {
+    activeProvider = data.active_provider || '';
+    providerProfiles = data.profiles || {};
+    providerKeysSet = Object.fromEntries(
+      Object.entries(providerProfiles).map(([provider, profile]) => [
+        provider,
+        Boolean(profile.api_key_set),
+      ]),
+    );
   }
 
   function refreshProviderLabels() {
     Array.from($('ai-provider').options).forEach((option) => {
       const defaults = providerDefaults[option.value] || providerDefaults.custom;
-      const configured = Boolean(configuredProviders[option.value] || providerKeysSet[option.value]);
-      option.textContent = `${configured ? '✓ ' : ''}${defaults.label}`;
+      const profile = profileFor(option.value);
+      const marker = profile.active ? '● ' : profile.configured ? '✓ ' : '';
+      option.textContent = `${marker}${defaults.label}`;
     });
   }
 
   function applyProviderValues(provider) {
     const defaults = providerDefaults[provider] || providerDefaults.custom;
-    const values = provider === loadedProvider && loadedSettings
-      ? loadedSettings
-      : {
-          model: defaults.primary,
-          fallback_1: defaults.fallback1,
-          fallback_2: defaults.fallback2,
-          base_url: '',
-        };
-
-    $('ai-model').value = values.model || defaults.primary;
-    $('ai-fallback-1').value = values.fallback_1 || '';
-    $('ai-fallback-2').value = values.fallback_2 || '';
-    $('ai-base-url').value = values.base_url || '';
+    const profile = profileFor(provider);
+    $('ai-model').value = profile.model || defaults.primary;
+    $('ai-fallback-1').value = profile.fallback_1 || '';
+    $('ai-fallback-2').value = profile.fallback_2 || '';
+    $('ai-base-url').value = profile.base_url || '';
+    $('ai-key').value = '';
   }
 
   function setProviderFields() {
@@ -146,26 +163,44 @@
     }
   }
 
+  function renderSelectedProviderStatus() {
+    const provider = $('ai-provider').value;
+    const defaults = providerDefaults[provider] || providerDefaults.custom;
+    const profile = profileFor(provider);
+    const activate = ensureActivateButton();
+
+    activate.classList.toggle('hidden', !profile.configured || profile.active);
+    activate.disabled = !profile.configured || profile.active;
+
+    if (profile.active) {
+      $('ai-status').textContent = `Active: ${defaults.label} · ${modelChain(profile)}`;
+      $('ai-status').classList.add('ok');
+    } else if (profile.configured) {
+      $('ai-status').textContent = `Configured: ${defaults.label} · select “Use this AI” to activate it.`;
+      $('ai-status').classList.add('ok');
+    } else {
+      $('ai-status').textContent = `Configure ${defaults.label} to make it available.`;
+      $('ai-status').classList.remove('ok');
+    }
+  }
+
+  async function fetchProfiles() {
+    const data = await readJson(await fetch('/api/ai/profiles', {cache: 'no-store'}));
+    rememberProfiles(data);
+    return data;
+  }
+
   async function loadSettings() {
     $('ai-status').textContent = 'Checking AI configuration…';
+    ensureActivateButton();
     try {
-      const data = await readJson(await fetch('/api/settings'));
-      rememberSettings(data, 'gemini');
-
-      $('ai-provider').value = loadedProvider;
-      $('ai-key').value = '';
-      applyProviderValues(loadedProvider);
+      const data = await fetchProfiles();
+      const selected = data.active_provider || $('ai-provider').value || 'gemini';
+      $('ai-provider').value = selected;
+      applyProviderValues(selected);
       setProviderFields();
       refreshProviderLabels();
-
-      if (data.configured) {
-        const chain = modelChain(data);
-        $('ai-status').textContent = `Configured: ${chain}`;
-        $('ai-status').classList.add('ok');
-      } else {
-        $('ai-status').textContent = 'AI provider configuration required.';
-        $('ai-status').classList.remove('ok');
-      }
+      renderSelectedProviderStatus();
     } catch (error) {
       $('ai-status').textContent = error.message || String(error);
       $('ai-status').classList.remove('ok');
@@ -174,16 +209,17 @@
 
   async function saveSettings() {
     const button = $('save-ai');
+    const provider = $('ai-provider').value;
     button.disabled = true;
     button.textContent = 'Saving…';
     $('ai-status').textContent = 'Saving AI settings…';
 
     try {
-      const data = await readJson(await fetch('/api/settings', {
+      await readJson(await fetch('/api/settings', {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-          provider: $('ai-provider').value,
+          provider,
           api_key: $('ai-key').value.trim(),
           model: $('ai-model').value.trim(),
           fallback_1: $('ai-fallback-1').value.trim(),
@@ -192,17 +228,12 @@
         }),
       }));
 
-      rememberSettings(data);
-      $('ai-key').value = '';
-      applyProviderValues(loadedProvider);
+      await fetchProfiles();
+      $('ai-provider').value = provider;
+      applyProviderValues(provider);
       setProviderFields();
       refreshProviderLabels();
-
-      const chain = modelChain(data);
-      $('ai-status').textContent = data.configured
-        ? `Saved: ${chain}`
-        : 'Saved, but the provider is not fully configured.';
-      $('ai-status').classList.toggle('ok', data.configured);
+      renderSelectedProviderStatus();
       window.dispatchEvent(new Event('playlistmuse-status-changed'));
     } catch (error) {
       $('ai-status').textContent = error.message || String(error);
@@ -213,9 +244,37 @@
     }
   }
 
+  async function activateSelectedProvider() {
+    const button = ensureActivateButton();
+    const provider = $('ai-provider').value;
+    button.disabled = true;
+    button.textContent = 'Switching…';
+    $('ai-status').textContent = 'Switching active AI provider…';
+
+    try {
+      const data = await readJson(await fetch('/api/ai/activate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({provider}),
+      }));
+      rememberProfiles(data);
+      refreshProviderLabels();
+      renderSelectedProviderStatus();
+      window.dispatchEvent(new Event('playlistmuse-status-changed'));
+    } catch (error) {
+      $('ai-status').textContent = error.message || String(error);
+      $('ai-status').classList.remove('ok');
+    } finally {
+      button.textContent = 'Use this AI';
+      button.disabled = false;
+      renderSelectedProviderStatus();
+    }
+  }
+
   $('ai-provider').addEventListener('change', () => {
     applyProviderValues($('ai-provider').value);
     setProviderFields();
+    renderSelectedProviderStatus();
   });
   $('save-ai').addEventListener('click', saveSettings);
   window.addEventListener('playlistmuse-ai-settings-opened', loadSettings);
