@@ -60,17 +60,6 @@
     $('playlist-summary').textContent = durationText ? `${trackLabel} · ${durationText}` : trackLabel;
   }
 
-  function representativeIndexes(length) {
-    if (!length) return [];
-    const last = length - 1;
-    return [...new Set([
-      0,
-      Math.round(last / 3),
-      Math.round((last * 2) / 3),
-      last,
-    ])];
-  }
-
   function coverPlaceholder() {
     const placeholder = document.createElement('span');
     placeholder.className = 'playlist-cover-placeholder';
@@ -78,26 +67,31 @@
   }
 
   function renderPlaylistCover() {
-    const urls = representativeIndexes(data.tracks.length)
-      .map((index) => data.tracks[index]?.thumbnail_url || '')
-      .filter(Boolean);
+    const mosaic = window.PlaylistMuseMosaic;
+    const tileCount = mosaic?.TILE_COUNT || 4;
+    const urls = mosaic?.selectMosaicUrls(data.tracks) || [];
     const tiles = [];
 
-    for (let index = 0; index < 4; index += 1) {
+    for (let index = 0; index < tileCount; index += 1) {
       const url = urls[index];
-      if (url) {
-        const image = document.createElement('img');
-        image.src = url;
-        image.alt = '';
-        image.loading = 'eager';
-        tiles.push(image);
-      } else {
+      if (!url) {
         tiles.push(coverPlaceholder());
+        continue;
       }
+
+      const image = document.createElement('img');
+      image.src = url;
+      image.alt = '';
+      image.loading = 'eager';
+      image.decoding = 'async';
+      image.fetchPriority = index === 0 ? 'high' : 'auto';
+      image.addEventListener('error', () => {
+        image.replaceWith(coverPlaceholder());
+      }, {once: true});
+      tiles.push(image);
     }
 
     $('playlist-cover-grid').replaceChildren(...tiles);
-    $('playlist-cover-status').textContent = 'Playlist cover created from YouTube Music thumbnails.';
   }
 
   function detailBlock(title, text) {
