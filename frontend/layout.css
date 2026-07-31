@@ -33,13 +33,12 @@
   border-radius: 9px;
   background: rgba(10, 13, 30, .82);
   color: var(--text-muted);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
+  box-shadow: none;
   backdrop-filter: blur(12px);
   transition:
     color 180ms ease,
     border-color 180ms ease,
     background 180ms ease,
-    box-shadow 180ms ease,
     transform 180ms ease;
 }
 
@@ -82,22 +81,14 @@
   border-color: rgba(125, 220, 255, .64);
   background: linear-gradient(145deg, rgba(139, 92, 246, .22), rgba(56, 189, 248, .18));
   color: var(--cyan-light);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .08),
-    0 0 0 1px rgba(183, 156, 255, .1),
-    0 0 14px rgba(56, 189, 248, .2),
-    0 0 20px rgba(139, 92, 246, .12);
+  box-shadow: none;
 }
 
 .header-indicator.youtube.on {
   border-color: rgba(236, 72, 153, .62);
   background: linear-gradient(145deg, rgba(236, 72, 153, .22), rgba(56, 189, 248, .14));
   color: #f0abfc;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .08),
-    0 0 0 1px rgba(183, 156, 255, .1),
-    0 0 14px rgba(236, 72, 153, .18),
-    0 0 20px rgba(56, 189, 248, .1);
+  box-shadow: none;
 }
 
 .header-indicator.pending {
