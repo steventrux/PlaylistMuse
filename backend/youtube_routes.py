@@ -7,6 +7,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
+from backend.playlist_cover import normalize_thumbnail_urls
 from backend.youtube_account import (
     YouTubeAccountError,
     disconnect_youtube,
@@ -16,7 +17,7 @@ from backend.youtube_account import (
     youtube_settings_response,
     youtube_status,
 )
-from backend.youtube_publish import create_youtube_playlist
+from backend.youtube_playlist_service import create_youtube_playlist
 
 router = APIRouter(prefix="/api/youtube", tags=["youtube-music"])
 
@@ -36,6 +37,7 @@ class YouTubePlaylistCreateRequest(BaseModel):
     description: str = Field(default="", max_length=500)
     privacy_status: Literal["PRIVATE", "UNLISTED", "PUBLIC"] = "PRIVATE"
     video_ids: list[str] = Field(min_length=1, max_length=100)
+    thumbnail_urls: list[str] = Field(default_factory=list, max_length=4)
 
     @field_validator("title", "description")
     @classmethod
@@ -49,6 +51,11 @@ class YouTubePlaylistCreateRequest(BaseModel):
         if not normalized:
             raise ValueError("At least one valid YouTube Music track is required.")
         return normalized
+
+    @field_validator("thumbnail_urls")
+    @classmethod
+    def validate_thumbnail_urls(cls, values: list[str]) -> list[str]:
+        return normalize_thumbnail_urls(values)
 
 
 @router.get("/settings")
@@ -116,6 +123,7 @@ async def publish_youtube_playlist(request: YouTubePlaylistCreateRequest) -> dic
             request.description,
             request.privacy_status,
             request.video_ids,
+            request.thumbnail_urls,
         )
     except YouTubeAccountError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
