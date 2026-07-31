@@ -32,7 +32,7 @@ Open `http://localhost:5780`.
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn backend.main:app --reload --port 5766
+uvicorn backend.main:app --reload --port 5780
 ```
 
 ## AI configuration
