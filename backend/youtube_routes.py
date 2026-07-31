@@ -83,6 +83,17 @@ class YouTubePlaylistCreateRequest(BaseModel):
         return normalize_thumbnail_urls(values)
 
 
+def _ensure_active_ai_config(config: AppConfig) -> AppConfig:
+    if config.configured:
+        return config
+    for provider in AI_PROVIDERS:
+        candidate = config.configuration_for(provider)
+        if candidate.configured:
+            save_config(candidate)
+            return load_config()
+    return config
+
+
 def _ai_profiles_response(config: AppConfig) -> dict:
     profiles: dict[str, dict] = {}
     for provider in AI_PROVIDERS:
@@ -112,7 +123,7 @@ async def acknowledge_initial_setup() -> dict[str, bool]:
 
 @router.get("/ai/profiles", tags=["ai-settings"])
 async def get_ai_profiles() -> dict:
-    return _ai_profiles_response(load_config())
+    return _ai_profiles_response(_ensure_active_ai_config(load_config()))
 
 
 @router.post("/ai/activate", tags=["ai-settings"])
