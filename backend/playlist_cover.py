@@ -1,7 +1,10 @@
-"""Build a safe square playlist cover from YouTube Music thumbnails."""
+"""Build and upload a safe square playlist cover."""
 
 from __future__ import annotations
 
+import json
+import uuid
+from collections.abc import Callable
 from io import BytesIO
 from urllib.parse import urlparse
 
@@ -13,6 +16,9 @@ TILE_SIZE = COVER_SIZE // 2
 MAX_SOURCE_BYTES = 5 * 1024 * 1024
 MAX_SOURCE_PIXELS = 20_000_000
 MAX_COVER_BYTES = 2 * 1024 * 1024
+PLAYLIST_IMAGE_UPLOAD_URL = (
+    "https://www.googleapis.com/upload/youtube/v3/playlistImages"
+)
 _ALLOWED_HOST_SUFFIXES = (
     "googleusercontent.com",
     "ggpht.com",
@@ -21,7 +27,7 @@ _ALLOWED_HOST_SUFFIXES = (
 
 
 class PlaylistCoverError(RuntimeError):
-    """Raised when a safe playlist mosaic cannot be generated."""
+    """Raised when a playlist mosaic cannot be built or uploaded safely."""
 
 
 def _allowed_thumbnail_url(value: str) -> bool:
@@ -119,3 +125,66 @@ def build_playlist_cover(client: httpx.Client, thumbnail_urls: list[str]) -> byt
     if not encoded or len(encoded) > MAX_COVER_BYTES:
         raise PlaylistCoverError("Generated playlist cover exceeds YouTube limits.")
     return encoded
+
+
+def _multipart_body(playlist_id: str, image: bytes) -> tuple[bytes, str]:
+    boundary = f"playlistmuse-{uuid.uuid4().hex}"
+    metadata = json.dumps(
+        {
+            "snippet": {
+                "playlistId": playlist_id,
+                "type": "hero",
+                "width": COVER_SIZE,
+                "height": COVER_SIZE,
+            }
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+    marker = boundary.encode("ascii")
+    body = b"\r\n".join(
+        (
+            b"--" + marker,
+            b"Content-Type: application/json; charset=UTF-8",
+            b"",
+            metadata,
+            b"--" + marker,
+            b"Content-Type: image/jpeg",
+            b"",
+            image,
+            b"--" + marker + b"--",
+            b"",
+        )
+    )
+    return body, boundary
+
+
+def upload_playlist_cover(
+    client: httpx.Client,
+    playlist_id: str,
+    thumbnail_urls: list[str],
+    access_token: Callable[[bool], str],
+) -> None:
+    """Build and upload the playlist hero image using YouTube's media API."""
+
+    image = build_playlist_cover(client, thumbnail_urls)
+    body, boundary = _multipart_body(playlist_id, image)
+
+    def send(force_refresh: bool) -> httpx.Response:
+        return client.post(
+            PLAYLIST_IMAGE_UPLOAD_URL,
+            params={"part": "snippet", "uploadType": "multipart"},
+            content=body,
+            headers={
+                "Authorization": f"Bearer {access_token(force_refresh)}",
+                "Accept": "application/json",
+                "Content-Type": f"multipart/related; boundary={boundary}",
+            },
+        )
+
+    response = send(False)
+    if response.status_code == 401:
+        response = send(True)
+    if response.is_error:
+        raise PlaylistCoverError(
+            f"YouTube rejected the playlist cover with HTTP {response.status_code}."
+        )
