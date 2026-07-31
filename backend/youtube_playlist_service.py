@@ -61,6 +61,7 @@ async def create_youtube_playlist(
     try:
         await asyncio.to_thread(_upload_cover_sync, playlist_id, thumbnail_urls)
         result["cover_uploaded"] = True
+        LOGGER.info("YouTube playlist cover uploaded playlist_id=%s", playlist_id)
     except PlaylistCoverError as error:
         LOGGER.warning(
             "YouTube playlist cover upload failed playlist_id=%s error=%s",
