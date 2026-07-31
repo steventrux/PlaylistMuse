@@ -11,6 +11,26 @@
     element.setAttribute('aria-label', title);
   }
 
+  function setGenerationAvailability(state) {
+    const button = $('generate');
+    const warning = $('ai-generation-warning');
+    const warningTitle = $('ai-generation-warning-title');
+    const warningText = $('ai-generation-warning-text');
+    const configured = state === 'configured';
+
+    button.disabled = !configured;
+    button.setAttribute('aria-disabled', String(!configured));
+    warning.classList.toggle('hidden', configured || state === 'pending');
+
+    if (state === 'unconfigured') {
+      warningTitle.textContent = 'AI provider not configured';
+      warningText.textContent = 'Configure an AI provider before generating a playlist.';
+    } else if (state === 'error') {
+      warningTitle.textContent = 'AI configuration could not be verified';
+      warningText.textContent = 'Open AI Settings and check the provider configuration before generating.';
+    }
+  }
+
   async function refreshAiStatus(indicator) {
     try {
       const response = await fetch('/api/settings');
@@ -24,8 +44,10 @@
           ? `AI connected · ${settings.model}`
           : 'AI not connected · configure a provider in Settings',
       );
+      setGenerationAvailability(connected ? 'configured' : 'unconfigured');
     } catch {
       setIndicatorState(indicator, 'error', 'Unable to check AI configuration');
+      setGenerationAvailability('error');
     }
   }
 
@@ -57,6 +79,7 @@
     ytIndicator.textContent = 'YT';
     setIndicatorState(aiIndicator, 'pending', 'Checking AI provider configuration');
     setIndicatorState(ytIndicator, 'pending', 'Checking YouTube Music account connection');
+    setGenerationAvailability('pending');
 
     await Promise.all([
       refreshAiStatus(aiIndicator),
@@ -64,6 +87,7 @@
     ]);
   }
 
+  $('ai-open-settings').addEventListener('click', () => $('settings-btn').click());
   window.addEventListener('playlistmuse-status-changed', refreshStatus);
   window.addEventListener('playlistmuse-settings-opened', refreshStatus);
   void refreshStatus();
