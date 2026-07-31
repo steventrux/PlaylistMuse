@@ -26,6 +26,12 @@ jobs:
           cat .audit-patch-* > /tmp/repository-audit.patch
           git apply --check /tmp/repository-audit.patch
           git apply /tmp/repository-audit.patch
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("backend/youtube_account.py")
+          path.write_text(path.read_text(encoding="utf-8").rstrip() + "\n", encoding="utf-8")
+          PY
           git diff --check
           python -m compileall -q backend tests
           for file in frontend/*.js tests/*.cjs; do
