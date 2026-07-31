@@ -8,6 +8,8 @@ ROOT_URL="http://127.0.0.1:5770/"
 PLAYLIST_URL="http://127.0.0.1:5770/static/playlist.html"
 PLAYLIST_CSS_URL="http://127.0.0.1:5770/static/playlist.css"
 COMPACT_CARDS_CSS_URL="http://127.0.0.1:5770/static/compact-cards.css"
+COMMON_JS_URL="http://127.0.0.1:5770/static/common.js"
+PLAYLIST_MOSAIC_JS_URL="http://127.0.0.1:5770/static/playlist-mosaic.js"
 PLAYLIST_JS_URL="http://127.0.0.1:5770/static/playlist.js"
 YOUTUBE_ACCOUNT_JS_URL="http://127.0.0.1:5770/static/youtube-account.js"
 YOUTUBE_PUBLISH_JS_URL="http://127.0.0.1:5770/static/youtube-publish.js"
@@ -88,12 +90,16 @@ echo "OK: provider keys are shared only where intended"
 
 echo
 echo "Gemini request compatibility:"
-docker exec "$CONTAINER" python -c "import inspect; import backend.llm as llm; source=inspect.getsource(llm._request_model); assert getattr(llm, '_playlistmuse_gemini_compat_installed', False); assert 'x-goog-api-key' in source; assert 'responseMimeType' in source; assert 'responseJsonSchema' in source; assert 'responseFormat' not in source"
-if grep -Fq 'params={"key"' backend/llm.py backend/gemini_compat.py; then
+docker exec "$CONTAINER" python -c "import inspect; import backend.llm as llm; source=inspect.getsource(llm._request_model); assert 'x-goog-api-key' in source; assert 'responseMimeType' in source; assert 'responseJsonSchema' in source; assert 'responseFormat' not in source; schema=llm._gemini_json_schema(llm._playlist_json_schema(5, exact_count=True)); assert schema['properties']['tracks']['minItems']==5"
+if grep -Fq 'params={"key"' backend/llm.py; then
   echo "ERROR: Gemini API key is still sent in the URL query string" >&2
   exit 1
 fi
-echo "OK: Gemini uses generateContent-compatible structured output"
+if [[ -e backend/gemini_compat.py ]]; then
+  echo "ERROR: obsolete Gemini monkey-patch module is still present" >&2
+  exit 1
+fi
+echo "OK: Gemini compatibility is integrated into the provider implementation"
 
 echo
 echo "AI generation strategy:"
@@ -108,8 +114,9 @@ echo
 echo "YouTube account service:"
 docker exec "$CONTAINER" python -c "from backend.youtube_account import youtube_settings_response; response=youtube_settings_response(); assert set(response)=={'client_id','client_secret_set','configured'}; assert 'client_secret' not in response"
 docker exec "$CONTAINER" python -c "from backend.youtube_routes import YouTubePlaylistCreateRequest; request=YouTubePlaylistCreateRequest(title='Test', privacy_status='UNLISTED', video_ids=['b','a','b']); assert request.video_ids==['b','a']; assert request.privacy_status=='UNLISTED'"
-docker exec "$CONTAINER" python -c "from backend.youtube_account import _validate_youtube_connection_sync; C=type('C',(),{'get_library_playlists':lambda self,limit=1: [],'get_account_info':lambda self: (_ for _ in ()).throw(RuntimeError('profile unavailable'))}); assert _validate_youtube_connection_sync(C())=={}"
-echo "OK: YouTube OAuth hides secrets, preserves order and accepts missing profile data"
+docker exec "$CONTAINER" python -c "import backend.youtube_account as account; C=type('C',(),{'get_library_playlists':lambda self,limit=1: [],'get_account_info':lambda self: (_ for _ in ()).throw(RuntimeError('profile unavailable'))}); assert account._validate_youtube_connection_sync(C())=={}; assert not hasattr(account, '_create_playlist_sync'); assert not hasattr(account, 'create_youtube_playlist')"
+docker exec "$CONTAINER" python -c "from backend.storage import read_json_object, write_secure_json; from pathlib import Path; import tempfile; root=Path(tempfile.mkdtemp()); path=root/'test.json'; write_secure_json(path, {'ok': True}); assert read_json_object(path)=={'ok': True}; assert path.stat().st_mode & 0o777 == 0o600"
+echo "OK: YouTube OAuth hides secrets, preserves order, accepts missing profile data and uses shared secure storage"
 
 echo
 echo "Health endpoint:"
@@ -179,6 +186,13 @@ for privacy_value in PRIVATE UNLISTED PUBLIC; do
   echo "OK: privacy $privacy_value"
 done
 
+for required_asset in "/static/common.js?v=1" "/static/playlist-mosaic.js?v=1" "/static/playlist.js?v=18" "/static/youtube-account.js?v=3" "/static/youtube-publish.js?v=8"; do
+  if ! grep -Fq "$required_asset" <<<"$playlist_html"; then
+    echo "ERROR: playlist page is missing optimized asset: $required_asset" >&2
+    exit 1
+  fi
+done
+
 playlist_js="$(curl --fail --silent --show-error "$PLAYLIST_JS_URL")"
 for required_text in "track-details" "Open in YouTube Music" "Replace track" "/api/playlists/replace-track"; do
   if ! grep -Fq "$required_text" <<<"$playlist_js"; then
@@ -197,10 +211,10 @@ for required_route in "/api/playlists/replace-track" "/api/youtube/settings" "/a
 done
 echo "OK: YouTube OAuth and playlist publishing API"
 
-for asset_url in "$PLAYLIST_CSS_URL" "$COMPACT_CARDS_CSS_URL" "$YOUTUBE_ACCOUNT_JS_URL" "$YOUTUBE_PUBLISH_JS_URL" "$YOUTUBE_CSS_URL" "$YOUTUBE_RESULTS_CSS_URL"; do
+for asset_url in "$PLAYLIST_CSS_URL" "$COMPACT_CARDS_CSS_URL" "$COMMON_JS_URL" "$PLAYLIST_MOSAIC_JS_URL" "$YOUTUBE_ACCOUNT_JS_URL" "$YOUTUBE_PUBLISH_JS_URL" "$YOUTUBE_CSS_URL" "$YOUTUBE_RESULTS_CSS_URL"; do
   curl --fail --silent --show-error --output /dev/null "$asset_url"
 done
-echo "OK: playlist, compact-card and YouTube Music assets"
+echo "OK: playlist, shared frontend, mosaic and YouTube Music assets"
 
 echo
 echo "Frontend HTTP status:"

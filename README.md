@@ -9,6 +9,7 @@ PlaylistMuse is a standalone, self-hosted web application that turns a natural-l
 - Filters for live recordings, covers and remixes
 - AI providers: Google Gemini, OpenAI, Anthropic, OpenRouter Auto, OpenRouter Free, Ollama and OpenAI-compatible endpoints
 - YouTube Music catalogue resolution with fuzzy matching and automatic replenishment
+- Automatic playlist-cover mosaic built locally from YouTube Music thumbnails
 - Expandable track details and AI-assisted track replacement
 - Google OAuth device authorization for a YouTube Music account
 - Direct playlist creation with private, unlisted or public visibility
@@ -49,6 +50,12 @@ The preferred method is the Settings panel. Environment variables can also be us
 | `PLAYLISTMUSE_DATA_DIR` | Persistent configuration directory; default `data` |
 
 AI settings are stored in `data/config.json`, which is excluded from Git.
+
+## Playlist artwork
+
+The results page immediately builds a four-tile playlist mosaic from YouTube Music thumbnails already included in the generated playlist. It prioritizes the first, approximately one-third, approximately two-thirds and final positions so that the cover reflects the full playlist rather than only its opening tracks.
+
+Blank or duplicate representative thumbnails are replaced with other available playlist thumbnails. A tile falls back to the built-in placeholder only when no usable image remains. The mosaic is rendered entirely in the browser, performs no metadata or artwork API requests and refreshes immediately after a track replacement.
 
 ## Connect YouTube Music
 

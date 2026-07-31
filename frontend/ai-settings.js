@@ -2,6 +2,7 @@
   'use strict';
 
   const $ = (id) => document.getElementById(id);
+  const {readJson} = window.PlaylistMuseCommon;
   const providerDefaults = {
     gemini: {
       label: 'Google Gemini',
@@ -66,16 +67,23 @@
   let providerKeysSet = {};
   let configuredProviders = {};
 
-  async function readJson(response) {
-    const text = await response.text();
-    let data = {};
-    try { data = text ? JSON.parse(text) : {}; }
-    catch { throw new Error(text || `HTTP ${response.status}`); }
-    if (!response.ok) {
-      const detail = data.detail ?? data.error ?? data.message;
-      throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail || data));
-    }
-    return data;
+  function rememberSettings(data, fallbackProvider = '') {
+  loadedProvider = data.provider || fallbackProvider;
+  loadedSettings = {
+    model: data.model || '',
+    fallback_1: data.fallback_1 || '',
+    fallback_2: data.fallback_2 || '',
+    base_url: data.base_url || '',
+  };
+  providerKeysSet = data.provider_keys_set || {};
+  configuredProviders = {};
+  if (data.configured && loadedProvider) configuredProviders[loadedProvider] = true;
+}
+
+function modelChain(data) {
+    return [data.model, data.fallback_1, data.fallback_2]
+      .filter(Boolean)
+      .join(' → ');
   }
 
   function refreshProviderLabels() {
@@ -142,16 +150,7 @@
     $('ai-status').textContent = 'Checking AI configuration…';
     try {
       const data = await readJson(await fetch('/api/settings'));
-      loadedProvider = data.provider || 'gemini';
-      loadedSettings = {
-        model: data.model || '',
-        fallback_1: data.fallback_1 || '',
-        fallback_2: data.fallback_2 || '',
-        base_url: data.base_url || '',
-      };
-      providerKeysSet = data.provider_keys_set || {};
-      configuredProviders = {};
-      if (data.configured && loadedProvider) configuredProviders[loadedProvider] = true;
+      rememberSettings(data, 'gemini');
 
       $('ai-provider').value = loadedProvider;
       $('ai-key').value = '';
@@ -160,7 +159,7 @@
       refreshProviderLabels();
 
       if (data.configured) {
-        const chain = [data.model, data.fallback_1, data.fallback_2].filter(Boolean).join(' → ');
+        const chain = modelChain(data);
         $('ai-status').textContent = `Configured: ${chain}`;
         $('ai-status').classList.add('ok');
       } else {
@@ -193,22 +192,13 @@
         }),
       }));
 
-      loadedProvider = data.provider;
-      loadedSettings = {
-        model: data.model || '',
-        fallback_1: data.fallback_1 || '',
-        fallback_2: data.fallback_2 || '',
-        base_url: data.base_url || '',
-      };
-      providerKeysSet = data.provider_keys_set || {};
-      configuredProviders = {};
-      if (data.configured && loadedProvider) configuredProviders[loadedProvider] = true;
+      rememberSettings(data);
       $('ai-key').value = '';
       applyProviderValues(loadedProvider);
       setProviderFields();
       refreshProviderLabels();
 
-      const chain = [data.model, data.fallback_1, data.fallback_2].filter(Boolean).join(' → ');
+      const chain = modelChain(data);
       $('ai-status').textContent = data.configured
         ? `Saved: ${chain}`
         : 'Saved, but the provider is not fully configured.';

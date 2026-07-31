@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from backend.storage import read_json_object, write_secure_json
 
 DATA_DIR = Path(os.getenv("PLAYLISTMUSE_DATA_DIR", "data"))
 CONFIG_PATH = DATA_DIR / "config.json"
@@ -95,13 +96,7 @@ def _saved_api_keys(values: dict[str, Any], provider: str) -> dict[str, str]:
 
 
 def load_config() -> AppConfig:
-    values: dict[str, Any] = {}
-    if CONFIG_PATH.exists():
-        try:
-            loaded = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-            values = loaded if isinstance(loaded, dict) else {}
-        except (OSError, json.JSONDecodeError):
-            values = {}
+    values = read_json_object(CONFIG_PATH)
 
     provider = _environment_or_saved(
         "PLAYLISTMUSE_AI_PROVIDER", str(values.get("provider", ""))
@@ -133,7 +128,6 @@ def load_config() -> AppConfig:
 
 
 def save_config(config: AppConfig) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
     keys = {
         api_key_slot(name): value
         for name, value in config.provider_api_keys.items()
@@ -152,10 +146,8 @@ def save_config(config: AppConfig) -> None:
         "api_keys": keys,
     }
 
-    temporary = CONFIG_PATH.with_suffix(".tmp")
-    temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    try:
-        temporary.chmod(0o600)
-    except OSError:
-        pass
-    temporary.replace(CONFIG_PATH)
+    write_secure_json(
+        CONFIG_PATH,
+        payload,
+        temporary_path=CONFIG_PATH.with_suffix(".tmp"),
+    )

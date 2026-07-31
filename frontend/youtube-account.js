@@ -2,26 +2,12 @@
   'use strict';
 
   const $ = (id) => document.getElementById(id);
+  const {readJson} = window.PlaylistMuseCommon;
   const state = {
     pollTimer: null,
     pollInterval: 5000,
     popup: null,
   };
-
-  async function readJson(response) {
-    const text = await response.text();
-    let payload = {};
-    try {
-      payload = text ? JSON.parse(text) : {};
-    } catch {
-      throw new Error(text || `HTTP ${response.status}`);
-    }
-    if (!response.ok) {
-      const detail = payload.detail ?? payload.error ?? payload.message;
-      throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail || payload));
-    }
-    return payload;
-  }
 
   function stopPolling() {
     if (state.pollTimer) window.clearTimeout(state.pollTimer);

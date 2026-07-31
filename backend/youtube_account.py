@@ -1,4 +1,4 @@
-"""YouTube Music OAuth account connection and playlist publishing.
+"""YouTube Music OAuth account connection and secure token persistence.
 
 The integration uses ytmusicapi's OAuth device flow. OAuth client credentials,
 tokens and pending authorization state are persisted inside PLAYLISTMUSE_DATA_DIR
@@ -8,9 +8,7 @@ with restrictive file permissions.
 from __future__ import annotations
 
 import asyncio
-import json
 import time
-from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
@@ -23,6 +21,7 @@ except ImportError:  # Compatibility with releases that only expose the nested p
     from ytmusicapi.auth.oauth.credentials import OAuthCredentials
 
 from backend.config import DATA_DIR
+from backend.storage import delete_file, read_json_object, write_secure_json
 
 YOUTUBE_SETTINGS_PATH = DATA_DIR / "youtube-settings.json"
 YOUTUBE_TOKEN_PATH = DATA_DIR / "youtube-oauth.json"
@@ -35,40 +34,8 @@ class YouTubeAccountError(ValueError):
     """Public-safe account integration error."""
 
 
-class YouTubeAuthorizationPending(YouTubeAccountError):
-    """Authorization has not yet been completed by the user."""
-
-
-def _read_json(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    return value if isinstance(value, dict) else {}
-
-
-def _write_secure_json(path: Path, payload: dict[str, Any]) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    try:
-        temporary.chmod(0o600)
-    except OSError:
-        pass
-    temporary.replace(path)
-
-
-def _delete(path: Path) -> None:
-    try:
-        path.unlink(missing_ok=True)
-    except OSError:
-        pass
-
-
 def load_youtube_settings() -> dict[str, str]:
-    values = _read_json(YOUTUBE_SETTINGS_PATH)
+    values = read_json_object(YOUTUBE_SETTINGS_PATH)
     return {
         "client_id": str(values.get("client_id", "")).strip(),
         "client_secret": str(values.get("client_secret", "")).strip(),
@@ -94,17 +61,21 @@ def save_youtube_settings(client_id: str, client_secret: str = "") -> dict[str, 
     if not normalized_secret:
         raise YouTubeAccountError("Enter the Google OAuth client secret.")
 
-    changed_client = bool(current["client_id"] and current["client_id"] != normalized_client_id)
-    changed_secret = bool(client_secret.strip() and current["client_secret"] != normalized_secret)
-    _write_secure_json(
+    changed_client = bool(
+        current["client_id"] and current["client_id"] != normalized_client_id
+    )
+    changed_secret = bool(
+        client_secret.strip() and current["client_secret"] != normalized_secret
+    )
+    write_secure_json(
         YOUTUBE_SETTINGS_PATH,
         {"client_id": normalized_client_id, "client_secret": normalized_secret},
     )
 
     # Existing tokens can only be refreshed by the OAuth client that created them.
     if changed_client or changed_secret:
-        _delete(YOUTUBE_TOKEN_PATH)
-        _delete(YOUTUBE_PENDING_PATH)
+        delete_file(YOUTUBE_TOKEN_PATH)
+        delete_file(YOUTUBE_PENDING_PATH)
 
     return youtube_settings_response()
 
@@ -147,8 +118,15 @@ def _account_payload(account: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def _saved_token_is_usable() -> bool:
-    token = _read_json(YOUTUBE_TOKEN_PATH)
-    required = ("scope", "token_type", "access_token", "refresh_token", "expires_at", "expires_in")
+    token = read_json_object(YOUTUBE_TOKEN_PATH)
+    required = (
+        "scope",
+        "token_type",
+        "access_token",
+        "refresh_token",
+        "expires_at",
+        "expires_in",
+    )
     return all(token.get(field) not in (None, "") for field in required)
 
 
@@ -226,7 +204,7 @@ def _start_authorization_sync() -> dict[str, Any]:
         "expires_at": now + int(code["expires_in"]),
         "interval": interval,
     }
-    _write_secure_json(YOUTUBE_PENDING_PATH, pending)
+    write_secure_json(YOUTUBE_PENDING_PATH, pending)
 
     separator = "&" if "?" in pending["verification_url"] else "?"
     complete_url = (
@@ -269,12 +247,12 @@ def _token_payload(raw_token: dict[str, Any]) -> dict[str, Any]:
 
 
 def _poll_authorization_sync() -> dict[str, Any]:
-    pending = _read_json(YOUTUBE_PENDING_PATH)
+    pending = read_json_object(YOUTUBE_PENDING_PATH)
     if not pending.get("device_code"):
         return {"status": "idle", "message": "No authorization is in progress."}
 
     if int(pending.get("expires_at", 0)) <= int(time.time()):
-        _delete(YOUTUBE_PENDING_PATH)
+        delete_file(YOUTUBE_PENDING_PATH)
         return {"status": "expired", "message": "The Google authorization code expired."}
 
     try:
@@ -297,24 +275,24 @@ def _poll_authorization_sync() -> dict[str, Any]:
         }
     if error == "slow_down":
         pending["interval"] = int(pending.get("interval", 5)) + 5
-        _write_secure_json(YOUTUBE_PENDING_PATH, pending)
+        write_secure_json(YOUTUBE_PENDING_PATH, pending)
         return {
             "status": "pending",
             "interval": pending["interval"],
             "message": "Waiting for Google authorization.",
         }
     if error in {"access_denied", "authorization_declined"}:
-        _delete(YOUTUBE_PENDING_PATH)
+        delete_file(YOUTUBE_PENDING_PATH)
         return {"status": "denied", "message": "Google authorization was denied."}
     if error in {"expired_token", "invalid_grant"}:
-        _delete(YOUTUBE_PENDING_PATH)
+        delete_file(YOUTUBE_PENDING_PATH)
         return {"status": "expired", "message": "The Google authorization code expired."}
     if error:
         description = str(raw_token.get("error_description", "")).strip()
         raise YouTubeAccountError(description or "Google authorization failed.")
 
-    _write_secure_json(YOUTUBE_TOKEN_PATH, _token_payload(raw_token))
-    _delete(YOUTUBE_PENDING_PATH)
+    write_secure_json(YOUTUBE_TOKEN_PATH, _token_payload(raw_token))
+    delete_file(YOUTUBE_PENDING_PATH)
     account = _optional_account_profile_sync()
     return {
         "status": "connected",
@@ -329,8 +307,10 @@ async def poll_authorization() -> dict[str, Any]:
 
 
 async def disconnect_youtube() -> dict[str, Any]:
-    token = _read_json(YOUTUBE_TOKEN_PATH)
-    token_to_revoke = str(token.get("refresh_token") or token.get("access_token") or "").strip()
+    token = read_json_object(YOUTUBE_TOKEN_PATH)
+    token_to_revoke = str(
+        token.get("refresh_token") or token.get("access_token") or ""
+    ).strip()
     if token_to_revoke:
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
@@ -339,66 +319,9 @@ async def disconnect_youtube() -> dict[str, Any]:
             # Local disconnect must still succeed if Google is temporarily unreachable.
             pass
 
-    _delete(YOUTUBE_TOKEN_PATH)
-    _delete(YOUTUBE_PENDING_PATH)
+    delete_file(YOUTUBE_TOKEN_PATH)
+    delete_file(YOUTUBE_PENDING_PATH)
     return {
         "account_connected": False,
         "message": "YouTube Music account disconnected.",
     }
-
-
-def _create_playlist_sync(
-    title: str,
-    description: str,
-    privacy_status: str,
-    video_ids: list[str],
-) -> dict[str, Any]:
-    unique_video_ids = list(dict.fromkeys(video_id.strip() for video_id in video_ids if video_id.strip()))
-    if not unique_video_ids:
-        raise YouTubeAccountError("The playlist contains no valid YouTube Music tracks.")
-
-    try:
-        result = _ytmusic_client().create_playlist(
-            title=title.strip(),
-            description=description.strip(),
-            privacy_status=privacy_status,
-            video_ids=unique_video_ids,
-        )
-    except Exception as error:
-        raise YouTubeAccountError(
-            "YouTube Music could not create the playlist with the connected account. "
-            "Open YouTube Music once with that account and try again. If it still fails, "
-            "disconnect and reconnect the account."
-        ) from error
-
-    playlist_id: str | None = None
-    if isinstance(result, str):
-        playlist_id = result.strip()
-    elif isinstance(result, dict):
-        playlist_id = str(result.get("playlistId") or result.get("id") or "").strip() or None
-
-    if not playlist_id:
-        raise YouTubeAccountError("YouTube Music could not create the playlist.")
-
-    return {
-        "playlist_id": playlist_id,
-        "title": title.strip(),
-        "track_count": len(unique_video_ids),
-        "privacy_status": privacy_status,
-        "url": f"https://music.youtube.com/playlist?list={playlist_id}",
-    }
-
-
-async def create_youtube_playlist(
-    title: str,
-    description: str,
-    privacy_status: str,
-    video_ids: list[str],
-) -> dict[str, Any]:
-    return await asyncio.to_thread(
-        _create_playlist_sync,
-        title,
-        description,
-        privacy_status,
-        video_ids,
-    )
