@@ -6,10 +6,10 @@
   const SETTINGS_REQUEST_KEY = 'playlistmuse-open-settings';
 
   function ensureFooterStyles() {
-    if (document.querySelector('link[data-playlistmuse-footer-style]')) return;
+    if (document.querySelector('link[href^="/static/layout.css"]')) return;
     const link = document.createElement('link');
     link.rel = 'stylesheet';
-    link.href = '/static/layout.css?v=2';
+    link.href = '/static/layout.css?v=3';
     link.dataset.playlistmuseFooterStyle = 'true';
     document.head.append(link);
   }
