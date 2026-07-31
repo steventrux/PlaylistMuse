@@ -221,7 +221,7 @@
     setAccountStatus('Waiting for Google authorization…');
   });
 
-  window.addEventListener('playlistmuse-settings-opened', refresh);
+  window.addEventListener('playlistmuse-youtube-settings-opened', refresh);
   window.addEventListener('beforeunload', stopPolling);
   refresh();
 })();
