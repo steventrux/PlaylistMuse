@@ -5,7 +5,19 @@
   const INDICATOR_STATES = ['pending', 'on', 'off', 'error'];
   const SETTINGS_REQUEST_KEY = 'playlistmuse-open-settings';
 
+  function ensureFooterStyles() {
+    if (document.querySelector('link[data-playlistmuse-footer-style]')) return;
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = '/static/layout.css?v=2';
+    link.dataset.playlistmuseFooterStyle = 'true';
+    document.head.append(link);
+  }
+
   function createFooter() {
+    ensureFooterStyles();
+    document.querySelector('.app-header .header-actions')?.remove();
+
     const existing = document.querySelector('.app-footer');
     if (existing) return existing;
 
