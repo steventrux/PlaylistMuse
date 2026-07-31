@@ -68,19 +68,19 @@
   let configuredProviders = {};
 
   function rememberSettings(data, fallbackProvider = '') {
-  loadedProvider = data.provider || fallbackProvider;
-  loadedSettings = {
-    model: data.model || '',
-    fallback_1: data.fallback_1 || '',
-    fallback_2: data.fallback_2 || '',
-    base_url: data.base_url || '',
-  };
-  providerKeysSet = data.provider_keys_set || {};
-  configuredProviders = {};
-  if (data.configured && loadedProvider) configuredProviders[loadedProvider] = true;
-}
+    loadedProvider = data.provider || fallbackProvider;
+    loadedSettings = {
+      model: data.model || '',
+      fallback_1: data.fallback_1 || '',
+      fallback_2: data.fallback_2 || '',
+      base_url: data.base_url || '',
+    };
+    providerKeysSet = data.provider_keys_set || {};
+    configuredProviders = {};
+    if (data.configured && loadedProvider) configuredProviders[loadedProvider] = true;
+  }
 
-function modelChain(data) {
+  function modelChain(data) {
     return [data.model, data.fallback_1, data.fallback_2]
       .filter(Boolean)
       .join(' → ');
@@ -218,5 +218,5 @@ function modelChain(data) {
     setProviderFields();
   });
   $('save-ai').addEventListener('click', saveSettings);
-  window.addEventListener('playlistmuse-settings-opened', loadSettings);
+  window.addEventListener('playlistmuse-ai-settings-opened', loadSettings);
 })();
