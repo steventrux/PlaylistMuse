@@ -26,6 +26,27 @@
     return $('prompt').value.trim().replace(/\s+/g, ' ').slice(0, 1950);
   }
 
+  function openDialog(id, eventName = '') {
+    const dialog = $(id);
+    if (!dialog.open) dialog.showModal();
+    if (eventName) window.dispatchEvent(new Event(eventName));
+  }
+
+  function closeDialog(id) {
+    const dialog = $(id);
+    if (dialog.open) dialog.close();
+  }
+
+  function openAiSettings() {
+    closeDialog('settings-dialog');
+    openDialog('ai-settings-dialog', 'playlistmuse-ai-settings-opened');
+  }
+
+  function openYouTubeSettings() {
+    closeDialog('settings-dialog');
+    openDialog('youtube-settings-dialog', 'playlistmuse-youtube-settings-opened');
+  }
+
   function selectSeed(seed) {
     state.selectedSeed = seed;
     $('selected-seed').replaceChildren();
@@ -122,6 +143,8 @@
 
   async function generate() {
     const button = $('generate');
+    if (button.disabled) return;
+
     let endpoint;
     let request;
 
@@ -185,9 +208,11 @@
     setMode(button.dataset.mode, button);
   }));
 
-  $('settings-btn').addEventListener('click', () => {
-    $('settings-dialog').showModal();
-    window.dispatchEvent(new Event('playlistmuse-settings-opened'));
-  });
-  $('close-settings').addEventListener('click', () => $('settings-dialog').close());
+  $('settings-btn').addEventListener('click', () => openDialog('settings-dialog'));
+  $('close-settings').addEventListener('click', () => closeDialog('settings-dialog'));
+  $('open-ai-settings').addEventListener('click', openAiSettings);
+  $('open-youtube-settings').addEventListener('click', openYouTubeSettings);
+  $('ai-open-settings').addEventListener('click', openAiSettings);
+  $('close-ai-settings').addEventListener('click', () => closeDialog('ai-settings-dialog'));
+  $('close-youtube-settings').addEventListener('click', () => closeDialog('youtube-settings-dialog'));
 })();
