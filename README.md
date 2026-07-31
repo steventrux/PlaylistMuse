@@ -53,9 +53,9 @@ AI settings are stored in `data/config.json`, which is excluded from Git.
 
 ## Playlist artwork
 
-The results page immediately builds a four-tile playlist mosaic from representative YouTube Music thumbnails. The first, approximately one-third, approximately two-thirds and final positions are used so that the cover reflects the full playlist rather than only its opening tracks.
+The results page immediately builds a four-tile playlist mosaic from YouTube Music thumbnails already included in the generated playlist. It prioritizes the first, approximately one-third, approximately two-thirds and final positions so that the cover reflects the full playlist rather than only its opening tracks.
 
-The mosaic is rendered locally in the browser, requires no additional API requests and is refreshed immediately when a representative track is replaced. Track-card images use the same stable YouTube Music thumbnails.
+Blank or duplicate representative thumbnails are replaced with other available playlist thumbnails. A tile falls back to the built-in placeholder only when no usable image remains. The mosaic is rendered entirely in the browser, performs no metadata or artwork API requests and refreshes immediately after a track replacement.
 
 ## Connect YouTube Music
 
