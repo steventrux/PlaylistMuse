@@ -38,9 +38,9 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     assert index.index(common) < index.index(
         '<script src="/static/home-status.js?v=11"></script>'
     )
-    assert index.index(common) < index.index('<script src="/static/app.js?v=12"></script>')
+    assert index.index(common) < index.index('<script src="/static/app.js?v=13"></script>')
     assert index.index('<script src="/static/home-status.js?v=11"></script>') < (
-        index.index('<script src="/static/app.js?v=12"></script>')
+        index.index('<script src="/static/app.js?v=13"></script>')
     )
     assert playlist.index(common) < playlist.index(
         '<script src="/static/playlist.js?v=18"></script>'
