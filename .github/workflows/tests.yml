@@ -31,3 +31,15 @@ jobs:
           node --check frontend/playlist.js
       - name: Run frontend unit tests
         run: node --test tests/test_playlist_mosaic.cjs
+      - name: Upload source snapshot for audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: playlistmuse-source-audit
+          path: |
+            .
+            !.git/**
+            !.pytest_cache/**
+            !**/__pycache__/**
+            !data/**
+          include-hidden-files: true
+          retention-days: 1
