@@ -178,6 +178,8 @@
     const videoIds = playlist.tracks
       .map((track) => String(track.video_id || '').trim())
       .filter(Boolean);
+    const thumbnailUrls = window.PlaylistMuseMosaic
+      ?.selectMosaicUrls(playlist.tracks) || [];
 
     if (!title) {
       setStatus('Enter a playlist title before publishing.', 'error');
@@ -207,6 +209,7 @@
           description: playlist.description || playlist.prompt || '',
           privacy_status: selectedPrivacy,
           video_ids: videoIds,
+          thumbnail_urls: thumbnailUrls,
         }),
       }));
 
