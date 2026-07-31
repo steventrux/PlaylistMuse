@@ -36,5 +36,5 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
         '<script src="/static/playlist.js?v=18"></script>'
     )
     assert playlist.index(common) < playlist.index(
-        '<script src="/static/youtube-publish.js?v=8"></script>'
+        '<script src="/static/youtube-publish.js?v=9"></script>'
     )
