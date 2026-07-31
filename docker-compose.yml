@@ -3,7 +3,7 @@ services:
     build: .
     container_name: playlistmuse
     ports:
-      - "5780:5766"
+      - "5780:5780"
     env_file:
       - .env
     volumes:
