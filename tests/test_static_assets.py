@@ -29,12 +29,18 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     playlist = _html("playlist.html")
     common = '<script src="/static/common.js?v=1"></script>'
 
-    assert index.index(common) < index.index('<script src="/static/app.js?v=11"></script>')
     assert index.index(common) < index.index(
         '<script src="/static/ai-settings.js?v=10"></script>'
     )
     assert index.index(common) < index.index(
         '<script src="/static/youtube-account.js?v=4"></script>'
+    )
+    assert index.index(common) < index.index(
+        '<script src="/static/home-status.js?v=11"></script>'
+    )
+    assert index.index(common) < index.index('<script src="/static/app.js?v=12"></script>')
+    assert index.index('<script src="/static/home-status.js?v=11"></script>') < (
+        index.index('<script src="/static/app.js?v=12"></script>')
     )
     assert playlist.index(common) < playlist.index(
         '<script src="/static/playlist.js?v=18"></script>'
@@ -61,24 +67,28 @@ def test_generation_requires_configured_ai_provider() -> None:
     assert "button.disabled = !configured" in home_status
     assert "button.classList.toggle('hidden', !configured)" in home_status
     assert "if (button.disabled) return;" in app
+    assert "openSetup('ai', 'single')" in app
 
 
-def test_home_settings_are_split_by_service() -> None:
+def test_first_run_setup_is_persistent_and_two_step() -> None:
     index = _html("index.html")
     app = _script("app.js")
     ai_settings = _script("ai-settings.js")
     youtube_account = _script("youtube-account.js")
 
-    assert 'id="settings-dialog"' in index
-    assert 'id="ai-settings-dialog"' in index
-    assert 'id="youtube-settings-dialog"' in index
-    assert 'id="open-ai-settings"' in index
-    assert 'id="open-youtube-settings"' in index
-    assert "openDialog('ai-settings-dialog', 'playlistmuse-ai-settings-opened')" in app
-    assert (
-        "openDialog('youtube-settings-dialog', "
-        "'playlistmuse-youtube-settings-opened')" in app
-    )
+    assert 'id="settings-btn"' not in index
+    assert 'id="settings-dialog"' not in index
+    assert 'id="setup-dialog"' in index
+    assert 'id="setup-progress-ai"' in index
+    assert 'id="setup-progress-youtube"' in index
+    assert 'id="setup-ai-step"' in index
+    assert 'id="setup-youtube-step"' in index
+    assert 'id="setup-next"' in index
+    assert 'id="setup-back"' in index
+    assert 'id="setup-finish"' in index
+    assert "/api/onboarding" in app
+    assert "/api/onboarding/acknowledge" in app
+    assert "openSetup('ai', 'onboarding')" in app
     assert "playlistmuse-ai-settings-opened" in ai_settings
     assert "playlistmuse-youtube-settings-opened" in youtube_account
 
@@ -89,4 +99,5 @@ def test_results_page_exposes_only_youtube_settings() -> None:
 
     assert 'id="youtube-settings-dialog"' in playlist
     assert 'id="ai-settings-dialog"' not in playlist
+    assert 'id="setup-dialog"' not in playlist
     assert "playlistmuse-youtube-settings-opened" in youtube_publish
