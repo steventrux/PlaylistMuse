@@ -50,6 +50,22 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     )
 
 
+def test_shared_layout_aligns_home_and_preserves_wordmark() -> None:
+    index = _html("index.html")
+    playlist = _html("playlist.html")
+    layout = _script("layout.css")
+    shared_asset = '<link rel="stylesheet" href="/static/layout.css?v=1">'
+
+    assert shared_asset in index
+    assert shared_asset in playlist
+    assert ".hero" in layout
+    assert "width: 100%;" in layout
+    assert "max-width: none;" in layout
+    assert ".app-header h1" in layout
+    assert "padding-right: .08em;" in layout
+    assert "overflow: visible;" in layout
+
+
 def test_generation_requires_configured_ai_provider() -> None:
     index = _html("index.html")
     app = _script("app.js")
