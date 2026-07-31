@@ -1,0 +1,13 @@
+/* Shared page alignment and wordmark rendering fixes. */
+
+.hero {
+  width: 100%;
+  max-width: none;
+}
+
+.app-header h1 {
+  display: inline-block;
+  padding-right: .08em;
+  line-height: 1.08;
+  overflow: visible;
+}
