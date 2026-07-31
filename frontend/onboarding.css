@@ -1,0 +1,108 @@
+/* First-run configuration wizard for PlaylistMuse. */
+
+.setup-dialog-card {
+  width: min(760px, calc(100vw - 28px));
+}
+
+.setup-dialog-card .dialog-head > div {
+  min-width: 0;
+}
+
+.setup-dialog-card .dialog-head h2 {
+  margin-bottom: 0;
+}
+
+.setup-intro {
+  margin: 0 0 18px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.setup-progress {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+}
+
+.setup-progress li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 10px 13px;
+  border: 1px solid rgba(169, 155, 255, .2);
+  border-radius: 13px;
+  background: #11162c;
+  color: var(--text-muted);
+  font-size: .86rem;
+  font-weight: 750;
+}
+
+.setup-progress li span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 25px;
+  height: 25px;
+  flex: 0 0 25px;
+  border-radius: 50%;
+  background: #1b2140;
+  color: inherit;
+  font-size: .76rem;
+  font-weight: 850;
+}
+
+.setup-progress li.active {
+  border-color: rgba(183, 156, 255, .58);
+  background: #281b4d;
+  color: #ddd6fe;
+}
+
+.setup-progress li.complete {
+  border-color: rgba(56, 189, 248, .42);
+  background: #0e3044;
+  color: var(--cyan-light);
+}
+
+.setup-step.settings-block {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.setup-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(169, 155, 255, .16);
+}
+
+.setup-navigation-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+@media (max-width: 620px) {
+  .setup-progress {
+    grid-template-columns: 1fr;
+  }
+
+  .setup-navigation {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .setup-navigation > button,
+  .setup-navigation-actions,
+  .setup-navigation-actions button {
+    width: 100%;
+  }
+}
