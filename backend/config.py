@@ -12,6 +12,7 @@ from backend.storage import read_json_object, write_secure_json
 DATA_DIR = Path(os.getenv("PLAYLISTMUSE_DATA_DIR", "data"))
 CONFIG_PATH = DATA_DIR / "config.json"
 OPENROUTER_PROVIDERS = {"openrouter_auto", "openrouter_free"}
+PROFILE_FIELDS = ("model", "fallback_1", "fallback_2", "base_url")
 
 
 def api_key_slot(provider: str) -> str:
@@ -33,6 +34,15 @@ def api_key_matches_provider(provider: str, api_key: str) -> bool:
     return True
 
 
+def _normalize_profile(raw: Any) -> dict[str, str]:
+    if not isinstance(raw, dict):
+        return {field_name: "" for field_name in PROFILE_FIELDS}
+    return {
+        field_name: str(raw.get(field_name, "") or "").strip()
+        for field_name in PROFILE_FIELDS
+    }
+
+
 @dataclass(slots=True)
 class AppConfig:
     provider: str = ""
@@ -42,6 +52,7 @@ class AppConfig:
     fallback_2: str = ""
     base_url: str = ""
     provider_api_keys: dict[str, str] = field(default_factory=dict)
+    provider_profiles: dict[str, dict[str, str]] = field(default_factory=dict)
 
     @property
     def configured(self) -> bool:
@@ -67,6 +78,38 @@ class AppConfig:
         """Return whether a compatible API key is stored for the requested provider."""
         key = self.provider_api_keys.get(api_key_slot(provider), "").strip()
         return api_key_matches_provider(provider, key)
+
+    def profile_for(self, provider: str) -> dict[str, str]:
+        """Return the saved model settings for one provider."""
+        if provider == self.provider:
+            return {
+                "model": self.model.strip(),
+                "fallback_1": self.fallback_1.strip(),
+                "fallback_2": self.fallback_2.strip(),
+                "base_url": self.base_url.strip(),
+            }
+        return _normalize_profile(self.provider_profiles.get(provider, {}))
+
+    def configuration_for(self, provider: str) -> AppConfig:
+        """Build an active configuration from a saved provider profile."""
+        profile = self.profile_for(provider)
+        return AppConfig(
+            provider=provider,
+            api_key=self.provider_api_keys.get(api_key_slot(provider), "").strip(),
+            model=profile["model"],
+            fallback_1=profile["fallback_1"],
+            fallback_2=profile["fallback_2"],
+            base_url=profile["base_url"],
+            provider_api_keys=dict(self.provider_api_keys),
+            provider_profiles={
+                name: _normalize_profile(values)
+                for name, values in self.provider_profiles.items()
+            },
+        )
+
+    def is_provider_configured(self, provider: str) -> bool:
+        """Return whether a stored provider profile can be used now."""
+        return self.configuration_for(provider).configured
 
 
 def _environment_or_saved(name: str, saved: str = "") -> str:
@@ -95,47 +138,101 @@ def _saved_api_keys(values: dict[str, Any], provider: str) -> dict[str, str]:
     return keys
 
 
+def _saved_profiles(values: dict[str, Any], provider: str) -> dict[str, dict[str, str]]:
+    """Load provider profiles and migrate the former single-profile format."""
+    profiles: dict[str, dict[str, str]] = {}
+    raw_profiles = values.get("profiles", {})
+    if isinstance(raw_profiles, dict):
+        for name, raw_profile in raw_profiles.items():
+            profile_name = str(name).strip()
+            if profile_name:
+                profiles[profile_name] = _normalize_profile(raw_profile)
+
+    if provider:
+        legacy_profile = {
+            field_name: str(values.get(field_name, "") or "").strip()
+            for field_name in PROFILE_FIELDS
+        }
+        if any(legacy_profile.values()):
+            current = profiles.get(provider, _normalize_profile({}))
+            profiles[provider] = {
+                field_name: legacy_profile[field_name] or current[field_name]
+                for field_name in PROFILE_FIELDS
+            }
+    return profiles
+
+
 def load_config() -> AppConfig:
     values = read_json_object(CONFIG_PATH)
 
-    provider = _environment_or_saved(
-        "PLAYLISTMUSE_AI_PROVIDER", str(values.get("provider", ""))
-    )
+    saved_provider = str(values.get("provider", "") or "").strip()
+    provider = _environment_or_saved("PLAYLISTMUSE_AI_PROVIDER", saved_provider)
     provider_api_keys = _saved_api_keys(values, provider)
+    provider_profiles = _saved_profiles(values, saved_provider or provider)
+    active_profile = _normalize_profile(provider_profiles.get(provider, {}))
+
     slot = api_key_slot(provider)
     saved_active_key = provider_api_keys.get(slot, "")
     active_key = _environment_or_saved("PLAYLISTMUSE_AI_API_KEY", saved_active_key)
     if slot and active_key:
         provider_api_keys[slot] = active_key
 
+    model = _environment_or_saved("PLAYLISTMUSE_AI_MODEL", active_profile["model"])
+    fallback_1 = _environment_or_saved(
+        "PLAYLISTMUSE_AI_FALLBACK_1", active_profile["fallback_1"]
+    )
+    fallback_2 = _environment_or_saved(
+        "PLAYLISTMUSE_AI_FALLBACK_2", active_profile["fallback_2"]
+    )
+    base_url = _environment_or_saved(
+        "PLAYLISTMUSE_AI_BASE_URL", active_profile["base_url"]
+    )
+
+    if provider:
+        provider_profiles[provider] = {
+            "model": model,
+            "fallback_1": fallback_1,
+            "fallback_2": fallback_2,
+            "base_url": base_url,
+        }
+
     return AppConfig(
         provider=provider,
         api_key=active_key,
-        model=_environment_or_saved(
-            "PLAYLISTMUSE_AI_MODEL", str(values.get("model", ""))
-        ),
-        fallback_1=_environment_or_saved(
-            "PLAYLISTMUSE_AI_FALLBACK_1", str(values.get("fallback_1", ""))
-        ),
-        fallback_2=_environment_or_saved(
-            "PLAYLISTMUSE_AI_FALLBACK_2", str(values.get("fallback_2", ""))
-        ),
-        base_url=_environment_or_saved(
-            "PLAYLISTMUSE_AI_BASE_URL", str(values.get("base_url", ""))
-        ),
+        model=model,
+        fallback_1=fallback_1,
+        fallback_2=fallback_2,
+        base_url=base_url,
         provider_api_keys=provider_api_keys,
+        provider_profiles=provider_profiles,
     )
 
 
 def save_config(config: AppConfig) -> None:
+    existing = read_json_object(CONFIG_PATH)
+    existing_provider = str(existing.get("provider", "") or "").strip()
+    profiles = _saved_profiles(existing, existing_provider)
+    for name, values in config.provider_profiles.items():
+        profile_name = str(name).strip()
+        if profile_name:
+            profiles[profile_name] = _normalize_profile(values)
+
+    if config.provider:
+        profiles[config.provider] = {
+            "model": config.model.strip(),
+            "fallback_1": config.fallback_1.strip(),
+            "fallback_2": config.fallback_2.strip(),
+            "base_url": config.base_url.strip(),
+        }
+
     keys = {
-        api_key_slot(name): value
+        api_key_slot(name): value.strip()
         for name, value in config.provider_api_keys.items()
-        if name.strip() and value.strip()
+        if str(name).strip() and str(value).strip()
     }
     slot = api_key_slot(config.provider)
     if slot and config.api_key:
-        keys[slot] = config.api_key
+        keys[slot] = config.api_key.strip()
 
     payload = {
         "provider": config.provider,
@@ -144,6 +241,7 @@ def save_config(config: AppConfig) -> None:
         "fallback_2": config.fallback_2,
         "base_url": config.base_url,
         "api_keys": keys,
+        "profiles": profiles,
     }
 
     write_secure_json(
