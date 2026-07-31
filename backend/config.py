@@ -43,6 +43,24 @@ def _normalize_profile(raw: Any) -> dict[str, str]:
     }
 
 
+def _profile_is_configured(
+    provider: str,
+    profile: dict[str, str],
+    api_key: str,
+) -> bool:
+    if not provider or not profile.get("model", "").strip():
+        return False
+    if provider == "ollama":
+        return bool(profile.get("base_url", "").strip())
+    if (
+        provider == "custom"
+        and profile.get("base_url", "").strip()
+        and not api_key.strip()
+    ):
+        return True
+    return api_key_matches_provider(provider, api_key)
+
+
 @dataclass(slots=True)
 class AppConfig:
     provider: str = ""
@@ -56,13 +74,16 @@ class AppConfig:
 
     @property
     def configured(self) -> bool:
-        if not self.provider or not self.model:
-            return False
-        if self.provider == "ollama":
-            return bool(self.base_url)
-        if self.provider == "custom" and self.base_url and not self.api_key:
-            return True
-        return api_key_matches_provider(self.provider, self.api_key)
+        return _profile_is_configured(
+            self.provider,
+            {
+                "model": self.model,
+                "fallback_1": self.fallback_1,
+                "fallback_2": self.fallback_2,
+                "base_url": self.base_url,
+            },
+            self.api_key,
+        )
 
     @property
     def model_chain(self) -> list[str]:
@@ -225,21 +246,45 @@ def save_config(config: AppConfig) -> None:
             "base_url": config.base_url.strip(),
         }
 
-    keys = {
-        api_key_slot(name): value.strip()
-        for name, value in config.provider_api_keys.items()
-        if str(name).strip() and str(value).strip()
-    }
+    keys = _saved_api_keys(existing, existing_provider)
+    for name, value in config.provider_api_keys.items():
+        key_name = api_key_slot(str(name).strip())
+        key_value = str(value).strip()
+        if key_name and key_value:
+            keys[key_name] = key_value
     slot = api_key_slot(config.provider)
     if slot and config.api_key:
         keys[slot] = config.api_key.strip()
 
+    active_provider = config.provider
+    requested_profile = _normalize_profile(profiles.get(config.provider, {}))
+    requested_key = keys.get(api_key_slot(config.provider), "")
+    if not _profile_is_configured(
+        config.provider,
+        requested_profile,
+        requested_key,
+    ):
+        candidates = [existing_provider, *profiles.keys()]
+        active_provider = next(
+            (
+                provider
+                for provider in dict.fromkeys(candidates)
+                if _profile_is_configured(
+                    provider,
+                    _normalize_profile(profiles.get(provider, {})),
+                    keys.get(api_key_slot(provider), ""),
+                )
+            ),
+            config.provider,
+        )
+
+    active_profile = _normalize_profile(profiles.get(active_provider, {}))
     payload = {
-        "provider": config.provider,
-        "model": config.model,
-        "fallback_1": config.fallback_1,
-        "fallback_2": config.fallback_2,
-        "base_url": config.base_url,
+        "provider": active_provider,
+        "model": active_profile["model"],
+        "fallback_1": active_profile["fallback_1"],
+        "fallback_2": active_profile["fallback_2"],
+        "base_url": active_profile["base_url"],
         "api_keys": keys,
         "profiles": profiles,
     }
