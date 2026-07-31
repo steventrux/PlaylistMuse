@@ -1,7 +1,12 @@
 (() => {
   'use strict';
 
-  const state = { mode: 'prompt', selectedSeed: null };
+  const state = {
+    mode: 'prompt',
+    selectedSeed: null,
+    setupMode: 'single',
+    setupStep: 'ai',
+  };
   const $ = (id) => document.getElementById(id);
   const {readJson, setLoadingButton} = window.PlaylistMuseCommon;
 
@@ -26,25 +31,73 @@
     return $('prompt').value.trim().replace(/\s+/g, ' ').slice(0, 1950);
   }
 
-  function openDialog(id, eventName = '') {
-    const dialog = $(id);
-    if (!dialog.open) dialog.showModal();
-    if (eventName) window.dispatchEvent(new Event(eventName));
+  function dispatchSetupStepEvent(step) {
+    window.dispatchEvent(new Event(
+      step === 'youtube'
+        ? 'playlistmuse-youtube-settings-opened'
+        : 'playlistmuse-ai-settings-opened',
+    ));
   }
 
-  function closeDialog(id) {
-    const dialog = $(id);
+  function renderSetup() {
+    const onboarding = state.setupMode === 'onboarding';
+    const aiStep = state.setupStep === 'ai';
+
+    $('setup-eyebrow').textContent = onboarding
+      ? 'Initial configuration'
+      : 'Configuration';
+    $('setup-title').textContent = onboarding
+      ? 'Set up PlaylistMuse'
+      : aiStep ? 'AI Settings' : 'YouTube Music Settings';
+    $('setup-intro').textContent = onboarding
+      ? 'Configure the AI provider first, then optionally connect YouTube Music for direct playlist publishing.'
+      : aiStep
+        ? 'Configure the AI provider used to generate and refine playlists.'
+        : 'Configure and connect the YouTube Music account used for direct publishing.';
+
+    $('setup-progress').classList.toggle('hidden', !onboarding);
+    $('setup-navigation').classList.toggle('hidden', !onboarding);
+    $('setup-ai-step').classList.toggle('hidden', !aiStep);
+    $('setup-youtube-step').classList.toggle('hidden', aiStep);
+
+    $('setup-progress-ai').classList.toggle('active', aiStep);
+    $('setup-progress-ai').classList.toggle('complete', !aiStep);
+    $('setup-progress-youtube').classList.toggle('active', !aiStep);
+    $('setup-progress-youtube').classList.remove('complete');
+
+    $('setup-back').classList.toggle('hidden', aiStep);
+    $('setup-next').classList.toggle('hidden', !aiStep);
+    $('setup-finish').classList.toggle('hidden', aiStep);
+
+    dispatchSetupStepEvent(state.setupStep);
+  }
+
+  function openSetup(step = 'ai', mode = 'single') {
+    state.setupMode = mode;
+    state.setupStep = step;
+    renderSetup();
+
+    const dialog = $('setup-dialog');
+    if (!dialog.open) dialog.showModal();
+  }
+
+  function closeSetup() {
+    const dialog = $('setup-dialog');
     if (dialog.open) dialog.close();
   }
 
-  function openAiSettings() {
-    closeDialog('settings-dialog');
-    openDialog('ai-settings-dialog', 'playlistmuse-ai-settings-opened');
-  }
+  async function showInitialSetupIfRequired() {
+    try {
+      const status = await readJson(await fetch('/api/onboarding'));
+      if (!status.required) return;
 
-  function openYouTubeSettings() {
-    closeDialog('settings-dialog');
-    openDialog('youtube-settings-dialog', 'playlistmuse-youtube-settings-opened');
+      await readJson(await fetch('/api/onboarding/acknowledge', {
+        method: 'POST',
+      }));
+      openSetup('ai', 'onboarding');
+    } catch {
+      // Setup warnings remain available even if onboarding state cannot be persisted.
+    }
   }
 
   function selectSeed(seed) {
@@ -208,11 +261,18 @@
     setMode(button.dataset.mode, button);
   }));
 
-  $('settings-btn').addEventListener('click', () => openDialog('settings-dialog'));
-  $('close-settings').addEventListener('click', () => closeDialog('settings-dialog'));
-  $('open-ai-settings').addEventListener('click', openAiSettings);
-  $('open-youtube-settings').addEventListener('click', openYouTubeSettings);
-  $('ai-open-settings').addEventListener('click', openAiSettings);
-  $('close-ai-settings').addEventListener('click', () => closeDialog('ai-settings-dialog'));
-  $('close-youtube-settings').addEventListener('click', () => closeDialog('youtube-settings-dialog'));
+  $('ai-open-settings').addEventListener('click', () => openSetup('ai', 'single'));
+  $('close-setup').addEventListener('click', closeSetup);
+  $('setup-skip').addEventListener('click', closeSetup);
+  $('setup-finish').addEventListener('click', closeSetup);
+  $('setup-next').addEventListener('click', () => {
+    state.setupStep = 'youtube';
+    renderSetup();
+  });
+  $('setup-back').addEventListener('click', () => {
+    state.setupStep = 'ai';
+    renderSetup();
+  });
+
+  void showInitialSetupIfRequired();
 })();
