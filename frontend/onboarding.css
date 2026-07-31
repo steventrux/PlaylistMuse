@@ -1,10 +1,27 @@
 /* First-run configuration wizard for PlaylistMuse. */
 
-.setup-dialog-card {
-  width: min(760px, calc(100vw - 28px));
+#setup-dialog {
+  width: min(920px, calc(100vw - 32px));
+  max-width: none;
 }
 
-.setup-dialog-card .dialog-head > div {
+.setup-dialog-card {
+  width: 100%;
+  max-width: none;
+  max-height: calc(100vh - 32px);
+  overflow-x: hidden;
+}
+
+.setup-dialog-card .dialog-head,
+.setup-dialog-card .dialog-head > div,
+.setup-dialog-card .settings-block,
+.setup-dialog-card .settings-fields,
+.setup-dialog-card label,
+.setup-dialog-card input,
+.setup-dialog-card select,
+.setup-dialog-card .fallback-row,
+.setup-navigation,
+.setup-navigation-actions {
   min-width: 0;
 }
 
@@ -16,6 +33,7 @@
   margin: 0 0 18px;
   color: var(--text-secondary);
   line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .setup-progress {
@@ -31,6 +49,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
   min-height: 46px;
   padding: 10px 13px;
   border: 1px solid rgba(169, 155, 255, .2);
@@ -39,6 +58,7 @@
   color: var(--text-muted);
   font-size: .86rem;
   font-weight: 750;
+  overflow-wrap: anywhere;
 }
 
 .setup-progress li span {
@@ -72,10 +92,14 @@
   border-bottom: 0;
 }
 
+.setup-dialog-card .fallback-row {
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+}
+
 .setup-navigation {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
   gap: 14px;
   margin-top: 22px;
   padding-top: 18px;
@@ -90,14 +114,60 @@
   gap: 10px;
 }
 
+.setup-navigation button {
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
+}
+
+@media (max-width: 760px) {
+  #setup-dialog {
+    width: min(680px, calc(100vw - 24px));
+  }
+
+  .setup-dialog-card {
+    padding: 20px;
+  }
+
+  .setup-dialog-card .fallback-row {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  }
+
+  .setup-dialog-card .fallback-label {
+    grid-column: 1 / -1;
+  }
+}
+
 @media (max-width: 620px) {
+  #setup-dialog {
+    width: calc(100vw - 18px);
+  }
+
+  .setup-dialog-card {
+    max-height: calc(100vh - 18px);
+    padding: 17px;
+    border-radius: 18px;
+  }
+
   .setup-progress {
     grid-template-columns: 1fr;
   }
 
+  .setup-dialog-card .fallback-row {
+    grid-template-columns: 1fr;
+  }
+
+  .setup-dialog-card .fallback-label {
+    grid-column: auto;
+  }
+
+  .setup-dialog-card .fallback-arrow {
+    display: none;
+  }
+
   .setup-navigation {
+    grid-template-columns: 1fr;
     align-items: stretch;
-    flex-direction: column-reverse;
   }
 
   .setup-navigation > button,
