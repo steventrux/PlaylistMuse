@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
 import uuid
 from collections.abc import Callable
 from io import BytesIO
@@ -11,14 +13,18 @@ from urllib.parse import urlparse
 import httpx
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+LOGGER = logging.getLogger("playlistmuse.youtube.cover.upload")
 COVER_SIZE = 512
 TILE_SIZE = COVER_SIZE // 2
 MAX_SOURCE_BYTES = 5 * 1024 * 1024
 MAX_SOURCE_PIXELS = 20_000_000
 MAX_COVER_BYTES = 2 * 1024 * 1024
+COVER_UPLOAD_MAX_ATTEMPTS = 3
+COVER_UPLOAD_RETRY_DELAYS_SECONDS = (1.0, 2.0)
 PLAYLIST_IMAGE_UPLOAD_URL = (
     "https://www.googleapis.com/upload/youtube/v3/playlistImages"
 )
+_RETRYABLE_UPLOAD_STATUSES = {500, 502, 503, 504}
 _ALLOWED_HOST_SUFFIXES = (
     "googleusercontent.com",
     "ggpht.com",
@@ -87,7 +93,7 @@ def _decode_tile(content: bytes) -> Image.Image:
 
 
 def build_playlist_cover(client: httpx.Client, thumbnail_urls: list[str]) -> bytes:
-    """Download four trusted thumbnails and return a 512px JPEG mosaic."""
+    """Download four trusted thumbnails and return a baseline 512px JPEG mosaic."""
 
     urls = normalize_thumbnail_urls(thumbnail_urls)
     if len(urls) != 4:
@@ -120,7 +126,7 @@ def build_playlist_cover(client: httpx.Client, thumbnail_urls: list[str]) -> byt
         cover.paste(tile, position)
 
     output = BytesIO()
-    cover.save(output, format="JPEG", quality=88, optimize=True, progressive=True)
+    cover.save(output, format="JPEG", quality=88, optimize=True)
     encoded = output.getvalue()
     if not encoded or len(encoded) > MAX_COVER_BYTES:
         raise PlaylistCoverError("Generated playlist cover exceeds YouTube limits.")
@@ -134,8 +140,6 @@ def _multipart_body(playlist_id: str, image: bytes) -> tuple[bytes, str]:
             "snippet": {
                 "playlistId": playlist_id,
                 "type": "hero",
-                "width": COVER_SIZE,
-                "height": COVER_SIZE,
             }
         },
         separators=(",", ":"),
@@ -156,6 +160,30 @@ def _multipart_body(playlist_id: str, image: bytes) -> tuple[bytes, str]:
         )
     )
     return body, boundary
+
+
+def _response_error_detail(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+        error = payload.get("error", {}) if isinstance(payload, dict) else {}
+        reason = str(error.get("status") or "").strip()
+        message = str(error.get("message") or "").strip()
+        details = " · ".join(value for value in (reason, message) if value)
+        if details:
+            return details[:500]
+    except Exception:
+        pass
+
+    text = response.text.strip()
+    return text[:500] if text else "No error detail returned."
+
+
+def _retry_delay(response: httpx.Response, attempt: int) -> float:
+    retry_after = response.headers.get("retry-after", "").strip()
+    try:
+        return max(0.0, min(float(retry_after), 30.0))
+    except ValueError:
+        return COVER_UPLOAD_RETRY_DELAYS_SECONDS[attempt - 1]
 
 
 def upload_playlist_cover(
@@ -181,10 +209,32 @@ def upload_playlist_cover(
             },
         )
 
-    response = send(False)
-    if response.status_code == 401:
-        response = send(True)
-    if response.is_error:
-        raise PlaylistCoverError(
-            f"YouTube rejected the playlist cover with HTTP {response.status_code}."
+    force_refresh = False
+    for attempt in range(1, COVER_UPLOAD_MAX_ATTEMPTS + 1):
+        response = send(force_refresh)
+        if response.status_code == 401 and not force_refresh:
+            force_refresh = True
+            response = send(True)
+
+        if not response.is_error:
+            return
+
+        if (
+            response.status_code not in _RETRYABLE_UPLOAD_STATUSES
+            or attempt >= COVER_UPLOAD_MAX_ATTEMPTS
+        ):
+            detail = _response_error_detail(response)
+            raise PlaylistCoverError(
+                "YouTube rejected the playlist cover "
+                f"with HTTP {response.status_code}: {detail}"
+            )
+
+        delay = _retry_delay(response, attempt)
+        LOGGER.warning(
+            "YouTube playlist cover upload retrying attempt=%s/%s status=%s delay=%ss",
+            attempt + 1,
+            COVER_UPLOAD_MAX_ATTEMPTS,
+            response.status_code,
+            delay,
         )
+        time.sleep(delay)
