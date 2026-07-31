@@ -1,4 +1,4 @@
-"""FastAPI routes for YouTube Music, publishing and first-run setup."""
+"""FastAPI routes for service setup and YouTube Music publishing."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
+from backend.config import AppConfig, load_config, save_config
 from backend.onboarding import acknowledge_onboarding, onboarding_status
 from backend.playlist_cover import normalize_thumbnail_urls
 from backend.youtube_account import (
@@ -21,6 +22,29 @@ from backend.youtube_account import (
 from backend.youtube_playlist_service import create_youtube_playlist
 
 router = APIRouter(prefix="/api")
+
+AIProviderName = Literal[
+    "gemini",
+    "openai",
+    "anthropic",
+    "openrouter_auto",
+    "openrouter_free",
+    "ollama",
+    "custom",
+]
+AI_PROVIDERS: tuple[str, ...] = (
+    "gemini",
+    "openai",
+    "anthropic",
+    "openrouter_auto",
+    "openrouter_free",
+    "ollama",
+    "custom",
+)
+
+
+class AIProviderActivation(BaseModel):
+    provider: AIProviderName
 
 
 class YouTubeSettingsUpdate(BaseModel):
@@ -59,6 +83,23 @@ class YouTubePlaylistCreateRequest(BaseModel):
         return normalize_thumbnail_urls(values)
 
 
+def _ai_profiles_response(config: AppConfig) -> dict:
+    profiles: dict[str, dict] = {}
+    for provider in AI_PROVIDERS:
+        profile = config.profile_for(provider)
+        profiles[provider] = {
+            **profile,
+            "configured": config.is_provider_configured(provider),
+            "api_key_set": config.key_is_saved(provider),
+            "active": provider == config.provider and config.configured,
+        }
+    return {
+        "active_provider": config.provider if config.configured else "",
+        "configured": config.configured,
+        "profiles": profiles,
+    }
+
+
 @router.get("/onboarding", tags=["onboarding"])
 async def get_onboarding_status() -> dict[str, bool]:
     return onboarding_status()
@@ -67,6 +108,24 @@ async def get_onboarding_status() -> dict[str, bool]:
 @router.post("/onboarding/acknowledge", tags=["onboarding"])
 async def acknowledge_initial_setup() -> dict[str, bool]:
     return acknowledge_onboarding()
+
+
+@router.get("/ai/profiles", tags=["ai-settings"])
+async def get_ai_profiles() -> dict:
+    return _ai_profiles_response(load_config())
+
+
+@router.post("/ai/activate", tags=["ai-settings"])
+async def activate_ai_provider(request: AIProviderActivation) -> dict:
+    current = load_config()
+    selected = current.configuration_for(request.provider)
+    if not selected.configured:
+        raise HTTPException(
+            status_code=400,
+            detail="Configure this AI provider before activating it.",
+        )
+    save_config(selected)
+    return _ai_profiles_response(load_config())
 
 
 @router.get("/youtube/settings", tags=["youtube-music"])
