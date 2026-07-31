@@ -1,20 +1,12 @@
-@import url('/static/footer-compact.css?v=2');
-
-/* Shared page alignment, wordmark and footer status controls. */
-
-body {
-  display: flex;
-  min-height: 100vh;
-  flex-direction: column;
-}
-
-body > main {
-  flex: 1 0 auto;
-}
+/* Shared page alignment, wordmark and header service indicators. */
 
 .hero {
   width: 100%;
   max-width: none;
+}
+
+.app-header > div:first-child {
+  min-width: 0;
 }
 
 .app-header h1 {
@@ -24,34 +16,25 @@ body > main {
   overflow: visible;
 }
 
-.app-footer {
-  width: min(980px, calc(100% - 32px));
-  margin-inline: auto;
-  padding: 4px 0 30px;
-  position: relative;
-  z-index: 3;
+.header-service-status {
+  flex: 0 0 auto;
+  align-self: center;
+  gap: 6px;
 }
 
-.footer-indicators {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 12px;
-}
-
-.footer-indicator {
+.header-indicator {
   position: relative;
   display: grid;
-  width: 46px;
-  height: 46px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   place-items: center;
   border: 1px solid rgba(169, 155, 255, .22);
-  border-radius: 14px;
+  border-radius: 9px;
   background: rgba(10, 13, 30, .82);
   color: var(--text-muted);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
-  backdrop-filter: blur(14px);
+  backdrop-filter: blur(12px);
   transition:
     color 180ms ease,
     border-color 180ms ease,
@@ -60,18 +43,18 @@ body > main {
     transform 180ms ease;
 }
 
-.footer-indicator:hover,
-.footer-indicator:focus-visible {
-  transform: translateY(-2px);
+.header-indicator:hover,
+.header-indicator:focus-visible {
+  transform: translateY(-1px);
 }
 
-.footer-indicator svg {
-  width: 28px;
-  height: 28px;
+.header-indicator svg {
+  width: 16px;
+  height: 16px;
   overflow: visible;
 }
 
-.footer-indicator .brain-outline {
+.header-indicator .brain-outline {
   fill: none;
   stroke: currentColor;
   stroke-width: 1.8;
@@ -79,60 +62,60 @@ body > main {
   stroke-linejoin: round;
 }
 
-.footer-indicator .brain-bolt,
-.footer-indicator .youtube-body {
+.header-indicator .brain-bolt,
+.header-indicator .youtube-body {
   fill: currentColor;
 }
 
-.footer-indicator .youtube-play {
+.header-indicator .youtube-play {
   fill: #090c1d;
 }
 
-.footer-indicator.off {
+.header-indicator.off {
   border-color: rgba(128, 136, 168, .22);
   background: rgba(10, 13, 30, .68);
   color: #69718f;
   filter: saturate(.45);
 }
 
-.footer-indicator.ai.on {
+.header-indicator.ai.on {
   border-color: rgba(125, 220, 255, .64);
   background: linear-gradient(145deg, rgba(139, 92, 246, .22), rgba(56, 189, 248, .18));
   color: var(--cyan-light);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, .08),
-    0 0 0 1px rgba(183, 156, 255, .12),
-    0 0 24px rgba(56, 189, 248, .26),
-    0 0 34px rgba(139, 92, 246, .18);
+    0 0 0 1px rgba(183, 156, 255, .1),
+    0 0 14px rgba(56, 189, 248, .2),
+    0 0 20px rgba(139, 92, 246, .12);
 }
 
-.footer-indicator.youtube.on {
+.header-indicator.youtube.on {
   border-color: rgba(236, 72, 153, .62);
   background: linear-gradient(145deg, rgba(236, 72, 153, .22), rgba(56, 189, 248, .14));
   color: #f0abfc;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, .08),
-    0 0 0 1px rgba(183, 156, 255, .12),
-    0 0 24px rgba(236, 72, 153, .24),
-    0 0 34px rgba(56, 189, 248, .14);
+    0 0 0 1px rgba(183, 156, 255, .1),
+    0 0 14px rgba(236, 72, 153, .18),
+    0 0 20px rgba(56, 189, 248, .1);
 }
 
-.footer-indicator.pending {
-  animation: footer-indicator-pulse 1.4s ease-in-out infinite;
+.header-indicator.pending {
+  animation: header-indicator-pulse 1.4s ease-in-out infinite;
 }
 
-.footer-indicator.error {
+.header-indicator.error {
   border-color: rgba(251, 113, 133, .54);
   color: #fda4af;
   background: rgba(159, 18, 57, .12);
 }
 
-.footer-indicator::after {
+.header-indicator::after {
   content: attr(data-tooltip);
   position: absolute;
-  left: 0;
-  bottom: calc(100% + 10px);
-  z-index: 10;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
   width: max-content;
   max-width: min(320px, calc(100vw - 40px));
   padding: 8px 10px;
@@ -147,35 +130,29 @@ body > main {
   white-space: normal;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(4px);
+  transform: translateY(-4px);
   transition: opacity 150ms ease, transform 150ms ease;
 }
 
-.footer-indicator:hover::after,
-.footer-indicator:focus-visible::after {
+.header-indicator:hover::after,
+.header-indicator:focus-visible::after {
   opacity: 1;
   transform: translateY(0);
 }
 
-@keyframes footer-indicator-pulse {
+@keyframes header-indicator-pulse {
   0%, 100% { opacity: .58; }
   50% { opacity: 1; }
 }
 
 @media (max-width: 650px) {
-  .app-footer {
-    width: min(980px, calc(100% - 24px));
-    padding-bottom: 22px;
-  }
-
-  .footer-indicator {
-    width: 43px;
-    height: 43px;
+  .header-service-status {
+    margin-top: 8px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .footer-indicator.pending {
+  .header-indicator.pending {
     animation: none;
   }
 }
