@@ -19,18 +19,18 @@
 .header-service-status {
   flex: 0 0 auto;
   align-self: center;
-  gap: 6px;
+  gap: 7px;
 }
 
 .header-indicator {
   position: relative;
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   place-items: center;
   border: 1px solid rgba(169, 155, 255, .22);
-  border-radius: 9px;
+  border-radius: 10px;
   background: rgba(10, 13, 30, .82);
   color: var(--text-muted);
   box-shadow: none;
@@ -48,12 +48,13 @@
 }
 
 .header-indicator svg {
-  width: 16px;
-  height: 16px;
+  width: 19px;
+  height: 19px;
   overflow: visible;
 }
 
-.header-indicator .brain-outline {
+.header-indicator .brain-outline,
+.header-indicator .provider-stroke {
   fill: none;
   stroke: currentColor;
   stroke-width: 1.8;
@@ -62,7 +63,8 @@
 }
 
 .header-indicator .brain-bolt,
-.header-indicator .youtube-body {
+.header-indicator .youtube-body,
+.header-indicator .provider-fill {
   fill: currentColor;
 }
 
