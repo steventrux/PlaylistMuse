@@ -40,10 +40,10 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
         '<script src="/static/youtube-account.js?v=4"></script>'
     )
     assert index.index(common) < index.index(
-        '<script src="/static/home-status.js?v=12"></script>'
+        '<script src="/static/home-status.js?v=13"></script>'
     )
     assert index.index(common) < index.index('<script src="/static/app.js?v=13"></script>')
-    assert index.index('<script src="/static/home-status.js?v=12"></script>') < (
+    assert index.index('<script src="/static/home-status.js?v=13"></script>') < (
         index.index('<script src="/static/app.js?v=13"></script>')
     )
     assert playlist.index(common) < playlist.index(
@@ -105,8 +105,8 @@ def test_home_and_results_share_page_width_and_complete_wordmark() -> None:
     playlist = _html("playlist.html")
     layout = _style("layout.css")
 
-    assert '<link rel="stylesheet" href="/static/layout.css?v=2">' in index
-    assert '<link rel="stylesheet" href="/static/layout.css?v=2">' in playlist
+    assert '<link rel="stylesheet" href="/static/layout.css?v=3">' in index
+    assert '<link rel="stylesheet" href="/static/layout.css?v=3">' in playlist
     assert ".hero" in layout
     assert "max-width: none" in layout
     assert "padding-right: .08em" in layout
@@ -117,8 +117,8 @@ def test_footer_indicators_replace_header_badges_and_open_settings() -> None:
     index = _html("index.html")
     playlist = _html("playlist.html")
     status = _script("home-status.js")
-    publish = _script("youtube-publish.js")
     layout = _style("layout.css")
+    compact = _style("footer-compact.css")
 
     assert 'id="home-ai-status"' not in index
     assert 'id="home-yt-status"' not in index
@@ -134,13 +134,19 @@ def test_footer_indicators_replace_header_badges_and_open_settings() -> None:
     assert "$('setup-next')?.click()" in status
     assert "$('youtube-open-settings').click()" in status
     assert "window.location.assign('/')" in status
-    assert "home-status.js?v=12" in publish
+    assert 'link[href^="/static/layout.css"]' in status
+    assert "/static/layout.css?v=3" in status
+    assert 'data-playlistmuse-footer-status src="/static/home-status.js?v=13"' in playlist
     assert '<script src="/static/youtube-publish.js?v=11"></script>' in playlist
     assert ".footer-indicator.youtube.on" in layout
-    assert "var(--brand-gradient-soft)" not in layout or "#ff0000" not in layout
     assert "rgba(236, 72, 153" in layout
     assert "rgba(56, 189, 248" in layout
     assert "#ff0000" not in layout.lower()
+    assert "footer-compact.css?v=2" in layout
+    assert "width: 28px" in compact
+    assert "height: 28px" in compact
+    assert "width: 16px" in compact
+    assert "padding-bottom: 4px" in compact
 
 
 def test_results_page_exposes_only_youtube_settings() -> None:
