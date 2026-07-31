@@ -7,9 +7,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -21,4 +26,8 @@ jobs:
       - name: Run Python tests
         run: python -m pytest -q
       - name: Check frontend JavaScript syntax
-        run: node --check frontend/playlist.js
+        run: |
+          node --check frontend/playlist-mosaic.js
+          node --check frontend/playlist.js
+      - name: Run frontend unit tests
+        run: node --test tests/test_playlist_mosaic.cjs
