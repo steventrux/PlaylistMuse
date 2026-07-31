@@ -3,6 +3,9 @@ from pathlib import Path
 from backend.main import app
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 def test_artwork_api_is_not_exposed() -> None:
     paths = set(app.openapi()["paths"])
 
@@ -15,18 +18,34 @@ def test_artwork_api_is_not_exposed() -> None:
     assert "/api/youtube/playlists" in paths
 
 
-def test_playlist_mosaic_uses_youtube_thumbnails_without_remote_lookup() -> None:
-    source = Path("frontend/playlist.js").read_text(encoding="utf-8")
-
-    assert "representativeIndexes" in source
-    assert "Math.round(last / 3)" in source
-    assert "Math.round((last * 2) / 3)" in source
-    assert "playlist-cover-grid" in source
-    assert "track.thumbnail_url" in source
-    assert "renderPlaylistCover();" in source
-    assert "/api/artwork" not in source
+def test_removed_artwork_backend_is_absent() -> None:
+    assert not (ROOT / "backend/artwork.py").exists()
+    assert not (ROOT / "backend/artwork_routes.py").exists()
 
 
-def test_removed_artwork_modules_are_absent() -> None:
-    assert not Path("backend/artwork.py").exists()
-    assert not Path("backend/artwork_routes.py").exists()
+def test_playlist_loads_mosaic_helper_before_playlist_code() -> None:
+    html = (ROOT / "frontend/playlist.html").read_text(encoding="utf-8")
+    helper = '<script src="/static/playlist-mosaic.js?v=1"></script>'
+    playlist = '<script src="/static/playlist.js?v=17"></script>'
+
+    assert helper in html
+    assert playlist in html
+    assert html.index(helper) < html.index(playlist)
+    assert 'role="img"' in html
+    assert "playlist-cover-grid" in html
+
+
+def test_external_artwork_services_are_not_referenced() -> None:
+    paths = (
+        ROOT / ".env.example",
+        ROOT / "README.md",
+        ROOT / "frontend/playlist.html",
+        ROOT / "frontend/playlist.js",
+        ROOT / "frontend/playlist-mosaic.js",
+    )
+
+    for path in paths:
+        content = path.read_text(encoding="utf-8").casefold()
+        assert "musicbrainz" not in content
+        assert "coverartarchive" not in content
+        assert "/api/artwork" not in content
