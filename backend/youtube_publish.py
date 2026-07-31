@@ -27,6 +27,8 @@ from backend.youtube_account import (
 LOGGER = logging.getLogger("playlistmuse.youtube.publish")
 YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3"
 REQUEST_TIMEOUT = 30.0
+TRACK_INSERT_MAX_ATTEMPTS = 2
+TRACK_INSERT_RETRY_DELAY_SECONDS = 1.0
 _SENSITIVE_FIELD_RE = re.compile(
     r'(?i)(access_token|refresh_token|client_secret|authorization)[\s\'":=]+[^,}\s]+'
 )
@@ -35,6 +37,10 @@ _SKIPPABLE_TRACK_REASONS = {
     "videonotfound",
     "invalidresourcetype",
     "videoalreadyinplaylist",
+}
+_RETRYABLE_TRACK_ABORT_REASONS = {
+    "serviceunavailable",
+    "aborted",
 }
 
 
@@ -216,22 +222,50 @@ def _create_empty_playlist(
     return playlist_id
 
 
-def _add_track(client: httpx.Client, playlist_id: str, video_id: str) -> None:
-    _request(
-        client,
-        "POST",
-        "playlistItems",
-        params={"part": "snippet"},
-        json_body={
-            "snippet": {
-                "playlistId": playlist_id,
-                "resourceId": {
-                    "kind": "youtube#video",
-                    "videoId": video_id,
-                },
-            }
-        },
+def _normalize_error_reason(reason: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", reason.casefold())
+
+
+def _is_retryable_track_insert_error(error: _GoogleApiError) -> bool:
+    return bool(
+        error.status_code == 409
+        and _normalize_error_reason(error.reason) in _RETRYABLE_TRACK_ABORT_REASONS
+        and "operation was aborted" in error.message.casefold()
     )
+
+
+def _add_track(client: httpx.Client, playlist_id: str, video_id: str) -> None:
+    for attempt in range(1, TRACK_INSERT_MAX_ATTEMPTS + 1):
+        try:
+            _request(
+                client,
+                "POST",
+                "playlistItems",
+                params={"part": "snippet"},
+                json_body={
+                    "snippet": {
+                        "playlistId": playlist_id,
+                        "resourceId": {
+                            "kind": "youtube#video",
+                            "videoId": video_id,
+                        },
+                    }
+                },
+            )
+            return
+        except _GoogleApiError as error:
+            if (
+                attempt >= TRACK_INSERT_MAX_ATTEMPTS
+                or not _is_retryable_track_insert_error(error)
+            ):
+                raise
+            LOGGER.warning(
+                "YouTube track insert aborted; retrying attempt=%s/%s video_id=%s",
+                attempt + 1,
+                TRACK_INSERT_MAX_ATTEMPTS,
+                video_id,
+            )
+            time.sleep(TRACK_INSERT_RETRY_DELAY_SECONDS)
 
 
 def _set_privacy(
