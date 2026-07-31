@@ -1,0 +1,215 @@
+t.js?v=18"></script>
++  <script src="/static/youtube-account.js?v=3"></script>
++  <script src="/static/youtube-publish.js?v=8"></script>
+ </body>
+ </html>
+diff --git a/frontend/playlist.js b/frontend/playlist.js
+index 8f95198..f4eb34c 100644
+--- a/frontend/playlist.js
++++ b/frontend/playlist.js
+@@ -4,6 +4,7 @@
+   const STORAGE_KEY = 'playlistmuse-generated-playlist';
+   const REQUEST_KEY = 'playlistmuse-generation-request';
+   const $ = (id) => document.getElementById(id);
++  const {readJson, setLoadingButton} = window.PlaylistMuseCommon;
+   let expandedIndex = null;
+ 
+   function readStoredJson(key) {
+@@ -18,21 +19,6 @@
+     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+   }
+ 
+-  async function readJson(response) {
+-    const text = await response.text();
+-    let payload = {};
+-    try {
+-      payload = text ? JSON.parse(text) : {};
+-    } catch {
+-      throw new Error(text || `HTTP ${response.status}`);
+-    }
+-    if (!response.ok) {
+-      const detail = payload.detail ?? payload.error ?? payload.message;
+-      throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail || payload));
+-    }
+-    return payload;
+-  }
+-
+   function durationToSeconds(value) {
+     if (!value) return 0;
+     const parts = String(value).trim().split(':').map(Number);
+@@ -135,40 +121,12 @@
+     };
+   }
+ 
+-  function setReplacingButton(button) {
+-    const spinner = document.createElement('span');
+-    spinner.className = 'generation-spinner';
+-    spinner.setAttribute('aria-hidden', 'true');
+-
+-    const label = document.createElement('span');
+-    label.className = 'generation-label';
+-    label.textContent = 'Replacing';
+-
+-    const dots = document.createElement('span');
+-    dots.className = 'generation-dots';
+-    dots.setAttribute('aria-hidden', 'true');
+-    dots.append(
+-      document.createElement('span'),
+-      document.createElement('span'),
+-      document.createElement('span'),
+-    );
+-
+-    button.replaceChildren(spinner, label, dots);
+-    button.classList.add('is-loading');
+-    button.disabled = true;
+-    button.setAttribute('aria-busy', 'true');
+-
+-    return () => {
+-      button.classList.remove('is-loading');
+-      button.removeAttribute('aria-busy');
+-      button.disabled = false;
+-      button.textContent = 'Replace track';
+-    };
+-  }
+-
+   async function replaceTrack(index, button, status) {
+     const currentTrack = data.tracks[index];
+-    const resetReplacingButton = setReplacingButton(button);
++    const resetReplacingButton = setLoadingButton(button, {
++      label: 'Replacing',
++      resetText: 'Replace track',
++    });
+     status.textContent = 'Finding a new track that preserves this song’s role…';
+     status.classList.remove('error');
+ 
+diff --git a/frontend/youtube-account.js b/frontend/youtube-account.js
+index e08c268..0333936 100644
+--- a/frontend/youtube-account.js
++++ b/frontend/youtube-account.js
+@@ -2,27 +2,13 @@
+   'use strict';
+ 
+   const $ = (id) => document.getElementById(id);
++  const {readJson} = window.PlaylistMuseCommon;
+   const state = {
+     pollTimer: null,
+     pollInterval: 5000,
+     popup: null,
+   };
+ 
+-  async function readJson(response) {
+-    const text = await response.text();
+-    let payload = {};
+-    try {
+-      payload = text ? JSON.parse(text) : {};
+-    } catch {
+-      throw new Error(text || `HTTP ${response.status}`);
+-    }
+-    if (!response.ok) {
+-      const detail = payload.detail ?? payload.error ?? payload.message;
+-      throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail || payload));
+-    }
+-    return payload;
+-  }
+-
+   function stopPolling() {
+     if (state.pollTimer) window.clearTimeout(state.pollTimer);
+     state.pollTimer = null;
+diff --git a/frontend/youtube-publish.js b/frontend/youtube-publish.js
+index d5ea963..8cc538f 100644
+--- a/frontend/youtube-publish.js
++++ b/frontend/youtube-publish.js
+@@ -3,6 +3,7 @@
+ 
+   const STORAGE_KEY = 'playlistmuse-generated-playlist';
+   const $ = (id) => document.getElementById(id);
++  const {readJson, setLoadingButton} = window.PlaylistMuseCommon;
+   let playlist = null;
+   let selectedPrivacy = 'PRIVATE';
+ 
+@@ -12,21 +13,6 @@
+     playlist = null;
+   }
+ 
+-  async function readJson(response) {
+-    const text = await response.text();
+-    let payload = {};
+-    try {
+-      payload = text ? JSON.parse(text) : {};
+-    } catch {
+-      throw new Error(text || `HTTP ${response.status}`);
+-    }
+-    if (!response.ok) {
+-      const detail = payload.detail ?? payload.error ?? payload.message;
+-      throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail || payload));
+-    }
+-    return payload;
+-  }
+-
+   function setStatus(text, kind = '') {
+     const element = $('youtube-publish-status');
+     element.classList.remove('hidden');
+@@ -153,39 +139,6 @@
+     return true;
+   }
+ 
+-  function setPublishingButton(button) {
+-    const spinner = document.createElement('span');
+-    spinner.className = 'generation-spinner';
+-    spinner.setAttribute('aria-hidden', 'true');
+-
+-    const label = document.createElement('span');
+-    label.className = 'generation-label';
+-    label.textContent = 'Creating';
+-
+-    const dots = document.createElement('span');
+-    dots.className = 'generation-dots';
+-    dots.setAttribute('aria-hidden', 'true');
+-    dots.append(
+-      document.createElement('span'),
+-      document.createElement('span'),
+-      document.createElement('span'),
+-    );
+-
+-    button.replaceChildren(spinner, label, dots);
+-    button.classList.add('is-loading');
+-    button.disabled = true;
+-    button.setAttribute('aria-busy', 'true');
+-    setPrivacyDisabled(true);
+-
+-    return () => {
+-      button.classList.remove('is-loading');
+-      button.removeAttribute('aria-busy');
+-      button.disabled = false;
+-      button.textContent = 'Create on YouTube Music';
+-      setPrivacyDisabled(false);
+-    };
+-  }
+-
+   async function refreshStatus() {
+     const alreadyPublished = Boolean(playlist?.youtube_playlist?.url);
+     if (alreadyPublished) {
+@@ -237,7 +190,12 @@
+     }
+ 
+     const button = $('create-youtube-playlist');
+-    const resetButton = setPublishingButton(button);
++    const resetButton = setLoadingButton(button, {
++      label: 'Creating',
++      resetText: 'Create on YouTube Music',
++      onStart: () => setPrivacyDisabled(true),
++      onReset: () => setPrivacyDisabled(false),
++    });
+     setStatus('Creating the playlist in your YouTube Music account…');
+ 
+     try {
+diff --git a/scripts/vps-smoke-test.sh b/scripts/vps-smoke-test.sh
+index 3ca5575..18c3ff6 100644
+--- a/scripts/vps-smoke-test.sh
++++ b/scripts/vps-smoke-test.sh
+@@ -8,6 +8,8 @@ ROOT_URL="http://127.0.0.1:5770/"
+ PLAYLIST_URL="http://127.0.0.1:5770/static/playlist.html"
+ PLAYLIST_CSS_URL="http://127.0.0.1:5770/static/playlist.css"
+ COMPACT_CARDS_CSS_URL="http://127.0.0.1:5770/static/compact-cards.css"
++COMMON_JS_URL="http://127.0.0.1:5770/static/common.js"
++PLAYLIST_MOSAIC_JS_URL="http://127.0
