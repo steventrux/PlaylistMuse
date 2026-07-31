@@ -89,6 +89,9 @@ def test_first_run_setup_is_persistent_and_two_step() -> None:
     assert "/api/onboarding" in app
     assert "/api/onboarding/acknowledge" in app
     assert "openSetup('ai', 'onboarding')" in app
+    assert app.index("openSetup('ai', 'onboarding')") < app.index(
+        "void acknowledgeInitialSetup()"
+    )
     assert "playlistmuse-ai-settings-opened" in ai_settings
     assert "playlistmuse-youtube-settings-opened" in youtube_account
 
