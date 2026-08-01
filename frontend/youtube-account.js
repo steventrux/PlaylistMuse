@@ -32,6 +32,9 @@
     const accountHandle = String(status.channel_handle || '').trim();
     const hasAccountDetails = Boolean(accountName || accountHandle);
 
+    // Previous placeholders are intentionally not rendered as account details:
+    // status.account_name || 'Connected YouTube Music account'
+    // status.channel_handle || 'Google account details unavailable'
     profile.classList.toggle('hidden', !connected || !hasAccountDetails);
 
     if (!connected || !hasAccountDetails) {
