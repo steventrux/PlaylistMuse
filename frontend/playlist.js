@@ -19,6 +19,10 @@
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }
 
+  function isPublished() {
+    return Boolean(data.youtube_playlist?.url);
+  }
+
   function durationToSeconds(value) {
     if (!value) return 0;
     const parts = String(value).trim().split(':').map(Number);
@@ -244,23 +248,29 @@
     play.rel = 'noopener noreferrer';
     play.textContent = 'Open in YouTube Music';
     play.addEventListener('click', (event) => event.stopPropagation());
+    actions.append(play);
 
-    const replace = document.createElement('button');
-    replace.type = 'button';
-    replace.className = 'secondary track-action replace-track-button';
-    replace.textContent = 'Replace track';
+    detailsInner.append(explanation, actions);
 
-    const replaceStatus = document.createElement('p');
-    replaceStatus.className = 'track-replace-status';
-    replaceStatus.setAttribute('aria-live', 'polite');
+    if (!isPublished()) {
+      const replace = document.createElement('button');
+      replace.type = 'button';
+      replace.className = 'secondary track-action replace-track-button';
+      replace.textContent = 'Replace track';
 
-    replace.addEventListener('click', (event) => {
-      event.stopPropagation();
-      replaceTrack(index, replace, replaceStatus);
-    });
+      const replaceStatus = document.createElement('p');
+      replaceStatus.className = 'track-replace-status';
+      replaceStatus.setAttribute('aria-live', 'polite');
 
-    actions.append(play, replace);
-    detailsInner.append(explanation, actions, replaceStatus);
+      replace.addEventListener('click', (event) => {
+        event.stopPropagation();
+        replaceTrack(index, replace, replaceStatus);
+      });
+
+      actions.append(replace);
+      detailsInner.append(replaceStatus);
+    }
+
     details.append(detailsInner);
 
     item.append(artwork, copy, expandIcon, details);
@@ -304,6 +314,15 @@
       event.preventDefault();
       titleInput.blur();
     }
+  });
+
+  window.addEventListener('playlistmuse-playlist-published', (event) => {
+    const result = event.detail;
+    if (!result?.url) return;
+    data.youtube_playlist = result;
+    expandedIndex = null;
+    savePlaylist();
+    renderPlaylist();
   });
 
   renderPlaylist();
