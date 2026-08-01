@@ -4,6 +4,7 @@ import asyncio
 
 from backend.ai_models import (
     _is_gemini_text_model,
+    _is_ollama_chat_model,
     _is_openai_chat_model,
     _openai_compatible_ids,
     discover_provider_models,
@@ -18,6 +19,8 @@ def test_openai_model_filter_keeps_chat_models_only() -> None:
     assert not _is_openai_chat_model("gpt-image-1")
     assert not _is_openai_chat_model("gpt-4o-realtime-preview")
     assert not _is_openai_chat_model("text-embedding-3-small")
+    assert not _is_openai_chat_model("gpt-5-pro")
+    assert not _is_openai_chat_model("gpt-5-codex")
 
 
 def test_gemini_model_filter_excludes_non_text_generation_variants() -> None:
@@ -26,6 +29,14 @@ def test_gemini_model_filter_excludes_non_text_generation_variants() -> None:
     assert not _is_gemini_text_model("gemini-embedding-001")
     assert not _is_gemini_text_model("gemini-2.5-flash-image")
     assert not _is_gemini_text_model("gemini-2.5-flash-live")
+    assert not _is_gemini_text_model("gemini-deep-research-preview")
+
+
+def test_ollama_model_filter_excludes_embedding_only_models() -> None:
+    assert _is_ollama_chat_model("qwen3:8b")
+    assert _is_ollama_chat_model("llama3.1:8b")
+    assert not _is_ollama_chat_model("nomic-embed-text")
+    assert not _is_ollama_chat_model("bge-m3")
 
 
 def test_openai_compatible_model_ids_are_unique() -> None:
