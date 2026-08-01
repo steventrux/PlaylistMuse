@@ -59,10 +59,8 @@
 
     intro.textContent = onboarding
       ? 'Configure the AI provider first, then optionally connect YouTube Music for direct playlist publishing.'
-      : aiStep
-        ? ''
-        : 'Configure and connect the YouTube Music account used for direct publishing.';
-    intro.classList.toggle('hidden', !onboarding && aiStep);
+      : '';
+    intro.classList.toggle('hidden', !onboarding);
 
     $('setup-progress').classList.toggle('hidden', !onboarding);
     $('setup-navigation').classList.toggle('hidden', !onboarding);
