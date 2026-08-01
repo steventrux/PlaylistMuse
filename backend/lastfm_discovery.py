@@ -90,6 +90,42 @@ def _deduplicate(
     return unique
 
 
+def select_prompt_anchors(
+    tracks: list[dict[str, str]],
+    *,
+    max_anchors: int = MAX_PROMPT_ANCHORS,
+) -> list[dict[str, str]]:
+    """Return the distinct first-pass songs used to query Last.fm for a prompt."""
+    selected: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    normalized_max = max(1, min(MAX_PROMPT_ANCHORS, int(max_anchors)))
+    for track in tracks:
+        artist = " ".join(str(track.get("artist", "")).split())
+        title = " ".join(str(track.get("title", "")).split())
+        identity = _key(artist, title)
+        if not all(identity) or identity in seen:
+            continue
+        seen.add(identity)
+        selected.append({"artist": artist, "title": title})
+        if len(selected) >= normalized_max:
+            break
+    return selected
+
+
+def _attach_anchor(
+    signals: list[dict[str, str]],
+    artist: str,
+    title: str,
+) -> list[dict[str, str]]:
+    annotated: list[dict[str, str]] = []
+    for signal in signals:
+        copy = dict(signal)
+        copy["anchor_artist"] = artist
+        copy["anchor_title"] = title
+        annotated.append(copy)
+    return annotated
+
+
 async def _request(
     client: httpx.AsyncClient,
     api_key: str,
@@ -202,7 +238,7 @@ async def discover_for_seed(
         )
         direct = _parse_similar_tracks(similar_payload, seed_artist, seed_title)
         if direct:
-            return direct[:normalized_limit]
+            return _attach_anchor(direct[:normalized_limit], seed_artist, seed_title)
 
         artist_payload = await _request(
             active_client,
@@ -211,7 +247,12 @@ async def discover_for_seed(
             artist=seed_artist,
             limit=str(min(MAX_SIMILAR_ARTISTS, normalized_limit)),
         )
-        return _parse_similar_artists(artist_payload, seed_artist)[:normalized_limit]
+        related_artists = _parse_similar_artists(artist_payload, seed_artist)
+        return _attach_anchor(
+            related_artists[:normalized_limit],
+            seed_artist,
+            seed_title,
+        )
     except (httpx.HTTPError, ValueError, TypeError) as error:
         LOGGER.info("Last.fm discovery unavailable: %s", error)
         return []
@@ -232,18 +273,7 @@ async def discover_from_anchors(
     if not key:
         return []
 
-    selected: list[dict[str, str]] = []
-    seen_anchors: set[tuple[str, str]] = set()
-    for anchor in anchors:
-        artist = str(anchor.get("artist", "")).strip()
-        title = str(anchor.get("title", "")).strip()
-        identity = _key(artist, title)
-        if not all(identity) or identity in seen_anchors:
-            continue
-        seen_anchors.add(identity)
-        selected.append({"artist": artist, "title": title})
-        if len(selected) >= max(1, min(MAX_PROMPT_ANCHORS, max_anchors)):
-            break
+    selected = select_prompt_anchors(anchors, max_anchors=max_anchors)
     if not selected:
         return []
 
