@@ -23,25 +23,41 @@
 
   function renderProfile(status) {
     const profile = $('youtube-account-profile');
-    const connected = Boolean(status.account_connected);
-    profile.classList.toggle('hidden', !connected);
-    if (!connected) return;
-
     const photo = $('youtube-account-photo');
-    const photoUrl = status.account_photo_url || '';
-    const accountName = status.account_name || 'Connected YouTube Music account';
-    const accountHandle = status.channel_handle || 'Google account details unavailable';
+    const name = $('youtube-account-name');
+    const handle = $('youtube-account-handle');
+    const connected = Boolean(status.account_connected);
+    const photoUrl = String(status.account_photo_url || '').trim();
+    const accountName = String(status.account_name || '').trim();
+    const accountHandle = String(status.channel_handle || '').trim();
+    const hasAccountDetails = Boolean(accountName || accountHandle);
+
+    profile.classList.toggle('hidden', !connected || !hasAccountDetails);
+
+    if (!connected || !hasAccountDetails) {
+      photo.removeAttribute('src');
+      photo.classList.add('hidden');
+      profile.classList.remove('no-photo');
+      name.textContent = '';
+      name.removeAttribute('title');
+      handle.textContent = '';
+      handle.removeAttribute('title');
+      handle.classList.add('hidden');
+      return;
+    }
 
     photo.src = photoUrl;
     photo.classList.toggle('hidden', !photoUrl);
     profile.classList.toggle('no-photo', !photoUrl);
 
-    const name = $('youtube-account-name');
-    const handle = $('youtube-account-handle');
-    name.textContent = accountName;
-    name.title = accountName;
-    handle.textContent = accountHandle;
-    handle.title = accountHandle;
+    const displayedName = accountName || accountHandle;
+    const displayedHandle = accountName ? accountHandle : '';
+
+    name.textContent = displayedName;
+    name.title = displayedName;
+    handle.textContent = displayedHandle;
+    handle.title = displayedHandle;
+    handle.classList.toggle('hidden', !displayedHandle);
   }
 
   function renderStatus(status) {
