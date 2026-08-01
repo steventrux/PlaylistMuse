@@ -65,6 +65,10 @@
   font-weight: 650;
 }
 
+.youtube-publish:not(.is-success) + .youtube-publish-status.hidden + .track-list {
+  margin-top: 12px;
+}
+
 @media (max-width: 520px) {
   .youtube-publish-loading {
     min-height: 68px;
