@@ -37,14 +37,14 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
         '<script src="/static/ai-settings.js?v=12"></script>'
     )
     assert index.index(common) < index.index(
-        '<script src="/static/youtube-account.js?v=4"></script>'
+        '<script src="/static/youtube-account.js?v=5"></script>'
     )
     assert index.index(common) < index.index(
         '<script src="/static/home-status.js?v=13"></script>'
     )
-    assert index.index(common) < index.index('<script src="/static/app.js?v=15"></script>')
+    assert index.index(common) < index.index('<script src="/static/app.js?v=16"></script>')
     assert index.index('<script src="/static/home-status.js?v=13"></script>') < (
-        index.index('<script src="/static/app.js?v=15"></script>')
+        index.index('<script src="/static/app.js?v=16"></script>')
     )
 
     ai_results = '<script src="/static/ai-results-settings.js?v=2"></script>'
@@ -213,9 +213,9 @@ def test_ai_settings_separate_active_and_selected_provider_states() -> None:
     ai_style = _style("ai-settings.css")
     app = _script("app.js")
 
-    assert '/static/ai-settings.css?v=2' in index
-    assert '/static/ai-settings.css?v=2' in playlist
-    assert '/static/app.js?v=15' in index
+    assert '/static/ai-settings.css?v=3' in index
+    assert '/static/ai-settings.css?v=3' in playlist
+    assert '/static/app.js?v=16' in index
     assert 'id="ai-active-status"' in index
     assert 'id="ai-active-status"' in bridge
     assert "Choose or configure a provider" in index
@@ -227,9 +227,12 @@ def test_ai_settings_separate_active_and_selected_provider_states() -> None:
     assert "is configured and currently in use" in ai_settings
     assert "is configured and ready to activate" in ai_settings
     assert "is not configured. Save its settings" in ai_settings
-    assert "intro.classList.toggle('hidden', !onboarding && aiStep)" in app
+    assert "intro.classList.toggle('hidden', !onboarding)" in app
     assert "Configure the AI provider used to generate and refine playlists." not in app
+    assert "Configure and connect the YouTube Music account used for direct publishing." not in app
     assert ".ai-active-summary" in ai_style
+    assert "font-size: 1rem" in ai_style
+    assert "font-weight: 800" in ai_style
     assert "margin: 0 0 14px" in ai_style
     assert "padding: 0 0 12px" in ai_style
     assert "padding-top: 14px" in ai_style
@@ -259,6 +262,31 @@ def test_results_page_exposes_youtube_settings() -> None:
 
     assert 'id="youtube-settings-dialog"' in playlist
     assert "playlistmuse-youtube-settings-opened" in youtube_publish
+
+
+def test_youtube_settings_show_account_and_relevant_actions() -> None:
+    index = _html("index.html")
+    playlist = _html("playlist.html")
+    youtube_account = _script("youtube-account.js")
+    youtube_style = _style("youtube-settings.css")
+
+    assert '/static/youtube-settings.css?v=1' in index
+    assert '/static/youtube-settings.css?v=1' in playlist
+    assert '/static/youtube-account.js?v=5' in index
+    assert '/static/youtube-account.js?v=5' in playlist
+    assert "youtube-account-summary" in index
+    assert "youtube-account-summary" in playlist
+    assert "Google OAuth credentials" in index
+    assert "Google OAuth credentials" in playlist
+    assert "status.account_name || 'Connected YouTube Music account'" in youtube_account
+    assert "status.channel_handle || 'Google account details unavailable'" in youtube_account
+    assert "profile.classList.toggle('no-photo', !photoUrl)" in youtube_account
+    assert "connect.classList.toggle('hidden', connected)" in youtube_account
+    assert "disconnect.classList.toggle('hidden', !connected)" in youtube_account
+    assert "setAccountStatus('Connected', 'ok')" in youtube_account
+    assert ".youtube-account-summary" in youtube_style
+    assert ".youtube-account-profile.no-photo" in youtube_style
+    assert "width: 100%" in youtube_style
 
 
 def test_youtube_publish_progress_is_compact_and_not_redundant() -> None:
