@@ -54,6 +54,8 @@ def test_seed_discovery_prefers_similar_tracks() -> None:
     ]
     assert all(signal["source"] == "lastfm" for signal in signals)
     assert all(signal["lastfm_strategy"] == "similar_track" for signal in signals)
+    assert all(signal["anchor_artist"] == "Queen" for signal in signals)
+    assert all(signal["anchor_title"] == "Bohemian Rhapsody" for signal in signals)
 
 
 def test_seed_discovery_falls_back_to_similar_artist_signals() -> None:
@@ -97,11 +99,27 @@ def test_seed_discovery_falls_back_to_similar_artist_signals() -> None:
         "The Kolors",
         "Serena Brancale",
     }
-    assert all(
-        signal["title"] == discovery.ARTIST_SIGNAL_TITLE for signal in signals
-    )
+    assert all(signal["title"] == discovery.ARTIST_SIGNAL_TITLE for signal in signals)
     assert all(signal["source"] == "lastfm" for signal in signals)
     assert all(signal["lastfm_strategy"] == "similar_artist" for signal in signals)
+    assert all(signal["anchor_artist"] == "Merk & Kremont" for signal in signals)
+    assert all(signal["anchor_title"] == "PARTENOPE" for signal in signals)
+
+
+def test_select_prompt_anchors_deduplicates_and_limits() -> None:
+    tracks = [
+        {"artist": "Artist A", "title": "Track A"},
+        {"artist": "Artist A", "title": "Track A"},
+        {"artist": "Artist B", "title": "Track B"},
+        {"artist": "Artist C", "title": "Track C"},
+        {"artist": "Artist D", "title": "Track D"},
+    ]
+
+    assert discovery.select_prompt_anchors(tracks) == [
+        {"artist": "Artist A", "title": "Track A"},
+        {"artist": "Artist B", "title": "Track B"},
+        {"artist": "Artist C", "title": "Track C"},
+    ]
 
 
 def test_prompt_discovery_uses_distinct_ai_anchors(monkeypatch) -> None:
@@ -125,6 +143,8 @@ def test_prompt_discovery_uses_distinct_ai_anchors(monkeypatch) -> None:
                 "source": "lastfm",
                 "lastfm_strategy": "similar_track",
                 "lastfm_match": "0.8",
+                "anchor_artist": artist,
+                "anchor_title": title,
             }
         ]
 
@@ -146,3 +166,8 @@ def test_prompt_discovery_uses_distinct_ai_anchors(monkeypatch) -> None:
         ("Artist C", "Track C"),
     ]
     assert len(signals) == 3
+    assert [signal["anchor_title"] for signal in signals] == [
+        "Track A",
+        "Track B",
+        "Track C",
+    ]
