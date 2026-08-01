@@ -34,7 +34,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     common = '<script src="/static/common.js?v=1"></script>'
 
     assert index.index(common) < index.index(
-        '<script src="/static/ai-settings.js?v=11"></script>'
+        '<script src="/static/ai-settings.js?v=12"></script>'
     )
     assert index.index(common) < index.index(
         '<script src="/static/youtube-account.js?v=4"></script>'
@@ -47,8 +47,8 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
         index.index('<script src="/static/app.js?v=14"></script>')
     )
 
-    ai_results = '<script src="/static/ai-results-settings.js?v=1"></script>'
-    ai_settings = '<script src="/static/ai-settings.js?v=11"></script>'
+    ai_results = '<script src="/static/ai-results-settings.js?v=2"></script>'
+    ai_settings = '<script src="/static/ai-settings.js?v=12"></script>'
     home_status = (
         '<script data-playlistmuse-footer-status '
         'src="/static/home-status.js?v=13"></script>'
@@ -205,13 +205,37 @@ def test_ai_settings_can_manage_and_activate_multiple_profiles() -> None:
     assert "playlistmuse-status-changed" in ai_settings
 
 
+def test_ai_settings_separate_active_and_selected_provider_states() -> None:
+    index = _html("index.html")
+    playlist = _html("playlist.html")
+    bridge = _script("ai-results-settings.js")
+    ai_settings = _script("ai-settings.js")
+    ai_style = _style("ai-settings.css")
+
+    assert '/static/ai-settings.css?v=1' in index
+    assert '/static/ai-settings.css?v=1' in playlist
+    assert 'id="ai-active-status"' in index
+    assert 'id="ai-active-status"' in bridge
+    assert "Choose or configure a provider" in index
+    assert "Choose or configure a provider" in bridge
+    assert "<strong>✓</strong> In use" in index
+    assert "<strong>●</strong> Configured" in index
+    assert "function renderActiveProviderStatus()" in ai_settings
+    assert "Active AI provider: ${defaults.label}" in ai_settings
+    assert "is configured and currently in use" in ai_settings
+    assert "is configured and ready to activate" in ai_settings
+    assert "is not configured. Save its settings" in ai_settings
+    assert ".ai-active-summary" in ai_style
+    assert "border-bottom: 1px solid var(--border)" in ai_style
+
+
 def test_results_page_opens_ai_settings_without_losing_playlist() -> None:
     playlist = _html("playlist.html")
     bridge = _script("ai-results-settings.js")
 
     assert 'id="youtube-settings-dialog"' in playlist
-    assert '/static/ai-results-settings.js?v=1' in playlist
-    assert '/static/ai-settings.js?v=11' in playlist
+    assert '/static/ai-results-settings.js?v=2' in playlist
+    assert '/static/ai-settings.js?v=12' in playlist
     assert "ai-settings-dialog" in bridge
     assert "#header-ai-status" in bridge
     assert "dialog.showModal()" in bridge
