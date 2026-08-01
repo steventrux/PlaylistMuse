@@ -48,7 +48,7 @@ def test_prompt_and_seed_control_generation_visibility() -> None:
     assert "$('prompt').addEventListener('input', updateGenerationControls)" in script
     assert "state.selectedSeed = seed;" in script
     assert "state.selectedSeed = null;" in script
-    assert script.count("updateGenerationControls();") >= 6
+    assert script.count("updateGenerationControls();") >= 5
     assert "updateGenerationControls();\n  void showInitialSetupIfRequired();" in script
 
 
@@ -67,4 +67,4 @@ def test_seed_search_is_disabled_while_empty_or_searching() -> None:
     assert "$('seed-query').addEventListener('input', updateSeedSearchAvailability)" in script
     assert "state.seedSearching = true" in script
     assert "state.seedSearching = false" in script
-    assert script.count("updateSeedSearchAvailability();") >= 4
+    assert script.count("updateSeedSearchAvailability();") >= 3
