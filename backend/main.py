@@ -21,6 +21,7 @@ from backend.config import (
 from backend.lastfm_discovery import (
     discover_for_seed as similar_track_candidates,
     discover_from_anchors,
+    select_prompt_anchors,
 )
 from backend.llm import generate_playlist_draft, safe_error_message
 from backend.youtube import resolve_candidates, search_songs, track_identity_key
@@ -48,6 +49,10 @@ MAX_LASTFM_CONTEXT_TRACKS = 60
 
 _SEED_RECOMMENDATIONS: ContextVar[tuple[dict[str, str], ...]] = ContextVar(
     "playlistmuse_seed_recommendations",
+    default=(),
+)
+_SEED_ANCHORS: ContextVar[tuple[dict[str, str], ...]] = ContextVar(
+    "playlistmuse_seed_anchors",
     default=(),
 )
 
@@ -169,6 +174,13 @@ def _candidate_key(candidate: dict) -> str:
     )
 
 
+def _artist_key(candidate: dict) -> str:
+    return track_identity_key(
+        "",
+        str(candidate.get("artist", candidate.get("artists", ""))),
+    )
+
+
 def _blend_candidates(
     primary: list[dict[str, str]],
     supplemental: list[dict[str, str]],
@@ -251,19 +263,77 @@ def _annotate_lastfm_sources(
     for track in tracks:
         copy = dict(track)
         evidence = evidence_by_key.get(_candidate_key(copy))
-        if evidence:
+        if evidence and evidence.get("lastfm_strategy") == "similar_track":
             copy["source"] = "lastfm"
-            strategy = str(evidence.get("lastfm_strategy", "")).strip()
-            if strategy:
-                copy["lastfm_strategy"] = strategy
+            copy["lastfm_strategy"] = "similar_track"
         annotated.append(copy)
     return annotated
 
 
-def _lastfm_summary(
+def _anchor_metadata(anchors: list[dict[str, str]]) -> list[dict[str, str]]:
+    return [
+        {
+            "artist": str(anchor.get("artist", "")).strip(),
+            "title": str(anchor.get("title", "")).strip(),
+            "kind": str(anchor.get("kind", "ai_draft")).strip() or "ai_draft",
+        }
+        for anchor in anchors
+        if str(anchor.get("artist", "")).strip()
+        and str(anchor.get("title", "")).strip()
+    ]
+
+
+def _selection_sets(
+    selected_tracks: list[dict],
+) -> tuple[set[str], set[str]]:
+    track_keys = {
+        track_identity_key(track.get("title", ""), track.get("artists", ""))
+        for track in selected_tracks
+    }
+    artist_keys = {
+        track_identity_key("", track.get("artists", ""))
+        for track in selected_tracks
+    }
+    return track_keys, artist_keys
+
+
+def _signal_metadata(
     candidates: list[dict[str, str]],
     selected_tracks: list[dict],
+) -> list[dict[str, object]]:
+    selected_track_keys, selected_artist_keys = _selection_sets(selected_tracks)
+    signals: list[dict[str, object]] = []
+    for candidate in candidates:
+        strategy = str(candidate.get("lastfm_strategy", "")).strip()
+        is_track_signal = strategy == "similar_track"
+        signal: dict[str, object] = {
+            "artist": str(candidate.get("artist", "")).strip(),
+            "title": str(candidate.get("title", "")).strip() if is_track_signal else None,
+            "strategy": strategy or "lastfm",
+            "match": str(candidate.get("lastfm_match", "")).strip() or None,
+            "selected": is_track_signal
+            and _candidate_key(candidate) in selected_track_keys,
+            "artist_represented": _artist_key(candidate) in selected_artist_keys,
+        }
+        anchor_artist = str(candidate.get("anchor_artist", "")).strip()
+        anchor_title = str(candidate.get("anchor_title", "")).strip()
+        if anchor_artist and anchor_title:
+            signal["anchor"] = {
+                "artist": anchor_artist,
+                "title": anchor_title,
+            }
+        signals.append(signal)
+    return signals
+
+
+def _lastfm_summary(
+    anchors: list[dict[str, str]],
+    candidates: list[dict[str, str]],
+    selected_tracks: list[dict],
+    *,
+    guidance_applied: bool,
 ) -> dict[str, object]:
+    signals = _signal_metadata(candidates, selected_tracks)
     strategies = sorted(
         {
             str(candidate.get("lastfm_strategy", "")).strip()
@@ -271,17 +341,46 @@ def _lastfm_summary(
             if str(candidate.get("lastfm_strategy", "")).strip()
         }
     )
-    selected = sum(
-        1
-        for track in selected_tracks
-        if str(track.get("source", "")).strip() == "lastfm"
+    selected = sum(1 for signal in signals if signal["selected"])
+    represented_artists = sum(
+        1 for signal in signals if signal["artist_represented"]
     )
     return {
         "available": bool(candidates),
+        "guidance_applied": guidance_applied,
         "suggestions": len(candidates),
         "selected": selected,
+        "represented_artists": represented_artists,
         "strategies": strategies,
+        "anchors": _anchor_metadata(anchors),
+        "signals": signals,
     }
+
+
+def _refresh_lastfm_selection(summary: dict, selected_tracks: list[dict]) -> None:
+    signals = summary.get("signals")
+    if not isinstance(signals, list):
+        return
+    selected_track_keys, selected_artist_keys = _selection_sets(selected_tracks)
+    selected = 0
+    represented_artists = 0
+    for signal in signals:
+        if not isinstance(signal, dict):
+            continue
+        artist = str(signal.get("artist", "")).strip()
+        title = str(signal.get("title") or "").strip()
+        strategy = str(signal.get("strategy", "")).strip()
+        signal["selected"] = (
+            strategy == "similar_track"
+            and track_identity_key(title, artist) in selected_track_keys
+        )
+        signal["artist_represented"] = (
+            track_identity_key("", artist) in selected_artist_keys
+        )
+        selected += int(bool(signal["selected"]))
+        represented_artists += int(bool(signal["artist_represented"]))
+    summary["selected"] = selected
+    summary["represented_artists"] = represented_artists
 
 
 def _replenishment_prompt(
@@ -334,18 +433,30 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     config = load_config()
     first_draft = await generate_playlist_draft(config, prompt, count)
 
+    lastfm_anchors = list(_SEED_ANCHORS.get())
     lastfm_candidates = list(_SEED_RECOMMENDATIONS.get())
     if not lastfm_candidates:
+        prompt_anchors = select_prompt_anchors(first_draft.get("tracks", []))
+        lastfm_anchors.extend(
+            {
+                "artist": anchor["artist"],
+                "title": anchor["title"],
+                "kind": "ai_draft",
+            }
+            for anchor in prompt_anchors
+        )
         lastfm_candidates = await discover_from_anchors(
-            first_draft.get("tracks", []),
+            prompt_anchors,
             limit=min(MAX_LASTFM_CONTEXT_TRACKS, max(20, count * 2)),
         )
 
     draft = first_draft
+    guidance_applied = False
     if lastfm_candidates:
         guided_prompt = _discovery_prompt(prompt, first_draft, lastfm_candidates, count)
         try:
             draft = await generate_playlist_draft(config, guided_prompt, count)
+            guidance_applied = True
         except Exception:
             draft = first_draft
 
@@ -443,7 +554,12 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
         "resolved_count": count,
         "tracks": final_tracks,
         "unresolved": unresolved,
-        "lastfm": _lastfm_summary(lastfm_candidates, final_tracks),
+        "lastfm": _lastfm_summary(
+            lastfm_anchors,
+            lastfm_candidates,
+            final_tracks,
+            guidance_applied=guidance_applied,
+        ),
     }
 
 
@@ -536,7 +652,13 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
         seed.title,
         limit=min(MAX_LASTFM_CONTEXT_TRACKS, max(20, request.track_count * 2)),
     )
-    context_token = _SEED_RECOMMENDATIONS.set(tuple(lastfm_candidates))
+    seed_anchor = {
+        "artist": seed.artists,
+        "title": seed.title,
+        "kind": "seed",
+    }
+    recommendation_token = _SEED_RECOMMENDATIONS.set(tuple(lastfm_candidates))
+    anchor_token = _SEED_ANCHORS.set((seed_anchor,))
     try:
         result = await _generate(prompt, request.track_count, request.options)
     except ValueError as error:
@@ -547,7 +669,8 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
             detail="Playlist generation failed. Please try again.",
         ) from error
     finally:
-        _SEED_RECOMMENDATIONS.reset(context_token)
+        _SEED_ANCHORS.reset(anchor_token)
+        _SEED_RECOMMENDATIONS.reset(recommendation_token)
 
     seed_payload = seed.model_dump()
     seed_key = track_identity_key(seed.title, seed.artists)
@@ -583,11 +706,7 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
     result["resolved_count"] = len(result["tracks"])
     result["seed"] = seed_payload
     if isinstance(result.get("lastfm"), dict):
-        result["lastfm"]["selected"] = sum(
-            1
-            for track in result["tracks"]
-            if str(track.get("source", "")).strip() == "lastfm"
-        )
+        _refresh_lastfm_selection(result["lastfm"], result["tracks"])
     return result
 
 
