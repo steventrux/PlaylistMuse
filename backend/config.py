@@ -12,6 +12,10 @@ from backend.storage import read_json_object, write_secure_json
 DATA_DIR = Path(os.getenv("PLAYLISTMUSE_DATA_DIR", "data"))
 CONFIG_PATH = DATA_DIR / "config.json"
 OPENROUTER_PROVIDERS = {"openrouter_auto", "openrouter_free"}
+OPENROUTER_MODELS = {
+    "openrouter_auto": "openrouter/auto",
+    "openrouter_free": "openrouter/free",
+}
 PROFILE_FIELDS = ("model", "fallback_1", "fallback_2", "base_url")
 
 
@@ -41,6 +45,21 @@ def _normalize_profile(raw: Any) -> dict[str, str]:
         field_name: str(raw.get(field_name, "") or "").strip()
         for field_name in PROFILE_FIELDS
     }
+
+
+def _profile_with_shared_defaults(
+    provider: str,
+    profile: dict[str, str],
+    keys: dict[str, str],
+) -> dict[str, str]:
+    normalized = _normalize_profile(profile)
+    if (
+        provider in OPENROUTER_MODELS
+        and keys.get("openrouter", "").strip()
+        and not normalized["model"]
+    ):
+        normalized["model"] = OPENROUTER_MODELS[provider]
+    return normalized
 
 
 def _profile_is_configured(
@@ -103,13 +122,19 @@ class AppConfig:
     def profile_for(self, provider: str) -> dict[str, str]:
         """Return the saved model settings for one provider."""
         if provider == self.provider:
-            return {
+            profile = {
                 "model": self.model.strip(),
                 "fallback_1": self.fallback_1.strip(),
                 "fallback_2": self.fallback_2.strip(),
                 "base_url": self.base_url.strip(),
             }
-        return _normalize_profile(self.provider_profiles.get(provider, {}))
+        else:
+            profile = _normalize_profile(self.provider_profiles.get(provider, {}))
+        return _profile_with_shared_defaults(
+            provider,
+            profile,
+            self.provider_api_keys,
+        )
 
     def configuration_for(self, provider: str) -> AppConfig:
         """Build an active configuration from a saved provider profile."""
@@ -133,11 +158,17 @@ class AppConfig:
         return self.configuration_for(provider).configured
 
 
-def _environment_or_saved(name: str, saved: str = "") -> str:
-    """Use a non-empty environment override, otherwise keep the saved value."""
-    environment_value = os.getenv(name)
-    if environment_value is not None and environment_value.strip():
-        return environment_value.strip()
+def _environment_or_saved(
+    name: str,
+    saved: str = "",
+    *,
+    enabled: bool = True,
+) -> str:
+    """Use an enabled non-empty environment override, otherwise keep saved data."""
+    if enabled:
+        environment_value = os.getenv(name)
+        if environment_value is not None and environment_value.strip():
+            return environment_value.strip()
     return str(saved or "").strip()
 
 
@@ -183,30 +214,112 @@ def _saved_profiles(values: dict[str, Any], provider: str) -> dict[str, dict[str
     return profiles
 
 
+def _materialize_openrouter_profiles(
+    profiles: dict[str, dict[str, str]],
+    keys: dict[str, str],
+) -> None:
+    if not keys.get("openrouter", "").strip():
+        return
+    for provider, model in OPENROUTER_MODELS.items():
+        profile = _normalize_profile(profiles.get(provider, {}))
+        profile["model"] = model
+        profile["fallback_1"] = ""
+        profile["fallback_2"] = ""
+        profile["base_url"] = ""
+        profiles[provider] = profile
+
+
+def _configured_provider_from_state(
+    provider: str,
+    profiles: dict[str, dict[str, str]],
+    keys: dict[str, str],
+) -> bool:
+    profile = _profile_with_shared_defaults(
+        provider,
+        profiles.get(provider, {}),
+        keys,
+    )
+    return _profile_is_configured(
+        provider,
+        profile,
+        keys.get(api_key_slot(provider), ""),
+    )
+
+
+def _write_config_state(
+    active_provider: str,
+    profiles: dict[str, dict[str, str]],
+    keys: dict[str, str],
+) -> None:
+    active_profile = _profile_with_shared_defaults(
+        active_provider,
+        profiles.get(active_provider, {}),
+        keys,
+    )
+    payload = {
+        "managed": True,
+        "provider": active_provider,
+        "model": active_profile["model"],
+        "fallback_1": active_profile["fallback_1"],
+        "fallback_2": active_profile["fallback_2"],
+        "base_url": active_profile["base_url"],
+        "api_keys": keys,
+        "profiles": profiles,
+    }
+    write_secure_json(
+        CONFIG_PATH,
+        payload,
+        temporary_path=CONFIG_PATH.with_suffix(".tmp"),
+    )
+
+
 def load_config() -> AppConfig:
     values = read_json_object(CONFIG_PATH)
+    has_saved_state = bool(values)
 
     saved_provider = str(values.get("provider", "") or "").strip()
-    provider = _environment_or_saved("PLAYLISTMUSE_AI_PROVIDER", saved_provider)
+    environment_provider = str(os.getenv("PLAYLISTMUSE_AI_PROVIDER", "") or "").strip()
+    provider = saved_provider if has_saved_state else environment_provider
     provider_api_keys = _saved_api_keys(values, provider)
     provider_profiles = _saved_profiles(values, saved_provider or provider)
-    active_profile = _normalize_profile(provider_profiles.get(provider, {}))
+    _materialize_openrouter_profiles(provider_profiles, provider_api_keys)
+    active_profile = _profile_with_shared_defaults(
+        provider,
+        provider_profiles.get(provider, {}),
+        provider_api_keys,
+    )
 
+    use_environment = not has_saved_state or provider == environment_provider
     slot = api_key_slot(provider)
     saved_active_key = provider_api_keys.get(slot, "")
-    active_key = _environment_or_saved("PLAYLISTMUSE_AI_API_KEY", saved_active_key)
+    active_key = _environment_or_saved(
+        "PLAYLISTMUSE_AI_API_KEY",
+        saved_active_key,
+        enabled=use_environment,
+    )
     if slot and active_key:
         provider_api_keys[slot] = active_key
+        _materialize_openrouter_profiles(provider_profiles, provider_api_keys)
 
-    model = _environment_or_saved("PLAYLISTMUSE_AI_MODEL", active_profile["model"])
+    model = _environment_or_saved(
+        "PLAYLISTMUSE_AI_MODEL",
+        active_profile["model"],
+        enabled=use_environment,
+    )
     fallback_1 = _environment_or_saved(
-        "PLAYLISTMUSE_AI_FALLBACK_1", active_profile["fallback_1"]
+        "PLAYLISTMUSE_AI_FALLBACK_1",
+        active_profile["fallback_1"],
+        enabled=use_environment,
     )
     fallback_2 = _environment_or_saved(
-        "PLAYLISTMUSE_AI_FALLBACK_2", active_profile["fallback_2"]
+        "PLAYLISTMUSE_AI_FALLBACK_2",
+        active_profile["fallback_2"],
+        enabled=use_environment,
     )
     base_url = _environment_or_saved(
-        "PLAYLISTMUSE_AI_BASE_URL", active_profile["base_url"]
+        "PLAYLISTMUSE_AI_BASE_URL",
+        active_profile["base_url"],
+        enabled=use_environment,
     )
 
     if provider:
@@ -256,41 +369,55 @@ def save_config(config: AppConfig) -> None:
     if slot and config.api_key:
         keys[slot] = config.api_key.strip()
 
+    _materialize_openrouter_profiles(profiles, keys)
+
     active_provider = config.provider
-    requested_profile = _normalize_profile(profiles.get(config.provider, {}))
-    requested_key = keys.get(api_key_slot(config.provider), "")
-    if not _profile_is_configured(
-        config.provider,
-        requested_profile,
-        requested_key,
-    ):
+    if not _configured_provider_from_state(active_provider, profiles, keys):
         candidates = [existing_provider, *profiles.keys()]
         active_provider = next(
             (
                 provider
                 for provider in dict.fromkeys(candidates)
-                if _profile_is_configured(
-                    provider,
-                    _normalize_profile(profiles.get(provider, {})),
-                    keys.get(api_key_slot(provider), ""),
-                )
+                if _configured_provider_from_state(provider, profiles, keys)
             ),
             config.provider,
         )
 
-    active_profile = _normalize_profile(profiles.get(active_provider, {}))
-    payload = {
-        "provider": active_provider,
-        "model": active_profile["model"],
-        "fallback_1": active_profile["fallback_1"],
-        "fallback_2": active_profile["fallback_2"],
-        "base_url": active_profile["base_url"],
-        "api_keys": keys,
-        "profiles": profiles,
-    }
+    _write_config_state(active_provider, profiles, keys)
 
-    write_secure_json(
-        CONFIG_PATH,
-        payload,
-        temporary_path=CONFIG_PATH.with_suffix(".tmp"),
+
+def disconnect_provider(provider: str) -> AppConfig:
+    """Remove one stored AI provider and choose another configured provider if needed."""
+    existing = read_json_object(CONFIG_PATH)
+    existing_provider = str(existing.get("provider", "") or "").strip()
+    profiles = _saved_profiles(existing, existing_provider)
+    keys = _saved_api_keys(existing, existing_provider)
+
+    targets = OPENROUTER_PROVIDERS if provider in OPENROUTER_PROVIDERS else {provider}
+    for target in targets:
+        profiles.pop(target, None)
+    keys.pop(api_key_slot(provider), None)
+
+    candidates = [
+        existing_provider,
+        "gemini",
+        "openai",
+        "anthropic",
+        "openrouter_auto",
+        "openrouter_free",
+        "ollama",
+        "custom",
+        *profiles.keys(),
+    ]
+    active_provider = next(
+        (
+            candidate
+            for candidate in dict.fromkeys(candidates)
+            if candidate not in targets
+            and _configured_provider_from_state(candidate, profiles, keys)
+        ),
+        "",
     )
+
+    _write_config_state(active_provider, profiles, keys)
+    return load_config()
