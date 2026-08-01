@@ -47,6 +47,18 @@ def test_available_models_are_loaded_from_provider_api() -> None:
     assert '@router.post("/ai/models"' in routes
 
 
+def test_fixed_provider_hides_model_refresh_action() -> None:
+    settings = _read("ai-settings.js")
+    style = _read("ai-settings.css")
+
+    assert "const openRouter = provider === 'openrouter_auto'" in settings
+    assert "$('ai-model').readOnly = openRouter" in settings
+    assert "if (data.fixed && models[0])" in settings
+    assert "$('ai-model').readOnly = true" in settings
+    assert ".settings-fields:has(#ai-model[readonly]) .ai-model-actions" in style
+    assert "display: none" in style
+
+
 def test_hidden_fallbacks_remain_saved_and_reconciled() -> None:
     settings = _read("ai-settings.js")
 
