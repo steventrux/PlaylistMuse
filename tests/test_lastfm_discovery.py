@@ -97,7 +97,9 @@ def test_seed_discovery_falls_back_to_similar_artist_signals() -> None:
         "The Kolors",
         "Serena Brancale",
     }
-    assert all(signal["title"] == "" for signal in signals)
+    assert all(
+        signal["title"] == discovery.ARTIST_SIGNAL_TITLE for signal in signals
+    )
     assert all(signal["source"] == "lastfm" for signal in signals)
     assert all(signal["lastfm_strategy"] == "similar_artist" for signal in signals)
 
