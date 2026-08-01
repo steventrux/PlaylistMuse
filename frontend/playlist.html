@@ -14,9 +14,10 @@
   <link rel="stylesheet" href="/static/playlist-header.css?v=4">
   <link rel="stylesheet" href="/static/generation.css?v=3">
   <link rel="stylesheet" href="/static/youtube.css?v=5">
+  <link rel="stylesheet" href="/static/youtube-settings.css?v=1">
   <link rel="stylesheet" href="/static/youtube-results.css?v=4">
   <link rel="stylesheet" href="/static/youtube-success.css?v=1">
-  <link rel="stylesheet" href="/static/ai-settings.css?v=2">
+  <link rel="stylesheet" href="/static/ai-settings.css?v=3">
 </head>
 <body>
   <header class="app-header">
@@ -100,44 +101,52 @@
         <button id="close-youtube-settings" type="button" class="icon" aria-label="Close">×</button>
       </div>
 
-      <section class="settings-block youtube-results-settings">
-        <h3>YouTube Music account</h3>
-        <p id="account-status" class="settings-status">Checking connection…</p>
+      <section class="settings-block youtube-results-settings youtube-settings-panel">
+        <div class="youtube-account-summary">
+          <div class="youtube-account-summary-heading">
+            <h3>YouTube Music account</h3>
+            <p id="account-status" class="settings-status youtube-account-state">Checking…</p>
+          </div>
 
-        <div id="youtube-account-profile" class="youtube-account-profile hidden">
-          <img id="youtube-account-photo" alt="Connected YouTube account profile">
-          <div>
-            <strong id="youtube-account-name">Connected account</strong>
-            <span id="youtube-account-handle">YouTube Music</span>
+          <div id="youtube-account-profile" class="youtube-account-profile hidden">
+            <img id="youtube-account-photo" alt="Connected YouTube account profile">
+            <div>
+              <strong id="youtube-account-name">Connected YouTube Music account</strong>
+              <span id="youtube-account-handle">Google account details unavailable</span>
+            </div>
           </div>
         </div>
 
-        <div class="settings-fields youtube-settings-fields">
-          <label for="youtube-client-id">Google OAuth client ID
-            <input id="youtube-client-id" type="text" autocomplete="off" placeholder="OAuth client ID">
-          </label>
-          <label for="youtube-client-secret">Google OAuth client secret
-            <input id="youtube-client-secret" type="password" autocomplete="off" placeholder="OAuth client secret">
-          </label>
-          <span id="youtube-credentials-hint" class="field-hint"></span>
-        </div>
+        <div class="youtube-credentials-section">
+          <h3>Google OAuth credentials</h3>
 
-        <p class="field-hint youtube-settings-help">
-          Use a Google OAuth client of type <strong>TVs and Limited Input devices</strong> with the YouTube Data API enabled.
-          <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Open Google Cloud credentials</a>
-        </p>
+          <div class="settings-fields youtube-settings-fields">
+            <label for="youtube-client-id">Google OAuth client ID
+              <input id="youtube-client-id" type="text" autocomplete="off" placeholder="OAuth client ID">
+            </label>
+            <label for="youtube-client-secret">Google OAuth client secret
+              <input id="youtube-client-secret" type="password" autocomplete="off" placeholder="OAuth client secret">
+            </label>
+            <span id="youtube-credentials-hint" class="field-hint"></span>
+          </div>
 
-        <div class="settings-actions">
-          <button id="save-youtube" type="button" class="secondary">Save Google credentials</button>
-          <button id="connect" type="button" class="primary" disabled>Connect account</button>
-          <button id="disconnect" type="button" class="secondary" disabled>Disconnect</button>
-        </div>
+          <p class="field-hint youtube-settings-help">
+            Use a Google OAuth client of type <strong>TVs and Limited Input devices</strong> with the YouTube Data API enabled.
+            <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Open Google Cloud credentials</a>
+          </p>
 
-        <div id="youtube-device-flow" class="youtube-device-flow hidden" aria-live="polite">
-          <p>Open the Google authorization page and confirm access using this code:</p>
-          <div class="youtube-device-code-row">
-            <code id="youtube-user-code" class="youtube-device-code"></code>
-            <a id="youtube-authorization-link" class="youtube-auth-link" href="#" target="_blank" rel="noopener noreferrer">Open Google authorization</a>
+          <div class="settings-actions">
+            <button id="save-youtube" type="button" class="secondary">Save Google credentials</button>
+            <button id="connect" type="button" class="primary" disabled>Connect account</button>
+            <button id="disconnect" type="button" class="secondary hidden" disabled>Disconnect</button>
+          </div>
+
+          <div id="youtube-device-flow" class="youtube-device-flow hidden" aria-live="polite">
+            <p>Open the Google authorization page and confirm access using this code:</p>
+            <div class="youtube-device-code-row">
+              <code id="youtube-user-code" class="youtube-device-code"></code>
+              <a id="youtube-authorization-link" class="youtube-auth-link" href="#" target="_blank" rel="noopener noreferrer">Open Google authorization</a>
+            </div>
           </div>
         </div>
       </section>
@@ -150,7 +159,7 @@
   <script src="/static/ai-settings.js?v=12"></script>
   <script src="/static/playlist-mosaic.js?v=1"></script>
   <script src="/static/playlist.js?v=19"></script>
-  <script src="/static/youtube-account.js?v=4"></script>
+  <script src="/static/youtube-account.js?v=5"></script>
   <script data-playlistmuse-footer-status src="/static/home-status.js?v=13"></script>
   <script src="/static/youtube-publish.js?v=13"></script>
 </body>
