@@ -4,6 +4,50 @@
   const $ = (id) => document.getElementById(id);
   const {readJson} = window.PlaylistMuseCommon;
 
+  function ensurePanel() {
+    const existing = $('setup-lastfm-step');
+    if (existing) return existing;
+
+    const navigation = $('setup-navigation');
+    const form = $('setup-dialog')?.querySelector('form');
+    if (!form) return null;
+
+    const panel = document.createElement('section');
+    panel.id = 'setup-lastfm-step';
+    panel.className = 'settings-block setup-step lastfm-settings-panel hidden';
+    panel.innerHTML = `
+      <div class="youtube-account-summary">
+        <div class="youtube-account-summary-heading">
+          <h3>Last.fm recommendations</h3>
+          <p id="lastfm-settings-status" class="settings-status">Checking…</p>
+        </div>
+      </div>
+
+      <div class="youtube-credentials-section">
+        <h3>API access</h3>
+        <div class="settings-fields">
+          <label for="lastfm-api-key">Last.fm API key
+            <input id="lastfm-api-key" type="password" autocomplete="off" placeholder="Enter your Last.fm API key">
+            <span id="lastfm-api-key-hint" class="field-hint"></span>
+          </label>
+        </div>
+
+        <p class="field-hint lastfm-settings-help">
+          The key enables listening-data recommendations for playlists created from a seed track.
+          <a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener noreferrer">Create a Last.fm API account</a>
+        </p>
+
+        <div class="settings-actions">
+          <button id="save-lastfm" type="button" class="primary">Save Last.fm key</button>
+          <button id="disconnect-lastfm" type="button" class="secondary hidden">Remove saved key</button>
+        </div>
+      </div>
+    `;
+    if (navigation) form.insertBefore(panel, navigation);
+    else form.append(panel);
+    return panel;
+  }
+
   function setStatus(text, error = false) {
     const status = $('lastfm-settings-status');
     if (!status) return;
@@ -13,8 +57,8 @@
 
   function openSettings() {
     const dialog = $('setup-dialog');
-    const lastFmPanel = $('setup-lastfm-step');
-    if (!dialog || !lastFmPanel) return;
+    const lastFmPanel = ensurePanel();
+    if (!dialog || !lastFmPanel) return false;
 
     $('ai-open-settings')?.click();
     $('setup-eyebrow').textContent = 'Configuration';
@@ -27,6 +71,7 @@
     lastFmPanel.classList.remove('hidden');
     if (!dialog.open) dialog.showModal();
     window.dispatchEvent(new Event('playlistmuse-lastfm-settings-opened'));
+    return true;
   }
 
   function renderSettings(data) {
@@ -116,9 +161,10 @@
     }
   }
 
-  $('save-lastfm')?.addEventListener('click', () => void saveSettings());
-  $('disconnect-lastfm')?.addEventListener('click', () => void disconnect());
-  $('lastfm-api-key')?.addEventListener('keydown', (event) => {
+  const panel = ensurePanel();
+  panel?.querySelector('#save-lastfm')?.addEventListener('click', () => void saveSettings());
+  panel?.querySelector('#disconnect-lastfm')?.addEventListener('click', () => void disconnect());
+  panel?.querySelector('#lastfm-api-key')?.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
       event.preventDefault();
       void saveSettings();
