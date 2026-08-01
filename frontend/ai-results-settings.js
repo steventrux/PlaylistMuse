@@ -56,15 +56,17 @@
               <input id="ai-base-url" type="url" placeholder="http://host:11434 or https://example.com/v1">
             </label>
 
-            <label for="ai-model">Primary model
-              <input id="ai-model" placeholder="Primary model identifier">
+            <label for="ai-model">Model in use
+              <input id="ai-model" list="ai-model-options" placeholder="Model identifier">
+              <datalist id="ai-model-options"></datalist>
+              <span id="ai-model-hint" class="field-hint">Checking models available to this API…</span>
             </label>
 
-            <div id="fallback-row" class="fallback-row" aria-label="Fallback models">
-              <span class="field-hint fallback-label">Fallbacks</span>
-              <input id="ai-fallback-1" placeholder="Fallback 1" aria-label="Fallback model 1">
-              <span class="fallback-arrow">→</span>
-              <input id="ai-fallback-2" placeholder="Fallback 2" aria-label="Fallback model 2">
+            <input id="ai-fallback-1" type="hidden">
+            <input id="ai-fallback-2" type="hidden">
+
+            <div class="ai-model-actions">
+              <button id="refresh-ai-models" type="button" class="secondary compact-button">Refresh available models</button>
             </div>
           </div>
 
