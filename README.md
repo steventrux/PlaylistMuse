@@ -29,14 +29,6 @@
   </p>
 </div>
 
-<div align="center">
-  <p><strong>From an idea to a published playlist</strong></p>
-  <img src=".github/assets/playlistmuse-prompt.svg" alt="Create a playlist from a natural-language prompt" width="24%">
-  <img src=".github/assets/playlistmuse-seed.svg" alt="Create a playlist from a seed song" width="24%">
-  <img src=".github/assets/playlistmuse-generate.svg" alt="Generate and resolve tracks against YouTube Music" width="24%">
-  <img src=".github/assets/playlistmuse-publish.svg" alt="Refine the result and publish it to YouTube Music" width="24%">
-</div>
-
 ---
 
 ## What is PlaylistMuse?
