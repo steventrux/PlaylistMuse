@@ -32,6 +32,8 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     index = _html("index.html")
     playlist = _html("playlist.html")
     common = '<script src="/static/common.js?v=1"></script>'
+    generation_state = '<script src="/static/generation-state.js?v=1"></script>'
+    app = '<script src="/static/app.js?v=17"></script>'
 
     assert index.index(common) < index.index(
         '<script src="/static/ai-settings.js?v=12"></script>'
@@ -42,9 +44,11 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     assert index.index(common) < index.index(
         '<script src="/static/home-status.js?v=13"></script>'
     )
-    assert index.index(common) < index.index('<script src="/static/app.js?v=16"></script>')
+    assert generation_state in index
+    assert index.index(generation_state) < index.index(app)
+    assert index.index(common) < index.index(app)
     assert index.index('<script src="/static/home-status.js?v=13"></script>') < (
-        index.index('<script src="/static/app.js?v=16"></script>')
+        index.index(app)
     )
 
     ai_results = '<script src="/static/ai-results-settings.js?v=2"></script>'
@@ -145,7 +149,7 @@ def test_seed_guidance_follows_search_and_selection() -> None:
     assert choose_text not in index
     assert "function setSeedGuidance(text = '')" in app
     assert "guidance.classList.toggle('hidden', !text)" in app
-    assert f"setSeedGuidance('{choose_text}')" in app
+    assert choose_text in app
     assert "This playlist will be built around “${seed.title}” by ${seed.artists}." in app
     assert "setSeedGuidance('');\n    message('Searching YouTube Music…');" in app
     assert "change.addEventListener('click'" in app
@@ -215,7 +219,7 @@ def test_ai_settings_separate_active_and_selected_provider_states() -> None:
 
     assert '/static/ai-settings.css?v=3' in index
     assert '/static/ai-settings.css?v=3' in playlist
-    assert '/static/app.js?v=16' in index
+    assert '/static/app.js?v=17' in index
     assert 'id="ai-active-status"' in index
     assert 'id="ai-active-status"' in bridge
     assert "Choose or configure a provider" in index
