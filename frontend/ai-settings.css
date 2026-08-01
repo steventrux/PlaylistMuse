@@ -14,9 +14,9 @@
 .ai-active-status {
   margin: 0;
   color: #86efac;
-  font-size: .9rem;
-  font-weight: 700;
-  line-height: 1.35;
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1.4;
 }
 
 .ai-active-status:not(.ok) {
