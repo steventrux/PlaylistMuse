@@ -25,6 +25,9 @@ _COLLECTION_TERMS = (
     "compilation",
     "complete album",
 )
+MIN_TITLE_SCORE = 70.0
+MIN_ARTIST_SCORE = 75.0
+MIN_COMBINED_SCORE = 72.0
 
 
 @lru_cache(maxsize=1)
@@ -34,6 +37,13 @@ def _client() -> YTMusic:
 
 def _artist_text(result: dict[str, Any]) -> str:
     return ", ".join(str(item.get("name", "")) for item in result.get("artists", []))
+
+
+def _album_name(result: dict[str, Any]) -> str:
+    album = result.get("album") or {}
+    if isinstance(album, dict):
+        return str(album.get("name", "")).strip()
+    return str(album).strip()
 
 
 def _thumbnail(result: dict[str, Any]) -> str | None:
@@ -59,25 +69,36 @@ def _serialize_song(result: dict[str, Any]) -> dict[str, Any] | None:
     artists = _artist_text(result)
     if not video_id or not title or not artists:
         return None
-    album = result.get("album") or {}
     return {
         "video_id": video_id,
         "title": title,
         "artists": artists,
-        "album": album.get("name"),
+        "album": _album_name(result) or None,
         "duration": result.get("duration"),
         "thumbnail_url": _thumbnail(result),
         "url": f"https://music.youtube.com/watch?v={video_id}",
     }
 
 
-def _is_excluded(title: str, *, live: bool, covers: bool, remixes: bool) -> bool:
-    normalized = title.casefold()
-    if live and _LIVE_RE.search(normalized):
+def _is_excluded(
+    title: str,
+    *,
+    album: str = "",
+    artists: str = "",
+    live: bool,
+    covers: bool,
+    remixes: bool,
+) -> bool:
+    """Reject unwanted versions using all catalogue metadata, not only the title."""
+    title_and_album = f"{title} {album}".casefold()
+    normalized_artists = artists.casefold()
+    if live and _LIVE_RE.search(title_and_album):
         return True
-    if remixes and _REMIX_RE.search(normalized):
+    if remixes and _REMIX_RE.search(title_and_album):
         return True
-    if covers and _COVER_RE.search(normalized):
+    if covers and (
+        _COVER_RE.search(title_and_album) or _COVER_RE.search(normalized_artists)
+    ):
         return True
     return False
 
@@ -96,6 +117,17 @@ def _title_score(candidate_title: str, result_title: str) -> float:
     extra_tokens = max(0, len(result_tokens - candidate_tokens))
     penalty = min(28, extra_tokens * 2.5)
     return max(0.0, fuzz.token_set_ratio(candidate_title, result_title) - penalty)
+
+
+def _artist_score(candidate_artist: str, result_artists: str) -> float:
+    """Match artist spelling while still accepting punctuation and collaborator variants."""
+    candidate = _normalize_identity(candidate_artist)
+    result = _normalize_identity(result_artists)
+    if not candidate or not result:
+        return 0.0
+    token_score = fuzz.token_set_ratio(candidate, result)
+    compact_score = fuzz.ratio(candidate.replace(" ", ""), result.replace(" ", ""))
+    return max(token_score, compact_score)
 
 
 def _search_songs(query: str, limit: int) -> list[dict[str, Any]]:
@@ -123,7 +155,7 @@ async def search_songs(query: str, limit: int = 8) -> list[dict[str, Any]]:
 
 def _resolve_one(candidate: dict[str, str], exclusions: dict[str, bool]) -> dict[str, Any] | None:
     query = f"{candidate['artist']} {candidate['title']}"
-    results = _client().search(query, filter="songs", limit=8)
+    results = _client().search(query, filter="songs", limit=12)
     best: tuple[float, dict[str, Any]] | None = None
     exclude_live = exclusions.get("exclude_live", True)
     exclude_covers = exclusions.get("exclude_covers", True)
@@ -133,10 +165,13 @@ def _resolve_one(candidate: dict[str, str], exclusions: dict[str, bool]) -> dict
         video_id = result.get("videoId")
         title = str(result.get("title", ""))
         artists = _artist_text(result)
+        album = _album_name(result)
         if not video_id or not title or not artists:
             continue
         if _is_excluded(
             title,
+            album=album,
+            artists=artists,
             live=exclude_live,
             covers=exclude_covers,
             remixes=exclude_remixes,
@@ -146,12 +181,15 @@ def _resolve_one(candidate: dict[str, str], exclusions: dict[str, bool]) -> dict
             continue
 
         title_score = _title_score(candidate["title"], title)
-        artist_score = fuzz.token_set_ratio(candidate["artist"], artists)
+        artist_score = _artist_score(candidate["artist"], artists)
+        if title_score < MIN_TITLE_SCORE or artist_score < MIN_ARTIST_SCORE:
+            continue
+
         score = title_score * 0.68 + artist_score * 0.32
         if best is None or score > best[0]:
             best = (score, result)
 
-    if best is None or best[0] < 65:
+    if best is None or best[0] < MIN_COMBINED_SCORE:
         return None
 
     song = _serialize_song(best[1])
