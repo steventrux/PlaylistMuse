@@ -67,6 +67,69 @@
   let providerKeysSet = {};
   let modelRequestSequence = 0;
 
+  function ensureModelControls() {
+    const model = $('ai-model');
+    const modelLabel = model?.closest('label');
+    if (!model || !modelLabel) return;
+
+    const firstNode = modelLabel.childNodes[0];
+    if (firstNode?.nodeType === Node.TEXT_NODE) {
+      firstNode.textContent = 'Model in use\n              ';
+    }
+
+    let options = $('ai-model-options');
+    if (!options) {
+      options = document.createElement('datalist');
+      options.id = 'ai-model-options';
+      model.insertAdjacentElement('afterend', options);
+    }
+    model.setAttribute('list', options.id);
+
+    let hint = $('ai-model-hint');
+    if (!hint) {
+      hint = document.createElement('span');
+      hint.id = 'ai-model-hint';
+      hint.className = 'field-hint';
+      hint.textContent = 'Checking models available to this API…';
+      options.insertAdjacentElement('afterend', hint);
+    }
+
+    let fallback1 = $('ai-fallback-1');
+    let fallback2 = $('ai-fallback-2');
+    const fallbackRow = $('fallback-row');
+    if (fallbackRow) {
+      fallbackRow.classList.add('hidden');
+      fallbackRow.hidden = true;
+      fallbackRow.setAttribute('aria-hidden', 'true');
+    }
+    if (!fallback1) {
+      fallback1 = document.createElement('input');
+      fallback1.id = 'ai-fallback-1';
+      fallback1.type = 'hidden';
+      modelLabel.insertAdjacentElement('afterend', fallback1);
+    }
+    if (!fallback2) {
+      fallback2 = document.createElement('input');
+      fallback2.id = 'ai-fallback-2';
+      fallback2.type = 'hidden';
+      fallback1.insertAdjacentElement('afterend', fallback2);
+    }
+
+    let refresh = $('refresh-ai-models');
+    if (!refresh) {
+      const actions = document.createElement('div');
+      actions.className = 'ai-model-actions';
+      refresh = document.createElement('button');
+      refresh.id = 'refresh-ai-models';
+      refresh.type = 'button';
+      refresh.className = 'secondary compact-button';
+      refresh.textContent = 'Refresh available models';
+      actions.append(refresh);
+      const settingsFields = modelLabel.closest('.settings-fields');
+      settingsFields?.append(actions);
+    }
+  }
+
   function ensureActivateButton() {
     let button = $('activate-ai');
     if (button) return button;
@@ -215,6 +278,12 @@
     }
   }
 
+  function availableModelValues() {
+    return Array.from($('ai-model-options').options)
+      .map((option) => option.value.trim())
+      .filter(Boolean);
+  }
+
   function bestAvailableMatch(models, preferred) {
     if (!preferred) return '';
     if (models.includes(preferred)) return preferred;
@@ -316,6 +385,16 @@
     }
   }
 
+  function validateSelectedModel() {
+    const provider = $('ai-provider').value;
+    if (provider === 'custom') return;
+    const models = availableModelValues();
+    const selected = $('ai-model').value.trim();
+    if (models.length && !models.includes(selected)) {
+      throw new Error('Select a model reported as available by this API.');
+    }
+  }
+
   async function fetchProfiles() {
     const data = await readJson(await fetch('/api/ai/profiles', {cache: 'no-store'}));
     rememberProfiles(data);
@@ -354,6 +433,8 @@
     $('ai-status').textContent = 'Saving selected provider settings…';
 
     try {
+      await loadAvailableModels(provider);
+      validateSelectedModel();
       await readJson(await fetch('/api/settings', {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
@@ -457,12 +538,16 @@
     }
   }
 
+  ensureModelControls();
   $('ai-provider').addEventListener('change', () => {
     const provider = $('ai-provider').value;
     applyProviderValues(provider);
     setProviderFields();
     renderSelectedProviderStatus();
     void loadAvailableModels(provider);
+  });
+  $('ai-model').addEventListener('change', () => {
+    reconcileHiddenFallbacks($('ai-provider').value, availableModelValues());
   });
   $('refresh-ai-models').addEventListener('click', () => void loadAvailableModels());
   $('save-ai').addEventListener('click', saveSettings);
