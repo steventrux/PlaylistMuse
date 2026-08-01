@@ -42,9 +42,9 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     assert index.index(common) < index.index(
         '<script src="/static/home-status.js?v=13"></script>'
     )
-    assert index.index(common) < index.index('<script src="/static/app.js?v=14"></script>')
+    assert index.index(common) < index.index('<script src="/static/app.js?v=15"></script>')
     assert index.index('<script src="/static/home-status.js?v=13"></script>') < (
-        index.index('<script src="/static/app.js?v=14"></script>')
+        index.index('<script src="/static/app.js?v=15"></script>')
     )
 
     ai_results = '<script src="/static/ai-results-settings.js?v=2"></script>'
@@ -211,9 +211,11 @@ def test_ai_settings_separate_active_and_selected_provider_states() -> None:
     bridge = _script("ai-results-settings.js")
     ai_settings = _script("ai-settings.js")
     ai_style = _style("ai-settings.css")
+    app = _script("app.js")
 
-    assert '/static/ai-settings.css?v=1' in index
-    assert '/static/ai-settings.css?v=1' in playlist
+    assert '/static/ai-settings.css?v=2' in index
+    assert '/static/ai-settings.css?v=2' in playlist
+    assert '/static/app.js?v=15' in index
     assert 'id="ai-active-status"' in index
     assert 'id="ai-active-status"' in bridge
     assert "Choose or configure a provider" in index
@@ -225,7 +227,12 @@ def test_ai_settings_separate_active_and_selected_provider_states() -> None:
     assert "is configured and currently in use" in ai_settings
     assert "is configured and ready to activate" in ai_settings
     assert "is not configured. Save its settings" in ai_settings
+    assert "intro.classList.toggle('hidden', !onboarding && aiStep)" in app
+    assert "Configure the AI provider used to generate and refine playlists." not in app
     assert ".ai-active-summary" in ai_style
+    assert "margin: 0 0 14px" in ai_style
+    assert "padding: 0 0 12px" in ai_style
+    assert "padding-top: 14px" in ai_style
     assert "border-bottom: 1px solid var(--border)" in ai_style
 
 
