@@ -129,6 +129,7 @@ def test_prompt_generation_uses_lastfm_as_ai_context_without_fixed_quota(monkeyp
     assert diagnostics["guidance_applied"] is True
     assert diagnostics["suggestions"] == 2
     assert diagnostics["selected"] == 1
+    assert diagnostics["represented_signals"] == 1
     assert diagnostics["represented_artists"] == 1
     assert diagnostics["strategies"] == ["similar_artist", "similar_track"]
     assert diagnostics["anchors"] == [
@@ -218,6 +219,8 @@ def test_ai_can_ignore_all_lastfm_suggestions(monkeypatch) -> None:
     assert result["lastfm"]["available"] is True
     assert result["lastfm"]["suggestions"] == 1
     assert result["lastfm"]["selected"] == 0
+    assert result["lastfm"]["represented_signals"] == 0
+    assert result["lastfm"]["represented_artists"] == 0
     assert result["lastfm"]["signals"][0]["selected"] is False
     assert all(track.get("source") != "lastfm" for track in result["tracks"])
 
@@ -264,9 +267,45 @@ def test_similar_artist_signal_reports_artist_representation(monkeypatch) -> Non
     )
 
     assert result["lastfm"]["selected"] == 0
+    assert result["lastfm"]["represented_signals"] == 1
     assert result["lastfm"]["represented_artists"] == 1
     assert result["lastfm"]["signals"][0]["artist_represented"] is True
     assert "source" not in result["tracks"][0]
+
+
+def test_represented_artist_count_is_unique_across_multiple_signals() -> None:
+    candidates = [
+        {
+            "artist": "Led Zeppelin",
+            "title": "Bring It on Home",
+            "lastfm_strategy": "similar_track",
+        },
+        {
+            "artist": "Led Zeppelin",
+            "title": "What Is and What Should Never Be",
+            "lastfm_strategy": "similar_track",
+        },
+        {
+            "artist": "Steppenwolf",
+            "title": "Born to Be Wild",
+            "lastfm_strategy": "similar_track",
+        },
+    ]
+    selected_tracks = [
+        {"artists": "Led Zeppelin", "title": "Moby Dick"},
+        {"artists": "John Kay, Steppenwolf", "title": "Magic Carpet Ride"},
+    ]
+
+    diagnostics = main_module._lastfm_summary(
+        [],
+        candidates,
+        selected_tracks,
+        guidance_applied=True,
+    )
+
+    assert diagnostics["represented_signals"] == 3
+    assert diagnostics["represented_artists"] == 2
+    assert all(signal["artist_represented"] for signal in diagnostics["signals"])
 
 
 def test_seed_context_skips_prompt_anchor_discovery(monkeypatch) -> None:
@@ -328,6 +367,8 @@ def test_seed_context_skips_prompt_anchor_discovery(monkeypatch) -> None:
 
     assert calls == 2
     assert result["lastfm"]["selected"] == 1
+    assert result["lastfm"]["represented_signals"] == 1
+    assert result["lastfm"]["represented_artists"] == 1
     assert result["lastfm"]["anchors"] == [
         {
             "artist": "Seed Artist",
