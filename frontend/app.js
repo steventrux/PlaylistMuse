@@ -37,6 +37,14 @@
     return $('prompt').value.trim().replace(/\s+/g, ' ').slice(0, 1950);
   }
 
+  function updateGenerationControls() {
+    const ready = state.mode === 'prompt'
+      ? Boolean(normalizedPrompt())
+      : Boolean(state.selectedSeed);
+    $('generation-controls').classList.toggle('hidden', !ready);
+    if (!ready && state.mode === 'prompt') message('');
+  }
+
   function dispatchSetupStepEvent(step) {
     window.dispatchEvent(new Event(
       step === 'youtube'
@@ -142,6 +150,7 @@
       $('selected-seed').classList.add('hidden');
       $('seed-results').classList.remove('hidden');
       setSeedGuidance('Choose a track to use as the musical reference for the new playlist.');
+      updateGenerationControls();
       message('');
     });
 
@@ -149,6 +158,7 @@
     $('selected-seed').classList.remove('hidden');
     $('seed-results').classList.add('hidden');
     setSeedGuidance(`This playlist will be built around “${seed.title}” by ${seed.artists}.`);
+    updateGenerationControls();
     message('');
   }
 
@@ -195,6 +205,10 @@
     const query = $('seed-query').value.trim();
     if (query.length < 2) return message('Enter an artist or song title.', true);
 
+    state.selectedSeed = null;
+    $('selected-seed').classList.add('hidden');
+    updateGenerationControls();
+
     const button = $('seed-search');
     button.disabled = true;
     button.textContent = 'Searching…';
@@ -207,11 +221,6 @@
         {flattenValidationErrors: true},
       );
       const results = data.results || [];
-
-      if (results.length) {
-        state.selectedSeed = null;
-        $('selected-seed').classList.add('hidden');
-      }
 
       renderSeedResults(results);
       setSeedGuidance(
@@ -280,10 +289,12 @@
     });
     $('prompt-panel').classList.toggle('hidden', mode !== 'prompt');
     $('seed-panel').classList.toggle('hidden', mode !== 'seed');
+    updateGenerationControls();
     message('');
   }
 
   $('generate').addEventListener('click', generate);
+  $('prompt').addEventListener('input', updateGenerationControls);
   $('seed-search').addEventListener('click', searchSeed);
   $('seed-query').addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
@@ -309,5 +320,6 @@
     renderSetup();
   });
 
+  updateGenerationControls();
   void showInitialSetupIfRequired();
 })();
