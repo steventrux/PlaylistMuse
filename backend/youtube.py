@@ -163,6 +163,9 @@ def _resolve_one(candidate: dict[str, str], exclusions: dict[str, bool]) -> dict
     source = str(candidate.get("source", "")).strip()
     if source:
         song["source"] = source
+    lastfm_strategy = str(candidate.get("lastfm_strategy", "")).strip()
+    if lastfm_strategy:
+        song["lastfm_strategy"] = lastfm_strategy
     return song
 
 
