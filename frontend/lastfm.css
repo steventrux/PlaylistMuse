@@ -1,0 +1,22 @@
+/* Last.fm service indicator and settings panel. */
+
+.header-indicator .lastfm-mark {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+.header-indicator.lastfm.on {
+  border-color: rgba(251, 113, 133, .64);
+  background: linear-gradient(145deg, rgba(244, 63, 94, .22), rgba(236, 72, 153, .14));
+  color: #fda4af;
+  box-shadow: none;
+}
+
+.lastfm-settings-panel .settings-fields {
+  margin-top: 14px;
+}
+
+.lastfm-settings-help {
+  margin: 12px 0 0;
+}
