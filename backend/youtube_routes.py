@@ -7,9 +7,12 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
+from backend.ai_models import ModelDiscoveryError, discover_provider_models
 from backend.config import (
     AppConfig,
     activate_provider,
+    api_key_matches_provider,
+    api_key_slot,
     disconnect_provider,
     load_config,
     save_config,
@@ -51,6 +54,17 @@ AI_PROVIDERS: tuple[str, ...] = (
 
 class AIProviderActivation(BaseModel):
     provider: AIProviderName
+
+
+class AIModelDiscoveryRequest(BaseModel):
+    provider: AIProviderName
+    api_key: str = Field(default="", max_length=500)
+    base_url: str = Field(default="", max_length=500)
+
+    @field_validator("api_key", "base_url")
+    @classmethod
+    def trim_discovery_value(cls, value: str) -> str:
+        return value.strip()
 
 
 class YouTubeSettingsUpdate(BaseModel):
@@ -117,6 +131,34 @@ def _ai_profiles_response(config: AppConfig) -> dict:
     }
 
 
+def _model_discovery_config(request: AIModelDiscoveryRequest) -> AppConfig:
+    current = load_config()
+    provider_config = current.configuration_for(request.provider)
+    api_key = request.api_key or provider_config.api_key
+    base_url = request.base_url or provider_config.base_url
+
+    if request.api_key and not api_key_matches_provider(request.provider, request.api_key):
+        raise HTTPException(
+            status_code=400,
+            detail="This API key appears to belong to a different AI provider.",
+        )
+
+    provider_api_keys = dict(current.provider_api_keys)
+    if api_key:
+        provider_api_keys[api_key_slot(request.provider)] = api_key
+
+    return AppConfig(
+        provider=request.provider,
+        api_key=api_key,
+        model=provider_config.model,
+        fallback_1=provider_config.fallback_1,
+        fallback_2=provider_config.fallback_2,
+        base_url=base_url,
+        provider_api_keys=provider_api_keys,
+        provider_profiles=dict(current.provider_profiles),
+    )
+
+
 @router.get("/onboarding", tags=["onboarding"])
 async def get_onboarding_status() -> dict[str, bool]:
     return onboarding_status()
@@ -130,6 +172,14 @@ async def acknowledge_initial_setup() -> dict[str, bool]:
 @router.get("/ai/profiles", tags=["ai-settings"])
 async def get_ai_profiles() -> dict:
     return _ai_profiles_response(_ensure_active_ai_config(load_config()))
+
+
+@router.post("/ai/models", tags=["ai-settings"])
+async def get_available_ai_models(request: AIModelDiscoveryRequest) -> dict:
+    try:
+        return await discover_provider_models(_model_discovery_config(request))
+    except ModelDiscoveryError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @router.post("/ai/activate", tags=["ai-settings"])
