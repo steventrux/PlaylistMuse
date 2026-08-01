@@ -14,10 +14,7 @@
   }
 
   function clampTrackCount(value) {
-    const parsed = Number(value);
-    const count = Number.isFinite(parsed) && parsed > 0
-      ? parsed
-      : DEFAULT_TRACK_COUNT;
+    const count = Number(value) || DEFAULT_TRACK_COUNT;
     return Math.max(MIN_TRACK_COUNT, Math.min(MAX_TRACK_COUNT, count));
   }
 
