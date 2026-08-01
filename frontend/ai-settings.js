@@ -176,6 +176,23 @@
     }
   }
 
+  function renderActiveProviderStatus() {
+    const element = $('ai-active-status');
+    if (!element) return;
+
+    if (!activeProvider) {
+      element.textContent = 'Active AI provider: none configured.';
+      element.classList.remove('ok');
+      return;
+    }
+
+    const defaults = providerDefaults[activeProvider] || providerDefaults.custom;
+    const profile = profileFor(activeProvider);
+    const chain = modelChain(profile);
+    element.textContent = `Active AI provider: ${defaults.label}${chain ? ` · ${chain}` : ''}`;
+    element.classList.toggle('ok', profile.configured);
+  }
+
   function renderSelectedProviderStatus() {
     const provider = $('ai-provider').value;
     const defaults = providerDefaults[provider] || providerDefaults.custom;
@@ -183,19 +200,21 @@
     const activate = ensureActivateButton();
     const disconnect = ensureDisconnectButton();
 
+    renderActiveProviderStatus();
+
     activate.classList.toggle('hidden', !profile.configured || profile.active);
     activate.disabled = !profile.configured || profile.active;
     disconnect.classList.toggle('hidden', !profile.configured);
     disconnect.disabled = !profile.configured;
 
     if (profile.active) {
-      $('ai-status').textContent = `Active: ${defaults.label} · ${modelChain(profile)}`;
+      $('ai-status').textContent = `Selected provider: ${defaults.label} is configured and currently in use.`;
       $('ai-status').classList.add('ok');
     } else if (profile.configured) {
-      $('ai-status').textContent = `Configured: ${defaults.label} · select “Use this AI” to activate it.`;
+      $('ai-status').textContent = `Selected provider: ${defaults.label} is configured and ready to activate.`;
       $('ai-status').classList.add('ok');
     } else {
-      $('ai-status').textContent = `Configure ${defaults.label} to make it available.`;
+      $('ai-status').textContent = `Selected provider: ${defaults.label} is not configured. Save its settings to make it available.`;
       $('ai-status').classList.remove('ok');
     }
   }
@@ -207,7 +226,9 @@
   }
 
   async function loadSettings() {
-    $('ai-status').textContent = 'Checking AI configuration…';
+    $('ai-active-status').textContent = 'Checking active AI provider…';
+    $('ai-active-status').classList.remove('ok');
+    $('ai-status').textContent = 'Checking selected provider…';
     ensureActivateButton();
     ensureDisconnectButton();
     try {
@@ -219,7 +240,10 @@
       refreshProviderLabels();
       renderSelectedProviderStatus();
     } catch (error) {
-      $('ai-status').textContent = error.message || String(error);
+      const text = error.message || String(error);
+      $('ai-active-status').textContent = `Active AI provider could not be checked: ${text}`;
+      $('ai-active-status').classList.remove('ok');
+      $('ai-status').textContent = text;
       $('ai-status').classList.remove('ok');
     }
   }
@@ -229,7 +253,7 @@
     const provider = $('ai-provider').value;
     button.disabled = true;
     button.textContent = 'Saving…';
-    $('ai-status').textContent = 'Saving AI settings…';
+    $('ai-status').textContent = 'Saving selected provider settings…';
 
     try {
       await readJson(await fetch('/api/settings', {
