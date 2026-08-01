@@ -48,6 +48,10 @@
     return panel;
   }
 
+  function hidePanel() {
+    $('setup-lastfm-step')?.classList.add('hidden');
+  }
+
   function setStatus(text, error = false) {
     const status = $('lastfm-settings-status');
     if (!status) return;
@@ -172,4 +176,6 @@
   });
   window.PlaylistMuseOpenLastFmSettings = openSettings;
   window.addEventListener('playlistmuse-lastfm-settings-opened', () => void loadSettings());
+  window.addEventListener('playlistmuse-ai-settings-opened', hidePanel);
+  window.addEventListener('playlistmuse-youtube-settings-opened', hidePanel);
 })();
