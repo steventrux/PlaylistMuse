@@ -48,6 +48,7 @@
   function renderSetup() {
     const onboarding = state.setupMode === 'onboarding';
     const aiStep = state.setupStep === 'ai';
+    const intro = $('setup-intro');
 
     $('setup-eyebrow').textContent = onboarding
       ? 'Initial configuration'
@@ -55,11 +56,13 @@
     $('setup-title').textContent = onboarding
       ? 'Set up PlaylistMuse'
       : aiStep ? 'AI Settings' : 'YouTube Music Settings';
-    $('setup-intro').textContent = onboarding
+
+    intro.textContent = onboarding
       ? 'Configure the AI provider first, then optionally connect YouTube Music for direct playlist publishing.'
       : aiStep
-        ? 'Configure the AI provider used to generate and refine playlists.'
+        ? ''
         : 'Configure and connect the YouTube Music account used for direct publishing.';
+    intro.classList.toggle('hidden', !onboarding && aiStep);
 
     $('setup-progress').classList.toggle('hidden', !onboarding);
     $('setup-navigation').classList.toggle('hidden', !onboarding);
