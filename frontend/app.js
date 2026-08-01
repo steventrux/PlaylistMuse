@@ -8,8 +8,15 @@
     setupMode: 'single',
     setupStep: 'ai',
   };
-  const $ = (id) => document.getElementById(id);
+  const elementCache = new Map();
+  const $ = (id) => {
+    if (!elementCache.has(id)) {
+      elementCache.set(id, document.getElementById(id));
+    }
+    return elementCache.get(id);
+  };
   const {readJson, setLoadingButton} = window.PlaylistMuseCommon;
+  const generationState = window.PlaylistMuseGenerationState;
 
   function message(text = '', error = false) {
     $('status').textContent = text;
@@ -31,26 +38,45 @@
   }
 
   function trackCount() {
-    return Math.max(5, Math.min(100, Number($('track-count').value) || 25));
+    return generationState.clampTrackCount($('track-count').value);
   }
 
   function normalizedPrompt() {
-    return $('prompt').value.trim().replace(/\s+/g, ' ').slice(0, 1950);
+    return generationState.normalizePrompt($('prompt').value);
   }
 
   function updateGenerationControls() {
-    const ready = state.mode === 'prompt'
-      ? Boolean(normalizedPrompt())
-      : Boolean(state.selectedSeed);
+    const ready = generationState.isGenerationReady(
+      state.mode,
+      $('prompt').value,
+      state.selectedSeed,
+    );
     $('generation-controls').classList.toggle('hidden', !ready);
     if (!ready && state.mode === 'prompt') message('');
   }
 
   function updateSeedSearchAvailability() {
-    const disabled = state.seedSearching || !$('seed-query').value.trim();
+    const enabled = generationState.isSeedSearchEnabled(
+      $('seed-query').value,
+      state.seedSearching,
+    );
     const button = $('seed-search');
-    button.disabled = disabled;
-    button.setAttribute('aria-disabled', String(disabled));
+    button.disabled = !enabled;
+    button.setAttribute('aria-disabled', String(!enabled));
+  }
+
+  function setSeedSearching(searching) {
+    state.seedSearching = searching;
+    $('seed-search').textContent = searching ? 'Searching…' : 'Search';
+    updateSeedSearchAvailability();
+  }
+
+  function clearSelectedSeed({showResults = false, guidance = ''} = {}) {
+    state.selectedSeed = null;
+    $('selected-seed').classList.add('hidden');
+    if (showResults) $('seed-results').classList.remove('hidden');
+    setSeedGuidance(guidance);
+    updateGenerationControls();
   }
 
   function dispatchSetupStepEvent(step) {
@@ -154,11 +180,10 @@
     change.className = 'secondary compact-button';
     change.textContent = 'Change';
     change.addEventListener('click', () => {
-      state.selectedSeed = null;
-      $('selected-seed').classList.add('hidden');
-      $('seed-results').classList.remove('hidden');
-      setSeedGuidance('Choose a track to use as the musical reference for the new playlist.');
-      updateGenerationControls();
+      clearSelectedSeed({
+        showResults: true,
+        guidance: 'Choose a track to use as the musical reference for the new playlist.',
+      });
       message('');
     });
 
@@ -168,6 +193,29 @@
     setSeedGuidance(`This playlist will be built around “${seed.title}” by ${seed.artists}.`);
     updateGenerationControls();
     message('');
+  }
+
+  function createSeedResult(seed) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'seed-result';
+
+    const artwork = document.createElement('img');
+    artwork.src = seed.thumbnail_url || '';
+    artwork.alt = '';
+    artwork.loading = 'lazy';
+
+    const copy = document.createElement('span');
+    copy.className = 'seed-result-copy';
+    const title = document.createElement('strong');
+    title.textContent = seed.title;
+    const meta = document.createElement('small');
+    meta.textContent = [seed.artists, seed.album, seed.duration].filter(Boolean).join(' · ');
+    copy.append(title, meta);
+
+    button.append(artwork, copy);
+    button.addEventListener('click', () => selectSeed(seed));
+    return button;
   }
 
   function renderSeedResults(results) {
@@ -183,44 +231,20 @@
       return;
     }
 
-    results.forEach((seed) => {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'seed-result';
-
-      const artwork = document.createElement('img');
-      artwork.src = seed.thumbnail_url || '';
-      artwork.alt = '';
-      artwork.loading = 'lazy';
-
-      const copy = document.createElement('span');
-      copy.className = 'seed-result-copy';
-      const title = document.createElement('strong');
-      title.textContent = seed.title;
-      const meta = document.createElement('small');
-      meta.textContent = [seed.artists, seed.album, seed.duration].filter(Boolean).join(' · ');
-      copy.append(title, meta);
-
-      button.append(artwork, copy);
-      button.addEventListener('click', () => selectSeed(seed));
-      container.append(button);
-    });
-
+    const fragment = document.createDocumentFragment();
+    results.forEach((seed) => fragment.append(createSeedResult(seed)));
+    container.append(fragment);
     container.classList.remove('hidden');
   }
 
   async function searchSeed() {
+    if (state.seedSearching) return;
+
     const query = $('seed-query').value.trim();
     if (query.length < 2) return message('Enter an artist or song title.', true);
 
-    state.selectedSeed = null;
-    $('selected-seed').classList.add('hidden');
-    updateGenerationControls();
-
-    const button = $('seed-search');
-    state.seedSearching = true;
-    updateSeedSearchAvailability();
-    button.textContent = 'Searching…';
+    clearSelectedSeed();
+    setSeedSearching(true);
     setSeedGuidance('');
     message('Searching YouTube Music…');
 
@@ -242,9 +266,7 @@
       setSeedGuidance('');
       message(error.message || String(error), true);
     } finally {
-      state.seedSearching = false;
-      updateSeedSearchAvailability();
-      button.textContent = 'Search';
+      setSeedSearching(false);
     }
   }
 
@@ -259,11 +281,11 @@
       const prompt = normalizedPrompt();
       if (!prompt) return message('Describe the playlist you want.', true);
       endpoint = '/api/playlists/generate';
-      request = { prompt, track_count: trackCount(), options: options() };
+      request = {prompt, track_count: trackCount(), options: options()};
     } else {
       if (!state.selectedSeed) return message('Search for and select a seed track first.', true);
       endpoint = '/api/playlists/generate-from-seed';
-      request = { seed: state.selectedSeed, track_count: trackCount(), options: options() };
+      request = {seed: state.selectedSeed, track_count: trackCount(), options: options()};
     }
 
     const resetGeneratingButton = setLoadingButton(button, {
@@ -283,7 +305,10 @@
         {flattenValidationErrors: true},
       );
       sessionStorage.setItem('playlistmuse-generated-playlist', JSON.stringify(data));
-      sessionStorage.setItem('playlistmuse-generation-request', JSON.stringify({mode: state.mode, ...request}));
+      sessionStorage.setItem('playlistmuse-generation-request', JSON.stringify({
+        mode: state.mode,
+        ...request,
+      }));
       window.location.assign('/static/playlist.html');
     } catch (error) {
       resetGeneratingButton();
@@ -310,7 +335,7 @@
   $('seed-query').addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
       event.preventDefault();
-      searchSeed();
+      void searchSeed();
     }
   });
 
