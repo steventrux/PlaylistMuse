@@ -58,6 +58,10 @@ def _is_openai_chat_model(model: str) -> bool:
         "embedding",
         "moderation",
         "whisper",
+        "codex",
+        "computer-use",
+        "search",
+        "-pro",
     )
     return lowered.startswith(prefixes) and not any(term in lowered for term in excluded)
 
@@ -73,8 +77,23 @@ def _is_gemini_text_model(model: str) -> bool:
         "robotics",
         "veo",
         "nano-banana",
+        "deep-research",
+        "computer-use",
     )
     return lowered.startswith("gemini-") and not any(term in lowered for term in excluded)
+
+
+def _is_ollama_chat_model(model: str) -> bool:
+    lowered = model.casefold()
+    excluded = (
+        "embed",
+        "embedding",
+        "nomic-bert",
+        "all-minilm",
+        "bge-",
+        "clip",
+    )
+    return not any(term in lowered for term in excluded)
 
 
 def _sort_models(models: list[str], current_model: str = "") -> list[str]:
@@ -158,7 +177,11 @@ async def _openai_models(client: httpx.AsyncClient, config: AppConfig) -> list[s
         provider_label="OpenAI",
         headers={"authorization": f"Bearer {config.api_key}"},
     )
-    return [model for model in _openai_compatible_ids(payload) if _is_openai_chat_model(model)]
+    return [
+        model
+        for model in _openai_compatible_ids(payload)
+        if _is_openai_chat_model(model)
+    ]
 
 
 async def _anthropic_models(client: httpx.AsyncClient, config: AppConfig) -> list[str]:
@@ -173,7 +196,11 @@ async def _anthropic_models(client: httpx.AsyncClient, config: AppConfig) -> lis
         },
         params={"limit": 1000},
     )
-    return [model for model in _openai_compatible_ids(payload) if model.startswith("claude-")]
+    return [
+        model
+        for model in _openai_compatible_ids(payload)
+        if model.startswith("claude-")
+    ]
 
 
 async def _ollama_models(client: httpx.AsyncClient, config: AppConfig) -> list[str]:
@@ -190,9 +217,13 @@ async def _ollama_models(client: httpx.AsyncClient, config: AppConfig) -> list[s
         return []
     return _unique(
         [
-            str(item.get("model") or item.get("name") or "").strip()
+            model
             for item in raw_models
             if isinstance(item, dict)
+            for model in [
+                str(item.get("model") or item.get("name") or "").strip()
+            ]
+            if model and _is_ollama_chat_model(model)
         ]
     )
 
