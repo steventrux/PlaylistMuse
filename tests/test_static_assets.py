@@ -42,9 +42,9 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     assert index.index(common) < index.index(
         '<script src="/static/home-status.js?v=13"></script>'
     )
-    assert index.index(common) < index.index('<script src="/static/app.js?v=13"></script>')
+    assert index.index(common) < index.index('<script src="/static/app.js?v=14"></script>')
     assert index.index('<script src="/static/home-status.js?v=13"></script>') < (
-        index.index('<script src="/static/app.js?v=13"></script>')
+        index.index('<script src="/static/app.js?v=14"></script>')
     )
 
     ai_results = '<script src="/static/ai-results-settings.js?v=1"></script>'
@@ -132,6 +132,23 @@ def test_seed_search_first_hover_has_top_clearance() -> None:
     assert ".seed-results" in layout
     assert "padding-top: 2px" in layout
     assert "scroll-padding-top: 2px" in layout
+
+
+def test_seed_guidance_follows_search_and_selection() -> None:
+    index = _html("index.html")
+    app = _script("app.js")
+    choose_text = (
+        "Choose a track to use as the musical reference for the new playlist."
+    )
+
+    assert '<p id="seed-guidance" class="hint hidden" aria-live="polite"></p>' in index
+    assert choose_text not in index
+    assert "function setSeedGuidance(text = '')" in app
+    assert "guidance.classList.toggle('hidden', !text)" in app
+    assert f"setSeedGuidance('{choose_text}')" in app
+    assert "This playlist will be built around “${seed.title}” by ${seed.artists}." in app
+    assert "setSeedGuidance('');\n    message('Searching YouTube Music…');" in app
+    assert "change.addEventListener('click'" in app
 
 
 def test_header_indicators_show_active_provider_without_neon() -> None:
