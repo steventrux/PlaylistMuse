@@ -74,6 +74,10 @@
   min-height: 34px;
 }
 
+.settings-fields:has(#ai-model[readonly]) .ai-model-actions {
+  display: none;
+}
+
 @media (max-width: 600px) {
   .ai-provider-selection-heading {
     flex-direction: column;
