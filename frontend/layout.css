@@ -5,6 +5,12 @@
   max-width: none;
 }
 
+/* Keep the first lifted search result inside its scroll container. */
+.seed-results {
+  padding-top: 2px;
+  scroll-padding-top: 2px;
+}
+
 .app-header > div:first-child {
   min-width: 0;
 }
