@@ -79,6 +79,19 @@
     return button;
   }
 
+  function ensureDisconnectButton() {
+    let button = $('disconnect-ai');
+    if (button) return button;
+    button = document.createElement('button');
+    button.id = 'disconnect-ai';
+    button.type = 'button';
+    button.className = 'secondary hidden';
+    button.textContent = 'Disconnect';
+    ensureActivateButton().insertAdjacentElement('afterend', button);
+    button.addEventListener('click', disconnectSelectedProvider);
+    return button;
+  }
+
   function profileFor(provider) {
     const defaults = providerDefaults[provider] || providerDefaults.custom;
     const saved = providerProfiles[provider] || {};
@@ -113,7 +126,7 @@
     Array.from($('ai-provider').options).forEach((option) => {
       const defaults = providerDefaults[option.value] || providerDefaults.custom;
       const profile = profileFor(option.value);
-      const marker = profile.active ? '● ' : profile.configured ? '✓ ' : '';
+      const marker = profile.active ? '✓ ' : profile.configured ? '● ' : '';
       option.textContent = `${marker}${defaults.label}`;
     });
   }
@@ -154,8 +167,8 @@
         : 'Optional when the custom endpoint does not require authentication.';
     } else if (openRouter) {
       $('api-key-hint').textContent = keyStored
-        ? 'OpenRouter key saved. The same key is shared by Auto and Free.'
-        : 'One OpenRouter API key is shared by the Auto and Free modes.';
+        ? 'OpenRouter key saved. Auto and Free are both available.'
+        : 'One OpenRouter API key configures both Auto and Free modes.';
     } else {
       $('api-key-hint').textContent = keyStored
         ? 'API key already saved. Leave blank to keep it.'
@@ -168,9 +181,12 @@
     const defaults = providerDefaults[provider] || providerDefaults.custom;
     const profile = profileFor(provider);
     const activate = ensureActivateButton();
+    const disconnect = ensureDisconnectButton();
 
     activate.classList.toggle('hidden', !profile.configured || profile.active);
     activate.disabled = !profile.configured || profile.active;
+    disconnect.classList.toggle('hidden', !profile.configured);
+    disconnect.disabled = !profile.configured;
 
     if (profile.active) {
       $('ai-status').textContent = `Active: ${defaults.label} · ${modelChain(profile)}`;
@@ -193,6 +209,7 @@
   async function loadSettings() {
     $('ai-status').textContent = 'Checking AI configuration…';
     ensureActivateButton();
+    ensureDisconnectButton();
     try {
       const data = await fetchProfiles();
       const selected = data.active_provider || $('ai-provider').value || 'gemini';
@@ -258,6 +275,9 @@
         body: JSON.stringify({provider}),
       }));
       rememberProfiles(data);
+      $('ai-provider').value = provider;
+      applyProviderValues(provider);
+      setProviderFields();
       refreshProviderLabels();
       renderSelectedProviderStatus();
       window.dispatchEvent(new Event('playlistmuse-status-changed'));
@@ -266,7 +286,48 @@
       $('ai-status').classList.remove('ok');
     } finally {
       button.textContent = 'Use this AI';
-      button.disabled = false;
+      renderSelectedProviderStatus();
+    }
+  }
+
+  async function disconnectSelectedProvider() {
+    const provider = $('ai-provider').value;
+    const defaults = providerDefaults[provider] || providerDefaults.custom;
+    const wasActive = profileFor(provider).active;
+    const linkedOpenRouter = provider === 'openrouter_auto' || provider === 'openrouter_free';
+    const scope = linkedOpenRouter
+      ? 'OpenRouter Auto and OpenRouter Free'
+      : defaults.label;
+
+    if (!window.confirm(`Disconnect ${scope}? Saved credentials and model settings will be removed.`)) {
+      return;
+    }
+
+    const button = ensureDisconnectButton();
+    button.disabled = true;
+    button.textContent = 'Disconnecting…';
+    $('ai-status').textContent = `Disconnecting ${scope}…`;
+
+    try {
+      const data = await readJson(await fetch(
+        `/api/ai/providers/${encodeURIComponent(provider)}`,
+        {method: 'DELETE'},
+      ));
+      rememberProfiles(data);
+      const selected = wasActive && data.active_provider
+        ? data.active_provider
+        : provider;
+      $('ai-provider').value = selected;
+      applyProviderValues(selected);
+      setProviderFields();
+      refreshProviderLabels();
+      renderSelectedProviderStatus();
+      window.dispatchEvent(new Event('playlistmuse-status-changed'));
+    } catch (error) {
+      $('ai-status').textContent = error.message || String(error);
+      $('ai-status').classList.remove('ok');
+    } finally {
+      button.textContent = 'Disconnect';
       renderSelectedProviderStatus();
     }
   }
