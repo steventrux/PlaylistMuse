@@ -17,11 +17,10 @@
 
   <p>
     <a href="#features"><strong>Features</strong></a> ·
+    <a href="#how-it-works"><strong>How it works</strong></a> ·
     <a href="#quick-start"><strong>Quick start</strong></a> ·
     <a href="#ai-providers"><strong>AI providers</strong></a> ·
-    <a href="#youtube-music-publishing"><strong>YouTube Music</strong></a> ·
-    <a href="#api"><strong>API</strong></a> ·
-    <a href="#development"><strong>Development</strong></a>
+    <a href="#youtube-music-publishing"><strong>YouTube Music</strong></a>
   </p>
 </div>
 
@@ -29,53 +28,45 @@
 
 ## What is PlaylistMuse?
 
-PlaylistMuse is a standalone, self-hosted web application for creating playlists with AI while keeping the final result grounded in the YouTube Music catalogue.
+PlaylistMuse is a self-hosted web application that turns a written idea or a reference song into a complete YouTube Music playlist.
 
-Start from a written prompt or choose a song as the musical reference. PlaylistMuse asks the selected AI provider for candidates, resolves them against YouTube Music, filters unwanted versions and replenishes missing tracks until the requested playlist is complete.
+Describe a mood, genre, era, activity or sound, or start from an existing track. PlaylistMuse asks the selected AI provider for suitable songs, resolves every suggestion against the YouTube Music catalogue and removes unwanted duplicates, live recordings, covers or remixes according to your preferences.
 
-The generated playlist remains editable before publication: review track details, replace individual songs, adjust title and description, choose visibility and send the final sequence directly to YouTube Music.
+The result remains fully editable before publication. Review track details, replace individual songs, change the title and description, choose playlist visibility and publish the final sequence directly to YouTube Music.
 
 ## Features
 
 | Create | Refine | Publish |
 | --- | --- | --- |
-| Natural-language prompts | Expandable track details | Google OAuth device authorization |
-| Seed-song generation | AI-assisted track replacement | Private, unlisted or public playlists |
-| 5–100 requested tracks | Live, cover and remix filters | Direct YouTube Music publishing |
-| Multiple AI providers | Catalogue resolution and replenishment | Locally generated cover mosaic |
+| Natural-language prompts | Expandable track details | Direct YouTube Music publishing |
+| Seed-song generation | Individual track replacement | Private, unlisted or public playlists |
+| 5–100 requested tracks | Live, cover and remix filters | Google OAuth device authorization |
+| Multiple AI providers | Duplicate prevention and replenishment | Locally generated cover mosaic |
 
 Additional highlights:
 
-- Provider-specific model discovery based on the configured API or account
-- Google Gemini, OpenAI, Anthropic, OpenRouter, Ollama and compatible endpoints
-- Persistent profiles for multiple AI providers with instant switching
+- Google Gemini, OpenAI, Anthropic, OpenRouter, Ollama and OpenAI-compatible endpoints
+- Automatic model discovery based on the configured provider
+- Multiple AI provider profiles with quick switching
 - OpenRouter Auto and Free routing modes
-- Fuzzy YouTube Music matching with duplicate prevention
-- Four-tile playlist artwork generated entirely in the browser
-- Responsive interface with no frontend framework dependency
-- Docker-based self-hosting with persistent application data
+- Fuzzy catalogue matching against real YouTube Music tracks
+- Four-tile playlist artwork generated locally in the browser
+- Responsive interface built with semantic HTML, modern CSS and vanilla JavaScript
+- Docker-based deployment with persistent application data
 
 ## How it works
 
-PlaylistMuse turns an idea into a publishable playlist in six clear stages:
+1. **Start with an idea or a song.**  
+   Write a prompt or select a YouTube Music track as the musical reference.
 
-1. **Start with a prompt or a seed song.**  
-   Describe a mood, genre, era, activity or sound in natural language, or choose an existing YouTube Music track as the musical reference.
+2. **Generate and resolve the playlist.**  
+   The active AI provider proposes songs, then PlaylistMuse matches them to real catalogue entries with title, artist, album, duration and artwork.
 
-2. **Generate candidate tracks with AI.**  
-   The active AI provider interprets the request and proposes songs that fit the intended direction.
+3. **Clean and refine the result.**  
+   Duplicates and excluded versions are removed, missing positions are replenished and individual tracks can be replaced without regenerating the whole playlist.
 
-3. **Resolve every candidate against YouTube Music.**  
-   PlaylistMuse searches the catalogue and matches each suggestion to a real track with its title, artist, album, duration and thumbnail.
-
-4. **Clean and complete the playlist.**  
-   Duplicate tracks and excluded live, cover or remix versions are removed. Missing positions are replenished until the requested track count is reached.
-
-5. **Review and refine the result.**  
-   Inspect track details, edit the playlist title and description, or replace individual songs without regenerating the entire playlist.
-
-6. **Publish when it is ready.**  
-   Choose Private, Unlisted or Public visibility and create the final playlist directly in the connected YouTube Music account.
+4. **Publish to YouTube Music.**  
+   Edit the title and description, choose the visibility and create the playlist in the connected account.
 
 ## Quick start
 
@@ -97,46 +88,33 @@ Open **http://localhost:5780**.
 
 On first launch, the onboarding flow guides you through configuring the AI provider and YouTube Music.
 
-To stop the application:
+Application settings, provider credentials and YouTube authorization data are stored in the persistent `./data` directory, which is excluded from Git.
+
+To stop PlaylistMuse:
 
 ```bash
 docker compose down
 ```
 
-Application settings, provider credentials and YouTube authorization data are stored in the persistent `./data` directory, which is excluded from Git.
-
-## First-run setup
-
-1. Open PlaylistMuse in the browser.
-2. Select an AI provider.
-3. Enter the provider API key, or the Ollama/compatible server URL when applicable.
-4. Refresh and select one of the models reported as available by that provider.
-5. Save the provider and make it active.
-6. Optionally connect YouTube Music for direct publishing.
-
-Provider credentials and model settings are managed from the web interface. Multiple providers can be configured and switched without editing application files.
-
 ## AI providers
 
 | Provider | Model selection | Notes |
 | --- | --- | --- |
-| Google Gemini | Models reported by the Gemini API | Availability can depend on the API key and Google project |
-| OpenAI | Compatible models reported for the account | Non-chat models are excluded from the selector |
-| Anthropic | Claude models reported by the API | Availability follows account access |
-| OpenRouter Auto | Fixed `openrouter/auto` router | OpenRouter chooses the model automatically |
-| OpenRouter Free | Fixed `openrouter/free` router | Uses OpenRouter's free routing pool |
+| Google Gemini | Models available to the configured API key | Availability can depend on the Google project |
+| OpenAI | Compatible models available to the account | Non-chat models are excluded |
+| Anthropic | Claude models available to the account | Availability follows account access |
+| OpenRouter Auto | `openrouter/auto` | OpenRouter selects the model automatically |
+| OpenRouter Free | `openrouter/free` | Uses OpenRouter's free routing pool |
 | Ollama | Models installed on the configured server | Embedding-only models are excluded |
-| Compatible endpoint | Models reported by an OpenAI-compatible `/models` endpoint | Manual model identifiers remain supported |
+| Compatible endpoint | Models reported by an OpenAI-compatible `/models` endpoint | Manual model identifiers are supported |
 
-The interface displays only the selected primary model. Internal fallback models remain available to the generation pipeline but are intentionally not exposed in the normal settings view.
+Provider credentials and model settings are managed from the web interface. Configured providers can be switched without editing application files.
 
 ## YouTube Music publishing
 
-Direct publishing is optional. Playlist generation and editing work without connecting a YouTube account.
+Connecting YouTube Music is optional. Playlist generation, editing and track replacement work without it.
 
-Each PlaylistMuse instance connects to a single YouTube Music account. All published playlists are created in that account.
-
-To enable publishing:
+To enable direct publishing:
 
 1. Create or select a project in Google Cloud Console.
 2. Enable **YouTube Data API v3**.
@@ -146,80 +124,37 @@ To enable publishing:
 6. Save the OAuth client ID and secret.
 7. Select **Connect account** and complete Google's device authorization flow.
 
-After connection, the results page can create the edited playlist with **Private**, **Unlisted** or **Public** visibility in that account.
+After connection, PlaylistMuse can create **Private**, **Unlisted** or **Public** playlists directly in the connected YouTube Music account.
 
-The OAuth client configuration and refreshable account token are stored in the persistent data directory with restricted file permissions. Saved secrets are never returned to the browser.
+OAuth credentials and the refreshable account token are stored in the persistent data directory with restricted file permissions. Saved secrets are never returned to the browser.
 
-## Playlist artwork
+## Self-hosting
 
-PlaylistMuse creates a four-tile cover from thumbnails already present in the resolved playlist. Representative tracks are selected from the beginning, middle sections and end of the sequence so the artwork reflects the complete playlist rather than only its opening songs.
+PlaylistMuse is designed for personal self-hosting on a server, NAS or VPS.
 
-Duplicate and blank thumbnails are replaced with other available images. The mosaic is rendered locally in the browser and refreshes immediately after a track replacement.
+Recommended practices:
 
-## Self-hosted deployment
-
-PlaylistMuse is designed as a single-user, self-hosted application. It is not intended to be exposed as a public service.
-
-The installation uses one saved AI-provider configuration and connects to a single YouTube Music account.
-
-Recommended deployment practices:
-
-- Run the application on a personal server, NAS or VPS and limit access to the local network, a VPN or another trusted private network.
-- Do not expose the container port directly to the public Internet.
-- For remote access, place the application behind a reverse proxy with HTTPS and an external authentication or access-control layer.
+- Keep access limited to the local network, a VPN or another trusted private network.
+- For remote access, use a reverse proxy with HTTPS and an authentication layer.
 - Back up the persistent `data` directory.
-- Never commit the data directory, OAuth credentials, provider keys or tokens.
+- Never commit provider keys, OAuth credentials, tokens or application data.
 - Keep the container and dependencies updated.
 
-The container listens on port `5780` and exposes `GET /api/health` for local health monitoring.
+The container listens on port `5780` and exposes `GET /api/health` for health monitoring.
 
-## API
+## Technology
 
-PlaylistMuse exposes a FastAPI application API for the browser interface and optional integrations.
-
-When the application is running locally, FastAPI generates these runtime pages automatically:
-
-- Swagger UI: **http://localhost:5780/docs**
-- ReDoc: **http://localhost:5780/redoc**
-- OpenAPI schema: **http://localhost:5780/openapi.json**
-
-`/docs` is an HTTP route generated at runtime, not a `docs` directory in the repository.
+- **Backend:** Python 3.12, FastAPI, Uvicorn and HTTPX
+- **AI integration:** provider-specific REST APIs and OpenAI-compatible endpoints
+- **Music catalogue:** `ytmusicapi`
+- **Frontend:** semantic HTML, modern CSS and vanilla JavaScript
+- **Deployment:** Docker and Docker Compose
+- **Quality:** Pytest, Ruff and Node's built-in test runner
 
 <details>
-<summary><strong>Core endpoints</strong></summary>
+<summary><strong>Development and testing</strong></summary>
 
-### System and configuration
-
-- `GET /api/health`
-- `GET /api/settings`
-- `PUT /api/settings`
-- `GET /api/ai/profiles`
-- `POST /api/ai/models`
-- `POST /api/ai/activate`
-- `DELETE /api/ai/providers/{provider}`
-
-### Playlist creation
-
-- `GET /api/seeds/search`
-- `POST /api/playlists/generate`
-- `POST /api/playlists/generate-from-seed`
-- `POST /api/playlists/replace-track`
-
-### YouTube Music
-
-- `GET /api/youtube/settings`
-- `PUT /api/youtube/settings`
-- `GET /api/youtube/status`
-- `POST /api/youtube/connect/start`
-- `POST /api/youtube/connect/poll`
-- `DELETE /api/youtube/connection`
-- `POST /api/youtube/playlists`
-
-</details>
-
-## Development
-
-### Backend
+### Local backend
 
 ```bash
 python -m venv .venv
@@ -228,9 +163,7 @@ python -m pip install -r requirements.txt -r requirements-dev.txt
 uvicorn backend.main:app --reload --port 5780
 ```
 
-Open **http://localhost:5780** and complete provider setup from the browser.
-
-### Tests
+### Test suite
 
 ```bash
 python -m compileall -q backend tests
@@ -242,22 +175,11 @@ find tests -maxdepth 1 -name "*.cjs" -print0 | xargs -0 -n1 node --check
 node --test tests/*.cjs
 ```
 
-The GitHub Actions workflow runs Python validation, JavaScript validation and a container health smoke test on pushes and pull requests.
-
-## Technology
-
-- **Backend:** Python 3.12, FastAPI, Uvicorn, HTTPX
-- **AI integration:** provider-specific REST APIs and OpenAI-compatible endpoints
-- **Music catalogue:** `ytmusicapi`
-- **Frontend:** semantic HTML, modern CSS and vanilla JavaScript
-- **Deployment:** Docker and Docker Compose
-- **Quality:** Pytest, Ruff and Node's built-in test runner
+</details>
 
 ## Contributing
 
 Issues and pull requests are welcome. Keep changes focused, preserve the self-hosted architecture and include regression tests for behavior changes.
-
-Before opening a pull request, run the complete Python and JavaScript test suites shown above.
 
 ## Disclaimer
 
