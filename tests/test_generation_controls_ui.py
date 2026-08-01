@@ -38,17 +38,19 @@ def test_generation_controls_start_hidden_and_keep_status_outside() -> None:
 
 
 def test_prompt_and_seed_control_generation_visibility() -> None:
+    html = (FRONTEND / "index.html").read_text(encoding="utf-8")
     script = (FRONTEND / "app.js").read_text(encoding="utf-8")
 
+    assert '/static/generation-state.js?v=1' in html
+    assert '/static/app.js?v=17' in html
+    assert "const generationState = window.PlaylistMuseGenerationState" in script
     assert "function updateGenerationControls()" in script
-    assert "state.mode === 'prompt'" in script
-    assert "Boolean(normalizedPrompt())" in script
-    assert "Boolean(state.selectedSeed)" in script
+    assert "generationState.isGenerationReady(" in script
     assert "$('generation-controls').classList.toggle('hidden', !ready)" in script
     assert "$('prompt').addEventListener('input', updateGenerationControls)" in script
     assert "state.selectedSeed = seed;" in script
-    assert "state.selectedSeed = null;" in script
-    assert script.count("updateGenerationControls();") >= 5
+    assert "function clearSelectedSeed(" in script
+    assert script.count("updateGenerationControls();") >= 4
     assert "updateGenerationControls();\n  void showInitialSetupIfRequired();" in script
 
 
@@ -62,9 +64,27 @@ def test_seed_search_is_disabled_while_empty_or_searching() -> None:
     ) in html
     assert "seedSearching: false" in script
     assert "function updateSeedSearchAvailability()" in script
-    assert "state.seedSearching || !$('seed-query').value.trim()" in script
-    assert "button.setAttribute('aria-disabled', String(disabled))" in script
+    assert "generationState.isSeedSearchEnabled(" in script
+    assert "button.setAttribute('aria-disabled', String(!enabled))" in script
     assert "$('seed-query').addEventListener('input', updateSeedSearchAvailability)" in script
-    assert "state.seedSearching = true" in script
-    assert "state.seedSearching = false" in script
-    assert script.count("updateSeedSearchAvailability();") >= 3
+    assert "function setSeedSearching(searching)" in script
+    assert "if (state.seedSearching) return;" in script
+    assert "setSeedSearching(true);" in script
+    assert "setSeedSearching(false);" in script
+
+
+def test_seed_results_are_built_in_one_dom_update() -> None:
+    script = (FRONTEND / "app.js").read_text(encoding="utf-8")
+
+    assert "function createSeedResult(seed)" in script
+    assert "const fragment = document.createDocumentFragment();" in script
+    assert "results.forEach((seed) => fragment.append(createSeedResult(seed)))" in script
+    assert "container.append(fragment)" in script
+
+
+def test_repeated_dom_lookups_are_cached() -> None:
+    script = (FRONTEND / "app.js").read_text(encoding="utf-8")
+
+    assert "const elementCache = new Map();" in script
+    assert "if (!elementCache.has(id))" in script
+    assert "elementCache.set(id, document.getElementById(id))" in script
