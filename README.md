@@ -61,15 +61,25 @@ Additional highlights:
 
 ## How it works
 
-```mermaid
-flowchart LR
-    A[Prompt or seed song] --> B[Selected AI provider]
-    B --> C[Candidate tracks]
-    C --> D[YouTube Music resolution]
-    D --> E[Filters and replenishment]
-    E --> F[Editable playlist]
-    F --> G[YouTube Music publishing]
-```
+PlaylistMuse turns an idea into a publishable playlist in six clear stages:
+
+1. **Start with a prompt or a seed song.**  
+   Describe a mood, genre, era, activity or sound in natural language, or choose an existing YouTube Music track as the musical reference.
+
+2. **Generate candidate tracks with AI.**  
+   The active AI provider interprets the request and proposes songs that fit the intended direction.
+
+3. **Resolve every candidate against YouTube Music.**  
+   PlaylistMuse searches the catalogue and matches each suggestion to a real track with its title, artist, album, duration and thumbnail.
+
+4. **Clean and complete the playlist.**  
+   Duplicate tracks and excluded live, cover or remix versions are removed. Missing positions are replenished until the requested track count is reached.
+
+5. **Review and refine the result.**  
+   Inspect track details, edit the playlist title and description, or replace individual songs without regenerating the entire playlist.
+
+6. **Publish when it is ready.**  
+   Choose Private, Unlisted or Public visibility and create the final playlist directly in the connected YouTube Music account.
 
 ## Quick start
 
