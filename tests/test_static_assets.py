@@ -46,6 +46,16 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     assert index.index('<script src="/static/home-status.js?v=13"></script>') < (
         index.index('<script src="/static/app.js?v=13"></script>')
     )
+
+    ai_results = '<script src="/static/ai-results-settings.js?v=1"></script>'
+    ai_settings = '<script src="/static/ai-settings.js?v=11"></script>'
+    home_status = (
+        '<script data-playlistmuse-footer-status '
+        'src="/static/home-status.js?v=13"></script>'
+    )
+    assert playlist.index(common) < playlist.index(ai_results)
+    assert playlist.index(ai_results) < playlist.index(ai_settings)
+    assert playlist.index(ai_settings) < playlist.index(home_status)
     assert playlist.index(common) < playlist.index(
         '<script src="/static/playlist.js?v=18"></script>'
     )
@@ -151,7 +161,7 @@ def test_header_indicators_show_active_provider_without_neon() -> None:
     assert "#ff0000" not in layout.lower()
 
 
-def test_ai_settings_can_manage_activate_and_disconnect_profiles() -> None:
+def test_ai_settings_can_manage_and_activate_multiple_profiles() -> None:
     ai_settings = _script("ai-settings.js")
 
     assert "/api/ai/profiles" in ai_settings
@@ -160,19 +170,33 @@ def test_ai_settings_can_manage_activate_and_disconnect_profiles() -> None:
     assert "providerProfiles" in ai_settings
     assert "activeProvider" in ai_settings
     assert "Use this AI" in ai_settings
-    assert "activateSelectedProvider" in ai_settings
     assert "Disconnect" in ai_settings
+    assert "activateSelectedProvider" in ai_settings
     assert "disconnectSelectedProvider" in ai_settings
     assert "profile.active ? '✓ ' : profile.configured ? '● ' : ''" in ai_settings
-    assert "Auto and Free are both available" in ai_settings
     assert "playlistmuse-status-changed" in ai_settings
 
 
-def test_results_page_exposes_only_youtube_settings() -> None:
+def test_results_page_opens_ai_settings_without_losing_playlist() -> None:
+    playlist = _html("playlist.html")
+    bridge = _script("ai-results-settings.js")
+
+    assert 'id="youtube-settings-dialog"' in playlist
+    assert '/static/ai-results-settings.js?v=1' in playlist
+    assert '/static/ai-settings.js?v=11' in playlist
+    assert "ai-settings-dialog" in bridge
+    assert "#header-ai-status" in bridge
+    assert "dialog.showModal()" in bridge
+    assert "event.stopImmediatePropagation()" in bridge
+    assert "playlistmuse-ai-settings-opened" in bridge
+    assert "window.location" not in bridge
+    assert "sessionStorage.removeItem" not in bridge
+    assert "playlistmuse-generated-playlist" not in bridge
+
+
+def test_results_page_exposes_youtube_settings() -> None:
     playlist = _html("playlist.html")
     youtube_publish = _script("youtube-publish.js")
 
     assert 'id="youtube-settings-dialog"' in playlist
-    assert 'id="ai-settings-dialog"' not in playlist
-    assert 'id="setup-dialog"' not in playlist
     assert "playlistmuse-youtube-settings-opened" in youtube_publish
