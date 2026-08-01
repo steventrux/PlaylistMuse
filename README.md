@@ -95,7 +95,7 @@ docker compose up -d --build
 
 Open **http://localhost:5780**.
 
-No AI credentials need to be added to configuration files. On the first visit, the browser setup guides you through selecting a provider, entering its API key or server URL and choosing an available model.
+On first launch, the onboarding flow guides you through configuring the AI provider and YouTube Music.
 
 To stop the application:
 
