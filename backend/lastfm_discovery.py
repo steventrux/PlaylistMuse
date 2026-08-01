@@ -18,6 +18,7 @@ LOGGER = logging.getLogger(__name__)
 MAX_CONTEXT_SIGNALS = 60
 MAX_PROMPT_ANCHORS = 3
 MAX_SIMILAR_ARTISTS = 12
+ARTIST_SIGNAL_TITLE = "Choose a suitable track by this artist"
 
 
 def _normalize(value: str) -> str:
@@ -63,7 +64,7 @@ def _artist_signal(artist: str, *, match: str = "") -> dict[str, str] | None:
         return None
     return {
         "artist": normalized_artist,
-        "title": "",
+        "title": ARTIST_SIGNAL_TITLE,
         "source": "lastfm",
         "lastfm_strategy": "similar_artist",
         "lastfm_match": str(match or "").strip(),
@@ -155,7 +156,7 @@ def _parse_similar_artists(
     if not isinstance(raw_artists, list):
         return []
 
-    seed_key = _key(seed_artist)
+    seed_artist_key = _normalize(seed_artist)
     signals: list[dict[str, str]] = []
     for item in raw_artists:
         if not isinstance(item, dict):
@@ -164,9 +165,9 @@ def _parse_similar_artists(
             str(item.get("name", "")),
             match=str(item.get("match", "")),
         )
-        if signal and _key(signal["artist"]) != seed_key:
+        if signal and _normalize(signal["artist"]) != seed_artist_key:
             signals.append(signal)
-    return _deduplicate(signals, excluded={seed_key}, limit=MAX_SIMILAR_ARTISTS)
+    return _deduplicate(signals, limit=MAX_SIMILAR_ARTISTS)
 
 
 async def discover_for_seed(
