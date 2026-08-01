@@ -160,6 +160,9 @@ def _resolve_one(candidate: dict[str, str], exclusions: dict[str, bool]) -> dict
     song["match_score"] = round(best[0], 1)
     song["description"] = candidate.get("description", "")
     song["reason"] = candidate.get("reason", "")
+    source = str(candidate.get("source", "")).strip()
+    if source:
+        song["source"] = source
     return song
 
 
