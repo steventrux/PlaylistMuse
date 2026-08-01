@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Literal
 
@@ -17,6 +18,7 @@ from backend.config import (
     load_config,
     save_config,
 )
+from backend.lastfm import similar_track_candidates
 from backend.llm import generate_playlist_draft, safe_error_message
 from backend.youtube import resolve_candidates, search_songs, track_identity_key
 from backend.youtube_routes import router as youtube_router
@@ -39,6 +41,11 @@ OPENROUTER_MODELS = {
 }
 MAX_REPLENISHMENT_ROUNDS = 6
 MAX_STALLED_ROUNDS = 2
+
+_SEED_RECOMMENDATIONS: ContextVar[tuple[dict[str, str], ...]] = ContextVar(
+    "playlistmuse_seed_recommendations",
+    default=(),
+)
 
 app = FastAPI(
     title="PlaylistMuse",
@@ -158,6 +165,40 @@ def _candidate_key(candidate: dict) -> str:
     )
 
 
+def _blend_candidates(
+    primary: list[dict[str, str]],
+    supplemental: list[dict[str, str]],
+    count: int,
+) -> list[dict[str, str]]:
+    """Blend a bounded Last.fm sample into the AI pool without replacing it."""
+    combined_primary = list(primary)
+    seen = {_candidate_key(candidate) for candidate in combined_primary}
+    seen.discard("")
+    quota = min(len(supplemental), max(1, min(12, count // 5)))
+    extras: list[dict[str, str]] = []
+    for candidate in supplemental:
+        key = _candidate_key(candidate)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        extras.append(candidate)
+        if len(extras) >= quota:
+            break
+
+    if not extras:
+        return combined_primary
+    if not combined_primary:
+        return extras
+
+    blended = list(combined_primary)
+    spacing = max(1, len(combined_primary) // (len(extras) + 1))
+    offset = spacing
+    for candidate in extras:
+        blended.insert(min(offset, len(blended)), candidate)
+        offset += spacing + 1
+    return blended
+
+
 def _replenishment_prompt(
     original_prompt: str,
     playlist_title: str,
@@ -195,17 +236,22 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     config = load_config()
     draft = await generate_playlist_draft(config, prompt, count)
     exclusions = options.model_dump()
-    tracks, unresolved = await resolve_candidates(draft["tracks"], exclusions)
+    initial_candidates = _blend_candidates(
+        draft["tracks"],
+        list(_SEED_RECOMMENDATIONS.get()),
+        count,
+    )
+    tracks, unresolved = await resolve_candidates(initial_candidates, exclusions)
 
-    attempted_candidates = list(draft["tracks"])
+    attempted_candidates = list(initial_candidates)
     attempted_keys = {_candidate_key(candidate) for candidate in attempted_candidates}
     resolved_keys = {
         track_identity_key(track.get("title", ""), track.get("artists", ""))
         for track in tracks
     }
     resolved_ids = {track.get("video_id") for track in tracks if track.get("video_id")}
-    stalled_rounds = 0
 
+    stalled_rounds = 0
     for _ in range(MAX_REPLENISHMENT_ROUNDS):
         missing = count - len(tracks)
         if missing <= 0:
@@ -365,6 +411,12 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
         f"{seed.artists}. Match its style, mood, energy and musical character while "
         "including varied compatible artists."
     )
+    lastfm_candidates = await similar_track_candidates(
+        seed.artists,
+        seed.title,
+        limit=min(60, max(20, request.track_count * 2)),
+    )
+    context_token = _SEED_RECOMMENDATIONS.set(tuple(lastfm_candidates))
     try:
         result = await _generate(prompt, request.track_count, request.options)
     except ValueError as error:
@@ -374,6 +426,8 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
             status_code=502,
             detail="Playlist generation failed. Please try again.",
         ) from error
+    finally:
+        _SEED_RECOMMENDATIONS.reset(context_token)
 
     seed_payload = seed.model_dump()
     seed_key = track_identity_key(seed.title, seed.artists)
