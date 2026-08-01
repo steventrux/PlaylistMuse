@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
@@ -12,7 +13,10 @@ OPENROUTER_FIXED_MODELS = {
     "openrouter_auto": "openrouter/auto",
     "openrouter_free": "openrouter/free",
 }
+PROVIDERS_WITH_OPTIONAL_KEYS = {"ollama", "custom"}
 MODEL_DISCOVERY_TIMEOUT = 15.0
+
+ModelLoader = Callable[[httpx.AsyncClient, AppConfig], Awaitable[list[str]]]
 
 
 class ModelDiscoveryError(ValueError):
@@ -246,6 +250,15 @@ async def _custom_models(client: httpx.AsyncClient, config: AppConfig) -> list[s
     return _openai_compatible_ids(payload)
 
 
+MODEL_LOADERS: dict[str, ModelLoader] = {
+    "gemini": _gemini_models,
+    "openai": _openai_models,
+    "anthropic": _anthropic_models,
+    "ollama": _ollama_models,
+    "custom": _custom_models,
+}
+
+
 async def discover_provider_models(config: AppConfig) -> dict[str, Any]:
     """Return models visible to this provider configuration.
 
@@ -264,25 +277,21 @@ async def discover_provider_models(config: AppConfig) -> dict[str, Any]:
             "source": "provider_router",
         }
 
-    if config.provider not in {"ollama", "custom"} and not config.api_key.strip():
+    loader = MODEL_LOADERS.get(config.provider)
+    if loader is None:
+        raise ModelDiscoveryError("Unknown AI provider.")
+
+    if (
+        config.provider not in PROVIDERS_WITH_OPTIONAL_KEYS
+        and not config.api_key.strip()
+    ):
         raise ModelDiscoveryError("Save or enter an API key to load available models.")
 
     async with httpx.AsyncClient(
         timeout=MODEL_DISCOVERY_TIMEOUT,
         follow_redirects=True,
     ) as client:
-        if config.provider == "gemini":
-            models = await _gemini_models(client, config)
-        elif config.provider == "openai":
-            models = await _openai_models(client, config)
-        elif config.provider == "anthropic":
-            models = await _anthropic_models(client, config)
-        elif config.provider == "ollama":
-            models = await _ollama_models(client, config)
-        elif config.provider == "custom":
-            models = await _custom_models(client, config)
-        else:
-            raise ModelDiscoveryError("Unknown AI provider.")
+        models = await loader(client, config)
 
     models = _sort_models(models, config.model)
     if not models:
