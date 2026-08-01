@@ -6,17 +6,17 @@
   const providerDefaults = {
     gemini: {
       label: 'Google Gemini',
-      primary: 'gemini-3.6-flash',
-      fallback1: 'gemini-3.5-flash',
-      fallback2: 'gemini-3.5-flash-lite',
+      primary: 'gemini-3.5-flash',
+      fallback1: 'gemini-3.1-flash-lite',
+      fallback2: 'gemini-flash-latest',
       help: 'Create or manage a Gemini API key',
       href: 'https://aistudio.google.com/app/apikey',
     },
     openai: {
       label: 'OpenAI',
       primary: 'gpt-5-mini',
-      fallback1: 'gpt-4.1-mini',
-      fallback2: 'gpt-4.1-nano',
+      fallback1: 'gpt-5-nano',
+      fallback2: 'gpt-4.1-mini',
       help: 'Create or manage an OpenAI API key',
       href: 'https://platform.openai.com/api-keys',
     },
@@ -65,6 +65,7 @@
   let activeProvider = '';
   let providerProfiles = {};
   let providerKeysSet = {};
+  let modelRequestSequence = 0;
 
   function ensureActivateButton() {
     let button = $('activate-ai');
@@ -105,12 +106,6 @@
     };
   }
 
-  function modelChain(profile) {
-    return [profile.model, profile.fallback_1, profile.fallback_2]
-      .filter(Boolean)
-      .join(' → ');
-  }
-
   function rememberProfiles(data) {
     activeProvider = data.active_provider || '';
     providerProfiles = data.profiles || {};
@@ -139,6 +134,8 @@
     $('ai-fallback-2').value = profile.fallback_2 || '';
     $('ai-base-url').value = profile.base_url || '';
     $('ai-key').value = '';
+    $('ai-model-options').replaceChildren();
+    $('ai-model-hint').textContent = 'Checking models available to this API…';
   }
 
   function setProviderFields() {
@@ -151,9 +148,9 @@
 
     $('api-key-field').classList.toggle('hidden', local);
     $('base-url-field').classList.toggle('hidden', !(local || custom));
-    $('fallback-row').classList.toggle('hidden', openRouter);
     $('ai-model').readOnly = openRouter;
     $('ai-model').setAttribute('aria-readonly', String(openRouter));
+    $('refresh-ai-models').disabled = false;
     $('provider-help-link').textContent = defaults.help;
     $('provider-help-link').href = defaults.href;
 
@@ -188,8 +185,7 @@
 
     const defaults = providerDefaults[activeProvider] || providerDefaults.custom;
     const profile = profileFor(activeProvider);
-    const chain = modelChain(profile);
-    element.textContent = `Active AI provider: ${defaults.label}${chain ? ` · ${chain}` : ''}`;
+    element.textContent = `Active AI provider: ${defaults.label}${profile.model ? ` · ${profile.model}` : ''}`;
     element.classList.toggle('ok', profile.configured);
   }
 
@@ -219,6 +215,107 @@
     }
   }
 
+  function bestAvailableMatch(models, preferred) {
+    if (!preferred) return '';
+    if (models.includes(preferred)) return preferred;
+    const versioned = models
+      .filter((model) => model.startsWith(`${preferred}-`))
+      .sort()
+      .reverse();
+    return versioned[0] || '';
+  }
+
+  function reconcileHiddenFallbacks(provider, models) {
+    const primary = $('ai-model').value.trim();
+    if (provider === 'openrouter_auto' || provider === 'openrouter_free') {
+      $('ai-fallback-1').value = '';
+      $('ai-fallback-2').value = '';
+      return;
+    }
+
+    const defaults = providerDefaults[provider] || providerDefaults.custom;
+    const profile = profileFor(provider);
+    const preferred = [
+      profile.fallback_1,
+      profile.fallback_2,
+      defaults.fallback1,
+      defaults.fallback2,
+    ];
+    const chosen = [];
+
+    preferred.forEach((candidate) => {
+      const match = bestAvailableMatch(models, candidate);
+      if (match && match !== primary && !chosen.includes(match)) chosen.push(match);
+    });
+
+    if (provider === 'ollama' || provider === 'custom') {
+      models.forEach((model) => {
+        if (model !== primary && !chosen.includes(model) && chosen.length < 2) {
+          chosen.push(model);
+        }
+      });
+    }
+
+    $('ai-fallback-1').value = chosen[0] || '';
+    $('ai-fallback-2').value = chosen[1] || '';
+  }
+
+  function renderAvailableModels(data) {
+    const models = Array.isArray(data.models) ? data.models.filter(Boolean) : [];
+    const options = $('ai-model-options');
+    const current = $('ai-model').value.trim();
+    options.replaceChildren();
+
+    models.forEach((model) => {
+      const option = document.createElement('option');
+      option.value = model;
+      options.append(option);
+    });
+
+    if (data.fixed && models[0]) {
+      $('ai-model').value = models[0];
+      $('ai-model').readOnly = true;
+      $('ai-model-hint').textContent = 'This OpenRouter mode uses a fixed automatic router.';
+    } else if (current && !models.includes(current)) {
+      $('ai-model-hint').textContent = `${models.length} models reported by this API. The saved model is not currently listed.`;
+    } else {
+      $('ai-model-hint').textContent = `${models.length} compatible models reported by this API.`;
+    }
+
+    reconcileHiddenFallbacks($('ai-provider').value, models);
+  }
+
+  async function loadAvailableModels(provider = $('ai-provider').value) {
+    const requestSequence = ++modelRequestSequence;
+    const refreshButton = $('refresh-ai-models');
+    refreshButton.disabled = true;
+    refreshButton.textContent = 'Checking…';
+    $('ai-model-hint').textContent = 'Checking models available to this API…';
+
+    try {
+      const data = await readJson(await fetch('/api/ai/models', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          provider,
+          api_key: $('ai-key').value.trim(),
+          base_url: $('ai-base-url').value.trim(),
+        }),
+      }));
+      if (requestSequence !== modelRequestSequence || provider !== $('ai-provider').value) return;
+      renderAvailableModels(data);
+    } catch (error) {
+      if (requestSequence !== modelRequestSequence || provider !== $('ai-provider').value) return;
+      $('ai-model-options').replaceChildren();
+      $('ai-model-hint').textContent = error.message || String(error);
+    } finally {
+      if (requestSequence === modelRequestSequence) {
+        refreshButton.disabled = false;
+        refreshButton.textContent = 'Refresh available models';
+      }
+    }
+  }
+
   async function fetchProfiles() {
     const data = await readJson(await fetch('/api/ai/profiles', {cache: 'no-store'}));
     rememberProfiles(data);
@@ -239,6 +336,7 @@
       setProviderFields();
       refreshProviderLabels();
       renderSelectedProviderStatus();
+      await loadAvailableModels(selected);
     } catch (error) {
       const text = error.message || String(error);
       $('ai-active-status').textContent = `Active AI provider could not be checked: ${text}`;
@@ -275,6 +373,7 @@
       setProviderFields();
       refreshProviderLabels();
       renderSelectedProviderStatus();
+      await loadAvailableModels(provider);
       window.dispatchEvent(new Event('playlistmuse-status-changed'));
     } catch (error) {
       $('ai-status').textContent = error.message || String(error);
@@ -304,6 +403,7 @@
       setProviderFields();
       refreshProviderLabels();
       renderSelectedProviderStatus();
+      await loadAvailableModels(provider);
       window.dispatchEvent(new Event('playlistmuse-status-changed'));
     } catch (error) {
       $('ai-status').textContent = error.message || String(error);
@@ -346,6 +446,7 @@
       setProviderFields();
       refreshProviderLabels();
       renderSelectedProviderStatus();
+      await loadAvailableModels(selected);
       window.dispatchEvent(new Event('playlistmuse-status-changed'));
     } catch (error) {
       $('ai-status').textContent = error.message || String(error);
@@ -357,10 +458,13 @@
   }
 
   $('ai-provider').addEventListener('change', () => {
-    applyProviderValues($('ai-provider').value);
+    const provider = $('ai-provider').value;
+    applyProviderValues(provider);
     setProviderFields();
     renderSelectedProviderStatus();
+    void loadAvailableModels(provider);
   });
+  $('refresh-ai-models').addEventListener('click', () => void loadAvailableModels());
   $('save-ai').addEventListener('click', saveSettings);
   window.addEventListener('playlistmuse-ai-settings-opened', loadSettings);
 })();
