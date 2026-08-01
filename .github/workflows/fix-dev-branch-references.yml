@@ -1,0 +1,47 @@
+name: Fix dev branch references
+
+on:
+  push:
+    branches:
+      - dev
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Update branch references
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          readme = Path('README.md')
+          text = readme.read_text(encoding='utf-8')
+          text = text.replace('branch%3Atest', 'branch%3Amain')
+          text = text.replace('branch=test', 'branch=main')
+          readme.write_text(text, encoding='utf-8')
+
+          workflow = Path('.github/workflows/ci.yml')
+          text = workflow.read_text(encoding='utf-8')
+          text = text.replace('      - test\n', '      - dev\n')
+          workflow.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Commit changes and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/fix-dev-branch-references.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md .github/workflows/ci.yml .github/workflows/fix-dev-branch-references.yml
+          git commit -m 'chore: replace test branch references with dev'
+          git push origin dev
