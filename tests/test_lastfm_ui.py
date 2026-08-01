@@ -29,6 +29,15 @@ def test_lastfm_header_indicator_matches_existing_status_behavior() -> None:
     assert ".header-indicator.lastfm.on" in stylesheet
 
 
+def test_lastfm_indicator_uses_the_official_brand_mark_and_red() -> None:
+    script = (FRONTEND / "lastfm-status.js").read_text(encoding="utf-8")
+    stylesheet = (FRONTEND / "lastfm.css").read_text(encoding="utf-8")
+
+    assert 'class="lastfm-mark" viewBox="0 0 512 512"' in script
+    assert "M225.8 367.1l-18.8-51" in script
+    assert "color: #d51007" in stylesheet
+
+
 def test_lastfm_settings_panel_saves_without_exposing_the_key() -> None:
     script = (FRONTEND / "lastfm-settings.js").read_text(encoding="utf-8")
 
