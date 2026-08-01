@@ -4,6 +4,7 @@
   const state = {
     mode: 'prompt',
     selectedSeed: null,
+    seedSearching: false,
     setupMode: 'single',
     setupStep: 'ai',
   };
@@ -43,6 +44,13 @@
       : Boolean(state.selectedSeed);
     $('generation-controls').classList.toggle('hidden', !ready);
     if (!ready && state.mode === 'prompt') message('');
+  }
+
+  function updateSeedSearchAvailability() {
+    const disabled = state.seedSearching || !$('seed-query').value.trim();
+    const button = $('seed-search');
+    button.disabled = disabled;
+    button.setAttribute('aria-disabled', String(disabled));
   }
 
   function dispatchSetupStepEvent(step) {
@@ -210,7 +218,8 @@
     updateGenerationControls();
 
     const button = $('seed-search');
-    button.disabled = true;
+    state.seedSearching = true;
+    updateSeedSearchAvailability();
     button.textContent = 'Searching…';
     setSeedGuidance('');
     message('Searching YouTube Music…');
@@ -233,7 +242,8 @@
       setSeedGuidance('');
       message(error.message || String(error), true);
     } finally {
-      button.disabled = false;
+      state.seedSearching = false;
+      updateSeedSearchAvailability();
       button.textContent = 'Search';
     }
   }
@@ -296,6 +306,7 @@
   $('generate').addEventListener('click', generate);
   $('prompt').addEventListener('input', updateGenerationControls);
   $('seed-search').addEventListener('click', searchSeed);
+  $('seed-query').addEventListener('input', updateSeedSearchAvailability);
   $('seed-query').addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
       event.preventDefault();
@@ -320,6 +331,7 @@
     renderSetup();
   });
 
+  updateSeedSearchAvailability();
   updateGenerationControls();
   void showInitialSetupIfRequired();
 })();
