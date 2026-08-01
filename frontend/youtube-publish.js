@@ -85,7 +85,7 @@
     $('youtube-publish-warning-text').textContent = message;
   }
 
-  function showControls(accountLabel, alreadyPublished) {
+  function showControls(alreadyPublished) {
     const controls = $('youtube-publish-controls');
     setPublishState('ready');
     setStatus('');
@@ -93,7 +93,6 @@
     controls.classList.remove('is-success');
     $('youtube-publish-warning').classList.add('hidden');
     controls.classList.remove('hidden');
-    $('youtube-publish-account').textContent = accountLabel;
 
     const button = $('create-youtube-playlist');
     button.disabled = alreadyPublished;
@@ -175,10 +174,7 @@
     try {
       const status = await readJson(await fetch('/api/youtube/status'));
       if (status.account_connected) {
-        const accountLabel = status.account_name
-          ? `Connected as ${status.account_name}`
-          : 'YouTube Music account connected';
-        showControls(accountLabel, false);
+        showControls(false);
       } else if (status.credentials_configured) {
         showUnavailable('Connect your Google account before publishing this playlist.');
       } else {
@@ -241,6 +237,9 @@
 
       playlist.youtube_playlist = result;
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify(playlist));
+      window.dispatchEvent(new CustomEvent('playlistmuse-playlist-published', {
+        detail: result,
+      }));
       renderPublishedResult(result);
     } catch (error) {
       resetButton();
