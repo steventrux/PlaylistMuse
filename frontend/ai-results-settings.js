@@ -66,4 +66,15 @@
   document.getElementById('close-ai-settings').addEventListener('click', () => {
     dialog.close();
   });
+
+  document.addEventListener('click', (event) => {
+    const indicator = event.target.closest?.('#header-ai-status');
+    if (!indicator) return;
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+
+    if (!dialog.open) dialog.showModal();
+    window.dispatchEvent(new Event('playlistmuse-ai-settings-opened'));
+  }, true);
 })();
