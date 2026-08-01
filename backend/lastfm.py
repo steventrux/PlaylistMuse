@@ -10,6 +10,8 @@ from typing import Any, Callable
 
 import httpx
 
+from backend.lastfm_settings import lastfm_api_key
+
 API_ROOT = "https://ws.audioscrobbler.com/2.0/"
 DEFAULT_TIMEOUT_SECONDS = 4.0
 DEFAULT_CACHE_TTL_SECONDS = 6 * 60 * 60
@@ -21,8 +23,8 @@ LOGGER = logging.getLogger(__name__)
 _CACHE: dict[tuple[str, str, str, int], tuple[float, list[dict[str, str]]]] = {}
 
 
-def _environment_api_key() -> str:
-    return os.getenv("PLAYLISTMUSE_LASTFM_API_KEY", "").strip()
+def _configured_api_key() -> str:
+    return lastfm_api_key()
 
 
 def _environment_timeout() -> float:
@@ -117,7 +119,7 @@ async def similar_track_candidates(
     """Return similar tracks, or an empty list when enrichment is unavailable."""
     seed_artist = " ".join(str(artist).split())
     seed_title = " ".join(str(track).split())
-    key = (api_key if api_key is not None else _environment_api_key()).strip()
+    key = (api_key if api_key is not None else _configured_api_key()).strip()
     if not key or not seed_artist or not seed_title:
         return []
 
