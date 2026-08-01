@@ -134,6 +134,8 @@ The interface displays only the selected primary model. Internal fallback models
 
 Direct publishing is optional. Playlist generation and editing work without connecting a YouTube account.
 
+Each PlaylistMuse instance supports **one connected YouTube Music account at a time**. Every playlist published by anyone using that installation is created in the same connected account; separate application users cannot connect or select individual YouTube accounts.
+
 To enable publishing:
 
 1. Create or select a project in Google Cloud Console.
@@ -144,7 +146,7 @@ To enable publishing:
 6. Save the OAuth client ID and secret.
 7. Select **Connect account** and complete Google's device authorization flow.
 
-After connection, the results page can create the edited playlist with **Private**, **Unlisted** or **Public** visibility.
+After connection, the results page can create the edited playlist with **Private**, **Unlisted** or **Public** visibility in that account.
 
 The OAuth client configuration and refreshable account token are stored in the persistent data directory with restricted file permissions. Saved secrets are never returned to the browser.
 
@@ -158,7 +160,7 @@ Duplicate and blank thumbnails are replaced with other available images. The mos
 
 PlaylistMuse is designed as a single-instance, self-hosted application for one person or a small group of trusted users sharing the same installation. It is not designed to operate as a public multi-user service.
 
-PlaylistMuse does not provide application user accounts, roles, per-user data isolation or multi-tenant separation. Anyone who can access the instance can potentially use the same saved AI-provider credentials and the same connected YouTube Music account.
+The main architectural constraint is that an installation connects to a **single YouTube Music account**. All users who can access the instance publish playlists to that same account and use the same saved AI-provider configuration. PlaylistMuse does not provide application user accounts, roles, per-user credentials, per-user data isolation or multi-tenant separation.
 
 Recommended deployment practices:
 
