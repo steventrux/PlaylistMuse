@@ -15,8 +15,9 @@ from backend.lastfm import API_ROOT, USER_AGENT, _environment_timeout
 from backend.lastfm_settings import lastfm_api_key
 
 LOGGER = logging.getLogger(__name__)
-MAX_CONTEXT_TRACKS = 60
+MAX_CONTEXT_SIGNALS = 60
 MAX_PROMPT_ANCHORS = 3
+MAX_SIMILAR_ARTISTS = 12
 
 
 def _normalize(value: str) -> str:
@@ -27,7 +28,7 @@ def _normalize(value: str) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", without_marks))
 
 
-def _key(artist: str, title: str) -> tuple[str, str]:
+def _key(artist: str, title: str = "") -> tuple[str, str]:
     return (_normalize(artist), _normalize(title))
 
 
@@ -37,11 +38,10 @@ def _artist_name(value: Any) -> str:
     return str(value or "").strip()
 
 
-def _candidate(
+def _track_signal(
     artist: str,
     title: str,
     *,
-    strategy: str,
     match: str = "",
 ) -> dict[str, str] | None:
     normalized_artist = " ".join(str(artist).split())
@@ -52,26 +52,39 @@ def _candidate(
         "artist": normalized_artist,
         "title": normalized_title,
         "source": "lastfm",
-        "lastfm_strategy": strategy,
+        "lastfm_strategy": "similar_track",
+        "lastfm_match": str(match or "").strip(),
+    }
+
+
+def _artist_signal(artist: str, *, match: str = "") -> dict[str, str] | None:
+    normalized_artist = " ".join(str(artist).split())
+    if not normalized_artist:
+        return None
+    return {
+        "artist": normalized_artist,
+        "title": "",
+        "source": "lastfm",
+        "lastfm_strategy": "similar_artist",
         "lastfm_match": str(match or "").strip(),
     }
 
 
 def _deduplicate(
-    candidates: list[dict[str, str]],
+    signals: list[dict[str, str]],
     *,
     excluded: set[tuple[str, str]] | None = None,
-    limit: int = MAX_CONTEXT_TRACKS,
+    limit: int = MAX_CONTEXT_SIGNALS,
 ) -> list[dict[str, str]]:
     unique: list[dict[str, str]] = []
     seen = set(excluded or set())
-    for candidate in candidates:
-        identity = _key(candidate.get("artist", ""), candidate.get("title", ""))
-        if not all(identity) or identity in seen:
+    for signal in signals:
+        identity = _key(signal.get("artist", ""), signal.get("title", ""))
+        if not identity[0] or identity in seen:
             continue
         seen.add(identity)
-        unique.append(candidate)
-        if len(unique) >= max(1, min(MAX_CONTEXT_TRACKS, limit)):
+        unique.append(signal)
+        if len(unique) >= max(1, min(MAX_CONTEXT_SIGNALS, limit)):
             break
     return unique
 
@@ -118,67 +131,42 @@ def _parse_similar_tracks(
         return []
 
     seed_key = _key(seed_artist, seed_title)
-    candidates: list[dict[str, str]] = []
+    signals: list[dict[str, str]] = []
     for item in raw_tracks:
         if not isinstance(item, dict):
             continue
-        candidate = _candidate(
+        signal = _track_signal(
             _artist_name(item.get("artist")),
             str(item.get("name", "")),
-            strategy="similar_track",
             match=str(item.get("match", "")),
         )
-        if candidate and _key(candidate["artist"], candidate["title"]) != seed_key:
-            candidates.append(candidate)
-    return _deduplicate(candidates, excluded={seed_key})
+        if signal and _key(signal["artist"], signal["title"]) != seed_key:
+            signals.append(signal)
+    return _deduplicate(signals, excluded={seed_key})
 
 
-def _parse_similar_artists(payload: dict[str, Any]) -> list[tuple[str, str]]:
+def _parse_similar_artists(
+    payload: dict[str, Any],
+    seed_artist: str,
+) -> list[dict[str, str]]:
     raw_artists = payload.get("similarartists", {}).get("artist", [])
     if isinstance(raw_artists, dict):
         raw_artists = [raw_artists]
     if not isinstance(raw_artists, list):
         return []
 
-    artists: list[tuple[str, str]] = []
-    seen: set[str] = set()
+    seed_key = _key(seed_artist)
+    signals: list[dict[str, str]] = []
     for item in raw_artists:
         if not isinstance(item, dict):
             continue
-        name = str(item.get("name", "")).strip()
-        normalized = _normalize(name)
-        if not normalized or normalized in seen:
-            continue
-        seen.add(normalized)
-        artists.append((name, str(item.get("match", "")).strip()))
-    return artists
-
-
-def _parse_top_tracks(
-    payload: dict[str, Any],
-    fallback_artist: str,
-    artist_match: str,
-    per_artist: int,
-) -> list[dict[str, str]]:
-    raw_tracks = payload.get("toptracks", {}).get("track", [])
-    if isinstance(raw_tracks, dict):
-        raw_tracks = [raw_tracks]
-    if not isinstance(raw_tracks, list):
-        return []
-
-    candidates: list[dict[str, str]] = []
-    for item in raw_tracks[: max(1, per_artist)]:
-        if not isinstance(item, dict):
-            continue
-        candidate = _candidate(
-            _artist_name(item.get("artist")) or fallback_artist,
+        signal = _artist_signal(
             str(item.get("name", "")),
-            strategy="similar_artist",
-            match=artist_match,
+            match=str(item.get("match", "")),
         )
-        if candidate:
-            candidates.append(candidate)
-    return candidates
+        if signal and _key(signal["artist"]) != seed_key:
+            signals.append(signal)
+    return _deduplicate(signals, excluded={seed_key}, limit=MAX_SIMILAR_ARTISTS)
 
 
 async def discover_for_seed(
@@ -189,11 +177,11 @@ async def discover_for_seed(
     api_key: str | None = None,
     client: httpx.AsyncClient | None = None,
 ) -> list[dict[str, str]]:
-    """Return collaborative track evidence, falling back to similar artists."""
+    """Return track evidence, falling back to related-artist signals for the AI."""
     seed_artist = " ".join(str(artist).split())
     seed_title = " ".join(str(title).split())
     key = (api_key if api_key is not None else lastfm_api_key()).strip()
-    normalized_limit = max(1, min(MAX_CONTEXT_TRACKS, int(limit)))
+    normalized_limit = max(1, min(MAX_CONTEXT_SIGNALS, int(limit)))
     if not key or not seed_artist or not seed_title:
         return []
 
@@ -220,40 +208,9 @@ async def discover_for_seed(
             key,
             "artist.getsimilar",
             artist=seed_artist,
-            limit=str(min(10, max(4, math.ceil(normalized_limit / 2)))),
+            limit=str(min(MAX_SIMILAR_ARTISTS, normalized_limit)),
         )
-        similar_artists = _parse_similar_artists(artist_payload)
-        if not similar_artists:
-            return []
-
-        per_artist = 2
-        artist_limit = min(len(similar_artists), math.ceil(normalized_limit / per_artist))
-
-        async def top_tracks(name: str, match: str) -> list[dict[str, str]]:
-            payload = await _request(
-                active_client,
-                key,
-                "artist.gettoptracks",
-                artist=name,
-                limit=str(per_artist),
-            )
-            return _parse_top_tracks(payload, name, match, per_artist)
-
-        groups = await asyncio.gather(
-            *(top_tracks(name, match) for name, match in similar_artists[:artist_limit]),
-            return_exceptions=True,
-        )
-        fallback: list[dict[str, str]] = []
-        for group in groups:
-            if isinstance(group, Exception):
-                LOGGER.info("Last.fm similar-artist top tracks unavailable: %s", group)
-                continue
-            fallback.extend(group)
-        return _deduplicate(
-            fallback,
-            excluded={_key(seed_artist, seed_title)},
-            limit=normalized_limit,
-        )
+        return _parse_similar_artists(artist_payload, seed_artist)[:normalized_limit]
     except (httpx.HTTPError, ValueError, TypeError) as error:
         LOGGER.info("Last.fm discovery unavailable: %s", error)
         return []
@@ -270,7 +227,7 @@ async def discover_from_anchors(
 ) -> list[dict[str, str]]:
     """Use AI first-pass songs as Last.fm anchors for free-text prompts."""
     key = lastfm_api_key().strip()
-    normalized_limit = max(1, min(MAX_CONTEXT_TRACKS, int(limit)))
+    normalized_limit = max(1, min(MAX_CONTEXT_SIGNALS, int(limit)))
     if not key:
         return []
 
@@ -308,11 +265,11 @@ async def discover_from_anchors(
             return_exceptions=True,
         )
 
-    candidates: list[dict[str, str]] = []
+    signals: list[dict[str, str]] = []
     excluded = {_key(anchor["artist"], anchor["title"]) for anchor in selected}
     for group in groups:
         if isinstance(group, Exception):
             LOGGER.info("Last.fm prompt-anchor discovery unavailable: %s", group)
             continue
-        candidates.extend(group)
-    return _deduplicate(candidates, excluded=excluded, limit=normalized_limit)
+        signals.extend(group)
+    return _deduplicate(signals, excluded=excluded, limit=normalized_limit)
