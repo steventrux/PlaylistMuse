@@ -50,3 +50,21 @@ def test_prompt_and_seed_control_generation_visibility() -> None:
     assert "state.selectedSeed = null;" in script
     assert script.count("updateGenerationControls();") >= 6
     assert "updateGenerationControls();\n  void showInitialSetupIfRequired();" in script
+
+
+def test_seed_search_is_disabled_while_empty_or_searching() -> None:
+    html = (FRONTEND / "index.html").read_text(encoding="utf-8")
+    script = (FRONTEND / "app.js").read_text(encoding="utf-8")
+
+    assert (
+        'id="seed-search" class="secondary" type="button" disabled '
+        'aria-disabled="true"'
+    ) in html
+    assert "seedSearching: false" in script
+    assert "function updateSeedSearchAvailability()" in script
+    assert "state.seedSearching || !$('seed-query').value.trim()" in script
+    assert "button.setAttribute('aria-disabled', String(disabled))" in script
+    assert "$('seed-query').addEventListener('input', updateSeedSearchAvailability)" in script
+    assert "state.seedSearching = true" in script
+    assert "state.seedSearching = false" in script
+    assert script.count("updateSeedSearchAvailability();") >= 4
