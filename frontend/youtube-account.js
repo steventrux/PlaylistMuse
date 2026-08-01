@@ -23,32 +23,64 @@
 
   function renderProfile(status) {
     const profile = $('youtube-account-profile');
-    const connected = Boolean(status.account_connected);
-    profile.classList.toggle('hidden', !connected);
-    if (!connected) return;
-
     const photo = $('youtube-account-photo');
-    const photoUrl = status.account_photo_url || '';
+    const name = $('youtube-account-name');
+    const handle = $('youtube-account-handle');
+    const connected = Boolean(status.account_connected);
+    const photoUrl = String(status.account_photo_url || '').trim();
+    const accountName = String(status.account_name || '').trim();
+    const accountHandle = String(status.channel_handle || '').trim();
+    const hasAccountDetails = Boolean(accountName || accountHandle);
+
+    // Previous placeholders are intentionally not rendered as account details:
+    // status.account_name || 'Connected YouTube Music account'
+    // status.channel_handle || 'Google account details unavailable'
+    profile.classList.toggle('hidden', !connected || !hasAccountDetails);
+
+    if (!connected || !hasAccountDetails) {
+      photo.removeAttribute('src');
+      photo.classList.add('hidden');
+      profile.classList.remove('no-photo');
+      name.textContent = '';
+      name.removeAttribute('title');
+      handle.textContent = '';
+      handle.removeAttribute('title');
+      handle.classList.add('hidden');
+      return;
+    }
+
     photo.src = photoUrl;
     photo.classList.toggle('hidden', !photoUrl);
-    $('youtube-account-name').textContent = status.account_name || 'Connected account';
-    $('youtube-account-handle').textContent = status.channel_handle || 'YouTube Music';
+    profile.classList.toggle('no-photo', !photoUrl);
+
+    const displayedName = accountName || accountHandle;
+    const displayedHandle = accountName ? accountHandle : '';
+
+    name.textContent = displayedName;
+    name.title = displayedName;
+    handle.textContent = displayedHandle;
+    handle.title = displayedHandle;
+    handle.classList.toggle('hidden', !displayedHandle);
   }
 
   function renderStatus(status) {
     const connected = Boolean(status.account_connected);
     const credentialsConfigured = Boolean(status.credentials_configured);
+    const connect = $('connect');
+    const disconnect = $('disconnect');
 
     renderProfile(status);
-    $('connect').disabled = !credentialsConfigured || connected;
-    $('disconnect').disabled = !connected;
+    connect.disabled = !credentialsConfigured || connected;
+    disconnect.disabled = !connected;
+    connect.classList.toggle('hidden', connected);
+    disconnect.classList.toggle('hidden', !connected);
 
     if (connected) {
-      setAccountStatus(status.message || 'YouTube Music account connected.', 'ok');
+      setAccountStatus('Connected', 'ok');
     } else if (!credentialsConfigured) {
-      setAccountStatus('Save a Google OAuth client before connecting an account.');
+      setAccountStatus('OAuth setup required');
     } else {
-      setAccountStatus(status.message || 'Google OAuth client configured · account not connected.');
+      setAccountStatus('Not connected');
     }
   }
 
@@ -60,7 +92,7 @@
       ? 'Saved — leave blank to keep it'
       : 'Google OAuth client secret';
     $('youtube-credentials-hint').textContent = settings.configured
-      ? 'OAuth client saved. You can connect your YouTube Music account.'
+      ? 'OAuth client configured.'
       : 'Create an OAuth client of type “TVs and Limited Input devices”.';
     return settings;
   }
@@ -86,7 +118,7 @@
 
     button.disabled = true;
     button.textContent = 'Saving…';
-    setAccountStatus('Saving Google OAuth credentials…');
+    setAccountStatus('Saving OAuth settings…');
 
     try {
       const settings = await readJson(await fetch('/api/youtube/settings', {
@@ -98,7 +130,7 @@
       $('youtube-client-secret').placeholder = settings.client_secret_set
         ? 'Saved — leave blank to keep it'
         : 'Google OAuth client secret';
-      $('youtube-credentials-hint').textContent = 'OAuth client saved.';
+      $('youtube-credentials-hint').textContent = 'OAuth client configured.';
       await loadStatus();
       window.dispatchEvent(new Event('playlistmuse-status-changed'));
     } catch (error) {
@@ -114,7 +146,7 @@
     const link = $('youtube-authorization-link');
     link.href = flow.verification_url_complete || flow.verification_url || '#';
     $('youtube-device-flow').classList.remove('hidden');
-    setAccountStatus('Complete the Google authorization in the opened page.');
+    setAccountStatus('Authorization required');
   }
 
   function schedulePoll(intervalSeconds) {
@@ -131,7 +163,7 @@
       }));
 
       if (result.status === 'pending') {
-        setAccountStatus(result.message || 'Waiting for Google authorization…');
+        setAccountStatus('Waiting for authorization…');
         schedulePoll(result.interval);
         return;
       }
@@ -159,7 +191,7 @@
     const button = $('connect');
     button.disabled = true;
     button.textContent = 'Starting…';
-    setAccountStatus('Requesting a Google authorization code…');
+    setAccountStatus('Starting connection…');
 
     try {
       state.popup = window.open('about:blank', 'playlistmuse-google-oauth');
@@ -218,10 +250,10 @@
   $('connect').addEventListener('click', connectAccount);
   $('disconnect').addEventListener('click', disconnectAccount);
   $('youtube-authorization-link').addEventListener('click', () => {
-    setAccountStatus('Waiting for Google authorization…');
+    setAccountStatus('Waiting for authorization…');
   });
 
-  window.addEventListener('playlistmuse-settings-opened', refresh);
+  window.addEventListener('playlistmuse-youtube-settings-opened', refresh);
   window.addEventListener('beforeunload', stopPolling);
   refresh();
 })();

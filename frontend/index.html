@@ -5,27 +5,23 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#070916">
   <title>PlaylistMuse</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css?v=8">
+  <link rel="stylesheet" href="/static/layout.css?v=3">
   <link rel="stylesheet" href="/static/controls.css?v=4">
-  <link rel="stylesheet" href="/static/generation.css?v=3">
+  <link rel="stylesheet" href="/static/generation.css?v=4">
   <link rel="stylesheet" href="/static/youtube.css?v=3">
+  <link rel="stylesheet" href="/static/youtube-settings.css?v=1">
+  <link rel="stylesheet" href="/static/onboarding.css?v=2">
+  <link rel="stylesheet" href="/static/ai-settings.css?v=3">
 </head>
 <body>
   <header class="app-header">
     <div>
       <p class="eyebrow">AI playlist studio</p>
       <h1>PlaylistMuse</h1>
-    </div>
-    <div class="header-actions">
-      <div class="home-status" aria-label="Connection status">
-        <span id="home-ai-status" class="status-badge pending" title="Checking AI provider configuration" aria-label="AI connection status">AI</span>
-        <span id="home-yt-status" class="status-badge pending" title="Checking YouTube Music account connection" aria-label="YouTube Music connection status">YT</span>
-      </div>
-      <button id="settings-btn" class="secondary settings-icon-btn" title="Open application settings" aria-label="Open application settings" type="button">
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="M4 7h10M18 7h2M14 4v6M4 17h2M10 17h10M6 14v6M4 12h5M13 12h7M9 9v6" />
-        </svg>
-      </button>
     </div>
   </header>
 
@@ -39,140 +35,196 @@
 
       <div id="prompt-panel">
         <label for="prompt">Describe the playlist you want</label>
-        <textarea id="prompt" maxlength="1950" rows="5" placeholder="A nocturnal blues-rock drive through the Alps, gritty guitars, steady pace, mostly 1970s to today..."></textarea>
+        <textarea id="prompt" maxlength="1950" rows="5" placeholder="A slow-burning road-trip playlist with blues rock, warm guitars and a steady night-drive mood..."></textarea>
       </div>
 
       <div id="seed-panel" class="hidden">
         <label for="seed-query">Search for a song on YouTube Music</label>
         <div class="inline">
           <input id="seed-query" placeholder="Artist or song title" autocomplete="off">
-          <button id="seed-search" class="secondary" type="button">Search</button>
+          <button id="seed-search" class="secondary" type="button" disabled aria-disabled="true">Search</button>
         </div>
-        <p class="hint">Choose a track to use as the musical reference for the new playlist.</p>
+        <p id="seed-guidance" class="hint hidden" aria-live="polite"></p>
         <div id="seed-results" class="seed-results hidden" aria-live="polite"></div>
         <div id="selected-seed" class="selected-seed hidden" aria-live="polite"></div>
       </div>
 
-      <div class="grid filters compact-filters">
-        <label>Tracks
-          <input id="track-count" type="number" min="5" max="100" value="25">
-        </label>
+      <div id="generation-controls" class="hidden">
+        <div class="grid filters compact-filters">
+          <label>Tracks
+            <input id="track-count" type="number" min="5" max="100" value="25">
+          </label>
+        </div>
+
+        <div class="checks">
+          <label><input id="exclude-live" type="checkbox" checked> Exclude live tracks</label>
+          <label><input id="exclude-covers" type="checkbox" checked> Exclude covers</label>
+          <label><input id="exclude-remixes" type="checkbox" checked> Exclude remixes</label>
+        </div>
+
+        <div id="ai-generation-warning" class="ai-generation-warning hidden" role="status" aria-live="polite">
+          <strong id="ai-generation-warning-title">AI provider not configured</strong>
+          <span>
+            <span id="ai-generation-warning-text">Configure an AI provider before generating a playlist.</span>
+            <button id="ai-open-settings" class="ai-warning-link" type="button">Open AI Settings</button>
+          </span>
+        </div>
+
+        <button id="generate" class="primary hidden" type="button" disabled aria-disabled="true">Generate playlist</button>
       </div>
 
-      <div class="checks">
-        <label><input id="exclude-live" type="checkbox" checked> Exclude live tracks</label>
-        <label><input id="exclude-covers" type="checkbox" checked> Exclude covers</label>
-        <label><input id="exclude-remixes" type="checkbox" checked> Exclude remixes</label>
-      </div>
-
-      <button id="generate" class="primary" type="button">Generate playlist</button>
       <p id="status" class="status" aria-live="polite"></p>
     </section>
   </main>
 
-  <dialog id="settings-dialog">
-    <form method="dialog" class="dialog-card settings-dialog-card" novalidate>
+  <dialog id="setup-dialog">
+    <form method="dialog" class="dialog-card settings-dialog-card setup-dialog-card" novalidate>
       <div class="dialog-head">
-        <h2>Settings</h2>
-        <button id="close-settings" type="button" class="icon" aria-label="Close">×</button>
+        <div>
+          <p id="setup-eyebrow" class="eyebrow">Initial configuration</p>
+          <h2 id="setup-title">Set up PlaylistMuse</h2>
+        </div>
+        <button id="close-setup" type="button" class="icon" aria-label="Close">×</button>
       </div>
 
-      <section class="settings-block">
-        <h3>AI provider</h3>
-        <p id="ai-status" class="settings-status">Checking AI configuration…</p>
+      <ol id="setup-progress" class="setup-progress" aria-label="Initial setup progress">
+        <li id="setup-progress-ai" class="active"><span>1</span> AI provider</li>
+        <li id="setup-progress-youtube"><span>2</span> YouTube Music</li>
+      </ol>
 
-        <div class="settings-fields">
-          <label for="ai-provider">Provider
-            <select id="ai-provider">
-              <option value="gemini">Google Gemini</option>
-              <option value="openai">OpenAI</option>
-              <option value="anthropic">Anthropic</option>
-              <option value="openrouter_auto">OpenRouter Auto</option>
-              <option value="openrouter_free">OpenRouter Free</option>
-              <option value="ollama">Ollama</option>
-              <option value="custom">OpenAI-compatible endpoint</option>
-            </select>
-          </label>
+      <p id="setup-intro" class="setup-intro">
+        Configure the AI provider first, then optionally connect YouTube Music for direct playlist publishing.
+      </p>
 
-          <p id="provider-help" class="field-hint provider-help">
-            <a id="provider-help-link" href="#" target="_blank" rel="noopener noreferrer"></a>
+      <section id="setup-ai-step" class="settings-block setup-step">
+        <div class="ai-active-summary">
+          <p id="ai-active-status" class="settings-status ai-active-status">
+            Checking active AI provider…
+          </p>
+        </div>
+
+        <div class="ai-provider-selection">
+          <div class="ai-provider-selection-heading">
+            <h3>Choose or configure a provider</h3>
+            <p class="ai-provider-legend" aria-label="Provider status symbols">
+              <span><strong>✓</strong> In use</span>
+              <span><strong>●</strong> Configured</span>
+            </p>
+          </div>
+
+          <p id="ai-status" class="settings-status">Checking selected provider…</p>
+
+          <div class="settings-fields">
+            <label for="ai-provider">Provider
+              <select id="ai-provider">
+                <option value="gemini">Google Gemini</option>
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="openrouter_auto">OpenRouter Auto</option>
+                <option value="openrouter_free">OpenRouter Free</option>
+                <option value="ollama">Ollama</option>
+                <option value="custom">OpenAI-compatible endpoint</option>
+              </select>
+            </label>
+
+            <p id="provider-help" class="field-hint provider-help">
+              <a id="provider-help-link" href="#" target="_blank" rel="noopener noreferrer"></a>
+            </p>
+
+            <label id="api-key-field" for="ai-key">API key
+              <input id="ai-key" type="password" autocomplete="off" placeholder="Enter the provider API key">
+              <span id="api-key-hint" class="field-hint"></span>
+            </label>
+
+            <label id="base-url-field" class="hidden" for="ai-base-url">Server URL
+              <input id="ai-base-url" type="url" placeholder="http://host:11434 or https://example.com/v1">
+            </label>
+
+            <label for="ai-model">Primary model
+              <input id="ai-model" value="gemini-3.6-flash" placeholder="Primary model identifier">
+            </label>
+
+            <div id="fallback-row" class="fallback-row" aria-label="Fallback models">
+              <span class="field-hint fallback-label">Fallbacks</span>
+              <input id="ai-fallback-1" value="gemini-3.5-flash" placeholder="Fallback 1" aria-label="Fallback model 1">
+              <span class="fallback-arrow">→</span>
+              <input id="ai-fallback-2" value="gemini-3.5-flash-lite" placeholder="Fallback 2" aria-label="Fallback model 2">
+            </div>
+          </div>
+
+          <div class="settings-actions">
+            <button id="save-ai" type="button" class="primary">Save AI settings</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="setup-youtube-step" class="settings-block setup-step youtube-settings-panel hidden">
+        <div class="youtube-account-summary">
+          <div class="youtube-account-summary-heading">
+            <h3>YouTube Music account</h3>
+            <p id="account-status" class="settings-status youtube-account-state">Checking…</p>
+          </div>
+
+          <div id="youtube-account-profile" class="youtube-account-profile hidden">
+            <img id="youtube-account-photo" alt="Connected YouTube account profile">
+            <div>
+              <strong id="youtube-account-name">Connected YouTube Music account</strong>
+              <span id="youtube-account-handle">Google account details unavailable</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="youtube-credentials-section">
+          <h3>Google OAuth credentials</h3>
+
+          <div class="settings-fields youtube-settings-fields">
+            <label for="youtube-client-id">Google OAuth client ID
+              <input id="youtube-client-id" type="text" autocomplete="off" placeholder="OAuth client ID">
+            </label>
+            <label for="youtube-client-secret">Google OAuth client secret
+              <input id="youtube-client-secret" type="password" autocomplete="off" placeholder="OAuth client secret">
+            </label>
+            <span id="youtube-credentials-hint" class="field-hint"></span>
+          </div>
+
+          <p class="field-hint youtube-settings-help">
+            Use a Google OAuth client of type <strong>TVs and Limited Input devices</strong> with the YouTube Data API enabled.
+            <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Open Google Cloud credentials</a>
           </p>
 
-          <label id="api-key-field" for="ai-key">API key
-            <input id="ai-key" type="password" autocomplete="off" placeholder="Enter the provider API key">
-            <span id="api-key-hint" class="field-hint"></span>
-          </label>
-
-          <label id="base-url-field" class="hidden" for="ai-base-url">Server URL
-            <input id="ai-base-url" type="url" placeholder="http://host:11434 or https://example.com/v1">
-          </label>
-
-          <label for="ai-model">Primary model
-            <input id="ai-model" value="gemini-3.6-flash" placeholder="Primary model identifier">
-          </label>
-
-          <div id="fallback-row" class="fallback-row" aria-label="Fallback models">
-            <span class="field-hint fallback-label">Fallbacks</span>
-            <input id="ai-fallback-1" value="gemini-3.5-flash" placeholder="Fallback 1" aria-label="Fallback model 1">
-            <span class="fallback-arrow">→</span>
-            <input id="ai-fallback-2" value="gemini-3.5-flash-lite" placeholder="Fallback 2" aria-label="Fallback model 2">
+          <div class="settings-actions">
+            <button id="save-youtube" type="button" class="secondary">Save Google credentials</button>
+            <button id="connect" type="button" class="primary" disabled>Connect account</button>
+            <button id="disconnect" type="button" class="secondary hidden" disabled>Disconnect</button>
           </div>
-        </div>
 
-        <div class="settings-actions">
-          <button id="save-ai" type="button" class="primary">Save AI settings</button>
-        </div>
-      </section>
-
-      <section class="settings-block">
-        <h3>YouTube Music account</h3>
-        <p id="account-status" class="settings-status">Checking connection…</p>
-
-        <div id="youtube-account-profile" class="youtube-account-profile hidden">
-          <img id="youtube-account-photo" alt="Connected YouTube account profile">
-          <div>
-            <strong id="youtube-account-name">Connected account</strong>
-            <span id="youtube-account-handle">YouTube Music</span>
-          </div>
-        </div>
-
-        <div class="settings-fields youtube-settings-fields">
-          <label for="youtube-client-id">Google OAuth client ID
-            <input id="youtube-client-id" type="text" autocomplete="off" placeholder="OAuth client ID">
-          </label>
-          <label for="youtube-client-secret">Google OAuth client secret
-            <input id="youtube-client-secret" type="password" autocomplete="off" placeholder="OAuth client secret">
-          </label>
-          <span id="youtube-credentials-hint" class="field-hint"></span>
-        </div>
-
-        <p class="field-hint youtube-settings-help">
-          Use a Google OAuth client of type <strong>TVs and Limited Input devices</strong> with the YouTube Data API enabled.
-          <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Open Google Cloud credentials</a>
-        </p>
-
-        <div class="settings-actions">
-          <button id="save-youtube" type="button" class="secondary">Save Google credentials</button>
-          <button id="connect" type="button" class="primary" disabled>Connect account</button>
-          <button id="disconnect" type="button" class="secondary" disabled>Disconnect</button>
-        </div>
-
-        <div id="youtube-device-flow" class="youtube-device-flow hidden" aria-live="polite">
-          <p>Open the Google authorization page and confirm access using this code:</p>
-          <div class="youtube-device-code-row">
-            <code id="youtube-user-code" class="youtube-device-code"></code>
-            <a id="youtube-authorization-link" class="youtube-auth-link" href="#" target="_blank" rel="noopener noreferrer">Open Google authorization</a>
+          <div id="youtube-device-flow" class="youtube-device-flow hidden" aria-live="polite">
+            <p>Open the Google authorization page and confirm access using this code:</p>
+            <div class="youtube-device-code-row">
+              <code id="youtube-user-code" class="youtube-device-code"></code>
+              <a id="youtube-authorization-link" class="youtube-auth-link" href="#" target="_blank" rel="noopener noreferrer">Open Google authorization</a>
+            </div>
           </div>
         </div>
       </section>
+
+      <div id="setup-navigation" class="setup-navigation">
+        <button id="setup-skip" type="button" class="secondary">Skip for now</button>
+        <div class="setup-navigation-actions">
+          <button id="setup-back" type="button" class="secondary hidden">Back</button>
+          <button id="setup-next" type="button" class="primary">Continue to YouTube</button>
+          <button id="setup-finish" type="button" class="primary hidden">Finish setup</button>
+        </div>
+      </div>
     </form>
   </dialog>
 
   <script src="/static/replacement-history.js?v=3"></script>
   <script src="/static/common.js?v=1"></script>
-  <script src="/static/app.js?v=10"></script>
-  <script src="/static/ai-settings.js?v=9"></script>
-  <script src="/static/youtube-account.js?v=3"></script>
-  <script src="/static/home-status.js?v=9"></script>
+  <script src="/static/ai-settings.js?v=12"></script>
+  <script src="/static/youtube-account.js?v=5"></script>
+  <script src="/static/home-status.js?v=13"></script>
+  <script src="/static/generation-state.js?v=1"></script>
+  <script src="/static/app.js?v=17"></script>
 </body>
 </html>
