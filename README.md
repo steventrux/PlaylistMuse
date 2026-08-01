@@ -154,20 +154,22 @@ PlaylistMuse creates a four-tile cover from thumbnails already present in the re
 
 Duplicate and blank thumbnails are replaced with other available images. The mosaic is rendered locally in the browser and refreshes immediately after a track replacement.
 
-## Production deployment
+## Self-hosted deployment
 
-PlaylistMuse is intended for trusted, self-hosted environments.
+PlaylistMuse is designed as a single-instance, self-hosted application for one person or a small group of trusted users sharing the same installation. It is not designed to operate as a public multi-user service.
 
-For an internet-facing deployment:
+PlaylistMuse does not provide application user accounts, roles, per-user data isolation or multi-tenant separation. Anyone who can access the instance can potentially use the same saved AI-provider credentials and the same connected YouTube Music account.
 
-- Place the application behind a reverse proxy.
-- Terminate TLS and expose it only through HTTPS.
-- Restrict access to trusted users; PlaylistMuse does not provide its own multi-user authentication layer.
+Recommended deployment practices:
+
+- Run the application on a personal server, NAS or VPS and limit access to the local network, a VPN or another trusted private network.
+- Do not expose the container port directly to the public Internet.
+- For remote access, place the application behind a reverse proxy with HTTPS and an external authentication or access-control layer.
 - Back up the persistent `data` directory.
 - Never commit the data directory, OAuth credentials, provider keys or tokens.
 - Keep the container and dependencies updated.
 
-The container listens on port `5780` and exposes `GET /api/health` for health monitoring.
+The container listens on port `5780` and exposes `GET /api/health` for local health monitoring.
 
 ## API
 
