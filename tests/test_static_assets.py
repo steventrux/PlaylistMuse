@@ -60,7 +60,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
         '<script src="/static/playlist.js?v=18"></script>'
     )
     assert playlist.index(common) < playlist.index(
-        '<script src="/static/youtube-publish.js?v=11"></script>'
+        '<script src="/static/youtube-publish.js?v=12"></script>'
     )
 
 
@@ -228,3 +228,26 @@ def test_results_page_exposes_youtube_settings() -> None:
 
     assert 'id="youtube-settings-dialog"' in playlist
     assert "playlistmuse-youtube-settings-opened" in youtube_publish
+
+
+def test_youtube_publish_progress_is_compact_and_not_redundant() -> None:
+    playlist = _html("playlist.html")
+    youtube_publish = _script("youtube-publish.js")
+    youtube_results = _style("youtube-results.css")
+
+    assert '/static/youtube-results.css?v=4' in playlist
+    assert '/static/youtube-publish.js?v=12' in playlist
+    assert (
+        'id="youtube-publish-status" class="youtube-publish-status hidden"'
+        in playlist
+    )
+    assert "Creating the playlist in your YouTube Music account" not in youtube_publish
+    assert "setPublishState('publishing')" in youtube_publish
+    assert "setPublishState('success')" in youtube_publish
+    assert "setStatus('');" in youtube_publish
+    assert (
+        ".youtube-publish:not(.is-success) + "
+        ".youtube-publish-status.hidden + .track-list"
+        in youtube_results
+    )
+    assert "margin-top: 12px" in youtube_results
