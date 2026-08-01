@@ -45,15 +45,18 @@ def test_seed_discovery_prefers_similar_tracks() -> None:
                 client=client,
             )
 
-    tracks = asyncio.run(run())
+    signals = asyncio.run(run())
 
     assert methods == ["track.getsimilar"]
-    assert [track["title"] for track in tracks] == ["Don't Stop Me Now", "Dream On"]
-    assert all(track["source"] == "lastfm" for track in tracks)
-    assert all(track["lastfm_strategy"] == "similar_track" for track in tracks)
+    assert [signal["title"] for signal in signals] == [
+        "Don't Stop Me Now",
+        "Dream On",
+    ]
+    assert all(signal["source"] == "lastfm" for signal in signals)
+    assert all(signal["lastfm_strategy"] == "similar_track" for signal in signals)
 
 
-def test_seed_discovery_falls_back_to_similar_artists_and_top_tracks() -> None:
+def test_seed_discovery_falls_back_to_similar_artist_signals() -> None:
     methods: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -73,25 +76,6 @@ def test_seed_discovery_falls_back_to_similar_artists_and_top_tracks() -> None:
                     }
                 },
             )
-        if method == "artist.gettoptracks":
-            artist = request.url.params["artist"]
-            return httpx.Response(
-                200,
-                json={
-                    "toptracks": {
-                        "track": [
-                            {
-                                "name": f"{artist} Top Track 1",
-                                "artist": {"name": artist},
-                            },
-                            {
-                                "name": f"{artist} Top Track 2",
-                                "artist": {"name": artist},
-                            },
-                        ]
-                    }
-                },
-            )
         raise AssertionError(f"Unexpected method: {method}")
 
     async def run() -> list[dict[str, str]]:
@@ -105,15 +89,17 @@ def test_seed_discovery_falls_back_to_similar_artists_and_top_tracks() -> None:
                 client=client,
             )
 
-    tracks = asyncio.run(run())
+    signals = asyncio.run(run())
 
-    assert methods.count("track.getsimilar") == 1
-    assert methods.count("artist.getsimilar") == 1
-    assert methods.count("artist.gettoptracks") == 2
-    assert len(tracks) == 4
-    assert {track["artist"] for track in tracks} == {"The Kolors", "Serena Brancale"}
-    assert all(track["source"] == "lastfm" for track in tracks)
-    assert all(track["lastfm_strategy"] == "similar_artist" for track in tracks)
+    assert methods == ["track.getsimilar", "artist.getsimilar"]
+    assert len(signals) == 2
+    assert {signal["artist"] for signal in signals} == {
+        "The Kolors",
+        "Serena Brancale",
+    }
+    assert all(signal["title"] == "" for signal in signals)
+    assert all(signal["source"] == "lastfm" for signal in signals)
+    assert all(signal["lastfm_strategy"] == "similar_artist" for signal in signals)
 
 
 def test_prompt_discovery_uses_distinct_ai_anchors(monkeypatch) -> None:
@@ -150,11 +136,11 @@ def test_prompt_discovery_uses_distinct_ai_anchors(monkeypatch) -> None:
         {"artist": "Artist D", "title": "Track D"},
     ]
 
-    tracks = asyncio.run(discovery.discover_from_anchors(anchors, limit=12))
+    signals = asyncio.run(discovery.discover_from_anchors(anchors, limit=12))
 
     assert [(artist, title) for artist, title, _ in calls] == [
         ("Artist A", "Track A"),
         ("Artist B", "Track B"),
         ("Artist C", "Track C"),
     ]
-    assert len(tracks) == 3
+    assert len(signals) == 3
