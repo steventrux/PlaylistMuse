@@ -88,7 +88,7 @@ Open **http://localhost:5780**.
 
 On first launch, the onboarding flow guides you through configuring the AI provider and YouTube Music.
 
-Application settings, provider credentials and YouTube authorization data are stored in the persistent `./data` directory, which is excluded from Git.
+Application settings, provider credentials and YouTube authorization data are stored in the persistent `./data` directory.
 
 To stop PlaylistMuse:
 
