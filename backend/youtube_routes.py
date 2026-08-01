@@ -7,7 +7,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from backend.config import AppConfig, load_config, save_config
+from backend.config import AppConfig, disconnect_provider, load_config, save_config
 from backend.onboarding import acknowledge_onboarding, onboarding_status
 from backend.playlist_cover import normalize_thumbnail_urls
 from backend.youtube_account import (
@@ -136,7 +136,21 @@ async def activate_ai_provider(request: AIProviderActivation) -> dict:
             detail="Configure this AI provider before activating it.",
         )
     save_config(selected)
-    return _ai_profiles_response(load_config())
+    updated = load_config()
+    if updated.provider != request.provider or not updated.configured:
+        raise HTTPException(
+            status_code=500,
+            detail="The selected AI provider could not be activated.",
+        )
+    return _ai_profiles_response(updated)
+
+
+@router.delete("/ai/providers/{provider}", tags=["ai-settings"])
+async def delete_ai_provider(provider: str) -> dict:
+    if provider not in AI_PROVIDERS:
+        raise HTTPException(status_code=404, detail="Unknown AI provider.")
+    updated = disconnect_provider(provider)
+    return _ai_profiles_response(_ensure_active_ai_config(updated))
 
 
 @router.get("/youtube/settings", tags=["youtube-music"])
