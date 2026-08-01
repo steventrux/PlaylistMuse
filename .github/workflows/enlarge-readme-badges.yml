@@ -1,0 +1,56 @@
+name: Enlarge README badges
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/enlarge-readme-badges.yml
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Enlarge Shields.io badges
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('README.md')
+          text = path.read_text(encoding='utf-8')
+
+          def resize(match):
+              tag = match.group(0)
+              if 'height=' in tag:
+                  return re.sub(r'height="\d+"', 'height="24"', tag)
+              return tag[:-1] + ' height="24">'
+
+          updated, count = re.subn(
+              r'<img\b[^>]*src="https://img\.shields\.io/[^>]*>',
+              resize,
+              text,
+          )
+          if count != 6:
+              raise SystemExit(f'Expected 6 badges, updated {count}')
+          path.write_text(updated, encoding='utf-8')
+          PY
+
+      - name: Commit update and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/enlarge-readme-badges.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md .github/workflows/enlarge-readme-badges.yml
+          git commit -m 'docs: enlarge README badges'
+          git push origin main
