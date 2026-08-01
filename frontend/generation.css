@@ -13,6 +13,48 @@
   min-width: 190px;
 }
 
+.ai-generation-warning {
+  display: grid;
+  gap: 5px;
+  margin: 0 0 14px;
+  padding: 15px 17px;
+  border: 1px solid rgba(251, 113, 133, .48);
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(82, 22, 48, .56), rgba(28, 24, 59, .7));
+  box-shadow: 0 12px 30px rgba(35, 8, 26, .18);
+}
+
+.ai-generation-warning strong {
+  color: #fecdd3;
+  font-size: .94rem;
+}
+
+.ai-generation-warning > span {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 7px;
+  color: #fda4af;
+  font-size: .86rem;
+  line-height: 1.45;
+}
+
+.ai-warning-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--cyan-light);
+  font-size: inherit;
+  font-weight: 800;
+  line-height: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.ai-warning-link:hover {
+  color: #ffffff;
+}
+
 .replace-track-button {
   min-width: 146px;
 }
@@ -92,6 +134,11 @@
 }
 
 @media (max-width: 520px) {
+  .ai-generation-warning > span {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   #create-youtube-playlist {
     min-width: 0;
   }

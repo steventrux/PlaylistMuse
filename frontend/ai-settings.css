@@ -1,0 +1,90 @@
+/* Shared AI provider settings layout. */
+
+#setup-ai-step.settings-block,
+#ai-settings-dialog .settings-block {
+  padding-top: 14px;
+}
+
+.ai-active-summary {
+  margin: 0 0 14px;
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ai-active-status {
+  margin: 0;
+  color: #86efac;
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.ai-active-status:not(.ok) {
+  color: var(--text-secondary);
+}
+
+.ai-provider-selection-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 7px;
+}
+
+.ai-provider-selection-heading h3 {
+  margin: 0;
+}
+
+.ai-provider-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px 13px;
+  margin: 1px 0 0;
+  color: var(--text-muted);
+  font-size: .78rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ai-provider-legend span {
+  white-space: nowrap;
+}
+
+.ai-provider-legend strong {
+  color: var(--cyan-light);
+  font-size: .9rem;
+}
+
+.ai-provider-selection > .settings-status {
+  margin-bottom: 16px;
+}
+
+#fallback-row {
+  display: none !important;
+}
+
+.ai-model-actions {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: -4px;
+}
+
+.ai-model-actions .compact-button {
+  min-height: 34px;
+}
+
+.settings-fields:has(#ai-model[readonly]) .ai-model-actions {
+  display: none;
+}
+
+@media (max-width: 600px) {
+  .ai-provider-selection-heading {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .ai-provider-legend {
+    justify-content: flex-start;
+  }
+}
