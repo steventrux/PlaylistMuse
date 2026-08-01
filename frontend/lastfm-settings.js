@@ -11,6 +11,24 @@
     status.classList.toggle('error', error);
   }
 
+  function openSettings() {
+    const dialog = $('setup-dialog');
+    const lastFmPanel = $('setup-lastfm-step');
+    if (!dialog || !lastFmPanel) return;
+
+    $('ai-open-settings')?.click();
+    $('setup-eyebrow').textContent = 'Configuration';
+    $('setup-title').textContent = 'Last.fm Settings';
+    $('setup-intro').classList.add('hidden');
+    $('setup-progress').classList.add('hidden');
+    $('setup-navigation').classList.add('hidden');
+    $('setup-ai-step').classList.add('hidden');
+    $('setup-youtube-step').classList.add('hidden');
+    lastFmPanel.classList.remove('hidden');
+    if (!dialog.open) dialog.showModal();
+    window.dispatchEvent(new Event('playlistmuse-lastfm-settings-opened'));
+  }
+
   function renderSettings(data) {
     const configured = Boolean(data.configured);
     const source = data.source || '';
@@ -106,5 +124,6 @@
       void saveSettings();
     }
   });
+  window.PlaylistMuseOpenLastFmSettings = openSettings;
   window.addEventListener('playlistmuse-lastfm-settings-opened', () => void loadSettings());
 })();
