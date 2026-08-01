@@ -15,6 +15,12 @@
     $('status').classList.toggle('error', error);
   }
 
+  function setSeedGuidance(text = '') {
+    const guidance = $('seed-guidance');
+    guidance.textContent = text;
+    guidance.classList.toggle('hidden', !text);
+  }
+
   function options() {
     return {
       exclude_live: $('exclude-live').checked,
@@ -134,12 +140,15 @@
       state.selectedSeed = null;
       $('selected-seed').classList.add('hidden');
       $('seed-results').classList.remove('hidden');
+      setSeedGuidance('Choose a track to use as the musical reference for the new playlist.');
+      message('');
     });
 
     $('selected-seed').append(artwork, copy, change);
     $('selected-seed').classList.remove('hidden');
     $('seed-results').classList.add('hidden');
-    message('Seed selected. Generate the playlist when ready.');
+    setSeedGuidance(`This playlist will be built around “${seed.title}” by ${seed.artists}.`);
+    message('');
   }
 
   function renderSeedResults(results) {
@@ -188,6 +197,7 @@
     const button = $('seed-search');
     button.disabled = true;
     button.textContent = 'Searching…';
+    setSeedGuidance('');
     message('Searching YouTube Music…');
 
     try {
@@ -195,9 +205,22 @@
         await fetch(`/api/seeds/search?q=${encodeURIComponent(query)}&limit=8`),
         {flattenValidationErrors: true},
       );
-      renderSeedResults(data.results || []);
-      message(data.results?.length ? 'Choose the seed track.' : 'No matching songs found.', !data.results?.length);
+      const results = data.results || [];
+
+      if (results.length) {
+        state.selectedSeed = null;
+        $('selected-seed').classList.add('hidden');
+      }
+
+      renderSeedResults(results);
+      setSeedGuidance(
+        results.length
+          ? 'Choose a track to use as the musical reference for the new playlist.'
+          : '',
+      );
+      message(results.length ? '' : 'No matching songs found.', !results.length);
     } catch (error) {
+      setSeedGuidance('');
       message(error.message || String(error), true);
     } finally {
       button.disabled = false;
