@@ -1,7 +1,8 @@
-"PlaylistMuse FastAPI application."
+"""PlaylistMuse FastAPI application."""
 
 from __future__ import annotations
 
+import re
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Literal
@@ -46,6 +47,10 @@ OPENROUTER_MODELS = {
 MAX_REPLENISHMENT_ROUNDS = 6
 MAX_STALLED_ROUNDS = 2
 MAX_LASTFM_CONTEXT_TRACKS = 60
+_ARTIST_SEPARATOR_RE = re.compile(
+    r"\s*(?:,|&|\bfeat\.?\b|\bfeaturing\b|\bwith\b)\s*",
+    re.IGNORECASE,
+)
 
 _SEED_RECOMMENDATIONS: ContextVar[tuple[dict[str, str], ...]] = ContextVar(
     "playlistmuse_seed_recommendations",
@@ -181,6 +186,19 @@ def _artist_key(candidate: dict) -> str:
     )
 
 
+def _artist_identity_keys(value: str) -> set[str]:
+    """Return both the complete credit and its common collaborator components."""
+    normalized = " ".join(str(value).split())
+    if not normalized:
+        return set()
+    keys = {track_identity_key("", normalized)}
+    for part in _ARTIST_SEPARATOR_RE.split(normalized):
+        part = part.strip()
+        if part:
+            keys.add(track_identity_key("", part))
+    return keys
+
+
 def _blend_candidates(
     primary: list[dict[str, str]],
     supplemental: list[dict[str, str]],
@@ -290,10 +308,9 @@ def _selection_sets(
         track_identity_key(track.get("title", ""), track.get("artists", ""))
         for track in selected_tracks
     }
-    artist_keys = {
-        track_identity_key("", track.get("artists", ""))
-        for track in selected_tracks
-    }
+    artist_keys: set[str] = set()
+    for track in selected_tracks:
+        artist_keys.update(_artist_identity_keys(str(track.get("artists", ""))))
     return track_keys, artist_keys
 
 
@@ -326,6 +343,19 @@ def _signal_metadata(
     return signals
 
 
+def _represented_counts(signals: list[dict[str, object]]) -> tuple[int, int]:
+    represented_signals = sum(
+        1 for signal in signals if bool(signal.get("artist_represented"))
+    )
+    represented_artist_keys = {
+        track_identity_key("", str(signal.get("artist", "")))
+        for signal in signals
+        if bool(signal.get("artist_represented"))
+        and str(signal.get("artist", "")).strip()
+    }
+    return represented_signals, len(represented_artist_keys)
+
+
 def _lastfm_summary(
     anchors: list[dict[str, str]],
     candidates: list[dict[str, str]],
@@ -341,15 +371,14 @@ def _lastfm_summary(
             if str(candidate.get("lastfm_strategy", "")).strip()
         }
     )
-    selected = sum(1 for signal in signals if signal["selected"])
-    represented_artists = sum(
-        1 for signal in signals if signal["artist_represented"]
-    )
+    selected = sum(1 for signal in signals if bool(signal["selected"]))
+    represented_signals, represented_artists = _represented_counts(signals)
     return {
         "available": bool(candidates),
         "guidance_applied": guidance_applied,
         "suggestions": len(candidates),
         "selected": selected,
+        "represented_signals": represented_signals,
         "represented_artists": represented_artists,
         "strategies": strategies,
         "anchors": _anchor_metadata(anchors),
@@ -363,7 +392,7 @@ def _refresh_lastfm_selection(summary: dict, selected_tracks: list[dict]) -> Non
         return
     selected_track_keys, selected_artist_keys = _selection_sets(selected_tracks)
     selected = 0
-    represented_artists = 0
+    typed_signals: list[dict[str, object]] = []
     for signal in signals:
         if not isinstance(signal, dict):
             continue
@@ -378,8 +407,10 @@ def _refresh_lastfm_selection(summary: dict, selected_tracks: list[dict]) -> Non
             track_identity_key("", artist) in selected_artist_keys
         )
         selected += int(bool(signal["selected"]))
-        represented_artists += int(bool(signal["artist_represented"]))
+        typed_signals.append(signal)
+    represented_signals, represented_artists = _represented_counts(typed_signals)
     summary["selected"] = selected
+    summary["represented_signals"] = represented_signals
     summary["represented_artists"] = represented_artists
 
 
