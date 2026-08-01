@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 import httpx
 
+from backend.lastfm_enrichment import enrich_lastfm_candidates
 from backend.lastfm_settings import lastfm_api_key
 
 API_ROOT = "https://ws.audioscrobbler.com/2.0/"
@@ -72,6 +73,7 @@ def _candidate(
             "It broadens the playlist with a listening-pattern match while preserving "
             "the seed track's musical direction."
         ),
+        "source": "lastfm",
     }
 
 
@@ -107,6 +109,23 @@ def _parse_candidates(
     return candidates
 
 
+async def _finalize_candidates(
+    seed_artist: str,
+    seed_title: str,
+    candidates: list[dict[str, str]],
+    *,
+    enrich_explanations: bool,
+) -> list[dict[str, str]]:
+    copies = [dict(candidate) for candidate in candidates]
+    if not enrich_explanations:
+        return copies
+    return await enrich_lastfm_candidates(
+        seed_artist,
+        seed_title,
+        copies,
+    )
+
+
 async def similar_track_candidates(
     artist: str,
     track: str,
@@ -132,8 +151,14 @@ async def similar_track_candidates(
     )
     cached = _CACHE.get(cache_key)
     current_time = now()
+    enrich_explanations = api_key is None and client is None
     if cached and cached[0] > current_time:
-        return [dict(candidate) for candidate in cached[1]]
+        return await _finalize_candidates(
+            seed_artist,
+            seed_title,
+            cached[1],
+            enrich_explanations=enrich_explanations,
+        )
 
     params = {
         "method": "track.getsimilar",
@@ -176,7 +201,12 @@ async def similar_track_candidates(
         now() + DEFAULT_CACHE_TTL_SECONDS,
         [dict(candidate) for candidate in candidates],
     )
-    return candidates
+    return await _finalize_candidates(
+        seed_artist,
+        seed_title,
+        candidates,
+        enrich_explanations=enrich_explanations,
+    )
 
 
 def _clear_cache() -> None:
