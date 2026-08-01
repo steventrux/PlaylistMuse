@@ -123,6 +123,17 @@ def test_home_and_results_share_page_width_and_complete_wordmark() -> None:
     assert "overflow: visible" in layout
 
 
+def test_seed_search_first_hover_has_top_clearance() -> None:
+    style = _style("style.css")
+    layout = _style("layout.css")
+
+    assert "overflow-y: auto" in style
+    assert ".seed-result:hover { transform: translateY(-1px)" in style
+    assert ".seed-results" in layout
+    assert "padding-top: 2px" in layout
+    assert "scroll-padding-top: 2px" in layout
+
+
 def test_header_indicators_show_active_provider_without_neon() -> None:
     index = _html("index.html")
     status = _script("home-status.js")
