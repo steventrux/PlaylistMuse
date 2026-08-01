@@ -57,10 +57,10 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     assert playlist.index(ai_results) < playlist.index(ai_settings)
     assert playlist.index(ai_settings) < playlist.index(home_status)
     assert playlist.index(common) < playlist.index(
-        '<script src="/static/playlist.js?v=18"></script>'
+        '<script src="/static/playlist.js?v=19"></script>'
     )
     assert playlist.index(common) < playlist.index(
-        '<script src="/static/youtube-publish.js?v=12"></script>'
+        '<script src="/static/youtube-publish.js?v=13"></script>'
     )
 
 
@@ -236,7 +236,7 @@ def test_youtube_publish_progress_is_compact_and_not_redundant() -> None:
     youtube_results = _style("youtube-results.css")
 
     assert '/static/youtube-results.css?v=4' in playlist
-    assert '/static/youtube-publish.js?v=12' in playlist
+    assert '/static/youtube-publish.js?v=13' in playlist
     assert (
         'id="youtube-publish-status" class="youtube-publish-status hidden"'
         in playlist
@@ -251,3 +251,20 @@ def test_youtube_publish_progress_is_compact_and_not_redundant() -> None:
         in youtube_results
     )
     assert "margin-top: 12px" in youtube_results
+
+
+def test_published_playlist_hides_track_replacement_controls() -> None:
+    playlist = _html("playlist.html")
+    playlist_script = _script("playlist.js")
+    youtube_publish = _script("youtube-publish.js")
+
+    assert '/static/playlist.js?v=19' in playlist
+    assert '/static/youtube-publish.js?v=13' in playlist
+    assert 'id="youtube-publish-account"' not in playlist
+    assert "YouTube Music account connected" not in playlist
+    assert "function isPublished()" in playlist_script
+    assert "if (!isPublished())" in playlist_script
+    assert "replace-track-button" in playlist_script
+    assert "playlistmuse-playlist-published" in playlist_script
+    assert "playlistmuse-playlist-published" in youtube_publish
+    assert "new CustomEvent" in youtube_publish
