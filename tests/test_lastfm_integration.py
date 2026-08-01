@@ -70,6 +70,7 @@ def test_seed_lastfm_context_is_isolated_to_one_generation(monkeypatch) -> None:
 
     async def fake_generate(prompt, count, options):
         seen["generation_context"] = list(main_module._SEED_RECOMMENDATIONS.get())
+        seen["anchor_context"] = list(main_module._SEED_ANCHORS.get())
         return {
             "name": "Seed Playlist",
             "description": "A seed-based playlist.",
@@ -108,4 +109,12 @@ def test_seed_lastfm_context_is_isolated_to_one_generation(monkeypatch) -> None:
     assert response.status_code == 200
     assert seen["lastfm_request"] == ("The Rolling Stones", "Gimme Shelter", 20)
     assert seen["generation_context"] == lastfm_candidates
+    assert seen["anchor_context"] == [
+        {
+            "artist": "The Rolling Stones",
+            "title": "Gimme Shelter",
+            "kind": "seed",
+        }
+    ]
     assert main_module._SEED_RECOMMENDATIONS.get() == ()
+    assert main_module._SEED_ANCHORS.get() == ()
