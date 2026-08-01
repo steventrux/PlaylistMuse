@@ -4,6 +4,7 @@
   const STORAGE_KEY = 'playlistmuse-generated-playlist';
   const $ = (id) => document.getElementById(id);
   const {readJson, setLoadingButton} = window.PlaylistMuseCommon;
+  const publishSection = document.querySelector('.youtube-publish');
   let playlist = null;
   let selectedPrivacy = 'PRIVATE';
 
@@ -21,10 +22,23 @@
     playlist = null;
   }
 
+  function setPublishState(state = 'ready') {
+    publishSection?.classList.toggle('is-publishing', state === 'publishing');
+    publishSection?.classList.toggle('is-success', state === 'success');
+  }
+
   function setStatus(text, kind = '') {
     const element = $('youtube-publish-status');
-    element.classList.remove('hidden');
     element.replaceChildren();
+    element.classList.remove('error', 'success');
+
+    if (!text) {
+      element.textContent = '';
+      element.classList.add('hidden');
+      return;
+    }
+
+    element.classList.remove('hidden');
     element.textContent = text;
     element.classList.toggle('error', kind === 'error');
     element.classList.toggle('success', kind === 'success');
@@ -48,6 +62,8 @@
   function showChecking() {
     const loading = $('youtube-publish-loading');
     const controls = $('youtube-publish-controls');
+    setPublishState('checking');
+    setStatus('');
     loading.classList.remove('hidden');
     $('youtube-publish-warning').classList.add('hidden');
     controls.classList.remove('is-success');
@@ -60,6 +76,8 @@
 
   function showUnavailable(message) {
     const controls = $('youtube-publish-controls');
+    setPublishState('unavailable');
+    setStatus('');
     hideChecking();
     controls.classList.remove('is-success');
     controls.classList.add('hidden');
@@ -69,6 +87,8 @@
 
   function showControls(accountLabel, alreadyPublished) {
     const controls = $('youtube-publish-controls');
+    setPublishState('ready');
+    setStatus('');
     hideChecking();
     controls.classList.remove('is-success');
     $('youtube-publish-warning').classList.add('hidden');
@@ -96,6 +116,7 @@
 
     const controls = $('youtube-publish-controls');
     const button = $('create-youtube-playlist');
+    setPublishState('success');
     hideChecking();
     if (button) {
       button.classList.remove('is-loading');
@@ -139,11 +160,7 @@
     }
 
     controls.append(success);
-
-    const status = $('youtube-publish-status');
-    status.replaceChildren();
-    status.classList.remove('error', 'success');
-    status.classList.add('hidden');
+    setStatus('');
     return true;
   }
 
@@ -206,7 +223,8 @@
       onStart: () => setPrivacyDisabled(true),
       onReset: () => setPrivacyDisabled(false),
     });
-    setStatus('Creating the playlist in your YouTube Music account…');
+    setPublishState('publishing');
+    setStatus('');
 
     try {
       const result = await readJson(await fetch('/api/youtube/playlists', {
@@ -226,6 +244,7 @@
       renderPublishedResult(result);
     } catch (error) {
       resetButton();
+      setPublishState('ready');
       setStatus(error.message || String(error), 'error');
     }
   }
