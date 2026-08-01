@@ -134,7 +134,7 @@ The interface displays only the selected primary model. Internal fallback models
 
 Direct publishing is optional. Playlist generation and editing work without connecting a YouTube account.
 
-Each PlaylistMuse instance supports **one connected YouTube Music account at a time**. Every playlist published by anyone using that installation is created in the same connected account; separate application users cannot connect or select individual YouTube accounts.
+Each PlaylistMuse instance connects to a single YouTube Music account. All published playlists are created in that account.
 
 To enable publishing:
 
@@ -158,9 +158,9 @@ Duplicate and blank thumbnails are replaced with other available images. The mos
 
 ## Self-hosted deployment
 
-PlaylistMuse is designed as a single-instance, self-hosted application for one person or a small group of trusted users sharing the same installation. It is not designed to operate as a public multi-user service.
+PlaylistMuse is designed as a single-user, self-hosted application. It is not intended to be exposed as a public service.
 
-The main architectural constraint is that an installation connects to a **single YouTube Music account**. All users who can access the instance publish playlists to that same account and use the same saved AI-provider configuration. PlaylistMuse does not provide application user accounts, roles, per-user credentials, per-user data isolation or multi-tenant separation.
+The installation uses one saved AI-provider configuration and connects to a single YouTube Music account.
 
 Recommended deployment practices:
 
