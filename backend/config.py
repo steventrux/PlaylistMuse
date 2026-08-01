@@ -343,6 +343,7 @@ def load_config() -> AppConfig:
 
 
 def save_config(config: AppConfig) -> None:
+    """Save provider settings without replacing another active configured provider."""
     existing = read_json_object(CONFIG_PATH)
     existing_provider = str(existing.get("provider", "") or "").strip()
     profiles = _saved_profiles(existing, existing_provider)
@@ -371,19 +372,35 @@ def save_config(config: AppConfig) -> None:
 
     _materialize_openrouter_profiles(profiles, keys)
 
-    active_provider = config.provider
+    if _configured_provider_from_state(existing_provider, profiles, keys):
+        active_provider = existing_provider
+    else:
+        active_provider = config.provider
+
     if not _configured_provider_from_state(active_provider, profiles, keys):
-        candidates = [existing_provider, *profiles.keys()]
         active_provider = next(
             (
                 provider
-                for provider in dict.fromkeys(candidates)
+                for provider in profiles
                 if _configured_provider_from_state(provider, profiles, keys)
             ),
             config.provider,
         )
 
     _write_config_state(active_provider, profiles, keys)
+
+
+def activate_provider(provider: str) -> AppConfig:
+    """Force one configured provider to become active."""
+    existing = read_json_object(CONFIG_PATH)
+    existing_provider = str(existing.get("provider", "") or "").strip()
+    profiles = _saved_profiles(existing, existing_provider)
+    keys = _saved_api_keys(existing, existing_provider)
+    _materialize_openrouter_profiles(profiles, keys)
+    if not _configured_provider_from_state(provider, profiles, keys):
+        raise ValueError("Configure this AI provider before activating it.")
+    _write_config_state(provider, profiles, keys)
+    return load_config()
 
 
 def disconnect_provider(provider: str) -> AppConfig:
