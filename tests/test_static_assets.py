@@ -34,7 +34,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     common = '<script src="/static/common.js?v=1"></script>'
 
     assert index.index(common) < index.index(
-        '<script src="/static/ai-settings.js?v=10"></script>'
+        '<script src="/static/ai-settings.js?v=11"></script>'
     )
     assert index.index(common) < index.index(
         '<script src="/static/youtube-account.js?v=4"></script>'
@@ -151,17 +151,20 @@ def test_header_indicators_show_active_provider_without_neon() -> None:
     assert "#ff0000" not in layout.lower()
 
 
-def test_ai_settings_can_manage_and_activate_multiple_profiles() -> None:
+def test_ai_settings_can_manage_activate_and_disconnect_profiles() -> None:
     ai_settings = _script("ai-settings.js")
 
     assert "/api/ai/profiles" in ai_settings
     assert "/api/ai/activate" in ai_settings
+    assert "/api/ai/providers/" in ai_settings
     assert "providerProfiles" in ai_settings
     assert "activeProvider" in ai_settings
     assert "Use this AI" in ai_settings
     assert "activateSelectedProvider" in ai_settings
-    assert "● " in ai_settings
-    assert "✓ " in ai_settings
+    assert "Disconnect" in ai_settings
+    assert "disconnectSelectedProvider" in ai_settings
+    assert "profile.active ? '✓ ' : profile.configured ? '● ' : ''" in ai_settings
+    assert "Auto and Free are both available" in ai_settings
     assert "playlistmuse-status-changed" in ai_settings
 
 
