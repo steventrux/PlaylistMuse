@@ -7,7 +7,13 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from backend.config import AppConfig, disconnect_provider, load_config, save_config
+from backend.config import (
+    AppConfig,
+    activate_provider,
+    disconnect_provider,
+    load_config,
+    save_config,
+)
 from backend.onboarding import acknowledge_onboarding, onboarding_status
 from backend.playlist_cover import normalize_thumbnail_urls
 from backend.youtube_account import (
@@ -128,15 +134,10 @@ async def get_ai_profiles() -> dict:
 
 @router.post("/ai/activate", tags=["ai-settings"])
 async def activate_ai_provider(request: AIProviderActivation) -> dict:
-    current = load_config()
-    selected = current.configuration_for(request.provider)
-    if not selected.configured:
-        raise HTTPException(
-            status_code=400,
-            detail="Configure this AI provider before activating it.",
-        )
-    save_config(selected)
-    updated = load_config()
+    try:
+        updated = activate_provider(request.provider)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     if updated.provider != request.provider or not updated.configured:
         raise HTTPException(
             status_code=500,
