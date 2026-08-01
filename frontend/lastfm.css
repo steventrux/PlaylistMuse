@@ -1,15 +1,15 @@
 /* Last.fm service indicator and settings panel. */
 
 .header-indicator .lastfm-mark {
-  width: 20px;
-  height: 20px;
+  width: 21px;
+  height: 21px;
   fill: currentColor;
 }
 
 .header-indicator.lastfm.on {
-  border-color: rgba(251, 113, 133, .64);
-  background: linear-gradient(145deg, rgba(244, 63, 94, .22), rgba(236, 72, 153, .14));
-  color: #fda4af;
+  border-color: rgba(213, 16, 7, .68);
+  background: linear-gradient(145deg, rgba(213, 16, 7, .24), rgba(236, 72, 153, .12));
+  color: #d51007;
   box-shadow: none;
 }
 
