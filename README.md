@@ -32,7 +32,7 @@ PlaylistMuse is a self-hosted web application that turns a written idea or a ref
 
 Describe a mood, genre, era, activity or sound, or start from an existing track. PlaylistMuse asks the selected AI provider for suitable songs, resolves every suggestion against the YouTube Music catalogue and removes unwanted duplicates, live recordings, covers or remixes according to your preferences.
 
-The result remains fully editable before publication. Review track details, replace individual songs, change the title and description, choose playlist visibility and publish the final sequence directly to YouTube Music.
+The result remains editable before publication. Review track details, replace individual songs, change the title, choose playlist visibility and publish the final sequence directly to YouTube Music.
 
 ## Features
 
@@ -66,7 +66,7 @@ Additional highlights:
    Duplicates and excluded versions are removed, missing positions are replenished and individual tracks can be replaced without regenerating the whole playlist.
 
 4. **Publish to YouTube Music.**  
-   Edit the title and description, choose the visibility and create the playlist in the connected account.
+   Edit the title, choose the visibility and create the playlist in the connected account.
 
 ## Quick start
 
