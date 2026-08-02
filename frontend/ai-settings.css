@@ -1,28 +1,16 @@
-@import url("/static/settings-dialog.css?v=2");
+@import url("/static/settings-dialog.css?v=3");
 
 /* Shared AI provider settings layout. */
 
 #setup-ai-step.settings-block,
 #ai-settings-dialog .settings-block {
-  padding-top: 24px;
+  padding-top: 14px;
 }
 
 .ai-active-summary {
   margin: 0 0 14px;
-  padding: 0 0 12px;
+  padding: 0 0 14px;
   border-bottom: 1px solid var(--border);
-}
-
-.ai-active-status {
-  margin: 0;
-  color: #86efac;
-  font-size: 1rem;
-  font-weight: 800;
-  line-height: 1.4;
-}
-
-.ai-active-status:not(.ok) {
-  color: var(--text-secondary);
 }
 
 .ai-provider-selection-heading {
