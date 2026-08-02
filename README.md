@@ -34,21 +34,6 @@
 > [!WARNING]
 > This is the public beta branch. It contains testable preview functionality that may still change before the next stable release. Use the `main` branch and the `latest` Docker tag for production installations.
 
-## Changes in beta not yet in main
-
-This beta contains the complete application state currently validated on `dev`. Compared with `main`, it adds:
-
-- a shared visual system for the AI, YouTube Music and Last.fm settings dialogs;
-- consistent full-width connection and configuration status panels;
-- a clearer AI provider hierarchy, with the active provider separated from provider selection and concise `In use` / `Configured` markers;
-- removal of redundant provider and connection messages from the settings interface;
-- simplified YouTube Music OAuth settings with a consistent primary save action;
-- matching Last.fm API status presentation and spacing;
-- regression tests covering the shared settings layout and state presentation;
-- CI execution for pushes and pull requests involving the `beta` branch.
-
-These changes remain in public preview until they are explicitly promoted to `main`.
-
 ## What is PlaylistMuse?
 
 PlaylistMuse is a self-hosted web application that turns a written idea or a reference song into a complete YouTube Music playlist.
@@ -83,6 +68,21 @@ Additional highlights:
 - Four-tile playlist artwork generated locally in the browser
 - Responsive interface built with semantic HTML, modern CSS and vanilla JavaScript
 - Docker-based deployment with persistent application data
+
+## Changes in beta not yet in main
+
+This beta contains the complete application state currently validated on `dev`. Compared with `main`, it adds:
+
+- a shared visual system for the AI, YouTube Music and Last.fm settings dialogs;
+- consistent full-width connection and configuration status panels;
+- a clearer AI provider hierarchy, with the active provider separated from provider selection and concise `In use` / `Configured` markers;
+- removal of redundant provider and connection messages from the settings interface;
+- simplified YouTube Music OAuth settings with a consistent primary save action;
+- matching Last.fm API status presentation and spacing;
+- regression tests covering the shared settings layout and state presentation;
+- CI execution for pushes and pull requests involving the `beta` branch.
+
+These changes remain in public preview until they are explicitly promoted to `main`.
 
 ## How it works
 
