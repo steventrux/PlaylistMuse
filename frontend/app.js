@@ -99,7 +99,7 @@
   }
 
   function ensureSeedModeControls() {
-    if ($('seed-mode-controls')) return;
+    if (document.getElementById('seed-mode-controls')) return;
 
     const controls = document.createElement('section');
     controls.id = 'seed-mode-controls';
@@ -135,6 +135,8 @@
 
     controls.append(label, buttons, help);
     $('selected-seed').insertAdjacentElement('afterend', controls);
+    elementCache.set('seed-mode-controls', controls);
+    elementCache.set('seed-mode-help', help);
     updateSeedModeControls();
   }
 
