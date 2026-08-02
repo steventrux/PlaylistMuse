@@ -7,7 +7,7 @@
 
   <br><br>
 
-  <a href="https://github.com/steventrux/PlaylistMuse/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/steventrux/PlaylistMuse/ci.yml?branch=main&style=flat-square&label=CI&logo=github" alt="CI status" height="24"></a>
+  <a href="https://github.com/steventrux/PlaylistMuse/actions/workflows/ci.yml?query=branch%3Adev"><img src="https://img.shields.io/github/actions/workflow/status/steventrux/PlaylistMuse/ci.yml?branch=dev&style=flat-square&label=CI&logo=github" alt="CI status" height="24"></a>
   <img src="https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.12" height="24">
   <img src="https://img.shields.io/badge/FastAPI-0.116+-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI" height="24">
   <img src="https://img.shields.io/badge/Docker-ready-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker ready" height="24">
@@ -30,6 +30,9 @@
 </div>
 
 ---
+
+> [!CAUTION]
+> This is the active development branch. It may contain incomplete or changing functionality and is not published as a Docker image. Use `main` with `ghcr.io/steventrux/playlistmuse:latest` for stable installations or `beta` with `ghcr.io/steventrux/playlistmuse:beta` for public preview builds.
 
 ## What is PlaylistMuse?
 
@@ -131,10 +134,12 @@ The API key is never returned to the browser. It can be saved from the Last.fm s
 - Docker Engine
 - Docker Compose v2
 
-### Run with Docker Compose
+### Build and run the development branch
+
+The `dev` branch must be built from source so the running container matches the current development code:
 
 ```bash
-git clone https://github.com/steventrux/PlaylistMuse.git
+git clone --branch dev --single-branch https://github.com/steventrux/PlaylistMuse.git
 cd PlaylistMuse
 cp .env.example .env
 docker compose up -d --build
@@ -142,11 +147,18 @@ docker compose up -d --build
 
 Open **http://localhost:5780**.
 
+To update an existing development checkout:
+
+```bash
+git pull --ff-only origin dev
+docker compose up -d --build
+```
+
 On first launch, the onboarding flow guides you through configuring the AI provider and YouTube Music. Last.fm can be configured later from its settings button.
 
 Application settings, provider credentials, Last.fm configuration and YouTube authorization data are stored in the persistent `./data` directory.
 
-To stop PlaylistMuse:
+To stop the development installation:
 
 ```bash
 docker compose down
