@@ -7,7 +7,7 @@
 
   <br><br>
 
-  <a href="https://github.com/steventrux/PlaylistMuse/actions/workflows/ci.yml?query=branch%3Adev"><img src="https://img.shields.io/github/actions/workflow/status/steventrux/PlaylistMuse/ci.yml?branch=dev&style=flat-square&label=CI&logo=github" alt="CI status" height="24"></a>
+  <a href="https://github.com/steventrux/PlaylistMuse/actions/workflows/ci.yml?query=branch%3Abeta"><img src="https://img.shields.io/github/actions/workflow/status/steventrux/PlaylistMuse/ci.yml?branch=beta&style=flat-square&label=CI&logo=github" alt="CI status" height="24"></a>
   <img src="https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.12" height="24">
   <img src="https://img.shields.io/badge/FastAPI-0.116+-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI" height="24">
   <img src="https://img.shields.io/badge/Docker-ready-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker ready" height="24">
@@ -20,6 +20,7 @@
   </p>
 
   <p>
+    <a href="#changes-in-beta-not-yet-in-main"><strong>Beta changes</strong></a> ·
     <a href="#features"><strong>Features</strong></a> ·
     <a href="#how-it-works"><strong>How it works</strong></a> ·
     <a href="#lastfm-guided-discovery"><strong>Last.fm</strong></a> ·
@@ -31,8 +32,23 @@
 
 ---
 
-> [!CAUTION]
-> This is the active development branch. It may contain incomplete or changing functionality and is not published as a Docker image. Use `main` with `ghcr.io/steventrux/playlistmuse:latest` for stable installations or `beta` with `ghcr.io/steventrux/playlistmuse:beta` for public preview builds.
+> [!WARNING]
+> This is the public beta branch. It contains testable preview functionality that may still change before the next stable release. Use the `main` branch and the `latest` Docker tag for production installations.
+
+## Changes in beta not yet in main
+
+This beta contains the complete application state currently validated on `dev`. Compared with `main`, it adds:
+
+- a shared visual system for the AI, YouTube Music and Last.fm settings dialogs;
+- consistent full-width connection and configuration status panels;
+- a clearer AI provider hierarchy, with the active provider separated from provider selection and concise `In use` / `Configured` markers;
+- removal of redundant provider and connection messages from the settings interface;
+- simplified YouTube Music OAuth settings with a consistent primary save action;
+- matching Last.fm API status presentation and spacing;
+- regression tests covering the shared settings layout and state presentation;
+- CI execution for pushes and pull requests involving the `beta` branch.
+
+These changes remain in public preview until they are explicitly promoted to `main`.
 
 ## What is PlaylistMuse?
 
@@ -132,14 +148,46 @@ The API key is never returned to the browser. It can be saved from the Last.fm s
 ### Requirements
 
 - Docker Engine
-- Docker Compose v2
+- Docker Compose v2 only when building from source
 
-### Build and run the development branch
+### Recommended: run the published beta image
 
-The `dev` branch must be built from source so the running container matches the current development code:
+Clone the beta branch to get the matching example configuration, then start the current beta image from GitHub Container Registry:
 
 ```bash
-git clone --branch dev --single-branch https://github.com/steventrux/PlaylistMuse.git
+git clone --branch beta --single-branch https://github.com/steventrux/PlaylistMuse.git
+cd PlaylistMuse
+cp .env.example .env
+mkdir -p data
+
+docker run -d \
+  --name playlistmuse-beta \
+  --restart unless-stopped \
+  -p 5780:5780 \
+  --env-file .env \
+  -v "$(pwd)/data:/app/data" \
+  ghcr.io/steventrux/playlistmuse:beta
+```
+
+To update the beta installation:
+
+```bash
+docker pull ghcr.io/steventrux/playlistmuse:beta
+docker rm -f playlistmuse-beta
+
+docker run -d \
+  --name playlistmuse-beta \
+  --restart unless-stopped \
+  -p 5780:5780 \
+  --env-file .env \
+  -v "$(pwd)/data:/app/data" \
+  ghcr.io/steventrux/playlistmuse:beta
+```
+
+### Alternative: build the beta branch from source
+
+```bash
+git clone --branch beta --single-branch https://github.com/steventrux/PlaylistMuse.git
 cd PlaylistMuse
 cp .env.example .env
 docker compose up -d --build
@@ -147,18 +195,17 @@ docker compose up -d --build
 
 Open **http://localhost:5780**.
 
-To update an existing development checkout:
-
-```bash
-git pull --ff-only origin dev
-docker compose up -d --build
-```
-
 On first launch, the onboarding flow guides you through configuring the AI provider and YouTube Music. Last.fm can be configured later from its settings button.
 
 Application settings, provider credentials, Last.fm configuration and YouTube authorization data are stored in the persistent `./data` directory.
 
-To stop the development installation:
+To stop the published beta container:
+
+```bash
+docker rm -f playlistmuse-beta
+```
+
+To stop the Docker Compose installation:
 
 ```bash
 docker compose down
