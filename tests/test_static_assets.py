@@ -239,7 +239,7 @@ def test_ai_settings_separate_active_and_selected_provider_states() -> None:
     assert "font-weight: 800" in ai_style
     assert "margin: 0 0 14px" in ai_style
     assert "padding: 0 0 12px" in ai_style
-    assert "padding-top: 14px" in ai_style
+    assert "padding-top: 24px" in ai_style
     assert "border-bottom: 1px solid var(--border)" in ai_style
 
 
