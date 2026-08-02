@@ -12,13 +12,17 @@ def test_settings_dialogs_share_the_same_visual_system() -> None:
     youtube_script = (FRONTEND / "youtube-account.js").read_text(encoding="utf-8")
     lastfm_script = (FRONTEND / "lastfm-settings.js").read_text(encoding="utf-8")
 
-    assert '@import url("/static/settings-dialog.css?v=2");' in ai_styles
+    assert '@import url("/static/settings-dialog.css?v=3");' in ai_styles
     assert ".settings-dialog-card .ai-active-summary" in shared_styles
     assert ".settings-dialog-card .youtube-account-summary" in shared_styles
     assert ".settings-dialog-card .settings-summary" in shared_styles
     assert ".settings-dialog-card .settings-state.ok" in shared_styles
-    assert "padding-top: 24px" in shared_styles
+    assert "padding-top: 14px" in shared_styles
+    assert "padding: 0 0 14px" in shared_styles
+    assert "font-size: 1rem" in shared_styles
+    assert "min-height: 36px" in shared_styles
     assert ".youtube-account-summary-heading h3" in shared_styles
+    assert ".youtube-credentials-section > h3" in shared_styles
     assert "display: none" in shared_styles
     assert "#ai-settings-dialog .dialog-head h2::before" in shared_styles
     assert "#youtube-settings-dialog .dialog-head h2::before" in shared_styles
