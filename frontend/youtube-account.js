@@ -16,7 +16,13 @@
 
   function setAccountStatus(text, kind = '') {
     const element = $('account-status');
-    element.textContent = text;
+    const displayText = {
+      Connected: 'YouTube Music account connected.',
+      'Not connected': 'YouTube Music account not connected.',
+      'OAuth setup required': 'YouTube Music OAuth setup required.',
+    }[text] || text;
+
+    element.textContent = displayText;
     element.classList.toggle('ok', kind === 'ok');
     element.classList.toggle('error', kind === 'error');
   }
@@ -246,7 +252,11 @@
     }
   }
 
-  $('save-youtube').addEventListener('click', saveSettings);
+  const saveButton = $('save-youtube');
+  saveButton.classList.remove('secondary');
+  saveButton.classList.add('primary');
+
+  saveButton.addEventListener('click', saveSettings);
   $('connect').addEventListener('click', connectAccount);
   $('disconnect').addEventListener('click', disconnectAccount);
   $('youtube-authorization-link').addEventListener('click', () => {
