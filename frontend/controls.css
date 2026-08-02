@@ -110,6 +110,47 @@
   margin-bottom: 12px;
 }
 
+.seed-mode-controls {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid rgba(169, 155, 255, .16);
+  border-radius: 12px;
+  background: rgba(9, 12, 27, .62);
+}
+
+.seed-mode-label {
+  display: block;
+  margin-bottom: 9px;
+  color: #f3f1ff;
+  font-size: .86rem;
+  font-weight: 750;
+}
+
+.seed-mode-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.seed-mode-button {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+}
+
+.seed-mode-button.active,
+.seed-mode-button.active:hover {
+  border-color: #8b5cf6;
+  background: #8b5cf6;
+  color: #ffffff;
+  transform: none;
+}
+
+.seed-mode-help {
+  min-height: 1.35em;
+  margin: 9px 0 0;
+}
+
 /* Tracks wraps its input inside the label, so grid gap is correct here. */
 .compact-filters label {
   gap: 12px;
@@ -217,5 +258,9 @@
   .status-badge {
     min-width: 44px;
     padding: 0 8px;
+  }
+
+  .seed-mode-buttons {
+    grid-template-columns: 1fr;
   }
 }
