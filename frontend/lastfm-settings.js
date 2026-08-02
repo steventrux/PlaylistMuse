@@ -55,7 +55,14 @@
   function setStatus(text, state = '') {
     const status = $('lastfm-settings-status');
     if (!status) return;
-    status.textContent = text;
+
+    const displayText = {
+      Configured: 'Last.fm API connected.',
+      'Server managed': 'Last.fm API connected · server managed.',
+      'Not configured': 'Last.fm API not connected.',
+    }[text] || text;
+
+    status.textContent = displayText;
     status.classList.toggle('ok', state === 'ok');
     status.classList.toggle('error', state === 'error');
   }
