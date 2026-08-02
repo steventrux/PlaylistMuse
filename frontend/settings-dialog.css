@@ -44,11 +44,11 @@
 }
 
 .settings-dialog-card .youtube-account-summary-heading h3,
-.settings-dialog-card .settings-summary-heading h3 {
+.settings-dialog-card .settings-summary-heading h3,
+.settings-dialog-card .youtube-credentials-section > h3 {
   display: none;
 }
 
-.settings-dialog-card .youtube-credentials-section h3,
 .settings-dialog-card .settings-section h3 {
   margin: 0;
 }
@@ -98,7 +98,6 @@
   padding-top: 0;
 }
 
-.settings-dialog-card .youtube-credentials-section h3,
 .settings-dialog-card .settings-section h3 {
   margin-bottom: 12px;
 }
