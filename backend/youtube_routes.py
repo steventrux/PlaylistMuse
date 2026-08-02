@@ -17,6 +17,11 @@ from backend.config import (
     load_config,
     save_config,
 )
+from backend.lastfm_settings import (
+    disconnect_lastfm,
+    lastfm_settings_response,
+    save_lastfm_api_key,
+)
 from backend.onboarding import acknowledge_onboarding, onboarding_status
 from backend.playlist_cover import normalize_thumbnail_urls
 from backend.youtube_account import (
@@ -65,6 +70,18 @@ class AIModelDiscoveryRequest(BaseModel):
     @classmethod
     def trim_discovery_value(cls, value: str) -> str:
         return value.strip()
+
+
+class LastFmSettingsUpdate(BaseModel):
+    api_key: str = Field(min_length=1, max_length=256)
+
+    @field_validator("api_key")
+    @classmethod
+    def trim_api_key(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Enter a Last.fm API key.")
+        return normalized
 
 
 class YouTubeSettingsUpdate(BaseModel):
@@ -202,6 +219,34 @@ async def delete_ai_provider(provider: str) -> dict:
         raise HTTPException(status_code=404, detail="Unknown AI provider.")
     updated = disconnect_provider(provider)
     return _ai_profiles_response(_ensure_active_ai_config(updated))
+
+
+@router.get("/lastfm/status", tags=["lastfm"])
+async def get_lastfm_status() -> dict[str, object]:
+    return lastfm_settings_response()
+
+
+@router.get("/lastfm/settings", tags=["lastfm"])
+async def get_lastfm_settings() -> dict[str, object]:
+    return lastfm_settings_response()
+
+
+@router.put("/lastfm/settings", tags=["lastfm"])
+async def update_lastfm_settings(request: LastFmSettingsUpdate) -> dict[str, object]:
+    try:
+        return save_lastfm_api_key(request.api_key)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=502,
+            detail="The Last.fm API key could not be saved.",
+        ) from error
+
+
+@router.delete("/lastfm/settings", tags=["lastfm"])
+async def delete_lastfm_settings() -> dict[str, object]:
+    return disconnect_lastfm()
 
 
 @router.get("/youtube/settings", tags=["youtube-music"])

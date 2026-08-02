@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Literal
 
@@ -16,6 +18,11 @@ from backend.config import (
     api_key_slot,
     load_config,
     save_config,
+)
+from backend.lastfm_discovery import (
+    discover_for_seed as similar_track_candidates,
+    discover_from_anchors,
+    select_prompt_anchors,
 )
 from backend.llm import generate_playlist_draft, safe_error_message
 from backend.youtube import resolve_candidates, search_songs, track_identity_key
@@ -39,6 +46,20 @@ OPENROUTER_MODELS = {
 }
 MAX_REPLENISHMENT_ROUNDS = 6
 MAX_STALLED_ROUNDS = 2
+MAX_LASTFM_CONTEXT_TRACKS = 60
+_ARTIST_SEPARATOR_RE = re.compile(
+    r"\s*(?:,|&|\bfeat\.?\b|\bfeaturing\b|\bwith\b)\s*",
+    re.IGNORECASE,
+)
+
+_SEED_RECOMMENDATIONS: ContextVar[tuple[dict[str, str], ...]] = ContextVar(
+    "playlistmuse_seed_recommendations",
+    default=(),
+)
+_SEED_ANCHORS: ContextVar[tuple[dict[str, str], ...]] = ContextVar(
+    "playlistmuse_seed_anchors",
+    default=(),
+)
 
 app = FastAPI(
     title="PlaylistMuse",
@@ -158,6 +179,241 @@ def _candidate_key(candidate: dict) -> str:
     )
 
 
+def _artist_key(candidate: dict) -> str:
+    return track_identity_key(
+        "",
+        str(candidate.get("artist", candidate.get("artists", ""))),
+    )
+
+
+def _artist_identity_keys(value: str) -> set[str]:
+    """Return both the complete credit and its common collaborator components."""
+    normalized = " ".join(str(value).split())
+    if not normalized:
+        return set()
+    keys = {track_identity_key("", normalized)}
+    for part in _ARTIST_SEPARATOR_RE.split(normalized):
+        part = part.strip()
+        if part:
+            keys.add(track_identity_key("", part))
+    return keys
+
+
+def _blend_candidates(
+    primary: list[dict[str, str]],
+    supplemental: list[dict[str, str]],
+    count: int,
+) -> list[dict[str, str]]:
+    """Legacy bounded blending helper retained for compatibility with older tests."""
+    combined_primary = list(primary)
+    seen = {_candidate_key(candidate) for candidate in combined_primary}
+    seen.discard("")
+    quota = min(len(supplemental), max(1, min(12, count // 5)))
+    extras: list[dict[str, str]] = []
+    for candidate in supplemental:
+        key = _candidate_key(candidate)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        extras.append(candidate)
+        if len(extras) >= quota:
+            break
+
+    if not extras:
+        return combined_primary
+    if not combined_primary:
+        return extras
+
+    blended = list(combined_primary)
+    spacing = max(1, len(combined_primary) // (len(extras) + 1))
+    offset = spacing
+    for candidate in extras:
+        blended.insert(min(offset, len(blended)), candidate)
+        offset += spacing + 1
+    return blended
+
+
+def _discovery_prompt(
+    original_prompt: str,
+    first_draft: dict,
+    candidates: list[dict[str, str]],
+    count: int,
+) -> str:
+    first_pass = "\n".join(
+        f"- {track.get('artist', 'Unknown artist')} — "
+        f"{track.get('title', 'Unknown track')}"
+        for track in first_draft.get("tracks", [])[:count]
+    )
+    evidence = "\n".join(
+        f"- {candidate.get('artist', 'Unknown artist')} — "
+        f"{candidate.get('title', 'Unknown track')} "
+        f"[{candidate.get('lastfm_strategy', 'lastfm')}]"
+        for candidate in candidates[:MAX_LASTFM_CONTEXT_TRACKS]
+    )
+    return (
+        f"Create the final playlist for this request:\n{original_prompt}\n\n"
+        "You have two complementary inputs:\n"
+        "1. Your own first-pass musical ideas.\n"
+        "2. Last.fm collaborative-listening evidence derived from the seed or from "
+        "representative tracks in the first pass.\n\n"
+        f"First-pass ideas:\n{first_pass or '- None'}\n\n"
+        f"Last.fm evidence:\n{evidence or '- None'}\n\n"
+        f"Return a cohesive final playlist of up to {count} tracks. Combine the original "
+        "request, your musical judgment and the Last.fm evidence. There is no quota: "
+        "use any number of Last.fm suggestions, including zero, only when they improve "
+        "coherence, discovery, variety or flow. You may also select tracks not listed "
+        "above. Avoid mechanically copying either list. For every selected song, write "
+        "a natural song description and a playlist-specific reason in the normal "
+        "PlaylistMuse style. Use canonical artist and released track names."
+    )
+
+
+def _annotate_lastfm_sources(
+    tracks: list[dict[str, str]],
+    candidates: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    evidence_by_key = {
+        _candidate_key(candidate): candidate
+        for candidate in candidates
+        if _candidate_key(candidate)
+    }
+    annotated: list[dict[str, str]] = []
+    for track in tracks:
+        copy = dict(track)
+        evidence = evidence_by_key.get(_candidate_key(copy))
+        if evidence and evidence.get("lastfm_strategy") == "similar_track":
+            copy["source"] = "lastfm"
+            copy["lastfm_strategy"] = "similar_track"
+        annotated.append(copy)
+    return annotated
+
+
+def _anchor_metadata(anchors: list[dict[str, str]]) -> list[dict[str, str]]:
+    return [
+        {
+            "artist": str(anchor.get("artist", "")).strip(),
+            "title": str(anchor.get("title", "")).strip(),
+            "kind": str(anchor.get("kind", "ai_draft")).strip() or "ai_draft",
+        }
+        for anchor in anchors
+        if str(anchor.get("artist", "")).strip()
+        and str(anchor.get("title", "")).strip()
+    ]
+
+
+def _selection_sets(
+    selected_tracks: list[dict],
+) -> tuple[set[str], set[str]]:
+    track_keys = {
+        track_identity_key(track.get("title", ""), track.get("artists", ""))
+        for track in selected_tracks
+    }
+    artist_keys: set[str] = set()
+    for track in selected_tracks:
+        artist_keys.update(_artist_identity_keys(str(track.get("artists", ""))))
+    return track_keys, artist_keys
+
+
+def _signal_metadata(
+    candidates: list[dict[str, str]],
+    selected_tracks: list[dict],
+) -> list[dict[str, object]]:
+    selected_track_keys, selected_artist_keys = _selection_sets(selected_tracks)
+    signals: list[dict[str, object]] = []
+    for candidate in candidates:
+        strategy = str(candidate.get("lastfm_strategy", "")).strip()
+        is_track_signal = strategy == "similar_track"
+        signal: dict[str, object] = {
+            "artist": str(candidate.get("artist", "")).strip(),
+            "title": str(candidate.get("title", "")).strip() if is_track_signal else None,
+            "strategy": strategy or "lastfm",
+            "match": str(candidate.get("lastfm_match", "")).strip() or None,
+            "selected": is_track_signal
+            and _candidate_key(candidate) in selected_track_keys,
+            "artist_represented": _artist_key(candidate) in selected_artist_keys,
+        }
+        anchor_artist = str(candidate.get("anchor_artist", "")).strip()
+        anchor_title = str(candidate.get("anchor_title", "")).strip()
+        if anchor_artist and anchor_title:
+            signal["anchor"] = {
+                "artist": anchor_artist,
+                "title": anchor_title,
+            }
+        signals.append(signal)
+    return signals
+
+
+def _represented_counts(signals: list[dict[str, object]]) -> tuple[int, int]:
+    represented_signals = sum(
+        1 for signal in signals if bool(signal.get("artist_represented"))
+    )
+    represented_artist_keys = {
+        track_identity_key("", str(signal.get("artist", "")))
+        for signal in signals
+        if bool(signal.get("artist_represented"))
+        and str(signal.get("artist", "")).strip()
+    }
+    return represented_signals, len(represented_artist_keys)
+
+
+def _lastfm_summary(
+    anchors: list[dict[str, str]],
+    candidates: list[dict[str, str]],
+    selected_tracks: list[dict],
+    *,
+    guidance_applied: bool,
+) -> dict[str, object]:
+    signals = _signal_metadata(candidates, selected_tracks)
+    strategies = sorted(
+        {
+            str(candidate.get("lastfm_strategy", "")).strip()
+            for candidate in candidates
+            if str(candidate.get("lastfm_strategy", "")).strip()
+        }
+    )
+    selected = sum(1 for signal in signals if bool(signal["selected"]))
+    represented_signals, represented_artists = _represented_counts(signals)
+    return {
+        "available": bool(candidates),
+        "guidance_applied": guidance_applied,
+        "suggestions": len(candidates),
+        "selected": selected,
+        "represented_signals": represented_signals,
+        "represented_artists": represented_artists,
+        "strategies": strategies,
+        "anchors": _anchor_metadata(anchors),
+        "signals": signals,
+    }
+
+
+def _refresh_lastfm_selection(summary: dict, selected_tracks: list[dict]) -> None:
+    signals = summary.get("signals")
+    if not isinstance(signals, list):
+        return
+    selected_track_keys, selected_artist_keys = _selection_sets(selected_tracks)
+    selected = 0
+    typed_signals: list[dict[str, object]] = []
+    for signal in signals:
+        if not isinstance(signal, dict):
+            continue
+        artist = str(signal.get("artist", "")).strip()
+        title = str(signal.get("title") or "").strip()
+        strategy = str(signal.get("strategy", "")).strip()
+        signal["selected"] = (
+            strategy == "similar_track"
+            and track_identity_key(title, artist) in selected_track_keys
+        )
+        signal["artist_represented"] = (
+            track_identity_key("", artist) in selected_artist_keys
+        )
+        selected += int(bool(signal["selected"]))
+        typed_signals.append(signal)
+    represented_signals, represented_artists = _represented_counts(typed_signals)
+    summary["selected"] = selected
+    summary["represented_signals"] = represented_signals
+    summary["represented_artists"] = represented_artists
+
+
 def _replenishment_prompt(
     original_prompt: str,
     playlist_title: str,
@@ -166,6 +422,7 @@ def _replenishment_prompt(
     pool_size: int,
     tracks: list[dict],
     attempted_candidates: list[dict],
+    lastfm_candidates: list[dict[str, str]] | None = None,
 ) -> str:
     forbidden_lines: list[str] = []
     for track in tracks:
@@ -179,6 +436,17 @@ def _replenishment_prompt(
             f"{candidate.get('title', 'Unknown track')}"
         )
     forbidden = "\n".join(dict.fromkeys(forbidden_lines))
+    evidence = "\n".join(
+        f"- {candidate.get('artist', 'Unknown artist')} — "
+        f"{candidate.get('title', 'Unknown track')}"
+        for candidate in (lastfm_candidates or [])[:30]
+    )
+    discovery_note = (
+        "\nLast.fm collaborative evidence remains available as optional inspiration:\n"
+        f"{evidence}\n"
+        if evidence
+        else ""
+    )
     return (
         f"The original playlist request is:\n{original_prompt}\n\n"
         f"Playlist title: {playlist_title}\n"
@@ -186,26 +454,59 @@ def _replenishment_prompt(
         f"The playlist still needs {missing} resolvable songs. Suggest exactly "
         f"{pool_size} NEW replacement candidates that are likely to exist as normal "
         "song entries on YouTube Music. Use canonical released titles and mainstream "
-        "artist spelling. Do not repeat any forbidden song.\n"
+        "artist spelling. Do not repeat any forbidden song."
+        f"{discovery_note}\n"
         f"Forbidden or already attempted songs:\n{forbidden or '- None'}"
     )
 
 
 async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     config = load_config()
-    draft = await generate_playlist_draft(config, prompt, count)
-    exclusions = options.model_dump()
-    tracks, unresolved = await resolve_candidates(draft["tracks"], exclusions)
+    first_draft = await generate_playlist_draft(config, prompt, count)
 
-    attempted_candidates = list(draft["tracks"])
+    lastfm_anchors = list(_SEED_ANCHORS.get())
+    lastfm_candidates = list(_SEED_RECOMMENDATIONS.get())
+    if not lastfm_candidates:
+        prompt_anchors = select_prompt_anchors(first_draft.get("tracks", []))
+        lastfm_anchors.extend(
+            {
+                "artist": anchor["artist"],
+                "title": anchor["title"],
+                "kind": "ai_draft",
+            }
+            for anchor in prompt_anchors
+        )
+        lastfm_candidates = await discover_from_anchors(
+            prompt_anchors,
+            limit=min(MAX_LASTFM_CONTEXT_TRACKS, max(20, count * 2)),
+        )
+
+    draft = first_draft
+    guidance_applied = False
+    if lastfm_candidates:
+        guided_prompt = _discovery_prompt(prompt, first_draft, lastfm_candidates, count)
+        try:
+            draft = await generate_playlist_draft(config, guided_prompt, count)
+            guidance_applied = True
+        except Exception:
+            draft = first_draft
+
+    draft_tracks = _annotate_lastfm_sources(
+        list(draft.get("tracks", [])),
+        lastfm_candidates,
+    )
+    exclusions = options.model_dump()
+    tracks, unresolved = await resolve_candidates(draft_tracks, exclusions)
+
+    attempted_candidates = list(draft_tracks)
     attempted_keys = {_candidate_key(candidate) for candidate in attempted_candidates}
     resolved_keys = {
         track_identity_key(track.get("title", ""), track.get("artists", ""))
         for track in tracks
     }
     resolved_ids = {track.get("video_id") for track in tracks if track.get("video_id")}
-    stalled_rounds = 0
 
+    stalled_rounds = 0
     for _ in range(MAX_REPLENISHMENT_ROUNDS):
         missing = count - len(tracks)
         if missing <= 0:
@@ -220,10 +521,15 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
             pool_size,
             tracks,
             attempted_candidates,
+            lastfm_candidates,
         )
         refill = await generate_playlist_draft(config, refill_prompt, pool_size)
+        refill_tracks = _annotate_lastfm_sources(
+            list(refill.get("tracks", [])),
+            lastfm_candidates,
+        )
         fresh_candidates: list[dict] = []
-        for candidate in refill["tracks"]:
+        for candidate in refill_tracks:
             key = _candidate_key(candidate)
             if not key or key in attempted_keys:
                 continue
@@ -270,14 +576,21 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
             "fewer tracks."
         )
 
+    final_tracks = tracks[:count]
     return {
         "name": draft["title"],
         "description": draft["description"],
         "prompt": prompt,
         "requested_count": count,
         "resolved_count": count,
-        "tracks": tracks[:count],
+        "tracks": final_tracks,
         "unresolved": unresolved,
+        "lastfm": _lastfm_summary(
+            lastfm_anchors,
+            lastfm_candidates,
+            final_tracks,
+            guidance_applied=guidance_applied,
+        ),
     }
 
 
@@ -365,6 +678,18 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
         f"{seed.artists}. Match its style, mood, energy and musical character while "
         "including varied compatible artists."
     )
+    lastfm_candidates = await similar_track_candidates(
+        seed.artists,
+        seed.title,
+        limit=min(MAX_LASTFM_CONTEXT_TRACKS, max(20, request.track_count * 2)),
+    )
+    seed_anchor = {
+        "artist": seed.artists,
+        "title": seed.title,
+        "kind": "seed",
+    }
+    recommendation_token = _SEED_RECOMMENDATIONS.set(tuple(lastfm_candidates))
+    anchor_token = _SEED_ANCHORS.set((seed_anchor,))
     try:
         result = await _generate(prompt, request.track_count, request.options)
     except ValueError as error:
@@ -374,6 +699,9 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
             status_code=502,
             detail="Playlist generation failed. Please try again.",
         ) from error
+    finally:
+        _SEED_ANCHORS.reset(anchor_token)
+        _SEED_RECOMMENDATIONS.reset(recommendation_token)
 
     seed_payload = seed.model_dump()
     seed_key = track_identity_key(seed.title, seed.artists)
@@ -408,6 +736,8 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
     result["tracks"] = [seed_payload, *remaining_tracks][: request.track_count]
     result["resolved_count"] = len(result["tracks"])
     result["seed"] = seed_payload
+    if isinstance(result.get("lastfm"), dict):
+        _refresh_lastfm_selection(result["lastfm"], result["tracks"])
     return result
 
 
