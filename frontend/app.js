@@ -4,6 +4,7 @@
   const state = {
     mode: 'prompt',
     selectedSeed: null,
+    seedMode: 'balanced',
     seedSearching: false,
     setupMode: 'single',
     setupStep: 'ai',
@@ -17,6 +18,21 @@
   };
   const {readJson, setLoadingButton} = window.PlaylistMuseCommon;
   const generationState = window.PlaylistMuseGenerationState;
+
+  const SEED_MODES = {
+    strict: {
+      label: 'Strict',
+      help: 'Stay very close to the seed. Similarity takes priority over variety and flow.',
+    },
+    balanced: {
+      label: 'Balanced',
+      help: 'Keep the seed central while allowing compatible variety. Recommended.',
+    },
+    exploratory: {
+      label: 'Exploratory',
+      help: 'Use the seed as a starting point for a wider but still connected journey.',
+    },
+  };
 
   function message(text = '', error = false) {
     $('status').textContent = text;
@@ -71,9 +87,61 @@
     updateSeedSearchAvailability();
   }
 
+  function updateSeedModeControls() {
+    const controls = $('seed-mode-controls');
+    if (!controls) return;
+    controls.querySelectorAll('[data-seed-mode]').forEach((button) => {
+      const selected = button.dataset.seedMode === state.seedMode;
+      button.classList.toggle('active', selected);
+      button.setAttribute('aria-pressed', String(selected));
+    });
+    $('seed-mode-help').textContent = SEED_MODES[state.seedMode].help;
+  }
+
+  function ensureSeedModeControls() {
+    if ($('seed-mode-controls')) return;
+
+    const controls = document.createElement('section');
+    controls.id = 'seed-mode-controls';
+    controls.className = 'seed-mode-controls hidden';
+    controls.setAttribute('aria-label', 'Seed similarity mode');
+
+    const label = document.createElement('span');
+    label.className = 'seed-mode-label';
+    label.textContent = 'Similarity';
+
+    const buttons = document.createElement('div');
+    buttons.className = 'seed-mode-buttons';
+    buttons.setAttribute('role', 'group');
+    buttons.setAttribute('aria-label', 'Choose how closely the playlist follows the seed');
+
+    Object.entries(SEED_MODES).forEach(([value, definition]) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'secondary seed-mode-button';
+      button.dataset.seedMode = value;
+      button.textContent = definition.label;
+      button.addEventListener('click', () => {
+        state.seedMode = value;
+        updateSeedModeControls();
+      });
+      buttons.append(button);
+    });
+
+    const help = document.createElement('p');
+    help.id = 'seed-mode-help';
+    help.className = 'hint seed-mode-help';
+    help.setAttribute('aria-live', 'polite');
+
+    controls.append(label, buttons, help);
+    $('selected-seed').insertAdjacentElement('afterend', controls);
+    updateSeedModeControls();
+  }
+
   function clearSelectedSeed({showResults = false, guidance = ''} = {}) {
     state.selectedSeed = null;
     $('selected-seed').classList.add('hidden');
+    $('seed-mode-controls')?.classList.add('hidden');
     if (showResults) $('seed-results').classList.remove('hidden');
     setSeedGuidance(guidance);
     updateGenerationControls();
@@ -190,6 +258,7 @@
     $('selected-seed').append(artwork, copy, change);
     $('selected-seed').classList.remove('hidden');
     $('seed-results').classList.add('hidden');
+    $('seed-mode-controls').classList.remove('hidden');
     setSeedGuidance(`This playlist will be built around “${seed.title}” by ${seed.artists}.`);
     updateGenerationControls();
     message('');
@@ -285,7 +354,12 @@
     } else {
       if (!state.selectedSeed) return message('Search for and select a seed track first.', true);
       endpoint = '/api/playlists/generate-from-seed';
-      request = {seed: state.selectedSeed, track_count: trackCount(), options: options()};
+      request = {
+        seed: state.selectedSeed,
+        seed_mode: state.seedMode,
+        track_count: trackCount(),
+        options: options(),
+      };
     }
 
     const resetGeneratingButton = setLoadingButton(button, {
@@ -328,6 +402,7 @@
     message('');
   }
 
+  ensureSeedModeControls();
   $('generate').addEventListener('click', generate);
   $('prompt').addEventListener('input', updateGenerationControls);
   $('seed-search').addEventListener('click', searchSeed);
