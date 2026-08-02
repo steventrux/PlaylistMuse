@@ -20,7 +20,7 @@
 
 .settings-dialog-card > .settings-block,
 #setup-dialog .setup-step.settings-block {
-  padding-top: 14px;
+  padding-top: 24px;
   padding-bottom: 0;
   border-bottom: 0;
 }
@@ -33,26 +33,24 @@
   border-bottom: 1px solid var(--border);
 }
 
+.settings-dialog-card .ai-active-summary,
 .settings-dialog-card .youtube-account-summary-heading,
 .settings-dialog-card .settings-summary-heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 14px;
+  width: 100%;
+  min-height: 38px;
   margin: 0;
 }
 
 .settings-dialog-card .youtube-account-summary-heading h3,
-.settings-dialog-card .settings-summary-heading h3,
+.settings-dialog-card .settings-summary-heading h3 {
+  display: none;
+}
+
 .settings-dialog-card .youtube-credentials-section h3,
 .settings-dialog-card .settings-section h3 {
   margin: 0;
-}
-
-.settings-dialog-card .ai-active-summary {
-  display: flex;
-  align-items: center;
-  min-height: 38px;
 }
 
 .settings-dialog-card .ai-active-status,
@@ -60,6 +58,7 @@
 .settings-dialog-card .settings-state {
   display: inline-flex;
   align-items: center;
+  width: 100%;
   min-height: 30px;
   max-width: 100%;
   margin: 0;
@@ -72,10 +71,6 @@
   font-weight: 800;
   line-height: 1.3;
   white-space: normal;
-}
-
-.settings-dialog-card .ai-active-status {
-  width: 100%;
 }
 
 .settings-dialog-card .ai-active-status.ok,
@@ -134,19 +129,6 @@
 }
 
 @media (max-width: 600px) {
-  .settings-dialog-card .youtube-account-summary-heading,
-  .settings-dialog-card .settings-summary-heading {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .settings-dialog-card .ai-active-status,
-  .settings-dialog-card .youtube-account-state,
-  .settings-dialog-card .settings-state {
-    width: 100%;
-  }
-
   .settings-dialog-card .settings-actions > button {
     flex: 1 1 100%;
   }
