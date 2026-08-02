@@ -1,4 +1,4 @@
-@import url("/static/settings-dialog.css?v=1");
+@import url("/static/settings-dialog.css?v=2");
 
 /* Shared AI provider settings layout. */
 
@@ -30,7 +30,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 7px;
+  margin-bottom: 10px;
 }
 
 .ai-provider-selection-heading h3 {
@@ -60,6 +60,19 @@
 
 .ai-provider-selection > .settings-status {
   margin-bottom: 16px;
+}
+
+.ai-provider-selection > .settings-status.ok {
+  display: none;
+}
+
+.ai-provider-selection .settings-fields > label[for="ai-provider"] {
+  gap: 0;
+  font-size: 0;
+}
+
+.ai-provider-selection .settings-fields > label[for="ai-provider"] select {
+  font-size: 1rem;
 }
 
 #fallback-row {
