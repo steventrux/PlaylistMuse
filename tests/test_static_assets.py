@@ -235,14 +235,16 @@ def test_ai_settings_separate_active_and_selected_provider_states() -> None:
     assert "intro.classList.toggle('hidden', !onboarding)" in app
     assert "Configure the AI provider used to generate and refine playlists." not in app
     assert "Configure and connect the YouTube Music account used for direct publishing." not in app
-    assert ".ai-active-summary" in ai_style
-    assert "margin: 0 0 14px" in ai_style
-    assert "padding: 0 0 14px" in ai_style
-    assert "padding-top: 14px" in ai_style
-    assert "border-bottom: 1px solid var(--border)" in ai_style
+    assert '@import url("/static/settings-dialog.css?v=4");' in ai_style
+    assert ".ai-active-summary" not in ai_style
+    assert ".settings-dialog-card .ai-active-summary" in shared_style
+    assert "margin: 0 0 20px" in shared_style
+    assert "padding: 14px 0" in shared_style
+    assert "border-bottom: 1px solid var(--border)" in shared_style
     assert "font-size: 1rem" in shared_style
     assert "font-weight: 800" in shared_style
     assert "padding: 8px 10px" in shared_style
+    assert ":has(#setup-progress.hidden) .dialog-head" in shared_style
 
 
 def test_results_page_opens_ai_settings_without_losing_playlist() -> None:
@@ -293,7 +295,9 @@ def test_youtube_settings_show_account_and_relevant_actions() -> None:
     assert "connect.classList.toggle('hidden', connected)" in youtube_account
     assert "disconnect.classList.toggle('hidden', !connected)" in youtube_account
     assert "setAccountStatus('Connected', 'ok')" in youtube_account
-    assert ".youtube-account-summary" in youtube_style
+    assert ".youtube-account-summary" not in youtube_style
+    assert ".youtube-account-state" not in youtube_style
+    assert ".settings-dialog-card .youtube-account-summary" in shared_style
     assert ".youtube-account-profile.no-photo" in youtube_style
     assert "width: 100%" in youtube_style
 
