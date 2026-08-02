@@ -4,10 +4,13 @@ on:
   push:
     branches:
       - main
+      - beta
       - dev
   pull_request:
     branches:
       - main
+      - beta
+      - dev
 
 permissions:
   contents: read
