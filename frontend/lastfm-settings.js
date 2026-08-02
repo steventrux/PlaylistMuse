@@ -16,14 +16,14 @@
     panel.id = 'setup-lastfm-step';
     panel.className = 'settings-block setup-step lastfm-settings-panel hidden';
     panel.innerHTML = `
-      <div class="youtube-account-summary">
-        <div class="youtube-account-summary-heading">
+      <div class="settings-summary">
+        <div class="settings-summary-heading">
           <h3>Last.fm recommendations</h3>
-          <p id="lastfm-settings-status" class="settings-status">Checking…</p>
+          <p id="lastfm-settings-status" class="settings-status settings-state">Checking…</p>
         </div>
       </div>
 
-      <div class="youtube-credentials-section">
+      <div class="settings-section">
         <h3>API access</h3>
         <div class="settings-fields">
           <label for="lastfm-api-key">Last.fm API key
@@ -32,7 +32,7 @@
           </label>
         </div>
 
-        <p class="field-hint lastfm-settings-help">
+        <p class="field-hint settings-help lastfm-settings-help">
           The key enables listening-data recommendations for playlists created from a seed track.
           <a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener noreferrer">Create a Last.fm API account</a>
         </p>
@@ -52,11 +52,12 @@
     $('setup-lastfm-step')?.classList.add('hidden');
   }
 
-  function setStatus(text, error = false) {
+  function setStatus(text, state = '') {
     const status = $('lastfm-settings-status');
     if (!status) return;
     status.textContent = text;
-    status.classList.toggle('error', error);
+    status.classList.toggle('ok', state === 'ok');
+    status.classList.toggle('error', state === 'error');
   }
 
   function openSettings() {
@@ -86,15 +87,15 @@
     const disconnect = $('disconnect-lastfm');
 
     if (configured && source === 'environment') {
-      setStatus('Configured through the server environment.');
+      setStatus('Server managed', 'ok');
       input.placeholder = 'Environment API key active';
-      hint.textContent = 'Saving a key here will use the key stored by PlaylistMuse instead.';
+      hint.textContent = 'A server environment key is active. Saving a key here will use the key stored by PlaylistMuse instead.';
     } else if (configured) {
-      setStatus('Configured · Last.fm recommendations are active.');
+      setStatus('Configured', 'ok');
       input.placeholder = 'API key already saved';
-      hint.textContent = 'Enter a new key only when you want to replace the saved one.';
+      hint.textContent = 'Last.fm recommendations are active. Enter a new key only when you want to replace the saved one.';
     } else {
-      setStatus('Not configured · Last.fm recommendations are disabled.');
+      setStatus('Not configured');
       input.placeholder = 'Enter your Last.fm API key';
       hint.textContent = 'The key is stored securely and is never returned to the browser.';
     }
@@ -104,12 +105,12 @@
   }
 
   async function loadSettings() {
-    setStatus('Checking Last.fm configuration…');
+    setStatus('Checking…');
     try {
       const data = await readJson(await fetch('/api/lastfm/settings', {cache: 'no-store'}));
       renderSettings(data);
     } catch (error) {
-      setStatus(error.message || 'Unable to check Last.fm configuration.', true);
+      setStatus(error.message || 'Unable to check Last.fm configuration.', 'error');
     }
   }
 
@@ -118,7 +119,7 @@
     const button = $('save-lastfm');
     const apiKey = input.value.trim();
     if (!apiKey) {
-      setStatus('Enter a Last.fm API key before saving.', true);
+      setStatus('API key required', 'error');
       input.focus();
       return;
     }
@@ -126,7 +127,7 @@
     const originalText = button.textContent;
     button.disabled = true;
     button.textContent = 'Saving…';
-    setStatus('Saving Last.fm configuration…');
+    setStatus('Saving…');
 
     try {
       const data = await readJson(await fetch('/api/lastfm/settings', {
@@ -137,7 +138,7 @@
       renderSettings(data);
       window.dispatchEvent(new Event('playlistmuse-status-changed'));
     } catch (error) {
-      setStatus(error.message || 'The Last.fm API key could not be saved.', true);
+      setStatus(error.message || 'The Last.fm API key could not be saved.', 'error');
     } finally {
       button.disabled = false;
       button.textContent = originalText;
@@ -149,7 +150,7 @@
     const originalText = button.textContent;
     button.disabled = true;
     button.textContent = 'Removing…';
-    setStatus('Removing the saved Last.fm key…');
+    setStatus('Removing…');
 
     try {
       const data = await readJson(await fetch('/api/lastfm/settings', {
@@ -158,7 +159,7 @@
       renderSettings(data);
       window.dispatchEvent(new Event('playlistmuse-status-changed'));
     } catch (error) {
-      setStatus(error.message || 'The saved Last.fm key could not be removed.', true);
+      setStatus(error.message || 'The saved Last.fm key could not be removed.', 'error');
     } finally {
       button.disabled = false;
       button.textContent = originalText;
