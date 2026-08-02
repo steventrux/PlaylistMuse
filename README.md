@@ -129,9 +129,45 @@ The API key is never returned to the browser. It can be saved from the Last.fm s
 ### Requirements
 
 - Docker Engine
-- Docker Compose v2
+- Docker Compose v2 only when building from source
 
-### Run with Docker Compose
+### Recommended: run the published Docker image
+
+Clone the repository to get the example configuration, then start the latest stable image from GitHub Container Registry:
+
+```bash
+git clone https://github.com/steventrux/PlaylistMuse.git
+cd PlaylistMuse
+cp .env.example .env
+mkdir -p data
+
+docker run -d \
+  --name playlistmuse \
+  --restart unless-stopped \
+  -p 5780:5780 \
+  --env-file .env \
+  -v "$(pwd)/data:/app/data" \
+  ghcr.io/steventrux/playlistmuse:latest
+```
+
+Use `ghcr.io/steventrux/playlistmuse:0.1` instead of `latest` to pin the installation to release 0.1.
+
+To update the stable installation:
+
+```bash
+docker pull ghcr.io/steventrux/playlistmuse:latest
+docker rm -f playlistmuse
+
+docker run -d \
+  --name playlistmuse \
+  --restart unless-stopped \
+  -p 5780:5780 \
+  --env-file .env \
+  -v "$(pwd)/data:/app/data" \
+  ghcr.io/steventrux/playlistmuse:latest
+```
+
+### Alternative: build from source with Docker Compose
 
 ```bash
 git clone https://github.com/steventrux/PlaylistMuse.git
@@ -146,7 +182,13 @@ On first launch, the onboarding flow guides you through configuring the AI provi
 
 Application settings, provider credentials, Last.fm configuration and YouTube authorization data are stored in the persistent `./data` directory.
 
-To stop PlaylistMuse:
+To stop the container started with `docker run`:
+
+```bash
+docker rm -f playlistmuse
+```
+
+To stop the Docker Compose installation:
 
 ```bash
 docker compose down
