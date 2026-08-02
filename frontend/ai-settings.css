@@ -1,20 +1,6 @@
-@import url("/static/settings-dialog.css?v=3");
+@import url("/static/settings-dialog.css?v=4");
 
-/* Shared AI provider settings layout. */
-
-#setup-ai-step.settings-block,
-#ai-settings-dialog .settings-block {
-  padding-top: 14px;
-  padding-block-start: 0;
-}
-
-.ai-active-summary {
-  margin: 0 0 14px;
-  margin-block-end: 20px;
-  padding: 0 0 14px;
-  padding-block: 14px;
-  border-bottom: 1px solid var(--border);
-}
+/* AI provider-specific layout. Shared status spacing lives in settings-dialog.css. */
 
 .ai-provider-selection-heading {
   display: flex;
