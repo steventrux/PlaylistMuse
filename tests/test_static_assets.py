@@ -215,6 +215,7 @@ def test_ai_settings_separate_active_and_selected_provider_states() -> None:
     bridge = _script("ai-results-settings.js")
     ai_settings = _script("ai-settings.js")
     ai_style = _style("ai-settings.css")
+    shared_style = _style("settings-dialog.css")
     app = _script("app.js")
 
     assert '/static/ai-settings.css?v=3' in index
@@ -235,12 +236,13 @@ def test_ai_settings_separate_active_and_selected_provider_states() -> None:
     assert "Configure the AI provider used to generate and refine playlists." not in app
     assert "Configure and connect the YouTube Music account used for direct publishing." not in app
     assert ".ai-active-summary" in ai_style
-    assert "font-size: 1rem" in ai_style
-    assert "font-weight: 800" in ai_style
     assert "margin: 0 0 14px" in ai_style
-    assert "padding: 0 0 12px" in ai_style
-    assert "padding-top: 24px" in ai_style
+    assert "padding: 0 0 14px" in ai_style
+    assert "padding-top: 14px" in ai_style
     assert "border-bottom: 1px solid var(--border)" in ai_style
+    assert "font-size: 1rem" in shared_style
+    assert "font-weight: 800" in shared_style
+    assert "padding: 8px 10px" in shared_style
 
 
 def test_results_page_opens_ai_settings_without_losing_playlist() -> None:
@@ -273,6 +275,7 @@ def test_youtube_settings_show_account_and_relevant_actions() -> None:
     playlist = _html("playlist.html")
     youtube_account = _script("youtube-account.js")
     youtube_style = _style("youtube-settings.css")
+    shared_style = _style("settings-dialog.css")
 
     assert '/static/youtube-settings.css?v=1' in index
     assert '/static/youtube-settings.css?v=1' in playlist
@@ -282,6 +285,8 @@ def test_youtube_settings_show_account_and_relevant_actions() -> None:
     assert "youtube-account-summary" in playlist
     assert "Google OAuth credentials" in index
     assert "Google OAuth credentials" in playlist
+    assert ".youtube-credentials-section > h3" in shared_style
+    assert "display: none" in shared_style
     assert "status.account_name || 'Connected YouTube Music account'" in youtube_account
     assert "status.channel_handle || 'Google account details unavailable'" in youtube_account
     assert "profile.classList.toggle('no-photo', !photoUrl)" in youtube_account
