@@ -20,7 +20,6 @@
   </p>
 
   <p>
-    <a href="#changes-in-beta-not-yet-in-main"><strong>Beta changes</strong></a> ·
     <a href="#features"><strong>Features</strong></a> ·
     <a href="#how-it-works"><strong>How it works</strong></a> ·
     <a href="#lastfm-guided-discovery"><strong>Last.fm</strong></a> ·
