@@ -13,8 +13,9 @@ logger = logging.getLogger("playlistmuse.performance")
 _REPLENISHMENT_MISSING_RE = re.compile(r"still needs\s+(\d+)\s+resolvable songs", re.I)
 _REPLENISHMENT_COUNT_RE = re.compile(r"Suggest exactly\s+\d+\s+NEW", re.I)
 _STRICT_MAJORITY_ARTIST_RE = re.compile(
-    r"\bpi[uù]\s+della\s+met[aà].{0,80}?"
-    r"(?:di|dei|degli|delle)\s+([^,;.!\n]{1,120})",
+    r"\bpi[uù]\s+della\s+met[aà]\s+(?:dei|degli|delle)?\s*"
+    r"(?:brani|canzoni|tracce|pezzi)?\s*(?:deve|devono)?\s*"
+    r"(?:essere|provenire)?\s*(?:di|dei|degli|delle)\s+([^,;.!\n]{1,120})",
     re.IGNORECASE,
 )
 
