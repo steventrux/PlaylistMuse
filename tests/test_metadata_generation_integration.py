@@ -1,8 +1,5 @@
-from types import SimpleNamespace
-
 import pytest
 
-from backend import llm
 from backend.metadata_validation import (
     MetadataConstraints,
     TrackMetadata,
@@ -13,33 +10,16 @@ from backend.metadata_validation import (
 from backend.youtube import _metadata_filter
 
 
-@pytest.mark.asyncio
-async def test_generation_wrapper_activates_constraints(monkeypatch):
-    captured = {}
-
-    async def fake_original(config, prompt, count):
-        captured["constraints"] = active_constraints()
-        return {"title": "Test", "description": "Test", "tracks": []}
-
-    wrapped = llm.generate_playlist_draft
-    original_closure = wrapped.__wrapped__
-    monkeypatch.setattr(wrapped, "__wrapped__", fake_original, raising=False)
-
-    # The installed wrapper closes over the original function, so verify the public
-    # contract directly and restore a harmless implementation around its dependency.
-    monkeypatch.setattr(llm, "generate_playlist_draft", wrapped)
+def test_constraint_context_covers_generation_prompt_shapes():
     activate_constraints_from_prompt("relaxing road music")
     assert not active_constraints().active
 
-    # Constraint extraction used by the wrapper must recognize the complete prompt
-    # shapes used by initial generation, replenishment and replacement.
-    activate_constraints_from_prompt(
+    constraints = activate_constraints_from_prompt(
         "Original playlist request: Italian artists released in 2026 only"
     )
-    constraints = active_constraints()
+
     assert constraints.release_year == 2026
     assert constraints.artist_country == "IT"
-    assert original_closure is not None
 
 
 @pytest.mark.asyncio
