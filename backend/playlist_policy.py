@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import math
-import re
-import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
+
+from backend.text_normalization import normalize_identity as _normalize
 
 MIN_POLICY_CONFIDENCE = 0.85
 
@@ -51,12 +51,6 @@ class PlaylistPolicy:
                 self.soundtrack_title,
             )
         )
-
-
-def _normalize(value: str) -> str:
-    decomposed = unicodedata.normalize("NFKD", str(value).casefold())
-    plain = "".join(char for char in decomposed if not unicodedata.combining(char))
-    return " ".join(re.findall(r"[a-z0-9]+", plain))
 
 
 def _confidence_map(payload: dict[str, Any]) -> dict[str, float]:
