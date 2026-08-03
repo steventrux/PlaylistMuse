@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from backend.config import AppConfig
 from backend.constraint_interpreter import interpret_constraints
+from backend.constraint_relationships import find_album_artist_conflict
 
 PromptStatus = Literal["valid", "ambiguous", "impossible"]
 
@@ -52,7 +53,8 @@ _UNTIL_RE = re.compile(
     re.IGNORECASE,
 )
 _ITALIAN_HINT_RE = re.compile(
-    r"\b(?:musica|brani|canzoni|anni|dopo|prima|pubblicat[oaie]|dal|fino)\b",
+    r"\b(?:musica|brani|canzoni|anni|dopo|prima|pubblicat[oaie]|dal|fino|"
+    r"includi|escludi|album)\b",
     re.IGNORECASE,
 )
 
@@ -143,6 +145,29 @@ def _local_temporal_assessment(prompt: str) -> PromptAssessment | None:
     return PromptAssessment(status="impossible", reasons=(reason,))
 
 
+def _album_artist_conflict_assessment(
+    prompt: str,
+    conflict: tuple[str, str],
+    payload: dict[str, Any],
+) -> PromptAssessment:
+    album, artist = conflict
+    if _ITALIAN_HINT_RE.search(prompt):
+        reason = (
+            f"La richiesta è impossibile: l’album “{album}” è attribuito a {artist}, "
+            f"ma {artist} è esplicitamente escluso."
+        )
+    else:
+        reason = (
+            f'The request is impossible: the album “{album}” is credited to {artist}, '
+            f"but {artist} is explicitly excluded."
+        )
+    return PromptAssessment(
+        status="impossible",
+        reasons=(reason,),
+        interpretation=payload,
+    )
+
+
 def assess_interpretation(payload: dict[str, Any] | None) -> PromptAssessment:
     if not isinstance(payload, dict):
         return PromptAssessment(status="valid")
@@ -161,9 +186,21 @@ def assess_interpretation(payload: dict[str, Any] | None) -> PromptAssessment:
 
 
 async def assess_prompt(config: AppConfig, prompt: str) -> PromptAssessment:
-    """Classify locally provable conflicts, then use the configured AI interpreter."""
+    """Classify local, interpreted and strongly verified cross-entity conflicts."""
     local_assessment = _local_temporal_assessment(prompt)
     if local_assessment is not None:
         return local_assessment
+
     payload = await interpret_constraints(config, prompt)
-    return assess_interpretation(payload)
+    assessment = assess_interpretation(payload)
+    if assessment.status == "impossible" or not isinstance(payload, dict):
+        return assessment
+
+    relationship_conflict = await find_album_artist_conflict(payload)
+    if relationship_conflict is not None:
+        return _album_artist_conflict_assessment(
+            prompt,
+            relationship_conflict,
+            payload,
+        )
+    return assessment
