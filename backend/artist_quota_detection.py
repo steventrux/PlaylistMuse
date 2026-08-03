@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Any
-
-from backend.text_normalization import normalize_identity
 
 _REQUEST_MARKERS = (
     "User request:\n",
@@ -41,7 +40,10 @@ _TRAILING_CONNECTOR_RE = re.compile(
     r"(?:canzoni|brani|tracce|pezzi|songs|tracks)\b.*$",
     re.IGNORECASE,
 )
-_NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
+_CREDIT_SEPARATOR_RE = re.compile(
+    r"\s+(?:feat\.?|featuring|with|vs\.?|x)\s+",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,8 +68,36 @@ def _clean_artist(value: str) -> str:
 
 
 def _artist_identity(value: str) -> str:
-    """Collapse punctuation-only spelling variants such as AC/DC and AC-DC."""
-    return _NON_ALNUM_RE.sub("", normalize_identity(value))
+    """Return a Unicode-safe alphanumeric key independent of punctuation and spacing."""
+    decomposed = unicodedata.normalize("NFKD", str(value).casefold())
+    return "".join(
+        character
+        for character in decomposed
+        if character.isalnum() and not unicodedata.combining(character)
+    )
+
+
+def _deduplicate_quotas(
+    positioned: list[tuple[int, ArtistMinimumQuota]],
+) -> list[ArtistMinimumQuota]:
+    selected: dict[str, tuple[int, ArtistMinimumQuota]] = {}
+    for position, quota in sorted(positioned, key=lambda item: item[0]):
+        key = _artist_identity(quota.artist)
+        if not key:
+            continue
+        previous = selected.get(key)
+        if previous is None or quota.minimum > previous[1].minimum:
+            selected[key] = (position, quota)
+
+    # Defensive final pass: output must never contain two equivalent artist identities.
+    result: list[ArtistMinimumQuota] = []
+    emitted: set[str] = set()
+    for _, quota in sorted(selected.values(), key=lambda item: item[0]):
+        key = _artist_identity(quota.artist)
+        if key and key not in emitted:
+            emitted.add(key)
+            result.append(quota)
+    return result
 
 
 def extract_artist_minimum_quotas(prompt: str) -> list[ArtistMinimumQuota]:
@@ -81,26 +111,26 @@ def extract_artist_minimum_quotas(prompt: str) -> list[ArtistMinimumQuota]:
                 continue
             minimum = max(0, min(100, int(match.group("count"))))
             positions.append((match.start(), ArtistMinimumQuota(artist, minimum)))
-
-    selected: dict[str, tuple[int, ArtistMinimumQuota]] = {}
-    for position, quota in sorted(positions, key=lambda item: item[0]):
-        key = _artist_identity(quota.artist)
-        if not key:
-            continue
-        previous = selected.get(key)
-        if previous is None or quota.minimum > previous[1].minimum:
-            selected[key] = (position, quota)
-
-    return [
-        quota
-        for _, quota in sorted(selected.values(), key=lambda item: item[0])
-    ]
+    return _deduplicate_quotas(positions)
 
 
 def artist_matches(actual: str, expected: str) -> bool:
-    actual_key = _artist_identity(actual)
+    """Match a quota artist exactly, including within explicit collaboration credits."""
     expected_key = _artist_identity(expected)
-    return bool(expected_key) and expected_key in actual_key
+    if not expected_key:
+        return False
+
+    actual_text = str(actual).strip()
+    if _artist_identity(actual_text) == expected_key:
+        return True
+
+    # Split only explicit collaboration markers. Do not split punctuation such as '/' or
+    # '&' because those may be part of a canonical band name (AC/DC, Earth Wind & Fire).
+    return any(
+        _artist_identity(part) == expected_key
+        for part in _CREDIT_SEPARATOR_RE.split(actual_text)
+        if part.strip()
+    )
 
 
 def quota_counts(tracks: list[dict[str, Any]], quotas: list[ArtistMinimumQuota]) -> dict[str, int]:
