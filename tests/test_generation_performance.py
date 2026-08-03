@@ -1,7 +1,7 @@
 from backend import _optimized_replenishment_request, _stage_name
 
 
-def test_replenishment_request_reduces_oversized_minimum_pool():
+def test_replenishment_request_uses_wider_minimum_pool():
     prompt = (
         "The original playlist request is:\nRoad trip rock\n\n"
         "The playlist still needs 1 resolvable songs. Suggest exactly 8 NEW "
@@ -10,8 +10,8 @@ def test_replenishment_request_reduces_oversized_minimum_pool():
 
     optimized_prompt, optimized_count = _optimized_replenishment_request(prompt, 8)
 
-    assert optimized_count == 4
-    assert "Suggest exactly 4 NEW" in optimized_prompt
+    assert optimized_count == 12
+    assert "Suggest exactly 12 NEW" in optimized_prompt
 
 
 def test_replenishment_request_scales_and_caps_pool():
@@ -23,8 +23,8 @@ def test_replenishment_request_scales_and_caps_pool():
 
     optimized_prompt, optimized_count = _optimized_replenishment_request(prompt, 24)
 
-    assert optimized_count == 20
-    assert "Suggest exactly 20 NEW" in optimized_prompt
+    assert optimized_count == 30
+    assert "Suggest exactly 30 NEW" in optimized_prompt
 
 
 def test_non_replenishment_requests_remain_unchanged():
