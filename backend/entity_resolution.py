@@ -5,14 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import re
 import sqlite3
 import time
-import unicodedata
 from pathlib import Path
 from typing import Any
 
 import httpx
+
+from backend.text_normalization import normalize_identity as _normalize
 
 API_ROOT = "https://musicbrainz.org/ws/2"
 USER_AGENT = "PlaylistMuse/0.7 (https://github.com/steventrux/PlaylistMuse)"
@@ -21,12 +21,6 @@ MIN_API_SCORE = 90
 MAX_NAMES_PER_REQUEST = 8
 _REQUEST_LOCK = asyncio.Lock()
 _LAST_REQUEST_AT = 0.0
-
-
-def _normalize(value: str) -> str:
-    decomposed = unicodedata.normalize("NFKD", str(value).casefold())
-    plain = "".join(char for char in decomposed if not unicodedata.combining(char))
-    return " ".join(re.findall(r"[a-z0-9]+", plain))
 
 
 def _cache_path() -> Path:
