@@ -16,7 +16,7 @@ def test_constraint_priority_prompt_keeps_original_request_and_hard_filters():
     assert prompt in guarded
     assert "mandatory" in guarded
     assert "never relax" in guarded
-    assert "Musical progression only" in guarded
+    assert "Use musical progression only to order tracks" in guarded
 
 
 def test_discovery_prompt_subordinates_lastfm_and_flow_to_user_constraints():
