@@ -6,6 +6,7 @@ import asyncio
 import logging
 import re
 import time
+import unicodedata
 from dataclasses import asdict
 from functools import wraps
 from typing import Any
@@ -33,6 +34,14 @@ maximum, minimum, one or two, and equivalent expressions. A named required track
 style reference. Do not claim that lyrics language, market popularity or soundtrack membership
 has been externally verified; only extract the user's intent.
 """
+
+
+def _unicode_normalize(value: str) -> str:
+    """Normalize identity text while preserving letters and numbers from every script."""
+    decomposed = unicodedata.normalize("NFKD", str(value).casefold())
+    plain = "".join(char for char in decomposed if not unicodedata.combining(char))
+    separated = "".join(char if char.isalnum() else " " for char in plain)
+    return " ".join(separated.split())
 
 
 def _stage_name(prompt: str) -> str:
@@ -80,6 +89,16 @@ def _log_stage(stage: str, started_at: float, **details: Any) -> None:
     elapsed_ms = round((time.perf_counter() - started_at) * 1000)
     suffix = " ".join(f"{key}={value}" for key, value in details.items())
     logger.info("playlist_stage stage=%s elapsed_ms=%s %s", stage, elapsed_ms, suffix)
+
+
+def _install_unicode_normalization() -> None:
+    """Use one Unicode-safe identity function across catalogue and constraint modules."""
+    from backend import entity_resolution, metadata_validation, playlist_policy, youtube
+
+    metadata_validation._normalize = _unicode_normalize
+    playlist_policy._normalize = _unicode_normalize
+    entity_resolution._normalize = _unicode_normalize
+    youtube._normalize_identity = _unicode_normalize
 
 
 def _install_interpreter_policy_schema() -> None:
@@ -207,5 +226,6 @@ def _install_generation_wrappers() -> None:
         youtube.resolve_candidates = wrapped_resolve_candidates
 
 
+_install_unicode_normalization()
 _install_interpreter_policy_schema()
 _install_generation_wrappers()
