@@ -32,7 +32,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     index = _html("index.html")
     playlist = _html("playlist.html")
     common = '<script src="/static/common.js?v=1"></script>'
-    generation_state = '<script src="/static/generation-state.js?v=1"></script>'
+    generation_state = '<script src="/static/generation-state.js?v=2"></script>'
     app = '<script src="/static/app.js?v=17"></script>'
 
     assert index.index(common) < index.index(
