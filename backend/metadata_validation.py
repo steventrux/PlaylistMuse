@@ -9,6 +9,7 @@ import re
 import sqlite3
 import time
 import unicodedata
+from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -63,10 +64,16 @@ class ValidationResult:
     metadata: TrackMetadata
 
 
+_ACTIVE_CONSTRAINTS: ContextVar[MetadataConstraints] = ContextVar(
+    "playlistmuse_metadata_constraints",
+    default=MetadataConstraints(),
+)
+
 _YEAR_PATTERNS = (
     re.compile(r"\b(?:released?|published?|issued?|from|of|del|dell['’]?anno)\s+(?:in\s+)?(19\d{2}|20\d{2})\b", re.I),
     re.compile(r"\b(?:only|solo|soltanto|esclusivamente)\s+(?:from\s+|del\s+)?(19\d{2}|20\d{2})\b", re.I),
     re.compile(r"\b(19\d{2}|20\d{2})\s+(?:only|solo|soltanto|esclusivamente)\b", re.I),
+    re.compile(r"\b(?:hits?|songs?|tracks?|music|brani|canzoni|musica)\s+(?:estive?\s+|summer\s+)?(?:italiane?\s+|italian\s+)?(?:del|of|from)\s+(19\d{2}|20\d{2})\b", re.I),
 )
 _COUNTRY_PATTERNS = {
     "IT": re.compile(r"\b(?:italian artists?|artists? from italy|artisti italiani|cantanti italiani)\b", re.I),
@@ -92,6 +99,18 @@ def extract_metadata_constraints(prompt: str) -> MetadataConstraints:
         None,
     )
     return MetadataConstraints(release_year=year, artist_country=country)
+
+
+def activate_constraints_from_prompt(prompt: str) -> MetadataConstraints:
+    """Store metadata constraints for the current asynchronous request context."""
+    constraints = extract_metadata_constraints(prompt)
+    _ACTIVE_CONSTRAINTS.set(constraints)
+    return constraints
+
+
+def active_constraints() -> MetadataConstraints:
+    """Return metadata constraints active for the current request context."""
+    return _ACTIVE_CONSTRAINTS.get()
 
 
 def _cache_path() -> Path:
