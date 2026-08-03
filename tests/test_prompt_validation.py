@@ -1,4 +1,10 @@
-from backend.prompt_validation import assess_interpretation
+import pytest
+
+from backend.prompt_validation import (
+    _local_temporal_assessment,
+    assess_interpretation,
+    assess_prompt,
+)
 
 
 def test_impossible_prompt_preserves_user_facing_reason():
@@ -52,6 +58,43 @@ def test_legacy_impossible_contradiction_is_detected():
                 "The requested date ranges are incompatible and have no overlap."
             ]
         }
+    )
+
+    assert assessment.status == "impossible"
+
+
+def test_local_temporal_conflict_detects_decade_after_cutoff():
+    assessment = _local_temporal_assessment(
+        "musica degli anni 90 pubblicata dopo il 2000"
+    )
+
+    assert assessment is not None
+    assert assessment.status == "impossible"
+    assert "2001" in assessment.reasons[0]
+    assert "1999" in assessment.reasons[0]
+
+
+def test_compatible_temporal_constraints_are_not_blocked_locally():
+    assessment = _local_temporal_assessment(
+        "musica degli anni 90 pubblicata dopo il 1994"
+    )
+
+    assert assessment is None
+
+
+@pytest.mark.asyncio
+async def test_local_impossible_prompt_skips_ai_interpreter(monkeypatch):
+    async def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("AI interpreter must not be called for a local contradiction")
+
+    monkeypatch.setattr(
+        "backend.prompt_validation.interpret_constraints",
+        fail_if_called,
+    )
+
+    assessment = await assess_prompt(
+        object(),  # type: ignore[arg-type]
+        "musica degli anni 90 pubblicata dopo il 2000",
     )
 
     assert assessment.status == "impossible"
