@@ -60,6 +60,32 @@ def _quota_replenishment_guidance(prompt: str) -> str:
     )
 
 
+def _numeric_quota_replenishment_guidance(prompt: str, pool_size: int) -> str:
+    """Request ample independent candidates for every explicit numeric artist quota."""
+    if not prompt.lstrip().startswith("The original playlist request is:"):
+        return ""
+
+    from backend.artist_quota_detection import extract_artist_minimum_quotas
+
+    quotas = extract_artist_minimum_quotas(prompt)
+    if not quotas:
+        return ""
+
+    per_artist = max(6, min(10, pool_size // max(1, len(quotas))))
+    requirements = "; ".join(
+        f"at least {per_artist} distinct candidates by {quota.artist}"
+        for quota in quotas
+    )
+    return (
+        "\n\nNUMERIC QUOTA REPLENISHMENT: catalogue resolution may reject or deduplicate "
+        "some suggestions, so provide a generous independent reserve for every quota "
+        f"artist in this round: {requirements}. Use normal studio recordings with canonical "
+        "released titles, preserve every era, genre and exclusion constraint, and do not "
+        "repeat any previously attempted song. Fill any remaining candidate positions with "
+        "other fully compliant artists."
+    )
+
+
 def _optimized_replenishment_request(prompt: str, count: int) -> tuple[str, int]:
     if not prompt.lstrip().startswith("The original playlist request is:"):
         return prompt, count
@@ -74,6 +100,10 @@ def _optimized_replenishment_request(prompt: str, count: int) -> tuple[str, int]
         count=1,
     )
     optimized_prompt += _quota_replenishment_guidance(optimized_prompt)
+    optimized_prompt += _numeric_quota_replenishment_guidance(
+        optimized_prompt,
+        optimized_count,
+    )
     return optimized_prompt, optimized_count
 
 
