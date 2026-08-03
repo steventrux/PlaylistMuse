@@ -20,6 +20,41 @@ _IMPOSSIBLE_HINT_RE = re.compile(
     r"unm[oö]glich|unvereinbar|kein[e]? [uü]berschneidung)\b",
     re.IGNORECASE,
 )
+_DECADE_RE = re.compile(
+    r"\b(?:anni|années|años|anos|jahre|decade|décennie|década)\s*['’]?(\d{2}|19\d0|20\d0)\b|"
+    r"\b(19\d0|20\d0)s\b",
+    re.IGNORECASE,
+)
+_RANGE_RE = re.compile(
+    r"\b(?:between|from|dal|dall['’]?|tra(?:\s+il)?|entre)\s*"
+    r"(19\d{2}|20\d{2})\s*(?:and|e|to|al|a|et|y|-)\s*"
+    r"(19\d{2}|20\d{2})\b",
+    re.IGNORECASE,
+)
+_AFTER_RE = re.compile(
+    r"\b(?:after|dopo(?:\s+il)?|après|apres|nach|después\s+de|despues\s+de)\s*"
+    r"(19\d{2}|20\d{2})\b",
+    re.IGNORECASE,
+)
+_FROM_ONWARD_RE = re.compile(
+    r"\b(?:from|dal|a\s+partire\s+dal|desde)\s*"
+    r"(19\d{2}|20\d{2})\s*(?:onward|onwards|in\s+poi|en\s+adelante)\b",
+    re.IGNORECASE,
+)
+_BEFORE_RE = re.compile(
+    r"\b(?:before|prima\s+del|avant|vor|antes\s+de)\s*"
+    r"(19\d{2}|20\d{2})\b",
+    re.IGNORECASE,
+)
+_UNTIL_RE = re.compile(
+    r"\b(?:until|through|fino\s+al|jusqu['’]?à|jusqu['’]?a|bis|hasta)\s*"
+    r"(19\d{2}|20\d{2})\b",
+    re.IGNORECASE,
+)
+_ITALIAN_HINT_RE = re.compile(
+    r"\b(?:musica|brani|canzoni|anni|dopo|prima|pubblicat[oaie]|dal|fino)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(slots=True, frozen=True)
@@ -59,6 +94,55 @@ def _status_from_payload(payload: dict[str, Any]) -> PromptStatus:
     return "ambiguous"
 
 
+def _decade_bounds(value: str) -> tuple[int, int]:
+    decade = int(value)
+    if decade < 100:
+        decade += 1900
+    return decade, decade + 9
+
+
+def _local_temporal_assessment(prompt: str) -> PromptAssessment | None:
+    """Detect explicit date constraints whose intersection is empty."""
+    lower_bounds: list[int] = []
+    upper_bounds: list[int] = []
+
+    for match in _DECADE_RE.finditer(prompt):
+        value = match.group(1) or match.group(2)
+        lower, upper = _decade_bounds(value)
+        lower_bounds.append(lower)
+        upper_bounds.append(upper)
+
+    for match in _RANGE_RE.finditer(prompt):
+        first, second = sorted((int(match.group(1)), int(match.group(2))))
+        lower_bounds.append(first)
+        upper_bounds.append(second)
+
+    lower_bounds.extend(int(match.group(1)) + 1 for match in _AFTER_RE.finditer(prompt))
+    lower_bounds.extend(int(match.group(1)) for match in _FROM_ONWARD_RE.finditer(prompt))
+    upper_bounds.extend(int(match.group(1)) - 1 for match in _BEFORE_RE.finditer(prompt))
+    upper_bounds.extend(int(match.group(1)) for match in _UNTIL_RE.finditer(prompt))
+
+    if not lower_bounds or not upper_bounds:
+        return None
+
+    effective_lower = max(lower_bounds)
+    effective_upper = min(upper_bounds)
+    if effective_lower <= effective_upper:
+        return None
+
+    if _ITALIAN_HINT_RE.search(prompt):
+        reason = (
+            "I vincoli temporali sono incompatibili: richiedono contemporaneamente "
+            f"brani non precedenti al {effective_lower} e non successivi al {effective_upper}."
+        )
+    else:
+        reason = (
+            "The date constraints are incompatible: they require tracks released no earlier "
+            f"than {effective_lower} and no later than {effective_upper}."
+        )
+    return PromptAssessment(status="impossible", reasons=(reason,))
+
+
 def assess_interpretation(payload: dict[str, Any] | None) -> PromptAssessment:
     if not isinstance(payload, dict):
         return PromptAssessment(status="valid")
@@ -77,6 +161,9 @@ def assess_interpretation(payload: dict[str, Any] | None) -> PromptAssessment:
 
 
 async def assess_prompt(config: AppConfig, prompt: str) -> PromptAssessment:
-    """Interpret and classify one playlist prompt, failing open on provider errors."""
+    """Classify locally provable conflicts, then use the configured AI interpreter."""
+    local_assessment = _local_temporal_assessment(prompt)
+    if local_assessment is not None:
+        return local_assessment
     payload = await interpret_constraints(config, prompt)
     return assess_interpretation(payload)
