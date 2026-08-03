@@ -26,6 +26,16 @@ def _stage_name(prompt: str) -> str:
     return "llm_initial"
 
 
+def _constraint_source(prompt: str, stage: str) -> str:
+    """Extract only the user's request from internal generation instructions."""
+    if "User request:\n" in prompt:
+        return prompt.split("User request:\n", 1)[1].strip()
+    if stage == "llm_replacement" and "Original playlist request:" in prompt:
+        tail = prompt.split("Original playlist request:", 1)[1]
+        return tail.split("\n", 1)[0].strip()
+    return prompt.strip()
+
+
 def _optimized_replenishment_request(prompt: str, count: int) -> tuple[str, int]:
     if not prompt.lstrip().startswith("The original playlist request is:"):
         return prompt, count
@@ -74,9 +84,10 @@ def _install_generation_wrappers() -> None:
             stage = _stage_name(optimized_prompt)
             started_at = time.perf_counter()
             should_interpret = stage in {"llm_initial", "llm_replacement"}
-            fallback = extract_metadata_constraints(optimized_prompt) if should_interpret else None
+            source_prompt = _constraint_source(optimized_prompt, stage)
+            fallback = extract_metadata_constraints(source_prompt) if should_interpret else None
             interpretation_task = (
-                asyncio.create_task(interpret_constraints(config, optimized_prompt))
+                asyncio.create_task(interpret_constraints(config, source_prompt))
                 if should_interpret
                 else None
             )
