@@ -9,6 +9,7 @@ from typing import Any, Literal
 from backend.config import AppConfig
 from backend.constraint_interpreter import interpret_constraints
 from backend.constraint_relationships import find_album_artist_conflict
+from backend.text_normalization import normalize_identity
 
 PromptStatus = Literal["valid", "ambiguous", "impossible"]
 
@@ -55,6 +56,16 @@ _UNTIL_RE = re.compile(
 _ITALIAN_HINT_RE = re.compile(
     r"\b(?:musica|brani|canzoni|anni|dopo|prima|pubblicat[oaie]|dal|fino|"
     r"includi|escludi|album)\b",
+    re.IGNORECASE,
+)
+_INCLUDED_ALBUM_RE = re.compile(
+    r"\b(?:includi|inserisci|include|add)\s+(?:l['’]?album\s+|album\s+)?"
+    r"[\"“”']?([^,;.!\n]{1,180}?)[\"“”']?(?=\s*(?:[,;.!\n]|$))",
+    re.IGNORECASE,
+)
+_EXCLUDED_ARTIST_RE = re.compile(
+    r"\b(?:escludi|senza|exclude|excluding|no)\s+(?:i|gli|le|l['’]?|the)?\s*"
+    r"([^,;.!\n]{1,180}?)(?=\s*(?:[,;.!\n]|$))",
     re.IGNORECASE,
 )
 
@@ -145,6 +156,47 @@ def _local_temporal_assessment(prompt: str) -> PromptAssessment | None:
     return PromptAssessment(status="impossible", reasons=(reason,))
 
 
+def _clean_local_entity(value: str) -> str:
+    cleaned = " ".join(value.split()).strip(" \t\r\n.,;:!?\"'“”")
+    return cleaned[:180]
+
+
+def _append_unique(values: Any, additions: list[str]) -> list[str]:
+    current = [str(item).strip() for item in values] if isinstance(values, list) else []
+    seen = {normalize_identity(item) for item in current if normalize_identity(item)}
+    for addition in additions:
+        key = normalize_identity(addition)
+        if key and key not in seen:
+            current.append(addition)
+            seen.add(key)
+    return current
+
+
+def _augment_explicit_entity_constraints(
+    prompt: str,
+    payload: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Merge only explicit album inclusions and artist exclusions found locally."""
+    result = dict(payload) if isinstance(payload, dict) else {}
+    albums = [
+        cleaned
+        for match in _INCLUDED_ALBUM_RE.finditer(prompt)
+        if (cleaned := _clean_local_entity(match.group(1)))
+    ]
+    excluded_artists = [
+        cleaned
+        for match in _EXCLUDED_ARTIST_RE.finditer(prompt)
+        if (cleaned := _clean_local_entity(match.group(1)))
+    ]
+    if albums:
+        result["allowed_albums"] = _append_unique(result.get("allowed_albums"), albums)
+    if excluded_artists:
+        result["excluded_artists"] = _append_unique(
+            result.get("excluded_artists"), excluded_artists
+        )
+    return result
+
+
 def _album_artist_conflict_assessment(
     prompt: str,
     conflict: tuple[str, str],
@@ -191,11 +243,12 @@ async def assess_prompt(config: AppConfig, prompt: str) -> PromptAssessment:
     if local_assessment is not None:
         return local_assessment
 
-    payload = await interpret_constraints(config, prompt)
-    assessment = assess_interpretation(payload)
-    if assessment.status == "impossible" or not isinstance(payload, dict):
+    interpreted = await interpret_constraints(config, prompt)
+    assessment = assess_interpretation(interpreted)
+    if assessment.status == "impossible":
         return assessment
 
+    payload = _augment_explicit_entity_constraints(prompt, interpreted)
     relationship_conflict = await find_album_artist_conflict(payload)
     if relationship_conflict is not None:
         return _album_artist_conflict_assessment(
@@ -203,4 +256,8 @@ async def assess_prompt(config: AppConfig, prompt: str) -> PromptAssessment:
             relationship_conflict,
             payload,
         )
-    return assessment
+    return PromptAssessment(
+        status=assessment.status,
+        reasons=assessment.reasons,
+        interpretation=payload,
+    )
