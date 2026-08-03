@@ -77,6 +77,32 @@ def _optimized_replenishment_request(prompt: str, count: int) -> tuple[str, int]
     return optimized_prompt, optimized_count
 
 
+def _repair_quota_prompt(
+    request: str,
+    count: int,
+    quotas: list[Any],
+    draft: dict[str, Any],
+) -> str:
+    requirements = "; ".join(
+        f"at least {quota.minimum} tracks by {quota.artist}" for quota in quotas
+    )
+    current = "\n".join(
+        f"- {track.get('artist', 'Unknown artist')} — {track.get('title', 'Unknown track')}"
+        for track in draft.get("tracks", [])
+        if isinstance(track, dict)
+    )
+    return (
+        f"Repair this playlist for the original request:\n{request}\n\n"
+        f"Return exactly {count} distinct tracks. These are independent mandatory artist "
+        f"minimums: {requirements}. Each minimum must be satisfied separately; do not combine "
+        "the artists into one shared quota. Preserve every other original constraint, including "
+        "era, genre, exclusions, live, cover and remix restrictions. Replace unsuitable tracks "
+        "rather than relaxing a requirement. Use canonical released song titles likely to be "
+        "found on YouTube Music.\n\nCurrent draft:\n"
+        f"{current or '- None'}"
+    )
+
+
 def _log_stage(stage: str, started_at: float, **details: Any) -> None:
     elapsed_ms = round((time.perf_counter() - started_at) * 1000)
     suffix = " ".join(f"{key}={value}" for key, value in details.items())
@@ -85,6 +111,12 @@ def _log_stage(stage: str, started_at: float, **details: Any) -> None:
 
 def _install_generation_wrappers() -> None:
     from backend import lastfm_discovery, llm, youtube
+    from backend.artist_quota_detection import (
+        extract_artist_minimum_quotas,
+        quota_deficits,
+        quota_guidance,
+        user_request_text,
+    )
     from backend.entity_resolution import canonicalize_interpretation
     from backend.metadata_validation import (
         activate_constraints,
@@ -112,6 +144,9 @@ def _install_generation_wrappers() -> None:
             started_at = time.perf_counter()
             should_interpret = stage in {"llm_initial", "llm_replacement"}
             source_prompt = _constraint_source(optimized_prompt, stage)
+            user_request = user_request_text(optimized_prompt)
+            artist_quotas = extract_artist_minimum_quotas(user_request)
+            submitted_prompt = optimized_prompt + quota_guidance(artist_quotas)
             fallback = extract_metadata_constraints(source_prompt) if should_interpret else None
             interpreted: dict[str, Any] | None = None
             assessment = None
@@ -128,7 +163,36 @@ def _install_generation_wrappers() -> None:
                     )
                     assessment = assess_interpretation(interpreted)
 
-                draft = await original_generate(config, optimized_prompt, optimized_count)
+                draft = await original_generate(config, submitted_prompt, optimized_count)
+                deficits = quota_deficits(
+                    [track for track in draft.get("tracks", []) if isinstance(track, dict)],
+                    artist_quotas,
+                )
+                if deficits:
+                    repaired = await original_generate(
+                        config,
+                        _repair_quota_prompt(
+                            user_request,
+                            optimized_count,
+                            artist_quotas,
+                            draft,
+                        ),
+                        optimized_count,
+                    )
+                    repaired_deficits = quota_deficits(
+                        [
+                            track
+                            for track in repaired.get("tracks", [])
+                            if isinstance(track, dict)
+                        ],
+                        artist_quotas,
+                    )
+                    if sum(item.minimum for item in repaired_deficits) < sum(
+                        item.minimum for item in deficits
+                    ):
+                        draft = repaired
+                        deficits = repaired_deficits
+
                 if should_interpret:
                     constraints = constraints_from_payload(interpreted, fallback=fallback)
                     policy = policy_from_payload(interpreted, prompt=source_prompt)
@@ -155,11 +219,12 @@ def _install_generation_wrappers() -> None:
                     )
                     logger.info(
                         "playlist_constraints stage=%s constraints=%s policy=%s "
-                        "issues=%s assessment=%s",
+                        "issues=%s artist_quota_deficits=%s assessment=%s",
                         stage,
                         asdict(constraints),
                         asdict(policy),
                         policy_issues,
+                        [asdict(item) for item in deficits],
                         draft["prompt_assessment"],
                     )
                 return draft
