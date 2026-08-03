@@ -1,0 +1,478 @@
+"""Request-scoped generation wrappers and catalogue-selection helpers."""
+
+from __future__ import annotations
+
+import logging
+import re
+import time
+from contextvars import ContextVar
+from dataclasses import asdict
+from functools import wraps
+from typing import Any
+
+logger = logging.getLogger("playlistmuse.performance")
+
+_REPLENISHMENT_MISSING_RE = re.compile(
+    r"still needs\s+(\d+)\s+resolvable songs", re.IGNORECASE
+)
+_REPLENISHMENT_COUNT_RE = re.compile(
+    r"Suggest exactly\s+\d+\s+NEW", re.IGNORECASE
+)
+_STRICT_MAJORITY_ARTIST_RE = re.compile(
+    r"\bpi[uù]\s+della\s+met[aà]\s+(?:dei|degli|delle)?\s*"
+    r"(?:brani|canzoni|tracce|pezzi)?\s*(?:deve|devono)?\s*"
+    r"(?:essere|provenire)?\s*(?:di|dei|degli|delle)\s+([^,;.!\n]{1,120})",
+    re.IGNORECASE,
+)
+
+_ACTIVE_RESOLUTION_QUOTAS: ContextVar[tuple[Any, ...]] = ContextVar(
+    "playlistmuse_resolution_quotas", default=()
+)
+_RESOLVED_SESSION_TRACKS: ContextVar[tuple[dict[str, Any], ...]] = ContextVar(
+    "playlistmuse_resolved_session_tracks", default=()
+)
+_REQUESTED_SESSION_COUNT: ContextVar[int] = ContextVar(
+    "playlistmuse_requested_session_count", default=0
+)
+
+
+def _stage_name(prompt: str) -> str:
+    normalized = prompt.lstrip()
+    if normalized.startswith("The original playlist request is:"):
+        return "llm_replenishment"
+    if normalized.startswith("Create the final playlist for this request:"):
+        return "llm_guided"
+    if normalized.startswith("Suggest exactly 6 strong replacement candidates"):
+        return "llm_replacement"
+    return "llm_initial"
+
+
+def _constraint_source(prompt: str, stage: str) -> str:
+    """Extract only the original user request from internal instructions."""
+    if "User request:\n" in prompt:
+        return prompt.split("User request:\n", 1)[1].strip()
+    if stage == "llm_replacement" and "Original playlist request:" in prompt:
+        tail = prompt.split("Original playlist request:", 1)[1]
+        return tail.split("\n", 1)[0].strip()
+    return prompt.strip()
+
+
+def _quota_replenishment_guidance(prompt: str) -> str:
+    if not prompt.lstrip().startswith("The original playlist request is:"):
+        return ""
+    request = prompt.split("The original playlist request is:\n", 1)[1].split(
+        "\n", 1
+    )[0]
+    match = _STRICT_MAJORITY_ARTIST_RE.search(request)
+    if not match:
+        return ""
+    artist = " ".join(match.group(1).split()).strip(" .,-")
+    if not artist:
+        return ""
+    return (
+        "\n\nQUOTA REPLENISHMENT: the original request requires a strict majority of "
+        f"tracks by {artist}. Prioritize distinct, normal studio tracks by {artist} that "
+        "also satisfy every era, genre and exclusion constraint. At least three quarters "
+        "of the replacement candidates in this round should be by that artist until the "
+        "playlist can satisfy the requested majority. Do not repeat previously attempted songs."
+    )
+
+
+def _numeric_quota_replenishment_guidance(prompt: str, pool_size: int) -> str:
+    """Request independent reserves for every explicit numeric artist quota."""
+    if not prompt.lstrip().startswith("The original playlist request is:"):
+        return ""
+
+    from backend.artist_quota_detection import extract_artist_minimum_quotas
+
+    quotas = extract_artist_minimum_quotas(prompt)
+    if not quotas:
+        return ""
+
+    per_artist = max(6, min(10, pool_size // max(1, len(quotas))))
+    requirements = "; ".join(
+        f"at least {per_artist} distinct candidates by {quota.artist}"
+        for quota in quotas
+    )
+    return (
+        "\n\nNUMERIC QUOTA REPLENISHMENT: catalogue resolution may reject or deduplicate "
+        "some suggestions, so provide a generous independent reserve for every quota "
+        f"artist in this round: {requirements}. Use normal studio recordings with canonical "
+        "released titles, preserve every era, genre and exclusion constraint, and do not "
+        "repeat any previously attempted song. Prefer songs from different original albums "
+        "when several valid alternatives exist. Fill any remaining candidate positions with "
+        "other fully compliant artists."
+    )
+
+
+def _optimized_replenishment_request(prompt: str, count: int) -> tuple[str, int]:
+    if not prompt.lstrip().startswith("The original playlist request is:"):
+        return prompt, count
+    match = _REPLENISHMENT_MISSING_RE.search(prompt)
+    if not match:
+        return prompt, count
+    missing = max(1, int(match.group(1)))
+    optimized_count = min(30, max(12, missing * 4, count))
+    optimized_prompt = _REPLENISHMENT_COUNT_RE.sub(
+        f"Suggest exactly {optimized_count} NEW", prompt, count=1
+    )
+    optimized_prompt += _quota_replenishment_guidance(optimized_prompt)
+    optimized_prompt += _numeric_quota_replenishment_guidance(
+        optimized_prompt, optimized_count
+    )
+    return optimized_prompt, optimized_count
+
+
+def _repair_quota_prompt(
+    request: str,
+    count: int,
+    quotas: list[Any],
+    draft: dict[str, Any],
+) -> str:
+    requirements = "; ".join(
+        f"at least {quota.minimum} tracks by {quota.artist}" for quota in quotas
+    )
+    current = "\n".join(
+        f"- {track.get('artist', 'Unknown artist')} — {track.get('title', 'Unknown track')}"
+        for track in draft.get("tracks", [])
+        if isinstance(track, dict)
+    )
+    return (
+        f"Repair this playlist for the original request:\n{request}\n\n"
+        f"Return exactly {count} distinct tracks. These are independent mandatory artist "
+        f"targets with a catalogue-resolution safety margin: {requirements}. Each target "
+        "must be satisfied separately; do not combine the artists into one shared quota. "
+        "Preserve every other original constraint, including era, genre, exclusions, live, "
+        "cover and remix restrictions. Replace unsuitable tracks rather than relaxing a "
+        "requirement. Prefer tracks from different original albums whenever possible and "
+        "avoid concentrating an artist's selections on one album. Use canonical released "
+        f"song titles likely to be found on YouTube Music.\n\nCurrent draft:\n{current or '- None'}"
+    )
+
+
+def _reset_resolution_session(quotas: list[Any], count: int) -> None:
+    """Start a clean catalogue-selection session for one generation request."""
+    _ACTIVE_RESOLUTION_QUOTAS.set(tuple(quotas))
+    _RESOLVED_SESSION_TRACKS.set(())
+    _REQUESTED_SESSION_COUNT.set(max(0, int(count)))
+
+
+def _album_key(track: dict[str, Any]) -> str:
+    from backend.text_normalization import normalize_identity
+
+    album = str(track.get("album") or "").strip()
+    return normalize_identity(album) if album else ""
+
+
+def _diversity_rank(
+    track: dict[str, Any], existing: list[dict[str, Any]]
+) -> tuple[int, int, str]:
+    """Prefer less represented albums, then less represented artists."""
+    from backend.text_normalization import normalize_identity
+
+    album = _album_key(track)
+    artist = normalize_identity(
+        str(track.get("artists", track.get("artist", "")))
+    )
+    album_count = sum(1 for item in existing if album and _album_key(item) == album)
+    artist_count = sum(
+        1
+        for item in existing
+        if normalize_identity(
+            str(item.get("artists", item.get("artist", "")))
+        )
+        == artist
+    )
+    return album_count, artist_count, album
+
+
+def _log_stage(stage: str, started_at: float, **details: Any) -> None:
+    elapsed_ms = round((time.perf_counter() - started_at) * 1000)
+    suffix = " ".join(f"{key}={value}" for key, value in details.items())
+    logger.info(
+        "playlist_stage stage=%s elapsed_ms=%s %s", stage, elapsed_ms, suffix
+    )
+
+
+def _select_resolved_tracks(
+    resolved: list[dict[str, Any]],
+    *,
+    youtube: Any,
+    artist_matches: Any,
+    quota_deficits: Any,
+) -> list[dict[str, Any]]:
+    """Select fresh resolved tracks while reserving unresolved quota capacity."""
+    requested = _REQUESTED_SESSION_COUNT.get()
+    if requested <= 0:
+        return resolved
+
+    accepted = list(_RESOLVED_SESSION_TRACKS.get())
+    accepted_keys = {
+        youtube.track_identity_key(
+            str(track.get("title", "")),
+            str(track.get("artists", track.get("artist", ""))),
+        )
+        for track in accepted
+    }
+    fresh: list[dict[str, Any]] = []
+    for track in resolved:
+        key = youtube.track_identity_key(
+            str(track.get("title", "")),
+            str(track.get("artists", track.get("artist", ""))),
+        )
+        if key and key not in accepted_keys:
+            accepted_keys.add(key)
+            fresh.append(track)
+
+    quotas = list(_ACTIVE_RESOLUTION_QUOTAS.get())
+    deficits = quota_deficits(accepted, quotas)
+    needed: list[dict[str, Any]] = []
+    general: list[dict[str, Any]] = []
+    for track in fresh:
+        artists = str(track.get("artists", track.get("artist", "")))
+        target = needed if any(
+            artist_matches(artists, deficit.artist) for deficit in deficits
+        ) else general
+        target.append(track)
+
+    selected = sorted(needed, key=lambda item: _diversity_rank(item, accepted))
+    deficits_after_needed = quota_deficits(accepted + selected, quotas)
+    reserved_slots = sum(item.minimum for item in deficits_after_needed)
+    general_capacity = max(
+        0, requested - len(accepted) - len(selected) - reserved_slots
+    )
+    for track in sorted(
+        general, key=lambda item: _diversity_rank(item, accepted + selected)
+    ):
+        if len(selected) >= len(needed) + general_capacity:
+            break
+        selected.append(track)
+
+    _RESOLVED_SESSION_TRACKS.set(tuple(accepted + selected))
+    return selected
+
+
+def install_generation_wrappers() -> None:
+    """Install request interpretation, timing and catalogue-selection wrappers once."""
+    from backend import lastfm_discovery, llm, youtube
+    from backend.artist_quota_detection import (
+        artist_matches,
+        extract_artist_minimum_quotas,
+        quota_deficits,
+        quota_guidance,
+        user_request_text,
+    )
+    from backend.entity_resolution import canonicalize_interpretation
+    from backend.metadata_validation import (
+        activate_constraints,
+        constraints_from_payload,
+        extract_metadata_constraints,
+    )
+    from backend.playlist_policy import (
+        apply_playlist_policy,
+        hard_allowed_artists,
+        policy_from_payload,
+    )
+    from backend.prompt_validation import assess_interpretation, assess_prompt
+    from backend.request_constraints import (
+        buffered_artist_quotas,
+        open_ended_year_range,
+    )
+
+    original_generate = llm.generate_playlist_draft
+    if not getattr(original_generate, "_playlistmuse_generation_wrapper", False):
+
+        @wraps(original_generate)
+        async def wrapped_generate_playlist_draft(
+            config: Any, prompt: str, count: int
+        ) -> dict[str, Any]:
+            optimized_prompt, optimized_count = _optimized_replenishment_request(
+                prompt, count
+            )
+            stage = _stage_name(optimized_prompt)
+            started_at = time.perf_counter()
+            should_interpret = stage in {"llm_initial", "llm_replacement"}
+            source_prompt = _constraint_source(optimized_prompt, stage)
+            user_request = user_request_text(optimized_prompt)
+            artist_quotas = extract_artist_minimum_quotas(user_request)
+            if should_interpret:
+                _reset_resolution_session(artist_quotas, count)
+            generation_quotas = buffered_artist_quotas(
+                artist_quotas, optimized_count
+            )
+            submitted_prompt = optimized_prompt + quota_guidance(generation_quotas)
+            submitted_prompt += (
+                "\n\nALBUM DIVERSITY: when several compliant tracks are available, prefer "
+                "different original albums. Avoid selecting many tracks from the same "
+                "album unless the user explicitly asks for that album."
+            )
+            fallback = (
+                extract_metadata_constraints(source_prompt)
+                if should_interpret
+                else None
+            )
+            interpreted: dict[str, Any] | None = None
+            assessment = None
+            try:
+                if should_interpret:
+                    assessment = await assess_prompt(config, source_prompt)
+                    if assessment.status == "impossible":
+                        reason = " ".join(assessment.reasons)
+                        raise ValueError(
+                            reason
+                            or "The request contains incompatible constraints."
+                        )
+                    interpreted = await canonicalize_interpretation(
+                        assessment.interpretation
+                    )
+                    assessment = assess_interpretation(interpreted)
+
+                draft = await original_generate(
+                    config, submitted_prompt, optimized_count
+                )
+                generation_deficits = quota_deficits(
+                    [
+                        track
+                        for track in draft.get("tracks", [])
+                        if isinstance(track, dict)
+                    ],
+                    generation_quotas,
+                )
+                for _ in range(2):
+                    if not generation_deficits:
+                        break
+                    repaired = await original_generate(
+                        config,
+                        _repair_quota_prompt(
+                            user_request,
+                            optimized_count,
+                            generation_quotas,
+                            draft,
+                        ),
+                        optimized_count,
+                    )
+                    repaired_deficits = quota_deficits(
+                        [
+                            track
+                            for track in repaired.get("tracks", [])
+                            if isinstance(track, dict)
+                        ],
+                        generation_quotas,
+                    )
+                    if sum(item.minimum for item in repaired_deficits) >= sum(
+                        item.minimum for item in generation_deficits
+                    ):
+                        break
+                    draft = repaired
+                    generation_deficits = repaired_deficits
+
+                effective_deficits = quota_deficits(
+                    [
+                        track
+                        for track in draft.get("tracks", [])
+                        if isinstance(track, dict)
+                    ],
+                    artist_quotas,
+                )
+                if should_interpret:
+                    constraints = constraints_from_payload(
+                        interpreted, fallback=fallback
+                    )
+                    explicit_open_range = open_ended_year_range(source_prompt)
+                    if explicit_open_range is not None:
+                        constraints.release_year = None
+                        constraints.release_year_from = explicit_open_range[0]
+                        constraints.release_year_to = explicit_open_range[1]
+                    policy = policy_from_payload(
+                        interpreted, prompt=source_prompt
+                    )
+                    constraints.allowed_artists = hard_allowed_artists(
+                        constraints.allowed_artists,
+                        policy,
+                        prompt=source_prompt,
+                    )
+                    constraints.artist_name = (
+                        constraints.allowed_artists[0]
+                        if len(constraints.allowed_artists) == 1
+                        else None
+                    )
+                    activate_constraints(constraints)
+                    draft, policy_issues = apply_playlist_policy(
+                        draft, policy, requested_count=optimized_count
+                    )
+                    draft["prompt_assessment"] = (
+                        assessment.as_dict()
+                        if assessment
+                        else {"status": "valid", "reasons": []}
+                    )
+                    logger.info(
+                        "playlist_constraints stage=%s constraints=%s policy=%s "
+                        "issues=%s artist_quota_deficits=%s "
+                        "buffered_quota_deficits=%s assessment=%s",
+                        stage,
+                        asdict(constraints),
+                        asdict(policy),
+                        policy_issues,
+                        [asdict(item) for item in effective_deficits],
+                        [asdict(item) for item in generation_deficits],
+                        draft["prompt_assessment"],
+                    )
+                return draft
+            finally:
+                _log_stage(
+                    stage,
+                    started_at,
+                    requested=count,
+                    submitted=optimized_count,
+                )
+
+        wrapped_generate_playlist_draft._playlistmuse_generation_wrapper = True  # type: ignore[attr-defined]
+        llm.generate_playlist_draft = wrapped_generate_playlist_draft
+
+    for name, stage in (
+        ("discover_from_anchors", "lastfm_prompt_discovery"),
+        ("discover_for_seed", "lastfm_seed_discovery"),
+    ):
+        original = getattr(lastfm_discovery, name)
+        if getattr(original, "_playlistmuse_timing_wrapper", False):
+            continue
+
+        def make_timed_wrapper(function: Any, stage_name: str) -> Any:
+            @wraps(function)
+            async def timed(*args: Any, **kwargs: Any) -> Any:
+                started_at = time.perf_counter()
+                try:
+                    return await function(*args, **kwargs)
+                finally:
+                    _log_stage(stage_name, started_at)
+
+            timed._playlistmuse_timing_wrapper = True  # type: ignore[attr-defined]
+            return timed
+
+        setattr(lastfm_discovery, name, make_timed_wrapper(original, stage))
+
+    original_resolve = youtube.resolve_candidates
+    if not getattr(original_resolve, "_playlistmuse_timing_wrapper", False):
+
+        @wraps(original_resolve)
+        async def wrapped_resolve_candidates(*args: Any, **kwargs: Any) -> Any:
+            started_at = time.perf_counter()
+            candidates = args[0] if args else kwargs.get("candidates", [])
+            try:
+                resolved, unresolved = await original_resolve(*args, **kwargs)
+                selected = _select_resolved_tracks(
+                    resolved,
+                    youtube=youtube,
+                    artist_matches=artist_matches,
+                    quota_deficits=quota_deficits,
+                )
+                return selected, unresolved
+            finally:
+                _log_stage(
+                    "catalogue_resolution",
+                    started_at,
+                    candidates=len(candidates),
+                )
+
+        wrapped_resolve_candidates._playlistmuse_timing_wrapper = True  # type: ignore[attr-defined]
+        youtube.resolve_candidates = wrapped_resolve_candidates
