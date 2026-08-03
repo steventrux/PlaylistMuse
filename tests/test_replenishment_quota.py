@@ -27,7 +27,7 @@ def test_non_quota_replenishment_gets_no_artist_guidance():
     assert _quota_replenishment_guidance(prompt) == ""
 
 
-def test_optimized_replenishment_keeps_quota_guidance_and_reduces_pool():
+def test_optimized_replenishment_keeps_quota_guidance_and_widens_pool():
     prompt = _prompt(
         "musica rock anni '90, più della metà delle canzoni deve essere dei Rolling Stones",
         missing=3,
@@ -35,6 +35,6 @@ def test_optimized_replenishment_keeps_quota_guidance_and_reduces_pool():
 
     optimized_prompt, optimized_count = _optimized_replenishment_request(prompt, 30)
 
-    assert optimized_count == 6
-    assert "Suggest exactly 6 NEW" in optimized_prompt
+    assert optimized_count == 30
+    assert "Suggest exactly 30 NEW" in optimized_prompt
     assert "QUOTA REPLENISHMENT" in optimized_prompt
