@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import re
 import time
-from contextvars import ContextVar
 from dataclasses import asdict
 from functools import wraps
 from typing import Any
@@ -18,19 +17,6 @@ _STRICT_MAJORITY_ARTIST_RE = re.compile(
     r"(?:brani|canzoni|tracce|pezzi)?\s*(?:deve|devono)?\s*"
     r"(?:essere|provenire)?\s*(?:di|dei|degli|delle)\s+([^,;.!\n]{1,120})",
     re.IGNORECASE,
-)
-
-_ACTIVE_ARTIST_QUOTAS: ContextVar[tuple[Any, ...]] = ContextVar(
-    "playlistmuse_active_artist_quotas",
-    default=(),
-)
-_RESOLVED_QUOTA_TRACKS: ContextVar[tuple[dict[str, Any], ...]] = ContextVar(
-    "playlistmuse_resolved_quota_tracks",
-    default=(),
-)
-_REQUESTED_TRACK_COUNT: ContextVar[int] = ContextVar(
-    "playlistmuse_requested_track_count",
-    default=0,
 )
 
 
@@ -74,27 +60,6 @@ def _quota_replenishment_guidance(prompt: str) -> str:
     )
 
 
-def _resolved_quota_guidance() -> str:
-    from backend.artist_quota_detection import quota_deficits
-
-    quotas = list(_ACTIVE_ARTIST_QUOTAS.get())
-    if not quotas:
-        return ""
-    deficits = quota_deficits(list(_RESOLVED_QUOTA_TRACKS.get()), quotas)
-    if not deficits:
-        return ""
-    requirements = "; ".join(
-        f"still need {item.minimum} additional resolved tracks by {item.artist}"
-        for item in deficits
-    )
-    return (
-        "\n\nRESOLVED QUOTA DEFICITS: catalogue verification has confirmed that we "
-        f"{requirements}. Prioritize these exact artists in this round. These deficits "
-        "are independent and must all reach zero before filling remaining positions with "
-        "other artists. Do not repeat previously attempted songs."
-    )
-
-
 def _optimized_replenishment_request(prompt: str, count: int) -> tuple[str, int]:
     if not prompt.lstrip().startswith("The original playlist request is:"):
         return prompt, count
@@ -109,7 +74,6 @@ def _optimized_replenishment_request(prompt: str, count: int) -> tuple[str, int]
         count=1,
     )
     optimized_prompt += _quota_replenishment_guidance(optimized_prompt)
-    optimized_prompt += _resolved_quota_guidance()
     return optimized_prompt, optimized_count
 
 
@@ -139,13 +103,6 @@ def _repair_quota_prompt(
     )
 
 
-def _reset_quota_session(artist_quotas: list[Any], count: int) -> None:
-    """Start a clean catalogue-quota session for a new generation request."""
-    _ACTIVE_ARTIST_QUOTAS.set(tuple(artist_quotas))
-    _RESOLVED_QUOTA_TRACKS.set(())
-    _REQUESTED_TRACK_COUNT.set(count if artist_quotas else 0)
-
-
 def _log_stage(stage: str, started_at: float, **details: Any) -> None:
     elapsed_ms = round((time.perf_counter() - started_at) * 1000)
     suffix = " ".join(f"{key}={value}" for key, value in details.items())
@@ -155,7 +112,6 @@ def _log_stage(stage: str, started_at: float, **details: Any) -> None:
 def _install_generation_wrappers() -> None:
     from backend import lastfm_discovery, llm, youtube
     from backend.artist_quota_detection import (
-        artist_matches,
         extract_artist_minimum_quotas,
         quota_deficits,
         quota_guidance,
@@ -190,8 +146,6 @@ def _install_generation_wrappers() -> None:
             source_prompt = _constraint_source(optimized_prompt, stage)
             user_request = user_request_text(optimized_prompt)
             artist_quotas = extract_artist_minimum_quotas(user_request)
-            if stage != "llm_replenishment":
-                _reset_quota_session(artist_quotas, count)
             submitted_prompt = optimized_prompt + quota_guidance(artist_quotas)
             fallback = extract_metadata_constraints(source_prompt) if should_interpret else None
             interpreted: dict[str, Any] | None = None
@@ -321,52 +275,7 @@ def _install_generation_wrappers() -> None:
             started_at = time.perf_counter()
             candidates = args[0] if args else kwargs.get("candidates", [])
             try:
-                resolved, unresolved = await original_resolve(*args, **kwargs)
-                quotas = list(_ACTIVE_ARTIST_QUOTAS.get())
-                requested = _REQUESTED_TRACK_COUNT.get()
-                if not quotas or requested <= 0:
-                    return resolved, unresolved
-
-                accepted = list(_RESOLVED_QUOTA_TRACKS.get())
-                accepted_keys = {
-                    youtube.track_identity_key(
-                        str(track.get("title", "")),
-                        str(track.get("artists", track.get("artist", ""))),
-                    )
-                    for track in accepted
-                }
-                fresh = []
-                for track in resolved:
-                    key = youtube.track_identity_key(
-                        str(track.get("title", "")),
-                        str(track.get("artists", track.get("artist", ""))),
-                    )
-                    if key and key not in accepted_keys:
-                        accepted_keys.add(key)
-                        fresh.append(track)
-
-                quota_tracks = [
-                    track
-                    for track in fresh
-                    if any(
-                        artist_matches(
-                            str(track.get("artists", track.get("artist", ""))),
-                            quota.artist,
-                        )
-                        for quota in quotas
-                    )
-                ]
-                non_quota_tracks = [track for track in fresh if track not in quota_tracks]
-                accepted_with_quota = accepted + quota_tracks
-                remaining = quota_deficits(accepted_with_quota, quotas)
-                reserved_slots = sum(item.minimum for item in remaining)
-                non_quota_capacity = max(
-                    0,
-                    requested - len(accepted_with_quota) - reserved_slots,
-                )
-                selected = quota_tracks + non_quota_tracks[:non_quota_capacity]
-                _RESOLVED_QUOTA_TRACKS.set(tuple(accepted + selected))
-                return selected, unresolved
+                return await original_resolve(*args, **kwargs)
             finally:
                 _log_stage("catalogue_resolution", started_at, candidates=len(candidates))
 
