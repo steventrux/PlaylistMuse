@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from contextvars import ContextVar
 from dataclasses import asdict
 from functools import wraps
 from typing import Any
@@ -17,6 +18,19 @@ _STRICT_MAJORITY_ARTIST_RE = re.compile(
     r"(?:brani|canzoni|tracce|pezzi)?\s*(?:deve|devono)?\s*"
     r"(?:essere|provenire)?\s*(?:di|dei|degli|delle)\s+([^,;.!\n]{1,120})",
     re.IGNORECASE,
+)
+
+_ACTIVE_RESOLUTION_QUOTAS: ContextVar[tuple[Any, ...]] = ContextVar(
+    "playlistmuse_resolution_quotas",
+    default=(),
+)
+_RESOLVED_SESSION_TRACKS: ContextVar[tuple[dict[str, Any], ...]] = ContextVar(
+    "playlistmuse_resolved_session_tracks",
+    default=(),
+)
+_REQUESTED_SESSION_COUNT: ContextVar[int] = ContextVar(
+    "playlistmuse_requested_session_count",
+    default=0,
 )
 
 
@@ -81,7 +95,8 @@ def _numeric_quota_replenishment_guidance(prompt: str, pool_size: int) -> str:
         "some suggestions, so provide a generous independent reserve for every quota "
         f"artist in this round: {requirements}. Use normal studio recordings with canonical "
         "released titles, preserve every era, genre and exclusion constraint, and do not "
-        "repeat any previously attempted song. Fill any remaining candidate positions with "
+        "repeat any previously attempted song. Prefer songs from different original albums "
+        "when several valid alternatives exist. Fill any remaining candidate positions with "
         "other fully compliant artists."
     )
 
@@ -128,9 +143,42 @@ def _repair_quota_prompt(
         "must be satisfied separately; do not combine the artists into one shared quota. "
         "Preserve every other original constraint, including era, genre, exclusions, live, "
         "cover and remix restrictions. Replace unsuitable tracks rather than relaxing a "
-        "requirement. Use canonical released song titles likely to be found on YouTube Music."
-        f"\n\nCurrent draft:\n{current or '- None'}"
+        "requirement. Prefer tracks from different original albums whenever possible and "
+        "avoid concentrating an artist's selections on one album. Use canonical released "
+        f"song titles likely to be found on YouTube Music.\n\nCurrent draft:\n{current or '- None'}"
     )
+
+
+def _reset_resolution_session(quotas: list[Any], count: int) -> None:
+    """Start a clean, request-local catalogue selection session."""
+    _ACTIVE_RESOLUTION_QUOTAS.set(tuple(quotas))
+    _RESOLVED_SESSION_TRACKS.set(())
+    _REQUESTED_SESSION_COUNT.set(max(0, int(count)))
+
+
+def _album_key(track: dict[str, Any]) -> str:
+    from backend.text_normalization import normalize_identity
+
+    album = str(track.get("album") or "").strip()
+    return normalize_identity(album) if album else ""
+
+
+def _diversity_rank(
+    track: dict[str, Any],
+    existing: list[dict[str, Any]],
+) -> tuple[int, int, str]:
+    """Prefer albums and artists that are less represented in the accepted playlist."""
+    from backend.text_normalization import normalize_identity
+
+    album = _album_key(track)
+    artist = normalize_identity(str(track.get("artists", track.get("artist", ""))))
+    album_count = sum(1 for item in existing if album and _album_key(item) == album)
+    artist_count = sum(
+        1
+        for item in existing
+        if normalize_identity(str(item.get("artists", item.get("artist", "")))) == artist
+    )
+    return album_count, artist_count, album
 
 
 def _log_stage(stage: str, started_at: float, **details: Any) -> None:
@@ -142,6 +190,7 @@ def _log_stage(stage: str, started_at: float, **details: Any) -> None:
 def _install_generation_wrappers() -> None:
     from backend import lastfm_discovery, llm, youtube
     from backend.artist_quota_detection import (
+        artist_matches,
         extract_artist_minimum_quotas,
         quota_deficits,
         quota_guidance,
@@ -180,11 +229,18 @@ def _install_generation_wrappers() -> None:
             source_prompt = _constraint_source(optimized_prompt, stage)
             user_request = user_request_text(optimized_prompt)
             artist_quotas = extract_artist_minimum_quotas(user_request)
+            if stage in {"llm_initial", "llm_replacement"}:
+                _reset_resolution_session(artist_quotas, count)
             generation_quotas = buffered_artist_quotas(
                 artist_quotas,
                 optimized_count,
             )
             submitted_prompt = optimized_prompt + quota_guidance(generation_quotas)
+            submitted_prompt += (
+                "\n\nALBUM DIVERSITY: when several compliant tracks are available, prefer "
+                "different original albums. Avoid selecting many tracks from the same "
+                "album unless the user explicitly asks for that album."
+            )
             fallback = extract_metadata_constraints(source_prompt) if should_interpret else None
             interpreted: dict[str, Any] | None = None
             assessment = None
@@ -327,7 +383,63 @@ def _install_generation_wrappers() -> None:
             started_at = time.perf_counter()
             candidates = args[0] if args else kwargs.get("candidates", [])
             try:
-                return await original_resolve(*args, **kwargs)
+                resolved, unresolved = await original_resolve(*args, **kwargs)
+                requested = _REQUESTED_SESSION_COUNT.get()
+                if requested <= 0:
+                    return resolved, unresolved
+
+                accepted = list(_RESOLVED_SESSION_TRACKS.get())
+                accepted_keys = {
+                    youtube.track_identity_key(
+                        str(track.get("title", "")),
+                        str(track.get("artists", track.get("artist", ""))),
+                    )
+                    for track in accepted
+                }
+                fresh: list[dict[str, Any]] = []
+                for track in resolved:
+                    key = youtube.track_identity_key(
+                        str(track.get("title", "")),
+                        str(track.get("artists", track.get("artist", ""))),
+                    )
+                    if key and key not in accepted_keys:
+                        accepted_keys.add(key)
+                        fresh.append(track)
+
+                quotas = list(_ACTIVE_RESOLUTION_QUOTAS.get())
+                deficits = quota_deficits(accepted, quotas)
+                needed_tracks: list[dict[str, Any]] = []
+                remaining_tracks: list[dict[str, Any]] = []
+                for track in fresh:
+                    artists = str(track.get("artists", track.get("artist", "")))
+                    if any(artist_matches(artists, deficit.artist) for deficit in deficits):
+                        needed_tracks.append(track)
+                    else:
+                        remaining_tracks.append(track)
+
+                selected: list[dict[str, Any]] = []
+                for track in sorted(
+                    needed_tracks,
+                    key=lambda item: _diversity_rank(item, accepted + selected),
+                ):
+                    selected.append(track)
+
+                deficits_after_needed = quota_deficits(accepted + selected, quotas)
+                reserved_slots = sum(item.minimum for item in deficits_after_needed)
+                general_capacity = max(
+                    0,
+                    requested - len(accepted) - len(selected) - reserved_slots,
+                )
+                for track in sorted(
+                    remaining_tracks,
+                    key=lambda item: _diversity_rank(item, accepted + selected),
+                ):
+                    if len(selected) >= len(needed_tracks) + general_capacity:
+                        break
+                    selected.append(track)
+
+                _RESOLVED_SESSION_TRACKS.set(tuple(accepted + selected))
+                return selected, unresolved
             finally:
                 _log_stage("catalogue_resolution", started_at, candidates=len(candidates))
 
