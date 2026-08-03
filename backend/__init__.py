@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 import time
@@ -27,12 +26,21 @@ Also extract playlist-level policy fields. Add these keys to the returned JSON o
 - target_market: market where songs must be popular or null
 - soundtrack_title: named film, series, game or other work soundtrack or null
 - soundtrack_type: film, series, game, musical, other or null
+- constraint_status: valid, ambiguous or impossible
+- status_reasons: concise user-facing reasons written in the same language as the request
 
 Add a 0.0 to 1.0 confidence entry for every new field in field_confidence.
 Interpret proportional wording in any language: mostly, at least half, a few, no more than,
 maximum, minimum, one or two, and equivalent expressions. A named required track is not a
 style reference. Do not claim that lyrics language, market popularity or soundtrack membership
 has been externally verified; only extract the user's intent.
+
+Use constraint_status="impossible" only when no track or playlist can satisfy all explicit
+requirements simultaneously, for example music from the 1990s that must also be published
+after 2000. Use constraint_status="ambiguous" when two or more reasonable interpretations
+remain possible and selecting one would require guessing. Use "valid" otherwise. Never solve a
+contradiction by silently discarding one constraint. Explain every ambiguous or impossible
+classification in status_reasons, in the user's language.
 """
 
 
@@ -108,14 +116,42 @@ def _install_interpreter_policy_schema() -> None:
     if getattr(constraint_interpreter, "_playlistmuse_policy_schema", False):
         return
     constraint_interpreter.SYSTEM_PROMPT += _POLICY_PROMPT_EXTENSION
-    constraint_interpreter.INTERPRETER_SCHEMA_VERSION = 3
-    constraint_interpreter.INTERPRETER_PROMPT_VERSION = "2026-08-03.3"
+    constraint_interpreter.INTERPRETER_SCHEMA_VERSION = 4
+    constraint_interpreter.INTERPRETER_PROMPT_VERSION = "2026-08-03.4"
     constraint_interpreter._playlistmuse_policy_schema = True
+
+
+def _install_prompt_validation_route() -> None:
+    """Expose prompt assessment through the router already mounted by the application."""
+    from fastapi import HTTPException
+
+    from backend.config import load_config
+    from backend.prompt_validation import assess_prompt
+    from backend.youtube_routes import router
+
+    if getattr(router, "_playlistmuse_prompt_validation", False):
+        return
+
+    async def validate_playlist_prompt(payload: dict[str, Any]) -> dict[str, Any]:
+        prompt = " ".join(str(payload.get("prompt", "")).split())
+        if len(prompt) < 3:
+            raise HTTPException(status_code=422, detail="Describe the playlist you want.")
+        if len(prompt) > 1950:
+            raise HTTPException(status_code=422, detail="The playlist request is too long.")
+        assessment = await assess_prompt(load_config(), prompt)
+        return assessment.as_dict()
+
+    router.add_api_route(
+        "/playlists/validate-prompt",
+        validate_playlist_prompt,
+        methods=["POST"],
+        tags=["playlists"],
+    )
+    router._playlistmuse_prompt_validation = True  # type: ignore[attr-defined]
 
 
 def _install_generation_wrappers() -> None:
     from backend import lastfm_discovery, llm, youtube
-    from backend.constraint_interpreter import interpret_constraints
     from backend.entity_resolution import canonicalize_interpretation
     from backend.metadata_validation import (
         activate_constraints,
@@ -123,10 +159,7 @@ def _install_generation_wrappers() -> None:
         extract_metadata_constraints,
     )
     from backend.playlist_policy import apply_playlist_policy, policy_from_payload
-
-    async def interpret_and_canonicalize(config: Any, prompt: str) -> dict[str, Any] | None:
-        interpreted = await interpret_constraints(config, prompt)
-        return await canonicalize_interpretation(interpreted)
+    from backend.prompt_validation import assess_interpretation, assess_prompt
 
     original_generate = llm.generate_playlist_draft
     if not getattr(original_generate, "_playlistmuse_generation_wrapper", False):
@@ -143,15 +176,19 @@ def _install_generation_wrappers() -> None:
             should_interpret = stage in {"llm_initial", "llm_replacement"}
             source_prompt = _constraint_source(optimized_prompt, stage)
             fallback = extract_metadata_constraints(source_prompt) if should_interpret else None
-            interpretation_task = (
-                asyncio.create_task(interpret_and_canonicalize(config, source_prompt))
-                if should_interpret
-                else None
-            )
+            interpreted: dict[str, Any] | None = None
+            assessment = None
             try:
+                if should_interpret:
+                    assessment = await assess_prompt(config, source_prompt)
+                    if assessment.status == "impossible":
+                        reason = " ".join(assessment.reasons) or "The request contains incompatible constraints."
+                        raise ValueError(reason)
+                    interpreted = await canonicalize_interpretation(assessment.interpretation)
+                    assessment = assess_interpretation(interpreted)
+
                 draft = await original_generate(config, optimized_prompt, optimized_count)
-                if interpretation_task is not None:
-                    interpreted = await interpretation_task
+                if should_interpret:
                     constraints = constraints_from_payload(interpreted, fallback=fallback)
                     policy = policy_from_payload(interpreted)
                     activate_constraints(constraints)
@@ -161,17 +198,17 @@ def _install_generation_wrappers() -> None:
                         allowed_artists=constraints.allowed_artists,
                         requested_count=optimized_count,
                     )
+                    draft["prompt_assessment"] = assessment.as_dict() if assessment else {"status": "valid", "reasons": []}
                     logger.info(
-                        "playlist_constraints stage=%s constraints=%s policy=%s issues=%s",
+                        "playlist_constraints stage=%s constraints=%s policy=%s issues=%s assessment=%s",
                         stage,
                         asdict(constraints),
                         asdict(policy),
                         policy_issues,
+                        draft["prompt_assessment"],
                     )
                 return draft
             finally:
-                if interpretation_task is not None and not interpretation_task.done():
-                    interpretation_task.cancel()
                 _log_stage(
                     stage,
                     started_at,
@@ -228,4 +265,5 @@ def _install_generation_wrappers() -> None:
 
 _install_unicode_normalization()
 _install_interpreter_policy_schema()
+_install_prompt_validation_route()
 _install_generation_wrappers()
