@@ -65,17 +65,19 @@ def test_counts_and_deficits_are_kept_separate_per_artist():
     assert quota_deficits(tracks, quotas) == [ArtistMinimumQuota("AC/DC", 2)]
 
 
-def test_artist_matching_handles_punctuation_accents_and_collaborations():
+def test_artist_matching_handles_punctuation_accents_articles_and_collaborations():
     assert artist_matches("AC-DC", "AC/DC")
     assert artist_matches("Maneskin", "Måneskin")
     assert artist_matches("P!nk feat. Nate Ruess", "P!nk")
     assert artist_matches("Earth, Wind & Fire", "Earth Wind Fire")
+    assert artist_matches("The Beatles", "Beatles")
+    assert artist_matches("The Rolling Stones", "Rolling Stones")
 
 
 def test_artist_matching_avoids_substring_false_positives():
     assert not artist_matches("U2 Tribute Band", "U2")
     assert not artist_matches("Yes Sir Boss", "Yes")
-    assert not artist_matches("The Beatles", "Beatles")
+    assert not artist_matches("Beatles Tribute", "Beatles")
 
 
 def test_guidance_does_not_merge_artist_minimums():
