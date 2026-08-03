@@ -9,7 +9,6 @@ import re
 import sqlite3
 import threading
 import time
-import unicodedata
 from dataclasses import asdict
 from functools import lru_cache
 from pathlib import Path
@@ -28,8 +27,8 @@ from backend.metadata_validation import (
     validate_candidate,
     validate_metadata,
 )
+from backend.text_normalization import normalize_identity as _normalize_identity
 
-_IDENTITY_SPLIT_RE = re.compile(r"[\W_]+")
 _TITLE_TOKEN_RE = re.compile(r"[a-z0-9]+")
 _LIVE_RE = re.compile(r"\b(live|concert|session)\b")
 _REMIX_RE = re.compile(r"\b(remix|mix|edit|mashup)\b")
@@ -81,13 +80,6 @@ def _album_name(result: dict[str, Any]) -> str:
 def _thumbnail(result: dict[str, Any]) -> str | None:
     thumbnails = result.get("thumbnails") or []
     return thumbnails[-1].get("url") if thumbnails else None
-
-
-def _normalize_identity(value: str) -> str:
-    """Normalize catalogue text so punctuation and accents do not create duplicates."""
-    decomposed = unicodedata.normalize("NFKD", str(value).casefold())
-    without_marks = "".join(char for char in decomposed if not unicodedata.combining(char))
-    return " ".join(part for part in _IDENTITY_SPLIT_RE.split(without_marks) if part)
 
 
 def track_identity_key(title: str, artists: str) -> str:
