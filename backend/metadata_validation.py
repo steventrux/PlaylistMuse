@@ -33,11 +33,25 @@ ValidationStatus = Literal["valid", "invalid", "unknown"]
 @dataclass(slots=True)
 class MetadataConstraints:
     release_year: int | None = None
+    release_year_from: int | None = None
+    release_year_to: int | None = None
     artist_country: str | None = None
+    artist_name: str | None = None
+    album_name: str | None = None
 
     @property
     def active(self) -> bool:
-        return self.release_year is not None or self.artist_country is not None
+        return any(
+            value is not None
+            for value in (
+                self.release_year,
+                self.release_year_from,
+                self.release_year_to,
+                self.artist_country,
+                self.artist_name,
+                self.album_name,
+            )
+        )
 
 
 @dataclass(slots=True)
@@ -51,6 +65,8 @@ class TrackMetadata:
     original_release_year: int | None = None
     artist_country: str | None = None
     artist_area: str | None = None
+    matched_artist: str | None = None
+    release_titles: list[str] = field(default_factory=list)
     match_score: float = 0.0
     confidence: str = "low"
     source: str = "musicbrainz"
@@ -75,9 +91,25 @@ _YEAR_PATTERNS = (
     re.compile(r"\b(19\d{2}|20\d{2})\s+(?:only|solo|soltanto|esclusivamente)\b", re.I),
     re.compile(r"\b(?:hits?|songs?|tracks?|music|brani|canzoni|musica)\s+(?:estive?\s+|summer\s+)?(?:italiane?\s+|italian\s+)?(?:del|of|from)\s+(19\d{2}|20\d{2})\b", re.I),
 )
+_YEAR_RANGE_PATTERNS = (
+    re.compile(r"\b(?:between|from|dal|dall['’]?)\s*(19\d{2}|20\d{2})\s*(?:and|to|al|a|-)\s*(19\d{2}|20\d{2})\b", re.I),
+    re.compile(r"\b(19\d{2}|20\d{2})\s*[-–—]\s*(19\d{2}|20\d{2})\b"),
+)
 _COUNTRY_PATTERNS = {
     "IT": re.compile(r"\b(?:italian artists?|artists? from italy|artisti italiani|cantanti italiani)\b", re.I),
 }
+_QUOTED_ARTIST_PATTERNS = (
+    re.compile(r"\b(?:only songs?|tracks?|music|brani|canzoni|musica)\s+(?:by|from|di)\s+['\"]([^'\"]{1,160})['\"]", re.I),
+    re.compile(r"\b(?:solo|soltanto|esclusivamente)\s+(?:brani|canzoni|musica)?\s*(?:di|dei|degli|delle|by|from)\s+['\"]([^'\"]{1,160})['\"]", re.I),
+)
+_UNQUOTED_ARTIST_PATTERNS = (
+    re.compile(r"\b(?:only songs?|tracks?|music)\s+(?:by|from)\s+([\wÀ-ÿ&.' -]{1,100})(?:\s+only)?[.!?]?$", re.I),
+    re.compile(r"\b(?:solo|soltanto|esclusivamente)\s+(?:brani|canzoni|musica)?\s*(?:di|dei|degli|delle)\s+([\wÀ-ÿ&.' -]{1,100})[.!?]?$", re.I),
+)
+_ALBUM_PATTERNS = (
+    re.compile(r"\b(?:from|off|dall['’]?album|dall['’]?disco|dall['’]?opera)\s+['\"]([^'\"]{1,180})['\"]", re.I),
+    re.compile(r"\b(?:album|disco)\s+['\"]([^'\"]{1,180})['\"]\s+(?:only|solo|soltanto|esclusivamente)\b", re.I),
+)
 
 
 def _normalize(value: str) -> str:
@@ -86,19 +118,49 @@ def _normalize(value: str) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", plain))
 
 
+def _extract_first(patterns: tuple[re.Pattern[str], ...], prompt: str) -> str | None:
+    for pattern in patterns:
+        match = pattern.search(prompt)
+        if match:
+            value = " ".join(match.group(1).split()).strip(" .,-")
+            if value:
+                return value
+    return None
+
+
 def extract_metadata_constraints(prompt: str) -> MetadataConstraints:
     normalized = " ".join(str(prompt).split())
     year = None
-    for pattern in _YEAR_PATTERNS:
+    year_from = None
+    year_to = None
+    for pattern in _YEAR_RANGE_PATTERNS:
         match = pattern.search(normalized)
         if match:
-            year = int(match.group(1))
+            first, second = int(match.group(1)), int(match.group(2))
+            year_from, year_to = sorted((first, second))
             break
+    if year_from is None:
+        for pattern in _YEAR_PATTERNS:
+            match = pattern.search(normalized)
+            if match:
+                year = int(match.group(1))
+                break
     country = next(
         (code for code, pattern in _COUNTRY_PATTERNS.items() if pattern.search(normalized)),
         None,
     )
-    return MetadataConstraints(release_year=year, artist_country=country)
+    artist_name = _extract_first(_QUOTED_ARTIST_PATTERNS, normalized)
+    if artist_name is None:
+        artist_name = _extract_first(_UNQUOTED_ARTIST_PATTERNS, normalized)
+    album_name = _extract_first(_ALBUM_PATTERNS, normalized)
+    return MetadataConstraints(
+        release_year=year,
+        release_year_from=year_from,
+        release_year_to=year_to,
+        artist_country=country,
+        artist_name=artist_name,
+        album_name=album_name,
+    )
 
 
 def activate_constraints_from_prompt(prompt: str) -> MetadataConstraints:
@@ -147,7 +209,10 @@ def _read_cache(artist: str, title: str, *, path: Path | None = None) -> TrackMe
         ).fetchone()
         if not row or float(row["expires_at"]) <= time.time():
             return None
-        return TrackMetadata(**json.loads(str(row["payload"])))
+        payload = json.loads(str(row["payload"]))
+        payload.setdefault("matched_artist", None)
+        payload.setdefault("release_titles", [])
+        return TrackMetadata(**payload)
 
 
 def _write_cache(metadata: TrackMetadata, *, ttl: int, path: Path | None = None) -> None:
@@ -208,6 +273,13 @@ def _metadata_from_recording(recording: dict[str, Any], artist: str, title: str)
     area = artist_entity.get("area") if isinstance(artist_entity.get("area"), dict) else {}
     begin_area = artist_entity.get("begin-area") if isinstance(artist_entity.get("begin-area"), dict) else {}
     release_date = str(earliest.get("date", "")).strip() or None
+    release_titles = list(
+        dict.fromkeys(
+            str(release.get("title", "")).strip()
+            for release in releases
+            if str(release.get("title", "")).strip()
+        )
+    )
     return TrackMetadata(
         artist=artist,
         title=title,
@@ -218,6 +290,8 @@ def _metadata_from_recording(recording: dict[str, Any], artist: str, title: str)
         original_release_year=int(release_date[:4]) if release_date and release_date[:4].isdigit() else None,
         artist_country=str(artist_entity.get("country", "")).upper() or None,
         artist_area=str(area.get("name") or begin_area.get("name") or "").strip() or None,
+        matched_artist=_artist_credit(recording) or None,
+        release_titles=release_titles,
         match_score=score,
         confidence="high" if score >= HIGH_MATCH_SCORE else "medium" if score >= MIN_MATCH_SCORE else "low",
     )
@@ -278,6 +352,10 @@ async def lookup_track_metadata(
             await active_client.aclose()
 
 
+def _similar_text(actual: str, expected: str, threshold: float = 0.86) -> bool:
+    return SequenceMatcher(None, _normalize(actual), _normalize(expected)).ratio() >= threshold
+
+
 def validate_metadata(metadata: TrackMetadata, constraints: MetadataConstraints) -> ValidationResult:
     violations: list[str] = []
     unknown = False
@@ -290,12 +368,40 @@ def validate_metadata(metadata: TrackMetadata, constraints: MetadataConstraints)
             violations.append(
                 f"release year {metadata.original_release_year} does not match {constraints.release_year}"
             )
+    if constraints.release_year_from is not None or constraints.release_year_to is not None:
+        if metadata.original_release_year is None:
+            unknown = True
+        else:
+            lower = constraints.release_year_from or metadata.original_release_year
+            upper = constraints.release_year_to or metadata.original_release_year
+            if not lower <= metadata.original_release_year <= upper:
+                violations.append(
+                    f"release year {metadata.original_release_year} is outside {lower}-{upper}"
+                )
     if constraints.artist_country is not None:
         if not metadata.artist_country:
             unknown = True
         elif metadata.artist_country.upper() != constraints.artist_country.upper():
             violations.append(
                 f"artist country {metadata.artist_country} does not match {constraints.artist_country}"
+            )
+    if constraints.artist_name is not None:
+        actual_artist = metadata.matched_artist or metadata.artist
+        if not actual_artist:
+            unknown = True
+        elif not _similar_text(actual_artist, constraints.artist_name):
+            violations.append(
+                f"artist {actual_artist} does not match {constraints.artist_name}"
+            )
+    if constraints.album_name is not None:
+        if not metadata.release_titles:
+            unknown = True
+        elif not any(
+            _similar_text(title, constraints.album_name, threshold=0.82)
+            for title in metadata.release_titles
+        ):
+            violations.append(
+                f"track is not listed on album {constraints.album_name}"
             )
     status: ValidationStatus = "invalid" if violations else "unknown" if unknown else "valid"
     return ValidationResult(status=status, violations=violations, metadata=metadata)
