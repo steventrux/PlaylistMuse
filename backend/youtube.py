@@ -5,12 +5,19 @@ from __future__ import annotations
 import asyncio
 import re
 import unicodedata
+from dataclasses import asdict
 from functools import lru_cache
 from typing import Any
 
+import httpx
 from rapidfuzz import fuzz
 from ytmusicapi import YTMusic
 
+from backend.metadata_validation import (
+    USER_AGENT as METADATA_USER_AGENT,
+    active_constraints,
+    validate_candidate,
+)
 
 _IDENTITY_SPLIT_RE = re.compile(r"[\W_]+")
 _TITLE_TOKEN_RE = re.compile(r"[a-z0-9]+")
@@ -207,16 +214,64 @@ def _resolve_one(candidate: dict[str, str], exclusions: dict[str, bool]) -> dict
     return song
 
 
+def _metadata_rejection(candidate: dict[str, str], result: Any) -> dict[str, Any]:
+    metadata = result.metadata
+    return {
+        **candidate,
+        "unresolved_reason": "metadata_validation",
+        "metadata_validation": {
+            "status": result.status,
+            "violations": list(result.violations),
+            "source": metadata.source,
+            "match_score": metadata.match_score,
+            "confidence": metadata.confidence,
+            "recording_mbid": metadata.recording_mbid,
+            "release_group_mbid": metadata.release_group_mbid,
+            "isrcs": list(metadata.isrcs),
+            "original_release_date": metadata.original_release_date,
+            "original_release_year": metadata.original_release_year,
+            "artist_country": metadata.artist_country,
+            "artist_area": metadata.artist_area,
+            "warnings": list(metadata.warnings),
+        },
+    }
+
+
+async def _metadata_filter(
+    candidates: list[dict[str, str]],
+) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
+    constraints = active_constraints()
+    if not constraints.active:
+        return list(candidates), []
+
+    accepted: list[dict[str, str]] = []
+    rejected: list[dict[str, Any]] = []
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(8.0),
+        headers={"User-Agent": METADATA_USER_AGENT, "Accept": "application/json"},
+    ) as client:
+        for candidate in candidates:
+            result = await validate_candidate(candidate, constraints, client=client)
+            if result.status == "valid":
+                copy = dict(candidate)
+                copy["metadata_validation"] = asdict(result.metadata)  # type: ignore[assignment]
+                accepted.append(copy)
+            else:
+                rejected.append(_metadata_rejection(candidate, result))
+    return accepted, rejected
+
+
 async def resolve_candidates(
     candidates: list[dict[str, str]], exclusions: dict[str, bool]
-) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    validated_candidates, metadata_rejected = await _metadata_filter(candidates)
     resolved: list[dict[str, Any]] = []
-    unresolved: list[dict[str, str]] = []
+    unresolved: list[dict[str, Any]] = list(metadata_rejected)
     seen_video_ids: set[str] = set()
     seen_candidate_keys: set[str] = set()
     seen_track_keys: set[str] = set()
 
-    for candidate in candidates:
+    for candidate in validated_candidates:
         candidate_key = track_identity_key(candidate["title"], candidate["artist"])
         if candidate_key in seen_candidate_keys:
             continue
@@ -230,6 +285,9 @@ async def resolve_candidates(
         if track["video_id"] in seen_video_ids or track_key in seen_track_keys:
             continue
 
+        metadata = candidate.get("metadata_validation")
+        if isinstance(metadata, dict):
+            track["metadata_validation"] = metadata
         seen_candidate_keys.add(candidate_key)
         seen_video_ids.add(track["video_id"])
         seen_track_keys.add(track_key)
