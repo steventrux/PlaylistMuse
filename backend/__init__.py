@@ -67,14 +67,14 @@ def _optimized_replenishment_request(prompt: str, count: int) -> tuple[str, int]
     if not match:
         return prompt, count
     missing = max(1, int(match.group(1)))
-    optimized_count = min(20, max(4, missing * 2))
+    optimized_count = min(30, max(12, missing * 4, count))
     optimized_prompt = _REPLENISHMENT_COUNT_RE.sub(
         f"Suggest exactly {optimized_count} NEW",
         prompt,
         count=1,
     )
     optimized_prompt += _quota_replenishment_guidance(optimized_prompt)
-    return optimized_prompt, min(count, optimized_count)
+    return optimized_prompt, optimized_count
 
 
 def _log_stage(stage: str, started_at: float, **details: Any) -> None:
