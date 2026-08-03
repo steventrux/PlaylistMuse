@@ -99,3 +99,71 @@ def test_local_impossible_prompt_skips_ai_interpreter(monkeypatch):
     )
 
     assert assessment.status == "impossible"
+
+
+def test_verified_album_artist_conflict_is_impossible(monkeypatch):
+    payload = {
+        "allowed_albums": ["Load"],
+        "excluded_artists": ["Metallica"],
+        "constraint_status": "valid",
+        "status_reasons": [],
+    }
+
+    async def interpreted(*_args, **_kwargs):
+        return payload
+
+    async def relationship(_payload):
+        return "Load", "Metallica"
+
+    monkeypatch.setattr(
+        "backend.prompt_validation.interpret_constraints",
+        interpreted,
+    )
+    monkeypatch.setattr(
+        "backend.prompt_validation.find_album_artist_conflict",
+        relationship,
+    )
+
+    assessment = asyncio.run(
+        assess_prompt(
+            object(),  # type: ignore[arg-type]
+            "musica rock anni 90, includi album Load, escludi i Metallica",
+        )
+    )
+
+    assert assessment.status == "impossible"
+    assert "Load" in assessment.reasons[0]
+    assert "Metallica" in assessment.reasons[0]
+
+
+def test_non_conflicting_album_artist_relationship_stays_valid(monkeypatch):
+    payload = {
+        "allowed_albums": ["Load"],
+        "excluded_artists": ["Nirvana"],
+        "constraint_status": "valid",
+        "status_reasons": [],
+    }
+
+    async def interpreted(*_args, **_kwargs):
+        return payload
+
+    async def no_relationship_conflict(_payload):
+        return None
+
+    monkeypatch.setattr(
+        "backend.prompt_validation.interpret_constraints",
+        interpreted,
+    )
+    monkeypatch.setattr(
+        "backend.prompt_validation.find_album_artist_conflict",
+        no_relationship_conflict,
+    )
+
+    assessment = asyncio.run(
+        assess_prompt(
+            object(),  # type: ignore[arg-type]
+            "includi album Load, escludi i Nirvana",
+        )
+    )
+
+    assert assessment.status == "valid"
