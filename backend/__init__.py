@@ -11,6 +11,23 @@ from typing import Any
 logger = logging.getLogger("playlistmuse.performance")
 _REPLENISHMENT_MISSING_RE = re.compile(r"still needs\s+(\d+)\s+resolvable songs", re.I)
 _REPLENISHMENT_COUNT_RE = re.compile(r"Suggest exactly\s+\d+\s+NEW", re.I)
+_STYLE_REFERENCE_RE = re.compile(
+    r"\b(?:come|simile(?:\s+(?:a|ai|agli|alle))?|ispirat[oaie]\s+(?:a|da)|"
+    r"similar(?:\s+to)?|like|inspired\s+by)\b",
+    re.I,
+)
+_DIRECT_ARTIST_RE = re.compile(
+    r"\b(?:musica|music|brani|canzoni|songs?|tracks?|playlist)\s+"
+    r"(?:di|dei|degli|delle|by|from)\s+"
+    r"([\wÀ-ÿ0-9&.' -]{1,100}?)"
+    r"(?=\s+(?:per|for|da|to|durante|during)\b|[,.!?]|$)",
+    re.I,
+)
+_DECADE_RE = re.compile(
+    r"\b(?:rock|pop|metal|jazz|blues|punk|rap|hip[- ]?hop|musica|music|"
+    r"brani|canzoni|songs?|tracks?)\s+(?:degli\s+)?anni\s*['’]?\s*(\d{2})\b",
+    re.I,
+)
 
 
 def _stage_name(prompt: str) -> str:
@@ -47,6 +64,56 @@ def _log_stage(stage: str, started_at: float, **details: Any) -> None:
     elapsed_ms = round((time.perf_counter() - started_at) * 1000)
     suffix = " ".join(f"{key}={value}" for key, value in details.items())
     logger.info("playlist_stage stage=%s elapsed_ms=%s %s", stage, elapsed_ms, suffix)
+
+
+def _decade_bounds(short_year: str) -> tuple[int, int]:
+    value = int(short_year)
+    start = (2000 if value < 30 else 1900) + value
+    return start, start + 9
+
+
+def _install_natural_constraint_parser() -> None:
+    """Add hard constraints for direct artist ownership and named decades.
+
+    Similarity language remains editorial guidance and never activates these inferred
+    filters. Explicit constraints already recognised by metadata_validation retain
+    priority.
+    """
+    from backend import metadata_validation
+
+    original_extract = metadata_validation.extract_metadata_constraints
+    if getattr(original_extract, "_playlistmuse_natural_constraints", False):
+        return
+
+    @wraps(original_extract)
+    def wrapped_extract_metadata_constraints(prompt: str) -> Any:
+        constraints = original_extract(prompt)
+        normalized = " ".join(str(prompt).split())
+        if _STYLE_REFERENCE_RE.search(normalized):
+            return constraints
+
+        if constraints.artist_name is None:
+            artist_match = _DIRECT_ARTIST_RE.search(normalized)
+            if artist_match:
+                artist = " ".join(artist_match.group(1).split()).strip(" .,-")
+                if artist:
+                    constraints.artist_name = artist
+
+        if (
+            constraints.release_year is None
+            and constraints.release_year_from is None
+            and constraints.release_year_to is None
+        ):
+            decade_match = _DECADE_RE.search(normalized)
+            if decade_match:
+                start, end = _decade_bounds(decade_match.group(1))
+                constraints.release_year_from = start
+                constraints.release_year_to = end
+
+        return constraints
+
+    wrapped_extract_metadata_constraints._playlistmuse_natural_constraints = True  # type: ignore[attr-defined]
+    metadata_validation.extract_metadata_constraints = wrapped_extract_metadata_constraints
 
 
 def _install_generation_wrappers() -> None:
@@ -135,4 +202,5 @@ def _install_generation_wrappers() -> None:
         youtube.resolve_candidates = wrapped_resolve_candidates
 
 
+_install_natural_constraint_parser()
 _install_generation_wrappers()
