@@ -60,7 +60,9 @@
   grid-template-columns: 24px minmax(0, 1fr);
   align-items: start;
   gap: 10px;
-  margin: 14px 0 0;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 12px 0 0;
   padding: 14px 16px;
   border: 1px solid rgba(251, 113, 133, .48);
   border-radius: 14px;
@@ -83,12 +85,14 @@
   line-height: 1;
 }
 
+.status.error.generation-feedback-incomplete,
 .generation-feedback-incomplete {
-  border-color: rgba(251, 191, 36, .48);
+  border-color: #fbbf24;
   background: linear-gradient(135deg, rgba(92, 61, 14, .5), rgba(28, 24, 59, .72));
-  color: #fde68a;
+  color: #fbbf24;
 }
 
+.status.error.generation-feedback-incomplete::before,
 .generation-feedback-incomplete::before {
   color: #fbbf24;
 }
