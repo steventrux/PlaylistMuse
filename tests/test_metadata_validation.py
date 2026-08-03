@@ -73,13 +73,20 @@ def test_multilingual_payload_supports_lists_exclusions_and_open_ranges():
     assert constraints.release_year_from == 1995
 
 
-def test_low_confidence_interpretation_keeps_local_fallback():
+def test_low_confidence_interpretation_keeps_effective_local_fallback():
     fallback = MetadataConstraints(release_year_from=1990, release_year_to=1999)
     constraints = constraints_from_payload(
         {"allowed_artists": ["Wrong"], "confidence": "low"},
         fallback=fallback,
     )
-    assert constraints == fallback
+    assert constraints.release_year_from == fallback.release_year_from
+    assert constraints.release_year_to == fallback.release_year_to
+    assert constraints.allowed_artists == fallback.allowed_artists
+    assert constraints.excluded_artists == fallback.excluded_artists
+    assert constraints.allowed_albums == fallback.allowed_albums
+    assert constraints.excluded_albums == fallback.excluded_albums
+    assert constraints.field_confidence
+    assert all(value == 0.0 for value in constraints.field_confidence.values())
 
 
 def test_validates_original_year_collaboration_and_album_edition():
