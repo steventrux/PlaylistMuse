@@ -139,6 +139,13 @@ def _repair_quota_prompt(
     )
 
 
+def _reset_quota_session(artist_quotas: list[Any], count: int) -> None:
+    """Start a clean catalogue-quota session for a new generation request."""
+    _ACTIVE_ARTIST_QUOTAS.set(tuple(artist_quotas))
+    _RESOLVED_QUOTA_TRACKS.set(())
+    _REQUESTED_TRACK_COUNT.set(count if artist_quotas else 0)
+
+
 def _log_stage(stage: str, started_at: float, **details: Any) -> None:
     elapsed_ms = round((time.perf_counter() - started_at) * 1000)
     suffix = " ".join(f"{key}={value}" for key, value in details.items())
@@ -183,12 +190,8 @@ def _install_generation_wrappers() -> None:
             source_prompt = _constraint_source(optimized_prompt, stage)
             user_request = user_request_text(optimized_prompt)
             artist_quotas = extract_artist_minimum_quotas(user_request)
-            if stage == "llm_initial":
-                _ACTIVE_ARTIST_QUOTAS.set(tuple(artist_quotas))
-                _RESOLVED_QUOTA_TRACKS.set(())
-                _REQUESTED_TRACK_COUNT.set(count)
-            elif artist_quotas:
-                _ACTIVE_ARTIST_QUOTAS.set(tuple(artist_quotas))
+            if stage != "llm_replenishment":
+                _reset_quota_session(artist_quotas, count)
             submitted_prompt = optimized_prompt + quota_guidance(artist_quotas)
             fallback = extract_metadata_constraints(source_prompt) if should_interpret else None
             interpreted: dict[str, Any] | None = None
