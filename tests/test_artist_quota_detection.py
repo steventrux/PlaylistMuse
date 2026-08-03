@@ -23,6 +23,28 @@ def test_extracts_independent_italian_artist_minimums():
     ]
 
 
+def test_extracts_three_consecutive_artist_minimums():
+    prompt = (
+        "almeno 4 brani dei Rolling Stones e 3 brani degli AC/DC "
+        "e 2 brani dei Metallica"
+    )
+
+    assert extract_artist_minimum_quotas(prompt) == [
+        ArtistMinimumQuota("Rolling Stones", 4),
+        ArtistMinimumQuota("AC/DC", 3),
+        ArtistMinimumQuota("Metallica", 2),
+    ]
+
+
+def test_extracts_consecutive_english_artist_minimums():
+    prompt = "at least 4 tracks by Queen and 3 tracks by David Bowie"
+
+    assert extract_artist_minimum_quotas(prompt) == [
+        ArtistMinimumQuota("Queen", 4),
+        ArtistMinimumQuota("David Bowie", 3),
+    ]
+
+
 def test_artist_spelling_variants_are_deduplicated():
     prompt = (
         "almeno 3 canzoni devono essere degli AC/DC e "
