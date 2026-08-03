@@ -2,32 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
+from dataclasses import asdict
 from functools import wraps
 from typing import Any
 
 logger = logging.getLogger("playlistmuse.performance")
 _REPLENISHMENT_MISSING_RE = re.compile(r"still needs\s+(\d+)\s+resolvable songs", re.I)
 _REPLENISHMENT_COUNT_RE = re.compile(r"Suggest exactly\s+\d+\s+NEW", re.I)
-_STYLE_REFERENCE_RE = re.compile(
-    r"\b(?:come|simile(?:\s+(?:a|ai|agli|alle))?|ispirat[oaie]\s+(?:a|da)|"
-    r"similar(?:\s+to)?|like|inspired\s+by)\b",
-    re.I,
-)
-_DIRECT_ARTIST_RE = re.compile(
-    r"\b(?:musica|music|brani|canzoni|songs?|tracks?|playlist)\s+"
-    r"(?:di|dei|degli|delle|by|from)\s+"
-    r"([\wÀ-ÿ0-9&.' -]{1,100}?)"
-    r"(?=\s+(?:per|for|da|to|durante|during)\b|[,.!?]|$)",
-    re.I,
-)
-_DECADE_RE = re.compile(
-    r"\b(?:rock|pop|metal|jazz|blues|punk|rap|hip[- ]?hop|musica|music|"
-    r"brani|canzoni|songs?|tracks?)\s+(?:degli\s+)?anni\s*['’]?\s*(\d{2})\b",
-    re.I,
-)
 
 
 def _stage_name(prompt: str) -> str:
@@ -42,7 +27,6 @@ def _stage_name(prompt: str) -> str:
 
 
 def _optimized_replenishment_request(prompt: str, count: int) -> tuple[str, int]:
-    """Reduce oversized refill requests while preserving the requested result count."""
     if not prompt.lstrip().startswith("The original playlist request is:"):
         return prompt, count
     match = _REPLENISHMENT_MISSING_RE.search(prompt)
@@ -52,12 +36,14 @@ def _optimized_replenishment_request(prompt: str, count: int) -> tuple[str, int]
     optimized_count = min(20, max(4, missing * 2))
     if optimized_count >= count:
         return prompt, count
-    optimized_prompt = _REPLENISHMENT_COUNT_RE.sub(
-        f"Suggest exactly {optimized_count} NEW",
-        prompt,
-        count=1,
+    return (
+        _REPLENISHMENT_COUNT_RE.sub(
+            f"Suggest exactly {optimized_count} NEW",
+            prompt,
+            count=1,
+        ),
+        optimized_count,
     )
-    return optimized_prompt, optimized_count
 
 
 def _log_stage(stage: str, started_at: float, **details: Any) -> None:
@@ -66,60 +52,14 @@ def _log_stage(stage: str, started_at: float, **details: Any) -> None:
     logger.info("playlist_stage stage=%s elapsed_ms=%s %s", stage, elapsed_ms, suffix)
 
 
-def _decade_bounds(short_year: str) -> tuple[int, int]:
-    value = int(short_year)
-    start = (2000 if value < 30 else 1900) + value
-    return start, start + 9
-
-
-def _install_natural_constraint_parser() -> None:
-    """Add hard constraints for direct artist ownership and named decades.
-
-    Similarity language remains editorial guidance and never activates these inferred
-    filters. Explicit constraints already recognised by metadata_validation retain
-    priority.
-    """
-    from backend import metadata_validation
-
-    original_extract = metadata_validation.extract_metadata_constraints
-    if getattr(original_extract, "_playlistmuse_natural_constraints", False):
-        return
-
-    @wraps(original_extract)
-    def wrapped_extract_metadata_constraints(prompt: str) -> Any:
-        constraints = original_extract(prompt)
-        normalized = " ".join(str(prompt).split())
-        if _STYLE_REFERENCE_RE.search(normalized):
-            return constraints
-
-        if constraints.artist_name is None:
-            artist_match = _DIRECT_ARTIST_RE.search(normalized)
-            if artist_match:
-                artist = " ".join(artist_match.group(1).split()).strip(" .,-")
-                if artist:
-                    constraints.artist_name = artist
-
-        if (
-            constraints.release_year is None
-            and constraints.release_year_from is None
-            and constraints.release_year_to is None
-        ):
-            decade_match = _DECADE_RE.search(normalized)
-            if decade_match:
-                start, end = _decade_bounds(decade_match.group(1))
-                constraints.release_year_from = start
-                constraints.release_year_to = end
-
-        return constraints
-
-    wrapped_extract_metadata_constraints._playlistmuse_natural_constraints = True  # type: ignore[attr-defined]
-    metadata_validation.extract_metadata_constraints = wrapped_extract_metadata_constraints
-
-
 def _install_generation_wrappers() -> None:
-    """Install request-scoped constraints, timing and bounded refill optimization."""
     from backend import lastfm_discovery, llm, youtube
-    from backend.metadata_validation import activate_constraints_from_prompt
+    from backend.constraint_interpreter import interpret_constraints
+    from backend.metadata_validation import (
+        activate_constraints,
+        constraints_from_payload,
+        extract_metadata_constraints,
+    )
 
     original_generate = llm.generate_playlist_draft
     if not getattr(original_generate, "_playlistmuse_generation_wrapper", False):
@@ -130,20 +70,31 @@ def _install_generation_wrappers() -> None:
             prompt: str,
             count: int,
         ) -> dict[str, Any]:
-            optimized_prompt, optimized_count = _optimized_replenishment_request(
-                prompt,
-                count,
-            )
-            activate_constraints_from_prompt(optimized_prompt)
+            optimized_prompt, optimized_count = _optimized_replenishment_request(prompt, count)
             stage = _stage_name(optimized_prompt)
             started_at = time.perf_counter()
+            should_interpret = stage in {"llm_initial", "llm_replacement"}
+            fallback = extract_metadata_constraints(optimized_prompt) if should_interpret else None
+            interpretation_task = (
+                asyncio.create_task(interpret_constraints(config, optimized_prompt))
+                if should_interpret
+                else None
+            )
             try:
-                return await original_generate(
-                    config,
-                    optimized_prompt,
-                    optimized_count,
-                )
+                draft = await original_generate(config, optimized_prompt, optimized_count)
+                if interpretation_task is not None:
+                    interpreted = await interpretation_task
+                    constraints = constraints_from_payload(interpreted, fallback=fallback)
+                    activate_constraints(constraints)
+                    logger.info(
+                        "playlist_constraints stage=%s constraints=%s",
+                        stage,
+                        asdict(constraints),
+                    )
+                return draft
             finally:
+                if interpretation_task is not None and not interpretation_task.done():
+                    interpretation_task.cancel()
                 _log_stage(
                     stage,
                     started_at,
@@ -192,15 +143,10 @@ def _install_generation_wrappers() -> None:
             try:
                 return await original_resolve(*args, **kwargs)
             finally:
-                _log_stage(
-                    "catalogue_resolution",
-                    started_at,
-                    candidates=len(candidates),
-                )
+                _log_stage("catalogue_resolution", started_at, candidates=len(candidates))
 
         wrapped_resolve_candidates._playlistmuse_timing_wrapper = True  # type: ignore[attr-defined]
         youtube.resolve_candidates = wrapped_resolve_candidates
 
 
-_install_natural_constraint_parser()
 _install_generation_wrappers()
