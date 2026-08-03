@@ -13,6 +13,26 @@ from typing import Any
 logger = logging.getLogger("playlistmuse.performance")
 _REPLENISHMENT_MISSING_RE = re.compile(r"still needs\s+(\d+)\s+resolvable songs", re.I)
 _REPLENISHMENT_COUNT_RE = re.compile(r"Suggest exactly\s+\d+\s+NEW", re.I)
+_POLICY_PROMPT_EXTENSION = """
+
+Also extract playlist-level policy fields. Add these keys to the returned JSON object:
+- required_tracks: exact named songs that must be included, each as {artist, title}
+- excluded_tracks: exact named songs that must not be included
+- minimum_allowed_artist_ratio and maximum_allowed_artist_ratio: 0.0 to 1.0
+- minimum_allowed_artist_count and maximum_allowed_artist_count: integer or null
+- max_tracks_per_artist: integer or null
+- lyrics_language: requested sung language or null
+- release_country: requested release country or null
+- target_market: market where songs must be popular or null
+- soundtrack_title: named film, series, game or other work soundtrack or null
+- soundtrack_type: film, series, game, musical, other or null
+
+Add a 0.0 to 1.0 confidence entry for every new field in field_confidence.
+Interpret proportional wording in any language: mostly, at least half, a few, no more than,
+maximum, minimum, one or two, and equivalent expressions. A named required track is not a
+style reference. Do not claim that lyrics language, market popularity or soundtrack membership
+has been externally verified; only extract the user's intent.
+"""
 
 
 def _stage_name(prompt: str) -> str:
@@ -62,6 +82,18 @@ def _log_stage(stage: str, started_at: float, **details: Any) -> None:
     logger.info("playlist_stage stage=%s elapsed_ms=%s %s", stage, elapsed_ms, suffix)
 
 
+def _install_interpreter_policy_schema() -> None:
+    """Extend the multilingual interpreter without adding another model request."""
+    from backend import constraint_interpreter
+
+    if getattr(constraint_interpreter, "_playlistmuse_policy_schema", False):
+        return
+    constraint_interpreter.SYSTEM_PROMPT += _POLICY_PROMPT_EXTENSION
+    constraint_interpreter.INTERPRETER_SCHEMA_VERSION = 3
+    constraint_interpreter.INTERPRETER_PROMPT_VERSION = "2026-08-03.3"
+    constraint_interpreter._playlistmuse_policy_schema = True
+
+
 def _install_generation_wrappers() -> None:
     from backend import lastfm_discovery, llm, youtube
     from backend.constraint_interpreter import interpret_constraints
@@ -70,6 +102,7 @@ def _install_generation_wrappers() -> None:
         constraints_from_payload,
         extract_metadata_constraints,
     )
+    from backend.playlist_policy import apply_playlist_policy, policy_from_payload
 
     original_generate = llm.generate_playlist_draft
     if not getattr(original_generate, "_playlistmuse_generation_wrapper", False):
@@ -96,11 +129,20 @@ def _install_generation_wrappers() -> None:
                 if interpretation_task is not None:
                     interpreted = await interpretation_task
                     constraints = constraints_from_payload(interpreted, fallback=fallback)
+                    policy = policy_from_payload(interpreted)
                     activate_constraints(constraints)
+                    draft, policy_issues = apply_playlist_policy(
+                        draft,
+                        policy,
+                        allowed_artists=constraints.allowed_artists,
+                        requested_count=optimized_count,
+                    )
                     logger.info(
-                        "playlist_constraints stage=%s constraints=%s",
+                        "playlist_constraints stage=%s constraints=%s policy=%s issues=%s",
                         stage,
                         asdict(constraints),
+                        asdict(policy),
+                        policy_issues,
                     )
                 return draft
             finally:
@@ -141,8 +183,9 @@ def _install_generation_wrappers() -> None:
             finally:
                 _log_stage("lastfm_seed_discovery", started_at)
 
-        wrapped_discover_for_seed._playlistmuse_timing_wrapper = True  # type: ignore[attr-defined]
-        lastfm_discovery.discover_for_seed = wrapped_discover_for_seed
+        wrapped_seed_discover = wrapped_discover_for_seed
+        wrapped_seed_discover._playlistmuse_timing_wrapper = True  # type: ignore[attr-defined]
+        lastfm_discovery.discover_for_seed = wrapped_seed_discover
 
     original_resolve = youtube.resolve_candidates
     if not getattr(original_resolve, "_playlistmuse_timing_wrapper", False):
@@ -160,4 +203,5 @@ def _install_generation_wrappers() -> None:
         youtube.resolve_candidates = wrapped_resolve_candidates
 
 
+_install_interpreter_policy_schema()
 _install_generation_wrappers()
