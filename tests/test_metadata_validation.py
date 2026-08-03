@@ -22,7 +22,7 @@ def test_extracts_explicit_release_year_and_italian_artist_constraint():
 
 def test_extracts_explicit_year_range():
     constraints = extract_metadata_constraints(
-        "Solo brani pubblicati tra il 1990 e il 1999"
+        "Solo brani pubblicati dal 1990 al 1999"
     )
 
     assert constraints.release_year is None
@@ -42,7 +42,7 @@ def test_extracts_exact_artist_only_when_explicit():
 
 def test_extracts_quoted_album_constraint():
     constraints = extract_metadata_constraints(
-        'Create a playlist only with tracks from album "Rumours"'
+        'Crea una playlist solo con brani dall\'album "Rumours"'
     )
 
     assert constraints.album_name == "Rumours"
