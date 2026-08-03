@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
+import sqlite3
+import threading
+import time
 import unicodedata
 from dataclasses import asdict
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -41,11 +46,25 @@ MIN_TITLE_SCORE = 70.0
 MIN_ARTIST_SCORE = 75.0
 MIN_COMBINED_SCORE = 72.0
 DEFAULT_METADATA_LOOKUP_BUDGET = 12
+DEFAULT_YOUTUBE_RESOLUTION_CONCURRENCY = 4
+DEFAULT_YOUTUBE_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60
+DEFAULT_YOUTUBE_NEGATIVE_CACHE_TTL_SECONDS = 24 * 60 * 60
+_THREAD_LOCAL = threading.local()
 
 
 @lru_cache(maxsize=1)
 def _client() -> YTMusic:
+    """Return the shared client used by single-threaded catalogue searches."""
     return YTMusic()
+
+
+def _thread_client() -> YTMusic:
+    """Return one YouTube Music client per worker thread."""
+    client = getattr(_THREAD_LOCAL, "client", None)
+    if client is None:
+        client = YTMusic()
+        _THREAD_LOCAL.client = client
+    return client
 
 
 def _artist_text(result: dict[str, Any]) -> str:
@@ -166,9 +185,110 @@ async def search_songs(query: str, limit: int = 8) -> list[dict[str, Any]]:
     return await asyncio.to_thread(_search_songs, query, limit)
 
 
+def _youtube_cache_path() -> Path:
+    root = Path(os.getenv("PLAYLISTMUSE_DATA_DIR", "data"))
+    return root / "youtube_resolution_cache.sqlite3"
+
+
+def _youtube_cache_key(candidate: dict[str, str], exclusions: dict[str, bool]) -> str:
+    flags = "".join(
+        "1" if exclusions.get(name, True) else "0"
+        for name in ("exclude_live", "exclude_covers", "exclude_remixes")
+    )
+    return f"{track_identity_key(candidate.get('title', ''), candidate.get('artist', ''))}|{flags}"
+
+
+def _youtube_cache_connect(path: Path | None = None) -> sqlite3.Connection:
+    target = path or _youtube_cache_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(target, timeout=5)
+    connection.row_factory = sqlite3.Row
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS youtube_resolution_cache (
+            cache_key TEXT PRIMARY KEY,
+            payload TEXT,
+            expires_at REAL NOT NULL
+        )
+        """
+    )
+    return connection
+
+
+def _read_youtube_cache(
+    candidate: dict[str, str],
+    exclusions: dict[str, bool],
+    *,
+    path: Path | None = None,
+) -> tuple[bool, dict[str, Any] | None]:
+    try:
+        with _youtube_cache_connect(path) as connection:
+            row = connection.execute(
+                "SELECT payload, expires_at FROM youtube_resolution_cache WHERE cache_key = ?",
+                (_youtube_cache_key(candidate, exclusions),),
+            ).fetchone()
+            if not row or float(row["expires_at"]) <= time.time():
+                return False, None
+            payload = row["payload"]
+            return True, json.loads(str(payload)) if payload else None
+    except (sqlite3.Error, ValueError, TypeError, json.JSONDecodeError):
+        return False, None
+
+
+def _write_youtube_cache(
+    candidate: dict[str, str],
+    exclusions: dict[str, bool],
+    track: dict[str, Any] | None,
+    *,
+    path: Path | None = None,
+) -> None:
+    ttl = (
+        DEFAULT_YOUTUBE_CACHE_TTL_SECONDS
+        if track is not None
+        else DEFAULT_YOUTUBE_NEGATIVE_CACHE_TTL_SECONDS
+    )
+    try:
+        with _youtube_cache_connect(path) as connection:
+            connection.execute(
+                """
+                INSERT INTO youtube_resolution_cache(cache_key, payload, expires_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(cache_key) DO UPDATE SET
+                  payload = excluded.payload,
+                  expires_at = excluded.expires_at
+                """,
+                (
+                    _youtube_cache_key(candidate, exclusions),
+                    json.dumps(track, ensure_ascii=False) if track is not None else None,
+                    time.time() + ttl,
+                ),
+            )
+    except (sqlite3.Error, TypeError, ValueError):
+        return
+
+
+def _decorate_resolved_track(
+    track: dict[str, Any], candidate: dict[str, str]
+) -> dict[str, Any]:
+    decorated = dict(track)
+    decorated["description"] = candidate.get("description", "")
+    decorated["reason"] = candidate.get("reason", "")
+    source = str(candidate.get("source", "")).strip()
+    if source:
+        decorated["source"] = source
+    lastfm_strategy = str(candidate.get("lastfm_strategy", "")).strip()
+    if lastfm_strategy:
+        decorated["lastfm_strategy"] = lastfm_strategy
+    return decorated
+
+
 def _resolve_one(candidate: dict[str, str], exclusions: dict[str, bool]) -> dict[str, Any] | None:
+    cache_hit, cached = _read_youtube_cache(candidate, exclusions)
+    if cache_hit:
+        return _decorate_resolved_track(cached, candidate) if cached is not None else None
+
     query = f"{candidate['artist']} {candidate['title']}"
-    results = _client().search(query, filter="songs", limit=12)
+    results = _thread_client().search(query, filter="songs", limit=12)
     best: tuple[float, dict[str, Any]] | None = None
     exclude_live = exclusions.get("exclude_live", True)
     exclude_covers = exclusions.get("exclude_covers", True)
@@ -203,21 +323,16 @@ def _resolve_one(candidate: dict[str, str], exclusions: dict[str, bool]) -> dict
             best = (score, result)
 
     if best is None or best[0] < MIN_COMBINED_SCORE:
+        _write_youtube_cache(candidate, exclusions, None)
         return None
 
     song = _serialize_song(best[1])
     if not song:
+        _write_youtube_cache(candidate, exclusions, None)
         return None
     song["match_score"] = round(best[0], 1)
-    song["description"] = candidate.get("description", "")
-    song["reason"] = candidate.get("reason", "")
-    source = str(candidate.get("source", "")).strip()
-    if source:
-        song["source"] = source
-    lastfm_strategy = str(candidate.get("lastfm_strategy", "")).strip()
-    if lastfm_strategy:
-        song["lastfm_strategy"] = lastfm_strategy
-    return song
+    _write_youtube_cache(candidate, exclusions, song)
+    return _decorate_resolved_track(song, candidate)
 
 
 def _metadata_rejection(candidate: dict[str, str], result: Any) -> dict[str, Any]:
@@ -249,6 +364,17 @@ def _metadata_lookup_budget() -> int:
         return max(0, int(raw))
     except ValueError:
         return DEFAULT_METADATA_LOOKUP_BUDGET
+
+
+def _youtube_resolution_concurrency() -> int:
+    raw = os.getenv(
+        "YOUTUBE_RESOLUTION_CONCURRENCY",
+        str(DEFAULT_YOUTUBE_RESOLUTION_CONCURRENCY),
+    )
+    try:
+        return max(1, min(8, int(raw)))
+    except ValueError:
+        return DEFAULT_YOUTUBE_RESOLUTION_CONCURRENCY
 
 
 def _budget_exceeded_result(candidate: dict[str, str]) -> ValidationResult:
@@ -311,18 +437,31 @@ async def resolve_candidates(
     candidates: list[dict[str, str]], exclusions: dict[str, bool]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     validated_candidates, metadata_rejected = await _metadata_filter(candidates)
+    unique_candidates: list[dict[str, str]] = []
+    seen_candidate_keys: set[str] = set()
+    for candidate in validated_candidates:
+        candidate_key = track_identity_key(candidate["title"], candidate["artist"])
+        if not candidate_key or candidate_key in seen_candidate_keys:
+            continue
+        seen_candidate_keys.add(candidate_key)
+        unique_candidates.append(candidate)
+
+    semaphore = asyncio.Semaphore(_youtube_resolution_concurrency())
+
+    async def resolve(candidate: dict[str, str]) -> tuple[dict[str, str], dict[str, Any] | None]:
+        async with semaphore:
+            track = await asyncio.to_thread(_resolve_one, candidate, exclusions)
+            return candidate, track
+
+    resolution_results = await asyncio.gather(
+        *(resolve(candidate) for candidate in unique_candidates)
+    )
+
     resolved: list[dict[str, Any]] = []
     unresolved: list[dict[str, Any]] = list(metadata_rejected)
     seen_video_ids: set[str] = set()
-    seen_candidate_keys: set[str] = set()
     seen_track_keys: set[str] = set()
-
-    for candidate in validated_candidates:
-        candidate_key = track_identity_key(candidate["title"], candidate["artist"])
-        if candidate_key in seen_candidate_keys:
-            continue
-
-        track = await asyncio.to_thread(_resolve_one, candidate, exclusions)
+    for candidate, track in resolution_results:
         if not track:
             unresolved.append(candidate)
             continue
@@ -334,7 +473,6 @@ async def resolve_candidates(
         metadata = candidate.get("metadata_validation")
         if isinstance(metadata, dict):
             track["metadata_validation"] = metadata
-        seen_candidate_keys.add(candidate_key)
         seen_video_ids.add(track["video_id"])
         seen_track_keys.add(track_key)
         resolved.append(track)
