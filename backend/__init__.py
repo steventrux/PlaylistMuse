@@ -94,12 +94,12 @@ def _repair_quota_prompt(
     return (
         f"Repair this playlist for the original request:\n{request}\n\n"
         f"Return exactly {count} distinct tracks. These are independent mandatory artist "
-        f"minimums: {requirements}. Each minimum must be satisfied separately; do not combine "
-        "the artists into one shared quota. Preserve every other original constraint, including "
-        "era, genre, exclusions, live, cover and remix restrictions. Replace unsuitable tracks "
-        "rather than relaxing a requirement. Use canonical released song titles likely to be "
-        "found on YouTube Music.\n\nCurrent draft:\n"
-        f"{current or '- None'}"
+        f"targets with a catalogue-resolution safety margin: {requirements}. Each target "
+        "must be satisfied separately; do not combine the artists into one shared quota. "
+        "Preserve every other original constraint, including era, genre, exclusions, live, "
+        "cover and remix restrictions. Replace unsuitable tracks rather than relaxing a "
+        "requirement. Use canonical released song titles likely to be found on YouTube Music."
+        f"\n\nCurrent draft:\n{current or '- None'}"
     )
 
 
@@ -129,6 +129,10 @@ def _install_generation_wrappers() -> None:
         policy_from_payload,
     )
     from backend.prompt_validation import assess_interpretation, assess_prompt
+    from backend.request_constraints import (
+        buffered_artist_quotas,
+        open_ended_year_range,
+    )
 
     original_generate = llm.generate_playlist_draft
     if not getattr(original_generate, "_playlistmuse_generation_wrapper", False):
@@ -146,7 +150,11 @@ def _install_generation_wrappers() -> None:
             source_prompt = _constraint_source(optimized_prompt, stage)
             user_request = user_request_text(optimized_prompt)
             artist_quotas = extract_artist_minimum_quotas(user_request)
-            submitted_prompt = optimized_prompt + quota_guidance(artist_quotas)
+            generation_quotas = buffered_artist_quotas(
+                artist_quotas,
+                optimized_count,
+            )
+            submitted_prompt = optimized_prompt + quota_guidance(generation_quotas)
             fallback = extract_metadata_constraints(source_prompt) if should_interpret else None
             interpreted: dict[str, Any] | None = None
             assessment = None
@@ -164,17 +172,19 @@ def _install_generation_wrappers() -> None:
                     assessment = assess_interpretation(interpreted)
 
                 draft = await original_generate(config, submitted_prompt, optimized_count)
-                deficits = quota_deficits(
+                generation_deficits = quota_deficits(
                     [track for track in draft.get("tracks", []) if isinstance(track, dict)],
-                    artist_quotas,
+                    generation_quotas,
                 )
-                if deficits:
+                for _ in range(2):
+                    if not generation_deficits:
+                        break
                     repaired = await original_generate(
                         config,
                         _repair_quota_prompt(
                             user_request,
                             optimized_count,
-                            artist_quotas,
+                            generation_quotas,
                             draft,
                         ),
                         optimized_count,
@@ -185,16 +195,26 @@ def _install_generation_wrappers() -> None:
                             for track in repaired.get("tracks", [])
                             if isinstance(track, dict)
                         ],
-                        artist_quotas,
+                        generation_quotas,
                     )
-                    if sum(item.minimum for item in repaired_deficits) < sum(
-                        item.minimum for item in deficits
+                    if sum(item.minimum for item in repaired_deficits) >= sum(
+                        item.minimum for item in generation_deficits
                     ):
-                        draft = repaired
-                        deficits = repaired_deficits
+                        break
+                    draft = repaired
+                    generation_deficits = repaired_deficits
 
+                effective_deficits = quota_deficits(
+                    [track for track in draft.get("tracks", []) if isinstance(track, dict)],
+                    artist_quotas,
+                )
                 if should_interpret:
                     constraints = constraints_from_payload(interpreted, fallback=fallback)
+                    explicit_open_range = open_ended_year_range(source_prompt)
+                    if explicit_open_range is not None:
+                        constraints.release_year = None
+                        constraints.release_year_from = explicit_open_range[0]
+                        constraints.release_year_to = explicit_open_range[1]
                     policy = policy_from_payload(interpreted, prompt=source_prompt)
                     constraints.allowed_artists = hard_allowed_artists(
                         constraints.allowed_artists,
@@ -219,12 +239,14 @@ def _install_generation_wrappers() -> None:
                     )
                     logger.info(
                         "playlist_constraints stage=%s constraints=%s policy=%s "
-                        "issues=%s artist_quota_deficits=%s assessment=%s",
+                        "issues=%s artist_quota_deficits=%s buffered_quota_deficits=%s "
+                        "assessment=%s",
                         stage,
                         asdict(constraints),
                         asdict(policy),
                         policy_issues,
-                        [asdict(item) for item in deficits],
+                        [asdict(item) for item in effective_deficits],
+                        [asdict(item) for item in generation_deficits],
                         draft["prompt_assessment"],
                     )
                 return draft
