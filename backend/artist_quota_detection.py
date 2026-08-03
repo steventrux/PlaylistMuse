@@ -41,6 +41,7 @@ _TRAILING_CONNECTOR_RE = re.compile(
     r"(?:canzoni|brani|tracce|pezzi|songs|tracks)\b.*$",
     re.IGNORECASE,
 )
+_NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,10 +65,14 @@ def _clean_artist(value: str) -> str:
     return cleaned.strip(" \t\r\n.,;:!?\"'“”")[:180]
 
 
+def _artist_identity(value: str) -> str:
+    """Collapse punctuation-only spelling variants such as AC/DC and AC-DC."""
+    return _NON_ALNUM_RE.sub("", normalize_identity(value))
+
+
 def extract_artist_minimum_quotas(prompt: str) -> list[ArtistMinimumQuota]:
     """Extract explicit numeric minimums, preserving one independent quota per artist."""
     request = user_request_text(prompt)
-    quotas: list[ArtistMinimumQuota] = []
     positions: list[tuple[int, ArtistMinimumQuota]] = []
     for pattern in (_IT_MINIMUM_RE, _EN_MINIMUM_RE):
         for match in pattern.finditer(request):
@@ -77,24 +82,25 @@ def extract_artist_minimum_quotas(prompt: str) -> list[ArtistMinimumQuota]:
             minimum = max(0, min(100, int(match.group("count"))))
             positions.append((match.start(), ArtistMinimumQuota(artist, minimum)))
 
-    seen: dict[str, ArtistMinimumQuota] = {}
-    for _, quota in sorted(positions, key=lambda item: item[0]):
-        key = normalize_identity(quota.artist)
-        previous = seen.get(key)
-        if previous is None or quota.minimum > previous.minimum:
-            seen[key] = quota
+    selected: dict[str, tuple[int, ArtistMinimumQuota]] = {}
+    for position, quota in sorted(positions, key=lambda item: item[0]):
+        key = _artist_identity(quota.artist)
+        if not key:
+            continue
+        previous = selected.get(key)
+        if previous is None or quota.minimum > previous[1].minimum:
+            selected[key] = (position, quota)
 
-    for _, quota in sorted(positions, key=lambda item: item[0]):
-        key = normalize_identity(quota.artist)
-        if seen.get(key) == quota and quota not in quotas:
-            quotas.append(quota)
-    return quotas
+    return [
+        quota
+        for _, quota in sorted(selected.values(), key=lambda item: item[0])
+    ]
 
 
 def artist_matches(actual: str, expected: str) -> bool:
-    actual_key = f" {normalize_identity(actual)} "
-    expected_key = f" {normalize_identity(expected)} "
-    return bool(expected_key.strip()) and expected_key in actual_key
+    actual_key = _artist_identity(actual)
+    expected_key = _artist_identity(expected)
+    return bool(expected_key) and expected_key in actual_key
 
 
 def quota_counts(tracks: list[dict[str, Any]], quotas: list[ArtistMinimumQuota]) -> dict[str, int]:
