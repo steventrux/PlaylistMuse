@@ -13,35 +13,6 @@ from typing import Any
 logger = logging.getLogger("playlistmuse.performance")
 _REPLENISHMENT_MISSING_RE = re.compile(r"still needs\s+(\d+)\s+resolvable songs", re.I)
 _REPLENISHMENT_COUNT_RE = re.compile(r"Suggest exactly\s+\d+\s+NEW", re.I)
-_POLICY_PROMPT_EXTENSION = """
-
-Also extract playlist-level policy fields. Add these keys to the returned JSON object:
-- required_tracks: exact named songs that must be included, each as {artist, title}
-- excluded_tracks: exact named songs that must not be included
-- minimum_allowed_artist_ratio and maximum_allowed_artist_ratio: 0.0 to 1.0
-- minimum_allowed_artist_count and maximum_allowed_artist_count: integer or null
-- max_tracks_per_artist: integer or null
-- lyrics_language: requested sung language or null
-- release_country: requested release country or null
-- target_market: market where songs must be popular or null
-- soundtrack_title: named film, series, game or other work soundtrack or null
-- soundtrack_type: film, series, game, musical, other or null
-- constraint_status: valid, ambiguous or impossible
-- status_reasons: concise user-facing reasons written in the same language as the request
-
-Add a 0.0 to 1.0 confidence entry for every new field in field_confidence.
-Interpret proportional wording in any language: mostly, at least half, a few, no more than,
-maximum, minimum, one or two, and equivalent expressions. A named required track is not a
-style reference. Do not claim that lyrics language, market popularity or soundtrack membership
-has been externally verified; only extract the user's intent.
-
-Use constraint_status="impossible" only when no track or playlist can satisfy all explicit
-requirements simultaneously, for example music from the 1990s that must also be published
-after 2000. Use constraint_status="ambiguous" when two or more reasonable interpretations
-remain possible and selecting one would require guessing. Use "valid" otherwise. Never solve a
-contradiction by silently discarding one constraint. Explain every ambiguous or impossible
-classification in status_reasons, in the user's language.
-"""
 
 
 def _unicode_normalize(value: str) -> str:
@@ -109,18 +80,6 @@ def _install_unicode_normalization() -> None:
     youtube._normalize_identity = _unicode_normalize
 
 
-def _install_interpreter_policy_schema() -> None:
-    """Extend the multilingual interpreter without adding another model request."""
-    from backend import constraint_interpreter
-
-    if getattr(constraint_interpreter, "_playlistmuse_policy_schema", False):
-        return
-    constraint_interpreter.SYSTEM_PROMPT += _POLICY_PROMPT_EXTENSION
-    constraint_interpreter.INTERPRETER_SCHEMA_VERSION = 4
-    constraint_interpreter.INTERPRETER_PROMPT_VERSION = "2026-08-03.4"
-    constraint_interpreter._playlistmuse_policy_schema = True
-
-
 def _install_prompt_validation_route() -> None:
     """Expose prompt assessment through the router already mounted by the application."""
     from fastapi import HTTPException
@@ -182,9 +141,13 @@ def _install_generation_wrappers() -> None:
                 if should_interpret:
                     assessment = await assess_prompt(config, source_prompt)
                     if assessment.status == "impossible":
-                        reason = " ".join(assessment.reasons) or "The request contains incompatible constraints."
-                        raise ValueError(reason)
-                    interpreted = await canonicalize_interpretation(assessment.interpretation)
+                        reason = " ".join(assessment.reasons)
+                        raise ValueError(
+                            reason or "The request contains incompatible constraints."
+                        )
+                    interpreted = await canonicalize_interpretation(
+                        assessment.interpretation
+                    )
                     assessment = assess_interpretation(interpreted)
 
                 draft = await original_generate(config, optimized_prompt, optimized_count)
@@ -198,9 +161,14 @@ def _install_generation_wrappers() -> None:
                         allowed_artists=constraints.allowed_artists,
                         requested_count=optimized_count,
                     )
-                    draft["prompt_assessment"] = assessment.as_dict() if assessment else {"status": "valid", "reasons": []}
+                    draft["prompt_assessment"] = (
+                        assessment.as_dict()
+                        if assessment
+                        else {"status": "valid", "reasons": []}
+                    )
                     logger.info(
-                        "playlist_constraints stage=%s constraints=%s policy=%s issues=%s assessment=%s",
+                        "playlist_constraints stage=%s constraints=%s policy=%s "
+                        "issues=%s assessment=%s",
                         stage,
                         asdict(constraints),
                         asdict(policy),
@@ -264,6 +232,5 @@ def _install_generation_wrappers() -> None:
 
 
 _install_unicode_normalization()
-_install_interpreter_policy_schema()
 _install_prompt_validation_route()
 _install_generation_wrappers()
