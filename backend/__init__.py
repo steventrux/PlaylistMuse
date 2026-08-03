@@ -12,6 +12,11 @@ from typing import Any
 logger = logging.getLogger("playlistmuse.performance")
 _REPLENISHMENT_MISSING_RE = re.compile(r"still needs\s+(\d+)\s+resolvable songs", re.I)
 _REPLENISHMENT_COUNT_RE = re.compile(r"Suggest exactly\s+\d+\s+NEW", re.I)
+_STRICT_MAJORITY_ARTIST_RE = re.compile(
+    r"\bpi[uù]\s+della\s+met[aà].{0,80}?"
+    r"(?:di|dei|degli|delle)\s+([^,;.!\n]{1,120})",
+    re.IGNORECASE,
+)
 
 
 def _stage_name(prompt: str) -> str:
@@ -35,6 +40,25 @@ def _constraint_source(prompt: str, stage: str) -> str:
     return prompt.strip()
 
 
+def _quota_replenishment_guidance(prompt: str) -> str:
+    if not prompt.lstrip().startswith("The original playlist request is:"):
+        return ""
+    request = prompt.split("The original playlist request is:\n", 1)[1].split("\n", 1)[0]
+    match = _STRICT_MAJORITY_ARTIST_RE.search(request)
+    if not match:
+        return ""
+    artist = " ".join(match.group(1).split()).strip(" .,-")
+    if not artist:
+        return ""
+    return (
+        "\n\nQUOTA REPLENISHMENT: the original request requires a strict majority of "
+        f"tracks by {artist}. Prioritize distinct, normal studio tracks by {artist} that "
+        "also satisfy every era, genre and exclusion constraint. At least three quarters "
+        "of the replacement candidates in this round should be by that artist until the "
+        "playlist can satisfy the requested majority. Do not repeat previously attempted songs."
+    )
+
+
 def _optimized_replenishment_request(prompt: str, count: int) -> tuple[str, int]:
     if not prompt.lstrip().startswith("The original playlist request is:"):
         return prompt, count
@@ -43,16 +67,13 @@ def _optimized_replenishment_request(prompt: str, count: int) -> tuple[str, int]
         return prompt, count
     missing = max(1, int(match.group(1)))
     optimized_count = min(20, max(4, missing * 2))
-    if optimized_count >= count:
-        return prompt, count
-    return (
-        _REPLENISHMENT_COUNT_RE.sub(
-            f"Suggest exactly {optimized_count} NEW",
-            prompt,
-            count=1,
-        ),
-        optimized_count,
+    optimized_prompt = _REPLENISHMENT_COUNT_RE.sub(
+        f"Suggest exactly {optimized_count} NEW",
+        prompt,
+        count=1,
     )
+    optimized_prompt += _quota_replenishment_guidance(optimized_prompt)
+    return optimized_prompt, min(count, optimized_count)
 
 
 def _log_stage(stage: str, started_at: float, **details: Any) -> None:
