@@ -8,7 +8,6 @@ import os
 import re
 import sqlite3
 import time
-import unicodedata
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
 from difflib import SequenceMatcher
@@ -16,6 +15,8 @@ from pathlib import Path
 from typing import Any, Literal
 
 import httpx
+
+from backend.text_normalization import normalize_identity as _normalize
 
 API_ROOT = "https://musicbrainz.org/ws/2"
 USER_AGENT = "PlaylistMuse/0.7 (https://github.com/steventrux/PlaylistMuse)"
@@ -137,12 +138,6 @@ _ALBUM_PATTERNS = (
     re.compile(r"\b(?:from|off|dall['’]?album|dall['’]?disco|album)\s+['\"]([^'\"]{1,180})['\"]", re.I),
     re.compile(r"\b(?:album|disco)\s+['\"]([^'\"]{1,180})['\"]\s+(?:only|solo|soltanto|esclusivamente)\b", re.I),
 )
-
-
-def _normalize(value: str) -> str:
-    decomposed = unicodedata.normalize("NFKD", str(value).casefold())
-    plain = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
-    return " ".join(re.findall(r"[a-z0-9]+", plain))
 
 
 def _clean_names(values: Any) -> list[str]:
