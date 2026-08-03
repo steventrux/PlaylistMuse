@@ -61,35 +61,6 @@ def _log_stage(stage: str, started_at: float, **details: Any) -> None:
     logger.info("playlist_stage stage=%s elapsed_ms=%s %s", stage, elapsed_ms, suffix)
 
 
-def _install_prompt_validation_route() -> None:
-    """Expose prompt assessment through the router already mounted by the application."""
-    from fastapi import HTTPException
-
-    from backend.config import load_config
-    from backend.prompt_validation import assess_prompt
-    from backend.youtube_routes import router
-
-    if getattr(router, "_playlistmuse_prompt_validation", False):
-        return
-
-    async def validate_playlist_prompt(payload: dict[str, Any]) -> dict[str, Any]:
-        prompt = " ".join(str(payload.get("prompt", "")).split())
-        if len(prompt) < 3:
-            raise HTTPException(status_code=422, detail="Describe the playlist you want.")
-        if len(prompt) > 1950:
-            raise HTTPException(status_code=422, detail="The playlist request is too long.")
-        assessment = await assess_prompt(load_config(), prompt)
-        return assessment.as_dict()
-
-    router.add_api_route(
-        "/playlists/validate-prompt",
-        validate_playlist_prompt,
-        methods=["POST"],
-        tags=["playlists"],
-    )
-    router._playlistmuse_prompt_validation = True  # type: ignore[attr-defined]
-
-
 def _install_generation_wrappers() -> None:
     from backend import lastfm_discovery, llm, youtube
     from backend.entity_resolution import canonicalize_interpretation
@@ -212,5 +183,4 @@ def _install_generation_wrappers() -> None:
         youtube.resolve_candidates = wrapped_resolve_candidates
 
 
-_install_prompt_validation_route()
 _install_generation_wrappers()
