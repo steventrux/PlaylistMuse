@@ -3,12 +3,23 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
 from backend.text_normalization import normalize_identity as _normalize
 
 MIN_POLICY_CONFIDENCE = 0.85
+_STRICT_MAJORITY_RE = re.compile(
+    r"\b(?:pi[uù]\s+della\s+met[aà]|more\s+than\s+half|plus\s+de\s+la\s+moiti[eé]|"
+    r"m[aá]s\s+de\s+la\s+mitad|mehr\s+als\s+die\s+h[aä]lfte)\b",
+    re.IGNORECASE,
+)
+_EXCLUSIVE_ARTIST_RE = re.compile(
+    r"\b(?:solo|soltanto|esclusivamente|only|exclusively|uniquement|seulement|"
+    r"solamente|nur)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(slots=True)
@@ -21,10 +32,12 @@ class NamedTrack:
 class PlaylistPolicy:
     required_tracks: list[NamedTrack] = field(default_factory=list)
     excluded_tracks: list[NamedTrack] = field(default_factory=list)
+    quota_artists: list[str] = field(default_factory=list)
     minimum_allowed_artist_ratio: float | None = None
     maximum_allowed_artist_ratio: float | None = None
     minimum_allowed_artist_count: int | None = None
     maximum_allowed_artist_count: int | None = None
+    strict_artist_majority: bool = False
     max_tracks_per_artist: int | None = None
     lyrics_language: str | None = None
     release_country: str | None = None
@@ -35,15 +48,24 @@ class PlaylistPolicy:
     field_confidence: dict[str, float] = field(default_factory=dict)
 
     @property
+    def has_artist_quota(self) -> bool:
+        return bool(self.quota_artists) and any(
+            (
+                self.minimum_allowed_artist_ratio is not None,
+                self.maximum_allowed_artist_ratio is not None,
+                self.minimum_allowed_artist_count is not None,
+                self.maximum_allowed_artist_count is not None,
+                self.strict_artist_majority,
+            )
+        )
+
+    @property
     def active(self) -> bool:
         return any(
             (
                 self.required_tracks,
                 self.excluded_tracks,
-                self.minimum_allowed_artist_ratio is not None,
-                self.maximum_allowed_artist_ratio is not None,
-                self.minimum_allowed_artist_count is not None,
-                self.maximum_allowed_artist_count is not None,
+                self.has_artist_quota,
                 self.max_tracks_per_artist is not None,
                 self.lyrics_language,
                 self.release_country,
@@ -67,6 +89,20 @@ def _confidence_map(payload: dict[str, Any]) -> dict[str, float]:
 
 def _trusted(confidence: dict[str, float], field_name: str) -> bool:
     return confidence.get(field_name, 0.0) >= MIN_POLICY_CONFIDENCE
+
+
+def _clean_names(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in value[:20]:
+        name = " ".join(str(item).split()).strip(" .,-")[:180]
+        key = _normalize(name)
+        if name and key and key not in seen:
+            seen.add(key)
+            result.append(name)
+    return result
 
 
 def _clean_tracks(value: Any) -> list[NamedTrack]:
@@ -109,7 +145,11 @@ def _clean_text(value: Any, limit: int = 180) -> str | None:
     return text[:limit] or None
 
 
-def policy_from_payload(payload: dict[str, Any] | None) -> PlaylistPolicy:
+def policy_from_payload(
+    payload: dict[str, Any] | None,
+    *,
+    prompt: str = "",
+) -> PlaylistPolicy:
     if not isinstance(payload, dict):
         return PlaylistPolicy()
     confidence = _confidence_map(payload)
@@ -119,6 +159,24 @@ def policy_from_payload(payload: dict[str, Any] | None) -> PlaylistPolicy:
 
     required = _clean_tracks(payload.get("required_tracks")) if _trusted(confidence, "required_tracks") else []
     excluded = _clean_tracks(payload.get("excluded_tracks")) if _trusted(confidence, "excluded_tracks") else []
+
+    quota_artists = (
+        _clean_names(payload.get("quota_artists"))
+        if _trusted(confidence, "quota_artists")
+        else []
+    )
+    quota_fields = (
+        "minimum_allowed_artist_ratio",
+        "maximum_allowed_artist_ratio",
+        "minimum_allowed_artist_count",
+        "maximum_allowed_artist_count",
+    )
+    has_trusted_quota = any(_trusted(confidence, field_name) for field_name in quota_fields)
+    if not quota_artists and has_trusted_quota and _trusted(confidence, "allowed_artists"):
+        # Backward compatibility with schema v4, where the quota target was overloaded
+        # into allowed_artists. It must not become a hard 100% artist filter.
+        quota_artists = _clean_names(payload.get("allowed_artists"))
+
     unsupported: list[str] = []
     lyrics_language = value("lyrics_language", _clean_text)
     release_country = value("release_country", _clean_text)
@@ -135,10 +193,12 @@ def policy_from_payload(payload: dict[str, Any] | None) -> PlaylistPolicy:
     return PlaylistPolicy(
         required_tracks=required,
         excluded_tracks=excluded,
+        quota_artists=quota_artists,
         minimum_allowed_artist_ratio=value("minimum_allowed_artist_ratio", _clean_ratio),
         maximum_allowed_artist_ratio=value("maximum_allowed_artist_ratio", _clean_ratio),
         minimum_allowed_artist_count=value("minimum_allowed_artist_count", _clean_count),
         maximum_allowed_artist_count=value("maximum_allowed_artist_count", _clean_count),
+        strict_artist_majority=bool(quota_artists and _STRICT_MAJORITY_RE.search(prompt)),
         max_tracks_per_artist=value("max_tracks_per_artist", lambda item: _clean_count(item, maximum=100)),
         lyrics_language=lyrics_language,
         release_country=release_country,
@@ -148,6 +208,19 @@ def policy_from_payload(payload: dict[str, Any] | None) -> PlaylistPolicy:
         unsupported_verification=unsupported,
         field_confidence=confidence,
     )
+
+
+def hard_allowed_artists(
+    allowed_artists: list[str],
+    policy: PlaylistPolicy,
+    *,
+    prompt: str,
+) -> list[str]:
+    """Remove quota targets from hard filtering unless the prompt is explicitly exclusive."""
+    if not policy.has_artist_quota or _EXCLUSIVE_ARTIST_RE.search(prompt):
+        return list(allowed_artists)
+    quota_keys = {_normalize(artist) for artist in policy.quota_artists}
+    return [artist for artist in allowed_artists if _normalize(artist) not in quota_keys]
 
 
 def _track_key(artist: str, title: str) -> str:
@@ -172,16 +245,16 @@ def _required_candidate(named: NamedTrack) -> dict[str, str]:
     }
 
 
-def _allowed_artist_match(track: dict[str, Any], allowed_artists: list[str]) -> bool:
+def _quota_artist_match(track: dict[str, Any], quota_artists: list[str]) -> bool:
     actual = f" {_artist_key(track)} "
-    return any(f" {_normalize(artist)} " in actual for artist in allowed_artists if _normalize(artist))
+    return any(f" {_normalize(artist)} " in actual for artist in quota_artists if _normalize(artist))
 
 
 def apply_playlist_policy(
     draft: dict[str, Any],
     policy: PlaylistPolicy,
     *,
-    allowed_artists: list[str],
+    allowed_artists: list[str] | None = None,
     requested_count: int,
 ) -> tuple[dict[str, Any], list[str]]:
     """Apply deterministic list-level rules and return non-fatal feasibility issues."""
@@ -217,25 +290,32 @@ def apply_playlist_policy(
         tracks = required_candidates + tracks
 
     tracks = tracks[:requested_count]
-    allowed_count = sum(_allowed_artist_match(track, allowed_artists) for track in tracks) if allowed_artists else 0
+    quota_count = (
+        sum(_quota_artist_match(track, policy.quota_artists) for track in tracks)
+        if policy.quota_artists
+        else 0
+    )
     total = len(tracks)
 
     minimum = policy.minimum_allowed_artist_count
     if policy.minimum_allowed_artist_ratio is not None:
         minimum = max(minimum or 0, math.ceil(requested_count * policy.minimum_allowed_artist_ratio))
+    if policy.strict_artist_majority:
+        minimum = max(minimum or 0, requested_count // 2 + 1)
+
     maximum = policy.maximum_allowed_artist_count
     if policy.maximum_allowed_artist_ratio is not None:
         ratio_max = math.floor(requested_count * policy.maximum_allowed_artist_ratio)
         maximum = ratio_max if maximum is None else min(maximum, ratio_max)
 
-    if allowed_artists and minimum is not None and allowed_count < minimum:
-        issues.append(f"allowed artist minimum unmet: {allowed_count}/{minimum}")
-    if allowed_artists and maximum is not None and allowed_count > maximum:
-        issues.append(f"allowed artist maximum exceeded: {allowed_count}/{maximum}")
+    if policy.quota_artists and minimum is not None and quota_count < minimum:
+        issues.append(f"quota artist minimum unmet: {quota_count}/{minimum}")
+    if policy.quota_artists and maximum is not None and quota_count > maximum:
+        issues.append(f"quota artist maximum exceeded: {quota_count}/{maximum}")
     if len(policy.required_tracks) > requested_count:
         issues.append("required tracks exceed requested playlist size")
-    if policy.max_tracks_per_artist and allowed_artists:
-        capacity = policy.max_tracks_per_artist * len(allowed_artists)
+    if policy.max_tracks_per_artist and policy.quota_artists:
+        capacity = policy.max_tracks_per_artist * len(policy.quota_artists)
         if minimum is not None and minimum > capacity:
             issues.append(f"artist quota is impossible: minimum {minimum}, capacity {capacity}")
     if total < requested_count:
