@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from backend.metadata_validation import (
@@ -29,8 +31,7 @@ def test_constraint_context_covers_generation_prompt_shapes():
     assert constraints.artist_country == "IT"
 
 
-@pytest.mark.asyncio
-async def test_metadata_filter_is_bypassed_for_generic_prompts(monkeypatch):
+def test_metadata_filter_is_bypassed_for_generic_prompts(monkeypatch):
     activate_constraints_from_prompt("relaxing music for a journey on the road")
 
     async def fail_if_called(*args, **kwargs):
@@ -39,14 +40,13 @@ async def test_metadata_filter_is_bypassed_for_generic_prompts(monkeypatch):
     monkeypatch.setattr("backend.youtube.validate_candidate", fail_if_called)
     candidates = [{"artist": "Artist", "title": "Song"}]
 
-    accepted, rejected = await _metadata_filter(candidates)
+    accepted, rejected = asyncio.run(_metadata_filter(candidates))
 
     assert accepted == candidates
     assert rejected == []
 
 
-@pytest.mark.asyncio
-async def test_metadata_filter_rejects_invalid_and_unknown_candidates(monkeypatch):
+def test_metadata_filter_rejects_invalid_and_unknown_candidates(monkeypatch):
     activate_constraints_from_prompt("songs released in 2026 only")
 
     async def fake_validate(candidate, constraints, client=None):
@@ -93,7 +93,7 @@ async def test_metadata_filter_rejects_invalid_and_unknown_candidates(monkeypatc
         {"artist": "Artist", "title": "Unknown"},
     ]
 
-    accepted, rejected = await _metadata_filter(candidates)
+    accepted, rejected = asyncio.run(_metadata_filter(candidates))
 
     assert [candidate["title"] for candidate in accepted] == ["Valid"]
     assert accepted[0]["metadata_validation"]["original_release_year"] == 2026
