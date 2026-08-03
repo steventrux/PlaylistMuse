@@ -3,6 +3,7 @@ from backend import (
     _REQUESTED_TRACK_COUNT,
     _RESOLVED_QUOTA_TRACKS,
     _optimized_replenishment_request,
+    _reset_quota_session,
     _resolved_quota_guidance,
 )
 from backend.artist_quota_detection import ArtistMinimumQuota
@@ -65,3 +66,21 @@ def test_replenishment_prompt_includes_catalogue_verified_deficits():
     assert "still need 1 additional resolved tracks by Rolling Stones" in optimized
     assert "still need 2 additional resolved tracks by AC/DC" in optimized
     assert "independent" in optimized
+
+
+def test_generic_generation_clears_previous_artist_quota_state():
+    _reset_quota_session(
+        [
+            ArtistMinimumQuota("Rolling Stones", 4),
+            ArtistMinimumQuota("AC/DC", 3),
+        ],
+        15,
+    )
+    _RESOLVED_QUOTA_TRACKS.set((_resolved("AC/DC", "Thunderstruck"),))
+
+    _reset_quota_session([], 20)
+
+    assert _ACTIVE_ARTIST_QUOTAS.get() == ()
+    assert _RESOLVED_QUOTA_TRACKS.get() == ()
+    assert _REQUESTED_TRACK_COUNT.get() == 0
+    assert _resolved_quota_guidance() == ""
