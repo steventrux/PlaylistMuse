@@ -1,6 +1,7 @@
 import asyncio
 
 from backend.prompt_validation import (
+    _augment_explicit_entity_constraints,
     _local_temporal_assessment,
     assess_interpretation,
     assess_prompt,
@@ -101,18 +102,25 @@ def test_local_impossible_prompt_skips_ai_interpreter(monkeypatch):
     assert assessment.status == "impossible"
 
 
-def test_verified_album_artist_conflict_is_impossible(monkeypatch):
-    payload = {
-        "allowed_albums": ["Load"],
-        "excluded_artists": ["Metallica"],
-        "constraint_status": "valid",
-        "status_reasons": [],
-    }
+def test_explicit_album_and_excluded_artist_are_extracted_locally():
+    payload = _augment_explicit_entity_constraints(
+        "musica rock anni 90, includi album Load, escludi i Metallica",
+        {},
+    )
+
+    assert payload["allowed_albums"] == ["Load"]
+    assert payload["excluded_artists"] == ["Metallica"]
+
+
+def test_verified_album_artist_conflict_is_impossible_with_empty_ai_payload(monkeypatch):
+    captured_payload = None
 
     async def interpreted(*_args, **_kwargs):
-        return payload
+        return {}
 
-    async def relationship(_payload):
+    async def relationship(payload):
+        nonlocal captured_payload
+        captured_payload = payload
         return "Load", "Metallica"
 
     monkeypatch.setattr(
@@ -131,23 +139,21 @@ def test_verified_album_artist_conflict_is_impossible(monkeypatch):
         )
     )
 
+    assert captured_payload is not None
+    assert captured_payload["allowed_albums"] == ["Load"]
+    assert captured_payload["excluded_artists"] == ["Metallica"]
     assert assessment.status == "impossible"
     assert "Load" in assessment.reasons[0]
     assert "Metallica" in assessment.reasons[0]
 
 
 def test_non_conflicting_album_artist_relationship_stays_valid(monkeypatch):
-    payload = {
-        "allowed_albums": ["Load"],
-        "excluded_artists": ["Nirvana"],
-        "constraint_status": "valid",
-        "status_reasons": [],
-    }
-
     async def interpreted(*_args, **_kwargs):
-        return payload
+        return {}
 
-    async def no_relationship_conflict(_payload):
+    async def no_relationship_conflict(payload):
+        assert payload["allowed_albums"] == ["Load"]
+        assert payload["excluded_artists"] == ["Nirvana"]
         return None
 
     monkeypatch.setattr(
