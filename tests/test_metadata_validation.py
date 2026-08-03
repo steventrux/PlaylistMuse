@@ -31,13 +31,40 @@ def test_extracts_explicit_year_range():
     assert constraints.active is True
 
 
-def test_extracts_exact_artist_only_when_explicit():
-    constraints = extract_metadata_constraints(
-        'Only songs by "Metallica"'
-    )
+def test_extracts_named_decade_as_hard_constraint():
+    constraints = extract_metadata_constraints("Rock anni ’90")
+
+    assert constraints.release_year is None
+    assert constraints.release_year_from == 1990
+    assert constraints.release_year_to == 1999
+    assert constraints.active is True
+
+
+def test_extracts_direct_artist_ownership_as_hard_constraint():
+    constraints = extract_metadata_constraints("Musica dei Metallica per allenarsi")
 
     assert constraints.artist_name == "Metallica"
     assert constraints.active is True
+
+
+def test_extracts_exact_artist_when_explicitly_quoted():
+    constraints = extract_metadata_constraints('Only songs by "Metallica"')
+
+    assert constraints.artist_name == "Metallica"
+    assert constraints.active is True
+
+
+def test_similarity_language_does_not_create_artist_or_decade_filters():
+    artist_prompt = extract_metadata_constraints(
+        "Musica come i Metallica per allenarsi"
+    )
+    decade_prompt = extract_metadata_constraints("Musica simile anni '90")
+
+    assert artist_prompt.artist_name is None
+    assert artist_prompt.active is False
+    assert decade_prompt.release_year_from is None
+    assert decade_prompt.release_year_to is None
+    assert decade_prompt.active is False
 
 
 def test_extracts_quoted_album_constraint():
@@ -61,12 +88,11 @@ def test_generic_prompt_has_no_metadata_constraints():
     assert constraints.active is False
 
 
-def test_artist_or_album_mentions_are_not_automatically_hard_filters():
-    artist_prompt = extract_metadata_constraints("Musica dei Metallica per allenarsi")
-    album_prompt = extract_metadata_constraints("Una playlist ispirata a Rumours")
+def test_inspired_album_mention_is_not_a_hard_filter():
+    constraints = extract_metadata_constraints("Una playlist ispirata a Rumours")
 
-    assert artist_prompt.active is False
-    assert album_prompt.active is False
+    assert constraints.album_name is None
+    assert constraints.active is False
 
 
 def test_validates_matching_year_and_country():
