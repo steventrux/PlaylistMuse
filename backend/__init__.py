@@ -97,12 +97,17 @@ def _install_interpreter_policy_schema() -> None:
 def _install_generation_wrappers() -> None:
     from backend import lastfm_discovery, llm, youtube
     from backend.constraint_interpreter import interpret_constraints
+    from backend.entity_resolution import canonicalize_interpretation
     from backend.metadata_validation import (
         activate_constraints,
         constraints_from_payload,
         extract_metadata_constraints,
     )
     from backend.playlist_policy import apply_playlist_policy, policy_from_payload
+
+    async def interpret_and_canonicalize(config: Any, prompt: str) -> dict[str, Any] | None:
+        interpreted = await interpret_constraints(config, prompt)
+        return await canonicalize_interpretation(interpreted)
 
     original_generate = llm.generate_playlist_draft
     if not getattr(original_generate, "_playlistmuse_generation_wrapper", False):
@@ -120,7 +125,7 @@ def _install_generation_wrappers() -> None:
             source_prompt = _constraint_source(optimized_prompt, stage)
             fallback = extract_metadata_constraints(source_prompt) if should_interpret else None
             interpretation_task = (
-                asyncio.create_task(interpret_constraints(config, source_prompt))
+                asyncio.create_task(interpret_and_canonicalize(config, source_prompt))
                 if should_interpret
                 else None
             )
@@ -183,9 +188,8 @@ def _install_generation_wrappers() -> None:
             finally:
                 _log_stage("lastfm_seed_discovery", started_at)
 
-        wrapped_seed_discover = wrapped_discover_for_seed
-        wrapped_seed_discover._playlistmuse_timing_wrapper = True  # type: ignore[attr-defined]
-        lastfm_discovery.discover_for_seed = wrapped_seed_discover
+        wrapped_discover_for_seed._playlistmuse_timing_wrapper = True  # type: ignore[attr-defined]
+        lastfm_discovery.discover_for_seed = wrapped_discover_for_seed
 
     original_resolve = youtube.resolve_candidates
     if not getattr(original_resolve, "_playlistmuse_timing_wrapper", False):
