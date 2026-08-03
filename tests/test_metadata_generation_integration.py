@@ -10,6 +10,13 @@ from backend.metadata_validation import (
 from backend.youtube import _metadata_filter
 
 
+@pytest.fixture(autouse=True)
+def reset_metadata_constraints():
+    activate_constraints_from_prompt("generic playlist")
+    yield
+    activate_constraints_from_prompt("generic playlist")
+
+
 def test_constraint_context_covers_generation_prompt_shapes():
     activate_constraints_from_prompt("relaxing road music")
     assert not active_constraints().active
