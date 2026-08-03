@@ -13,29 +13,32 @@ _REQUEST_MARKERS = (
     "Create the final playlist for this request:\n",
 )
 
+_IT_TRACK_WORDS = r"(?:canzoni|brani|tracce|pezzi)"
+_EN_TRACK_WORDS = r"(?:songs|tracks)"
+_NEXT_QUOTA_RE = (
+    r"(?=\s+(?:e|ed|and|plus)\s+"
+    r"(?:(?:almeno|minimo|min\.|at\s+least|minimum(?:\s+of)?)\s+)?"
+    r"\d{1,3}\s+(?:canzoni|brani|tracce|pezzi|songs|tracks)\b|$)"
+)
+
 _IT_MINIMUM_RE = re.compile(
     r"(?:\b(?:almeno|minimo|min\.)\s+)?"
     r"(?P<count>\d{1,3})\s+"
-    r"(?:canzoni|brani|tracce|pezzi)\s*"
+    rf"{_IT_TRACK_WORDS}\s*"
     r"(?:devono?\s+essere\s+|(?:devono?\s+)?provenire\s+da\s+)?"
     r"(?:di|dei|degli|delle|da|dagli|dalle)\s+"
-    r"(?P<artist>[^,;.!\n]+)",
+    rf"(?P<artist>[^,;.!\n]+?){_NEXT_QUOTA_RE}",
     re.IGNORECASE,
 )
 
 _EN_MINIMUM_RE = re.compile(
     r"(?:\b(?:at\s+least|minimum(?:\s+of)?)\s+)?"
     r"(?P<count>\d{1,3})\s+"
-    r"(?:songs|tracks)\s+(?:must\s+be\s+)?(?:by|from)\s+"
-    r"(?P<artist>[^,;.!\n]+)",
+    rf"{_EN_TRACK_WORDS}\s+(?:must\s+be\s+)?(?:by|from)\s+"
+    rf"(?P<artist>[^,;.!\n]+?){_NEXT_QUOTA_RE}",
     re.IGNORECASE,
 )
 
-_TRAILING_CONNECTOR_RE = re.compile(
-    r"\s+(?:e|ed|and|plus)\s+\d{1,3}\s+"
-    r"(?:canzoni|brani|tracce|pezzi|songs|tracks)\b.*$",
-    re.IGNORECASE,
-)
 _CREDIT_SEPARATOR_RE = re.compile(
     r"\s+(?:feat\.?|featuring|with|vs\.?|x)\s+",
     re.IGNORECASE,
@@ -63,8 +66,7 @@ def user_request_text(prompt: str) -> str:
 
 
 def _clean_artist(value: str) -> str:
-    cleaned = _TRAILING_CONNECTOR_RE.sub("", " ".join(value.split()))
-    return cleaned.strip(" \t\r\n.,;:!?\"'“”")[:180]
+    return " ".join(value.split()).strip(" \t\r\n.,;:!?\"'“”")[:180]
 
 
 def _artist_identity(value: str) -> str:
