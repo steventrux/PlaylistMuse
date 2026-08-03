@@ -1,5 +1,6 @@
 from backend.artist_quota_detection import (
     ArtistMinimumQuota,
+    artist_matches,
     extract_artist_minimum_quotas,
     quota_counts,
     quota_deficits,
@@ -19,6 +20,17 @@ def test_extracts_independent_italian_artist_minimums():
     assert quotas == [
         ArtistMinimumQuota("Rolling Stones", 4),
         ArtistMinimumQuota("AC/DC", 3),
+    ]
+
+
+def test_artist_spelling_variants_are_deduplicated():
+    prompt = (
+        "almeno 3 canzoni devono essere degli AC/DC e "
+        "2 canzoni devono essere degli AC-DC"
+    )
+
+    assert extract_artist_minimum_quotas(prompt) == [
+        ArtistMinimumQuota("AC/DC", 3)
     ]
 
 
@@ -51,6 +63,19 @@ def test_counts_and_deficits_are_kept_separate_per_artist():
         "AC/DC": 1,
     }
     assert quota_deficits(tracks, quotas) == [ArtistMinimumQuota("AC/DC", 2)]
+
+
+def test_artist_matching_handles_punctuation_accents_and_collaborations():
+    assert artist_matches("AC-DC", "AC/DC")
+    assert artist_matches("Maneskin", "Måneskin")
+    assert artist_matches("P!nk feat. Nate Ruess", "P!nk")
+    assert artist_matches("Earth, Wind & Fire", "Earth Wind Fire")
+
+
+def test_artist_matching_avoids_substring_false_positives():
+    assert not artist_matches("U2 Tribute Band", "U2")
+    assert not artist_matches("Yes Sir Boss", "Yes")
+    assert not artist_matches("The Beatles", "Beatles")
 
 
 def test_guidance_does_not_merge_artist_minimums():
