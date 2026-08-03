@@ -1,4 +1,4 @@
-import pytest
+import asyncio
 
 from backend.prompt_validation import (
     _local_temporal_assessment,
@@ -82,8 +82,7 @@ def test_compatible_temporal_constraints_are_not_blocked_locally():
     assert assessment is None
 
 
-@pytest.mark.asyncio
-async def test_local_impossible_prompt_skips_ai_interpreter(monkeypatch):
+def test_local_impossible_prompt_skips_ai_interpreter(monkeypatch):
     async def fail_if_called(*_args, **_kwargs):
         raise AssertionError("AI interpreter must not be called for a local contradiction")
 
@@ -92,9 +91,11 @@ async def test_local_impossible_prompt_skips_ai_interpreter(monkeypatch):
         fail_if_called,
     )
 
-    assessment = await assess_prompt(
-        object(),  # type: ignore[arg-type]
-        "musica degli anni 90 pubblicata dopo il 2000",
+    assessment = asyncio.run(
+        assess_prompt(
+            object(),  # type: ignore[arg-type]
+            "musica degli anni 90 pubblicata dopo il 2000",
+        )
     )
 
     assert assessment.status == "impossible"
