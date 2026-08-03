@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import unicodedata
 from dataclasses import asdict
@@ -15,8 +16,12 @@ from ytmusicapi import YTMusic
 
 from backend.metadata_validation import (
     USER_AGENT as METADATA_USER_AGENT,
+    TrackMetadata,
+    ValidationResult,
+    _read_cache,
     active_constraints,
     validate_candidate,
+    validate_metadata,
 )
 
 _IDENTITY_SPLIT_RE = re.compile(r"[\W_]+")
@@ -35,6 +40,7 @@ _COLLECTION_TERMS = (
 MIN_TITLE_SCORE = 70.0
 MIN_ARTIST_SCORE = 75.0
 MIN_COMBINED_SCORE = 72.0
+DEFAULT_METADATA_LOOKUP_BUDGET = 12
 
 
 @lru_cache(maxsize=1)
@@ -237,6 +243,26 @@ def _metadata_rejection(candidate: dict[str, str], result: Any) -> dict[str, Any
     }
 
 
+def _metadata_lookup_budget() -> int:
+    raw = os.getenv("METADATA_VALIDATION_MAX_LOOKUPS", str(DEFAULT_METADATA_LOOKUP_BUDGET))
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return DEFAULT_METADATA_LOOKUP_BUDGET
+
+
+def _budget_exceeded_result(candidate: dict[str, str]) -> ValidationResult:
+    return ValidationResult(
+        status="unknown",
+        violations=[],
+        metadata=TrackMetadata(
+            artist=str(candidate.get("artist", "")),
+            title=str(candidate.get("title", "")),
+            warnings=["Metadata lookup budget exceeded"],
+        ),
+    )
+
+
 async def _metadata_filter(
     candidates: list[dict[str, str]],
 ) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
@@ -244,14 +270,34 @@ async def _metadata_filter(
     if not constraints.active:
         return list(candidates), []
 
+    unique_candidates: list[dict[str, str]] = []
+    seen_keys: set[str] = set()
+    for candidate in candidates:
+        key = track_identity_key(candidate.get("title", ""), candidate.get("artist", ""))
+        if not key or key in seen_keys:
+            continue
+        seen_keys.add(key)
+        unique_candidates.append(candidate)
+
     accepted: list[dict[str, str]] = []
     rejected: list[dict[str, Any]] = []
+    remaining_lookups = _metadata_lookup_budget()
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(8.0),
         headers={"User-Agent": METADATA_USER_AGENT, "Accept": "application/json"},
     ) as client:
-        for candidate in candidates:
-            result = await validate_candidate(candidate, constraints, client=client)
+        for candidate in unique_candidates:
+            artist = str(candidate.get("artist", "")).strip()
+            title = str(candidate.get("title", "")).strip()
+            cached = _read_cache(artist, title)
+            if cached is not None:
+                result = validate_metadata(cached, constraints)
+            elif remaining_lookups > 0:
+                remaining_lookups -= 1
+                result = await validate_candidate(candidate, constraints, client=client)
+            else:
+                result = _budget_exceeded_result(candidate)
+
             if result.status == "valid":
                 copy = dict(candidate)
                 copy["metadata_validation"] = asdict(result.metadata)  # type: ignore[assignment]
