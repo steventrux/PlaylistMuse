@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from functools import wraps
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 
 def _install_metadata_constraint_capture() -> None:
