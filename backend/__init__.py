@@ -69,7 +69,11 @@ def _install_generation_wrappers() -> None:
         constraints_from_payload,
         extract_metadata_constraints,
     )
-    from backend.playlist_policy import apply_playlist_policy, policy_from_payload
+    from backend.playlist_policy import (
+        apply_playlist_policy,
+        hard_allowed_artists,
+        policy_from_payload,
+    )
     from backend.prompt_validation import assess_interpretation, assess_prompt
 
     original_generate = llm.generate_playlist_draft
@@ -105,12 +109,21 @@ def _install_generation_wrappers() -> None:
                 draft = await original_generate(config, optimized_prompt, optimized_count)
                 if should_interpret:
                     constraints = constraints_from_payload(interpreted, fallback=fallback)
-                    policy = policy_from_payload(interpreted)
+                    policy = policy_from_payload(interpreted, prompt=source_prompt)
+                    constraints.allowed_artists = hard_allowed_artists(
+                        constraints.allowed_artists,
+                        policy,
+                        prompt=source_prompt,
+                    )
+                    constraints.artist_name = (
+                        constraints.allowed_artists[0]
+                        if len(constraints.allowed_artists) == 1
+                        else None
+                    )
                     activate_constraints(constraints)
                     draft, policy_issues = apply_playlist_policy(
                         draft,
                         policy,
-                        allowed_artists=constraints.allowed_artists,
                         requested_count=optimized_count,
                     )
                     draft["prompt_assessment"] = (
