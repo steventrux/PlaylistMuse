@@ -24,6 +24,7 @@ from backend.lastfm_settings import (
 )
 from backend.onboarding import acknowledge_onboarding, onboarding_status
 from backend.playlist_cover import normalize_thumbnail_urls
+from backend.prompt_validation import assess_prompt
 from backend.youtube_account import (
     YouTubeAccountError,
     disconnect_youtube,
@@ -70,6 +71,15 @@ class AIModelDiscoveryRequest(BaseModel):
     @classmethod
     def trim_discovery_value(cls, value: str) -> str:
         return value.strip()
+
+
+class PromptValidationRequest(BaseModel):
+    prompt: str = Field(min_length=3, max_length=1950)
+
+    @field_validator("prompt")
+    @classmethod
+    def normalize_prompt(cls, value: str) -> str:
+        return " ".join(value.split())
 
 
 class LastFmSettingsUpdate(BaseModel):
@@ -184,6 +194,12 @@ async def get_onboarding_status() -> dict[str, bool]:
 @router.post("/onboarding/acknowledge", tags=["onboarding"])
 async def acknowledge_initial_setup() -> dict[str, bool]:
     return acknowledge_onboarding()
+
+
+@router.post("/playlists/validate-prompt", tags=["playlists"])
+async def validate_playlist_prompt(request: PromptValidationRequest) -> dict[str, object]:
+    assessment = await assess_prompt(load_config(), request.prompt)
+    return assessment.as_dict()
 
 
 @router.get("/ai/profiles", tags=["ai-settings"])
