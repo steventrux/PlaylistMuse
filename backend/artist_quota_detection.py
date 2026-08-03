@@ -13,10 +13,6 @@ _REQUEST_MARKERS = (
     "Create the final playlist for this request:\n",
 )
 
-# Italian forms covered intentionally:
-# - almeno 4 canzoni devono essere dei Rolling Stones
-# - 3 canzoni devono essere degli AC/DC
-# - minimo 2 brani di Metallica
 _IT_MINIMUM_RE = re.compile(
     r"(?:\b(?:almeno|minimo|min\.)\s+)?"
     r"(?P<count>\d{1,3})\s+"
@@ -42,6 +38,10 @@ _TRAILING_CONNECTOR_RE = re.compile(
 )
 _CREDIT_SEPARATOR_RE = re.compile(
     r"\s+(?:feat\.?|featuring|with|vs\.?|x)\s+",
+    re.IGNORECASE,
+)
+_LEADING_ARTICLE_RE = re.compile(
+    r"^(?:the|i|gli|le|la|il|lo|les|los|las|die|der|das)\s+",
     re.IGNORECASE,
 )
 
@@ -77,27 +77,46 @@ def _artist_identity(value: str) -> str:
     )
 
 
+def _artist_identity_variants(value: str) -> set[str]:
+    """Return exact identities, optionally ignoring a leading grammatical article."""
+    text = " ".join(str(value).split()).strip()
+    variants = {_artist_identity(text)}
+    without_article = _LEADING_ARTICLE_RE.sub("", text, count=1).strip()
+    if without_article and without_article != text:
+        variants.add(_artist_identity(without_article))
+    return {variant for variant in variants if variant}
+
+
+def _artists_equivalent(left: str, right: str) -> bool:
+    return bool(_artist_identity_variants(left) & _artist_identity_variants(right))
+
+
 def _deduplicate_quotas(
     positioned: list[tuple[int, ArtistMinimumQuota]],
 ) -> list[ArtistMinimumQuota]:
-    selected: dict[str, tuple[int, ArtistMinimumQuota]] = {}
+    """Keep one quota per equivalent artist, preserving order and the strongest minimum."""
+    selected: list[tuple[int, ArtistMinimumQuota]] = []
     for position, quota in sorted(positioned, key=lambda item: item[0]):
-        key = _artist_identity(quota.artist)
-        if not key:
+        matching_index = next(
+            (
+                index
+                for index, (_, existing) in enumerate(selected)
+                if _artists_equivalent(existing.artist, quota.artist)
+            ),
+            None,
+        )
+        if matching_index is None:
+            selected.append((position, quota))
             continue
-        previous = selected.get(key)
-        if previous is None or quota.minimum > previous[1].minimum:
-            selected[key] = (position, quota)
 
-    # Defensive final pass: output must never contain two equivalent artist identities.
-    result: list[ArtistMinimumQuota] = []
-    emitted: set[str] = set()
-    for _, quota in sorted(selected.values(), key=lambda item: item[0]):
-        key = _artist_identity(quota.artist)
-        if key and key not in emitted:
-            emitted.add(key)
-            result.append(quota)
-    return result
+        existing_position, existing = selected[matching_index]
+        if quota.minimum > existing.minimum:
+            selected[matching_index] = (
+                min(position, existing_position),
+                ArtistMinimumQuota(existing.artist, quota.minimum),
+            )
+
+    return [quota for _, quota in sorted(selected, key=lambda item: item[0])]
 
 
 def extract_artist_minimum_quotas(prompt: str) -> list[ArtistMinimumQuota]:
@@ -116,24 +135,21 @@ def extract_artist_minimum_quotas(prompt: str) -> list[ArtistMinimumQuota]:
 
 def artist_matches(actual: str, expected: str) -> bool:
     """Match a quota artist exactly, including within explicit collaboration credits."""
-    expected_key = _artist_identity(expected)
-    if not expected_key:
-        return False
-
     actual_text = str(actual).strip()
-    if _artist_identity(actual_text) == expected_key:
+    if _artists_equivalent(actual_text, expected):
         return True
 
-    # Split only explicit collaboration markers. Do not split punctuation such as '/' or
-    # '&' because those may be part of a canonical band name (AC/DC, Earth Wind & Fire).
     return any(
-        _artist_identity(part) == expected_key
+        _artists_equivalent(part, expected)
         for part in _CREDIT_SEPARATOR_RE.split(actual_text)
         if part.strip()
     )
 
 
-def quota_counts(tracks: list[dict[str, Any]], quotas: list[ArtistMinimumQuota]) -> dict[str, int]:
+def quota_counts(
+    tracks: list[dict[str, Any]],
+    quotas: list[ArtistMinimumQuota],
+) -> dict[str, int]:
     counts = {quota.artist: 0 for quota in quotas}
     for track in tracks:
         artist = str(track.get("artist", track.get("artists", "")))
