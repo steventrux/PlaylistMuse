@@ -41,7 +41,7 @@ def test_prompt_and_seed_control_generation_visibility() -> None:
     html = (FRONTEND / "index.html").read_text(encoding="utf-8")
     script = (FRONTEND / "app.js").read_text(encoding="utf-8")
 
-    assert '/static/generation-state.js?v=1' in html
+    assert '/static/generation-state.js?v=2' in html
     assert '/static/app.js?v=17' in html
     assert "const generationState = window.PlaylistMuseGenerationState" in script
     assert "function updateGenerationControls()" in script
