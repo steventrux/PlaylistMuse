@@ -1,4 +1,4 @@
-"""Request-scoped generation wrappers and catalogue-selection helpers."""
+"""Explicit request-scoped generation orchestration and catalogue selection."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import re
 import time
 from contextvars import ContextVar
 from dataclasses import asdict
-from functools import wraps
 from typing import Any
 
 logger = logging.getLogger("playlistmuse.performance")
@@ -212,17 +211,20 @@ def _select_resolved_tracks(
     )
 
 
-def install_generation_wrappers() -> None:
-    """Install request interpretation, timing and catalogue-selection wrappers once."""
-    from backend import lastfm_discovery, llm, youtube
+async def generate_playlist_draft(
+    config: Any,
+    prompt: str,
+    count: int,
+) -> dict[str, Any]:
+    """Generate and validate one draft without mutating imported modules."""
     from backend.artist_quota_detection import (
-        artist_matches,
         extract_artist_minimum_quotas,
         quota_deficits,
         quota_guidance,
         user_request_text,
     )
     from backend.entity_resolution import canonicalize_interpretation
+    from backend.llm import generate_playlist_draft as raw_generate_playlist_draft
     from backend.metadata_validation import (
         activate_constraints,
         constraints_from_payload,
@@ -243,224 +245,241 @@ def install_generation_wrappers() -> None:
         open_ended_year_range,
     )
 
-    original_generate = llm.generate_playlist_draft
-    if not getattr(original_generate, "_playlistmuse_generation_wrapper", False):
+    optimized_prompt, optimized_count = _optimized_replenishment_request(
+        prompt, count
+    )
+    stage = _stage_name(optimized_prompt)
+    if stage == "llm_initial":
+        _ACTIVE_POLICY.set(None)
+        _POLICY_BASE_TRACKS.set(())
+        _REPLACEMENT_MODE.set(False)
+        _REPLACEMENT_FINAL_COUNT.set(0)
+    elif stage == "llm_replacement":
+        base_tracks, final_count = parse_replacement_tracks(optimized_prompt)
+        _ACTIVE_POLICY.set(None)
+        _POLICY_BASE_TRACKS.set(tuple(base_tracks))
+        _REPLACEMENT_MODE.set(True)
+        _REPLACEMENT_FINAL_COUNT.set(final_count)
 
-        @wraps(original_generate)
-        async def wrapped_generate_playlist_draft(
-            config: Any, prompt: str, count: int
-        ) -> dict[str, Any]:
-            optimized_prompt, optimized_count = _optimized_replenishment_request(
-                prompt, count
+    started_at = time.perf_counter()
+    should_interpret = stage in {"llm_initial", "llm_replacement"}
+    source_prompt = _constraint_source(optimized_prompt, stage)
+    user_request = user_request_text(optimized_prompt)
+    artist_quotas = extract_artist_minimum_quotas(user_request)
+    if should_interpret:
+        _reset_resolution_session(artist_quotas, count)
+    generation_quotas = buffered_artist_quotas(
+        artist_quotas, optimized_count
+    )
+    submitted_prompt = optimized_prompt + quota_guidance(generation_quotas)
+    submitted_prompt += (
+        "\n\nALBUM DIVERSITY: when several compliant tracks are available, prefer "
+        "different original albums. Avoid selecting many tracks from the same "
+        "album unless the user explicitly asks for that album."
+    )
+    fallback = (
+        extract_metadata_constraints(source_prompt)
+        if should_interpret
+        else None
+    )
+    interpreted: dict[str, Any] | None = None
+    assessment = None
+    try:
+        if should_interpret:
+            assessment = await assess_prompt(config, source_prompt)
+            if assessment.status == "impossible":
+                reason = " ".join(assessment.reasons)
+                raise ValueError(
+                    reason
+                    or "The request contains incompatible constraints."
+                )
+            interpreted = await canonicalize_interpretation(
+                assessment.interpretation
             )
-            stage = _stage_name(optimized_prompt)
-            if stage == "llm_initial":
-                _ACTIVE_POLICY.set(None)
-                _POLICY_BASE_TRACKS.set(())
-                _REPLACEMENT_MODE.set(False)
-                _REPLACEMENT_FINAL_COUNT.set(0)
-            elif stage == "llm_replacement":
-                base_tracks, final_count = parse_replacement_tracks(optimized_prompt)
-                _ACTIVE_POLICY.set(None)
-                _POLICY_BASE_TRACKS.set(tuple(base_tracks))
-                _REPLACEMENT_MODE.set(True)
-                _REPLACEMENT_FINAL_COUNT.set(final_count)
+            assessment = assess_interpretation(interpreted)
 
-            started_at = time.perf_counter()
-            should_interpret = stage in {"llm_initial", "llm_replacement"}
-            source_prompt = _constraint_source(optimized_prompt, stage)
-            user_request = user_request_text(optimized_prompt)
-            artist_quotas = extract_artist_minimum_quotas(user_request)
-            if should_interpret:
-                _reset_resolution_session(artist_quotas, count)
-            generation_quotas = buffered_artist_quotas(
-                artist_quotas, optimized_count
+        draft = await raw_generate_playlist_draft(
+            config, submitted_prompt, optimized_count
+        )
+        generation_deficits = quota_deficits(
+            [
+                track
+                for track in draft.get("tracks", [])
+                if isinstance(track, dict)
+            ],
+            generation_quotas,
+        )
+        for _ in range(2):
+            if not generation_deficits:
+                break
+            repaired = await raw_generate_playlist_draft(
+                config,
+                _repair_quota_prompt(
+                    user_request,
+                    optimized_count,
+                    generation_quotas,
+                    draft,
+                ),
+                optimized_count,
             )
-            submitted_prompt = optimized_prompt + quota_guidance(generation_quotas)
-            submitted_prompt += (
-                "\n\nALBUM DIVERSITY: when several compliant tracks are available, prefer "
-                "different original albums. Avoid selecting many tracks from the same "
-                "album unless the user explicitly asks for that album."
+            repaired_deficits = quota_deficits(
+                [
+                    track
+                    for track in repaired.get("tracks", [])
+                    if isinstance(track, dict)
+                ],
+                generation_quotas,
             )
-            fallback = (
-                extract_metadata_constraints(source_prompt)
-                if should_interpret
+            if sum(item.minimum for item in repaired_deficits) >= sum(
+                item.minimum for item in generation_deficits
+            ):
+                break
+            draft = repaired
+            generation_deficits = repaired_deficits
+
+        effective_deficits = quota_deficits(
+            [
+                track
+                for track in draft.get("tracks", [])
+                if isinstance(track, dict)
+            ],
+            artist_quotas,
+        )
+        if should_interpret:
+            constraints = constraints_from_payload(
+                interpreted, fallback=fallback
+            )
+            explicit_open_range = open_ended_year_range(source_prompt)
+            if explicit_open_range is not None:
+                constraints.release_year = None
+                constraints.release_year_from = explicit_open_range[0]
+                constraints.release_year_to = explicit_open_range[1]
+            policy = policy_from_payload(interpreted, prompt=source_prompt)
+            _ACTIVE_POLICY.set(policy)
+            constraints.allowed_artists = hard_allowed_artists(
+                constraints.allowed_artists,
+                policy,
+                prompt=source_prompt,
+            )
+            constraints.artist_name = (
+                constraints.allowed_artists[0]
+                if len(constraints.allowed_artists) == 1
                 else None
             )
-            interpreted: dict[str, Any] | None = None
-            assessment = None
-            try:
-                if should_interpret:
-                    assessment = await assess_prompt(config, source_prompt)
-                    if assessment.status == "impossible":
-                        reason = " ".join(assessment.reasons)
-                        raise ValueError(
-                            reason
-                            or "The request contains incompatible constraints."
-                        )
-                    interpreted = await canonicalize_interpretation(
-                        assessment.interpretation
-                    )
-                    assessment = assess_interpretation(interpreted)
-
-                draft = await original_generate(
-                    config, submitted_prompt, optimized_count
-                )
-                generation_deficits = quota_deficits(
-                    [
-                        track
-                        for track in draft.get("tracks", [])
-                        if isinstance(track, dict)
-                    ],
-                    generation_quotas,
-                )
-                for _ in range(2):
-                    if not generation_deficits:
-                        break
-                    repaired = await original_generate(
-                        config,
-                        _repair_quota_prompt(
-                            user_request,
-                            optimized_count,
-                            generation_quotas,
-                            draft,
-                        ),
+            activate_constraints(constraints)
+            draft, policy_issues = apply_playlist_policy(
+                draft, policy, requested_count=optimized_count
+            )
+            draft["prompt_assessment"] = (
+                assessment.as_dict()
+                if assessment
+                else {"status": "valid", "reasons": []}
+            )
+            logger.info(
+                "playlist_constraints stage=%s constraints=%s policy=%s "
+                "issues=%s artist_quota_deficits=%s "
+                "buffered_quota_deficits=%s assessment=%s",
+                stage,
+                asdict(constraints),
+                asdict(policy),
+                policy_issues,
+                [asdict(item) for item in effective_deficits],
+                [asdict(item) for item in generation_deficits],
+                draft["prompt_assessment"],
+            )
+        else:
+            active_policy = _ACTIVE_POLICY.get()
+            if active_policy is not None:
+                draft, _ = apply_playlist_policy(
+                    draft,
+                    active_policy,
+                    requested_count=max(
                         optimized_count,
-                    )
-                    repaired_deficits = quota_deficits(
-                        [
-                            track
-                            for track in repaired.get("tracks", [])
-                            if isinstance(track, dict)
-                        ],
-                        generation_quotas,
-                    )
-                    if sum(item.minimum for item in repaired_deficits) >= sum(
-                        item.minimum for item in generation_deficits
-                    ):
-                        break
-                    draft = repaired
-                    generation_deficits = repaired_deficits
-
-                effective_deficits = quota_deficits(
-                    [
-                        track
-                        for track in draft.get("tracks", [])
-                        if isinstance(track, dict)
-                    ],
-                    artist_quotas,
+                        len(draft.get("tracks", [])),
+                    ),
                 )
-                if should_interpret:
-                    constraints = constraints_from_payload(
-                        interpreted, fallback=fallback
-                    )
-                    explicit_open_range = open_ended_year_range(source_prompt)
-                    if explicit_open_range is not None:
-                        constraints.release_year = None
-                        constraints.release_year_from = explicit_open_range[0]
-                        constraints.release_year_to = explicit_open_range[1]
-                    policy = policy_from_payload(
-                        interpreted, prompt=source_prompt
-                    )
-                    _ACTIVE_POLICY.set(policy)
-                    constraints.allowed_artists = hard_allowed_artists(
-                        constraints.allowed_artists,
-                        policy,
-                        prompt=source_prompt,
-                    )
-                    constraints.artist_name = (
-                        constraints.allowed_artists[0]
-                        if len(constraints.allowed_artists) == 1
-                        else None
-                    )
-                    activate_constraints(constraints)
-                    draft, policy_issues = apply_playlist_policy(
-                        draft, policy, requested_count=optimized_count
-                    )
-                    draft["prompt_assessment"] = (
-                        assessment.as_dict()
-                        if assessment
-                        else {"status": "valid", "reasons": []}
-                    )
-                    logger.info(
-                        "playlist_constraints stage=%s constraints=%s policy=%s "
-                        "issues=%s artist_quota_deficits=%s "
-                        "buffered_quota_deficits=%s assessment=%s",
-                        stage,
-                        asdict(constraints),
-                        asdict(policy),
-                        policy_issues,
-                        [asdict(item) for item in effective_deficits],
-                        [asdict(item) for item in generation_deficits],
-                        draft["prompt_assessment"],
-                    )
-                else:
-                    active_policy = _ACTIVE_POLICY.get()
-                    if active_policy is not None:
-                        draft, _ = apply_playlist_policy(
-                            draft,
-                            active_policy,
-                            requested_count=max(
-                                optimized_count,
-                                len(draft.get("tracks", [])),
-                            ),
-                        )
-                return draft
-            finally:
-                _log_stage(
-                    stage,
-                    started_at,
-                    requested=count,
-                    submitted=optimized_count,
-                )
+        return draft
+    finally:
+        _log_stage(
+            stage,
+            started_at,
+            requested=count,
+            submitted=optimized_count,
+        )
 
-        wrapped_generate_playlist_draft._playlistmuse_generation_wrapper = True  # type: ignore[attr-defined]
-        llm.generate_playlist_draft = wrapped_generate_playlist_draft
 
-    for name, stage in (
-        ("discover_from_anchors", "lastfm_prompt_discovery"),
-        ("discover_for_seed", "lastfm_seed_discovery"),
-    ):
-        original = getattr(lastfm_discovery, name)
-        if getattr(original, "_playlistmuse_timing_wrapper", False):
-            continue
+async def discover_from_anchors(
+    anchors: list[dict[str, str]],
+    *,
+    limit: int = 40,
+    max_anchors: int = 3,
+) -> list[dict[str, str]]:
+    """Run prompt-anchor discovery with explicit timing instrumentation."""
+    from backend.lastfm_discovery import (
+        discover_from_anchors as raw_discover_from_anchors,
+    )
 
-        def make_timed_wrapper(function: Any, stage_name: str) -> Any:
-            @wraps(function)
-            async def timed(*args: Any, **kwargs: Any) -> Any:
-                started_at = time.perf_counter()
-                try:
-                    return await function(*args, **kwargs)
-                finally:
-                    _log_stage(stage_name, started_at)
+    started_at = time.perf_counter()
+    try:
+        return await raw_discover_from_anchors(
+            anchors,
+            limit=limit,
+            max_anchors=max_anchors,
+        )
+    finally:
+        _log_stage("lastfm_prompt_discovery", started_at)
 
-            timed._playlistmuse_timing_wrapper = True  # type: ignore[attr-defined]
-            return timed
 
-        setattr(lastfm_discovery, name, make_timed_wrapper(original, stage))
+async def discover_for_seed(
+    artist: str,
+    title: str,
+    *,
+    limit: int = 40,
+    api_key: str | None = None,
+    client: Any | None = None,
+) -> list[dict[str, str]]:
+    """Run seed discovery with explicit timing instrumentation."""
+    from backend.lastfm_discovery import (
+        discover_for_seed as raw_discover_for_seed,
+    )
 
-    original_resolve = youtube.resolve_candidates
-    if not getattr(original_resolve, "_playlistmuse_timing_wrapper", False):
+    started_at = time.perf_counter()
+    try:
+        return await raw_discover_for_seed(
+            artist,
+            title,
+            limit=limit,
+            api_key=api_key,
+            client=client,
+        )
+    finally:
+        _log_stage("lastfm_seed_discovery", started_at)
 
-        @wraps(original_resolve)
-        async def wrapped_resolve_candidates(*args: Any, **kwargs: Any) -> Any:
-            started_at = time.perf_counter()
-            candidates = args[0] if args else kwargs.get("candidates", [])
-            try:
-                resolved, unresolved = await original_resolve(*args, **kwargs)
-                selected = _select_resolved_tracks(
-                    resolved,
-                    youtube=youtube,
-                    artist_matches=artist_matches,
-                    quota_deficits=quota_deficits,
-                )
-                return selected, unresolved
-            finally:
-                _log_stage(
-                    "catalogue_resolution",
-                    started_at,
-                    candidates=len(candidates),
-                )
 
-        wrapped_resolve_candidates._playlistmuse_timing_wrapper = True  # type: ignore[attr-defined]
-        youtube.resolve_candidates = wrapped_resolve_candidates
+async def resolve_candidates(
+    candidates: list[dict[str, str]],
+    exclusions: dict[str, bool],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Resolve catalogue candidates and apply the integrated selection guard."""
+    from backend import youtube
+    from backend.artist_quota_detection import artist_matches, quota_deficits
+
+    started_at = time.perf_counter()
+    try:
+        resolved, unresolved = await youtube.resolve_candidates(
+            candidates,
+            exclusions,
+        )
+        selected = _select_resolved_tracks(
+            resolved,
+            youtube=youtube,
+            artist_matches=artist_matches,
+            quota_deficits=quota_deficits,
+        )
+        return selected, unresolved
+    finally:
+        _log_stage(
+            "catalogue_resolution",
+            started_at,
+            candidates=len(candidates),
+        )
