@@ -1,0 +1,116 @@
+name: Fix contiguous temporal union
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - .github/workflows/fix-contiguous-temporal-union.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out dev
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Apply focused fix
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file_path = Path(path)
+              text = file_path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(
+                      f"Expected exactly one match in {path}, found {count}: {old[:100]!r}"
+                  )
+              file_path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          helper = '''def effective_temporal_range(prompt: str) -> tuple[int, int] | None:\n    """Return one exact interval only when all valid periods are contiguous."""\n    from backend import prompt_validation as module\n\n    periods = _bounded_periods(module, prompt)\n    alternatives, _ = _combine_periods(prompt, periods)\n    if not alternatives:\n        return None\n\n    lower_bounds = [\n        int(match.group(1)) + 1\n        for match in module._AFTER_RE.finditer(prompt)\n    ]\n    lower_bounds.extend(\n        int(match.group(1))\n        for match in module._FROM_ONWARD_RE.finditer(prompt)\n    )\n    upper_bounds = [\n        int(match.group(1)) - 1\n        for match in module._BEFORE_RE.finditer(prompt)\n    ]\n    upper_bounds.extend(\n        int(match.group(1))\n        for match in module._UNTIL_RE.finditer(prompt)\n    )\n    global_lower = max(lower_bounds) if lower_bounds else None\n    global_upper = min(upper_bounds) if upper_bounds else None\n\n    constrained: list[tuple[int, int]] = []\n    for period_lower, period_upper in alternatives:\n        lower = max(\n            period_lower,\n            global_lower if global_lower is not None else period_lower,\n        )\n        upper = min(\n            period_upper,\n            global_upper if global_upper is not None else period_upper,\n        )\n        if lower <= upper:\n            constrained.append((lower, upper))\n    if not constrained:\n        return None\n\n    ordered = sorted(constrained)\n    merged_lower, merged_upper = ordered[0]\n    for lower, upper in ordered[1:]:\n        if lower > merged_upper + 1:\n            return None\n        merged_upper = max(merged_upper, upper)\n    return merged_lower, merged_upper\n\n\n'''
+          replace_once(
+              "backend/validation_fixes.py",
+              'def temporal_assessment(prompt: str) -> Any | None:\n',
+              helper + 'def temporal_assessment(prompt: str) -> Any | None:\n',
+          )
+
+          replace_once(
+              "backend/metadata_validation.py",
+              'from backend.text_normalization import normalize_identity as _normalize\n',
+              'from backend.text_normalization import normalize_identity as _normalize\n'
+              'from backend.validation_fixes import effective_temporal_range\n',
+          )
+          replace_once(
+              "backend/metadata_validation.py",
+              '    if not similarity:\n'
+              '        for pattern in _YEAR_RANGE_PATTERNS:\n',
+              '    if not similarity:\n'
+              '        effective_range = effective_temporal_range(normalized)\n'
+              '        if effective_range is not None:\n'
+              '            year_from, year_to = effective_range\n'
+              '        for pattern in _YEAR_RANGE_PATTERNS:\n',
+          )
+          replace_once(
+              "backend/metadata_validation.py",
+              '        for pattern in _YEAR_RANGE_PATTERNS:\n'
+              '            match = pattern.search(normalized)\n'
+              '            if match:\n'
+              '                year_from, year_to = sorted((int(match.group(1)), int(match.group(2))))\n'
+              '                break\n',
+              '        if year_from is None:\n'
+              '            for pattern in _YEAR_RANGE_PATTERNS:\n'
+              '                match = pattern.search(normalized)\n'
+              '                if match:\n'
+              '                    year_from, year_to = sorted(\n'
+              '                        (int(match.group(1)), int(match.group(2)))\n'
+              '                    )\n'
+              '                    break\n',
+          )
+
+          test_path = Path("tests/test_temporal_union_validation.py")
+          tests = test_path.read_text(encoding="utf-8")
+          tests = tests.replace(
+              'from backend.prompt_validation import _local_temporal_assessment\n',
+              'from backend.metadata_validation import extract_metadata_constraints\n'
+              'from backend.prompt_validation import _local_temporal_assessment\n',
+              1,
+          )
+          tests += '''\n\ndef test_contiguous_union_and_lower_bound_produce_exact_metadata_range() -> None:\n    constraints = extract_metadata_constraints(\n        "Crea una playlist rock di brani degli anni ’80 oppure degli anni ’90, "\n        "ma solo pubblicati dopo il 1985."\n    )\n\n    assert constraints.release_year_from == 1986\n    assert constraints.release_year_to == 1999\n\n\ndef test_separated_union_is_not_widened_into_a_single_range() -> None:\n    constraints = extract_metadata_constraints(\n        "brani tra il 1980 e il 1985 oppure tra il 2000 e il 2005"\n    )\n\n    assert not (\n        constraints.release_year_from == 1980\n        and constraints.release_year_to == 2005\n    )\n'''
+          test_path.write_text(tests, encoding="utf-8")
+
+      - name: Compile Python sources
+        run: python -m compileall -q backend tests
+
+      - name: Run Ruff
+        run: ruff check --select E4,E7,E9,F backend tests
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/validation_fixes.py backend/metadata_validation.py tests/test_temporal_union_validation.py
+          git diff --cached --quiet && exit 0
+          git commit -m "Apply bounds to contiguous temporal unions"
+          git push origin HEAD:dev
