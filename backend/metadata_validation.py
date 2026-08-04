@@ -231,23 +231,36 @@ def constraints_from_payload(
     def trusted(field_name: str) -> bool:
         return confidence.get(field_name, 0.0) >= MIN_CONSTRAINT_CONFIDENCE
 
-    release_year = (
+    interpreted_release_year = (
         _clean_year(payload.get("release_year"))
         if trusted("release_year")
         else None
-    ) or base.release_year
-    year_from = (
+    )
+    interpreted_year_from = (
         _clean_year(payload.get("release_year_from"))
         if trusted("release_year_from")
         else None
-    ) or base.release_year_from
-    year_to = (
+    )
+    interpreted_year_to = (
         _clean_year(payload.get("release_year_to"))
         if trusted("release_year_to")
         else None
-    ) or base.release_year_to
-    if year_from is not None and year_to is not None and year_from > year_to:
-        year_from, year_to = year_to, year_from
+    )
+
+    if base.release_year is not None:
+        release_year = base.release_year
+        year_from = None
+        year_to = None
+    elif base.release_year_from is not None or base.release_year_to is not None:
+        release_year = None
+        year_from = base.release_year_from
+        year_to = base.release_year_to
+    else:
+        release_year = interpreted_release_year
+        year_from = interpreted_year_from
+        year_to = interpreted_year_to
+        if year_from is not None and year_to is not None and year_from > year_to:
+            year_from, year_to = year_to, year_from
 
     country = base.artist_country
     if trusted("artist_country"):
