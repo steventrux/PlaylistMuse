@@ -4,12 +4,24 @@ from __future__ import annotations
 
 import os
 import re
+from typing import Any
+
+import httpx
 
 from backend.config import DATA_DIR
 from backend.storage import delete_file, read_json_object, write_secure_json
 
 LASTFM_SETTINGS_PATH = DATA_DIR / "lastfm.json"
+LASTFM_API_ROOT = "https://ws.audioscrobbler.com/2.0/"
+LASTFM_VALIDATION_TIMEOUT_SECONDS = 8.0
 _LASTFM_API_KEY_RE = re.compile(r"[0-9a-fA-F]{32}\Z")
+
+
+def _normalize_api_key(api_key: str) -> str:
+    normalized = str(api_key or "").strip()
+    if not _LASTFM_API_KEY_RE.fullmatch(normalized):
+        raise ValueError("Enter a valid 32-character Last.fm API key.")
+    return normalized
 
 
 def _saved_api_key() -> str:
@@ -37,11 +49,46 @@ def lastfm_settings_response() -> dict[str, object]:
     }
 
 
-def save_lastfm_api_key(api_key: str) -> dict[str, object]:
-    normalized = str(api_key or "").strip()
-    if not _LASTFM_API_KEY_RE.fullmatch(normalized):
-        raise ValueError("Enter a valid 32-character Last.fm API key.")
+async def validate_lastfm_api_key(
+    api_key: str,
+    *,
+    client: httpx.AsyncClient | None = None,
+) -> str:
+    """Verify a saved key with Last.fm before reporting it as configured."""
+    normalized = _normalize_api_key(api_key)
+    owns_client = client is None
+    active_client = client or httpx.AsyncClient(
+        timeout=httpx.Timeout(LASTFM_VALIDATION_TIMEOUT_SECONDS),
+        headers={"User-Agent": "PlaylistMuse/0.7"},
+    )
+    try:
+        response = await active_client.get(
+            LASTFM_API_ROOT,
+            params={
+                "method": "chart.getTopArtists",
+                "api_key": normalized,
+                "limit": "1",
+                "format": "json",
+            },
+        )
+        response.raise_for_status()
+        payload: Any = response.json()
+        if not isinstance(payload, dict):
+            raise ValueError("Last.fm returned an invalid validation response.")
+        if payload.get("error"):
+            raise ValueError(
+                "Last.fm rejected this API key. Check the key and try again."
+            )
+        if not isinstance(payload.get("artists"), dict):
+            raise ValueError("Last.fm could not validate this API key.")
+        return normalized
+    finally:
+        if owns_client:
+            await active_client.aclose()
 
+
+def save_lastfm_api_key(api_key: str) -> dict[str, object]:
+    normalized = _normalize_api_key(api_key)
     write_secure_json(
         LASTFM_SETTINGS_PATH,
         {"api_key": normalized},
