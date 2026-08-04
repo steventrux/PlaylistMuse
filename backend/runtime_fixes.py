@@ -8,10 +8,8 @@ from backend.metadata_runtime import (
     search_artist,
     verify_album_artist_pair,
 )
-from backend.policy_enforcement import (
-    apply_playlist_policy,
-    install_generation_policy_wrapper,
-)
+from backend.policy_consistency import apply_playlist_policy
+from backend.policy_enforcement import install_generation_policy_wrapper
 from backend.selection_guard import guarded_select_resolved_tracks
 from backend.validation_fixes import (
     quota_extractor,
@@ -30,6 +28,7 @@ def install_pre_generation_fixes() -> None:
         llm,
         metadata_validation,
         playlist_policy,
+        policy_enforcement,
         prompt_validation,
         youtube,
     )
@@ -38,6 +37,7 @@ def install_pre_generation_fixes() -> None:
         return
 
     playlist_policy.apply_playlist_policy = apply_playlist_policy
+    policy_enforcement.apply_playlist_policy = apply_playlist_policy
     prompt_validation._local_temporal_assessment = temporal_assessment
     artist_quota_detection.extract_artist_minimum_quotas = quota_extractor(
         artist_quota_detection.extract_artist_minimum_quotas
