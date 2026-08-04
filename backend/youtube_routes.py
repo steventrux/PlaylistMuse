@@ -19,9 +19,9 @@ from backend.config import (
 )
 from backend.lastfm_settings import (
     disconnect_lastfm,
-    lastfm_settings_response,
     save_lastfm_api_key,
     validate_lastfm_api_key,
+    validated_lastfm_settings_response,
 )
 from backend.onboarding import acknowledge_onboarding, onboarding_status
 from backend.playlist_cover import normalize_thumbnail_urls
@@ -240,12 +240,12 @@ async def delete_ai_provider(provider: str) -> dict:
 
 @router.get("/lastfm/status", tags=["lastfm"])
 async def get_lastfm_status() -> dict[str, object]:
-    return lastfm_settings_response()
+    return await validated_lastfm_settings_response()
 
 
 @router.get("/lastfm/settings", tags=["lastfm"])
 async def get_lastfm_settings() -> dict[str, object]:
-    return lastfm_settings_response()
+    return await validated_lastfm_settings_response()
 
 
 @router.put("/lastfm/settings", tags=["lastfm"])
@@ -264,7 +264,8 @@ async def update_lastfm_settings(request: LastFmSettingsUpdate) -> dict[str, obj
 
 @router.delete("/lastfm/settings", tags=["lastfm"])
 async def delete_lastfm_settings() -> dict[str, object]:
-    return disconnect_lastfm()
+    disconnect_lastfm()
+    return await validated_lastfm_settings_response()
 
 
 @router.get("/youtube/settings", tags=["youtube-music"])
