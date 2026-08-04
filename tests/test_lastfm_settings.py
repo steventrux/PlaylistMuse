@@ -61,6 +61,20 @@ def test_lastfm_settings_routes_control_header_status(monkeypatch, tmp_path) -> 
     assert removed.json()["configured"] is False
 
 
+def test_invalid_lastfm_key_is_not_saved(monkeypatch, tmp_path) -> None:
+    path = _use_temporary_settings(monkeypatch, tmp_path)
+
+    client = TestClient(main_module.app)
+    response = client.put(
+        "/api/lastfm/settings",
+        json={"api_key": "not-a-real-key"},
+    )
+
+    assert response.status_code == 400
+    assert "32-character" in response.json()["detail"]
+    assert not path.exists()
+
+
 def test_environment_key_remains_active_after_saved_key_is_removed(
     monkeypatch,
     tmp_path,
@@ -70,7 +84,7 @@ def test_environment_key_remains_active_after_saved_key_is_removed(
         "PLAYLISTMUSE_LASTFM_API_KEY",
         "environment-key-0123456789",
     )
-    lastfm_settings.save_lastfm_api_key("saved-key-0123456789")
+    lastfm_settings.save_lastfm_api_key("fedcba9876543210fedcba9876543210")
 
     response = lastfm_settings.disconnect_lastfm()
 
