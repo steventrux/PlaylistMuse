@@ -26,6 +26,7 @@ NEGATIVE_TTL_SECONDS = 24 * 60 * 60
 MIN_MATCH_SCORE = 0.78
 HIGH_MATCH_SCORE = 0.90
 MIN_CONSTRAINT_CONFIDENCE = 0.85
+METADATA_CACHE_VERSION = "2"
 
 ValidationStatus = Literal["valid", "invalid", "unknown"]
 
@@ -366,7 +367,11 @@ def _connect(path: Path | None = None) -> sqlite3.Connection:
 
 
 def _cache_key(artist: str, title: str) -> str:
-    return f"{_normalize(artist)}|{_normalize(title)}"
+    """Version cache entries when metadata interpretation semantics change."""
+    return (
+        f"{METADATA_CACHE_VERSION}|{_normalize(artist)}|"
+        f"{_normalize(title)}"
+    )
 
 
 def _read_cache(
@@ -443,6 +448,24 @@ def _date_key(value: str | None) -> tuple[int, int, int]:
         return (9999, 12, 31)
 
 
+def _release_original_date(release: dict[str, Any]) -> str | None:
+    """Prefer the release-group origin over a later reissue date."""
+    release_group = (
+        release.get("release-group")
+        if isinstance(release.get("release-group"), dict)
+        else {}
+    )
+    candidates = [
+        str(value).strip()
+        for value in (
+            release_group.get("first-release-date"),
+            release.get("date"),
+        )
+        if str(value or "").strip()
+    ]
+    return min(candidates, key=_date_key) if candidates else None
+
+
 def _metadata_from_recording(
     recording: dict[str, Any],
     artist: str,
@@ -454,9 +477,12 @@ def _metadata_from_recording(
         for release in recording.get("releases", [])
         if isinstance(release, dict)
     ]
-    dated = [release for release in releases if str(release.get("date", "")).strip()]
+    dated = [release for release in releases if _release_original_date(release)]
     earliest = (
-        min(dated, key=lambda item: _date_key(str(item.get("date"))))
+        min(
+            dated,
+            key=lambda item: _date_key(_release_original_date(item)),
+        )
         if dated
         else {}
     )
@@ -484,7 +510,7 @@ def _metadata_from_recording(
         if isinstance(artist_entity.get("begin-area"), dict)
         else {}
     )
-    release_date = str(earliest.get("date", "")).strip() or None
+    release_date = _release_original_date(earliest) if earliest else None
     release_titles = list(
         dict.fromkeys(
             [
@@ -532,6 +558,7 @@ async def _rate_limited_get(
         f"{API_ROOT}/recording",
         params=params,
     )
+
 
 async def lookup_track_metadata(
     artist: str,
