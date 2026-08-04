@@ -256,8 +256,8 @@ def test_runtime_guards_use_integrated_generation_modules() -> None:
     assert playlist_policy.apply_playlist_policy.__module__ == "backend.playlist_policy"
     assert backend._select_resolved_tracks.__module__ == "backend.generation_runtime"
     assert metadata_validation._rate_limited_get.__module__ == "backend.metadata_runtime"
-    assert entity_resolution._search_artist.__module__ == "backend.metadata_runtime"
+    assert entity_resolution._search_artist.__module__ == "backend.entity_resolution"
     assert (
         constraint_relationships._verify_album_artist_pair.__module__
-        == "backend.metadata_runtime"
+        == "backend.constraint_relationships"
     )
