@@ -1,3 +1,4 @@
+from backend.metadata_validation import extract_metadata_constraints
 from backend.prompt_validation import _local_temporal_assessment
 
 
@@ -43,3 +44,24 @@ def test_nested_range_intersects_decade_instead_of_becoming_union() -> None:
     )
     assert assessment is not None
     assert assessment.status == "impossible"
+
+
+def test_contiguous_union_and_lower_bound_produce_exact_metadata_range() -> None:
+    constraints = extract_metadata_constraints(
+        "Crea una playlist rock di brani degli anni ’80 oppure degli anni ’90, "
+        "ma solo pubblicati dopo il 1985."
+    )
+
+    assert constraints.release_year_from == 1986
+    assert constraints.release_year_to == 1999
+
+
+def test_separated_union_is_not_widened_into_a_single_range() -> None:
+    constraints = extract_metadata_constraints(
+        "brani tra il 1980 e il 1985 oppure tra il 2000 e il 2005"
+    )
+
+    assert not (
+        constraints.release_year_from == 1980
+        and constraints.release_year_to == 2005
+    )

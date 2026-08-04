@@ -17,6 +17,7 @@ import httpx
 
 from backend.musicbrainz_client import rate_limited_get
 from backend.text_normalization import normalize_identity as _normalize
+from backend.validation_fixes import effective_temporal_range
 
 API_ROOT = "https://musicbrainz.org/ws/2"
 USER_AGENT = "PlaylistMuse/0.7 (https://github.com/steventrux/PlaylistMuse)"
@@ -288,11 +289,17 @@ def extract_metadata_constraints(prompt: str) -> MetadataConstraints:
     similarity = bool(_SIMILARITY_RE.search(normalized))
     year = year_from = year_to = None
     if not similarity:
-        for pattern in _YEAR_RANGE_PATTERNS:
-            match = pattern.search(normalized)
-            if match:
-                year_from, year_to = sorted((int(match.group(1)), int(match.group(2))))
-                break
+        effective_range = effective_temporal_range(normalized)
+        if effective_range is not None:
+            year_from, year_to = effective_range
+        if year_from is None:
+            for pattern in _YEAR_RANGE_PATTERNS:
+                match = pattern.search(normalized)
+                if match:
+                    year_from, year_to = sorted(
+                        (int(match.group(1)), int(match.group(2)))
+                    )
+                    break
         if year_from is None:
             for pattern in _DECADE_PATTERNS:
                 match = pattern.search(normalized)
