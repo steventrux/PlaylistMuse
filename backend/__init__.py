@@ -1,6 +1,4 @@
-"""PlaylistMuse backend package bootstrap."""
-
-import backend.generation_runtime as _generation_runtime
+"""PlaylistMuse backend package exports."""
 
 from backend.generation_runtime import (
     _ACTIVE_RESOLUTION_QUOTAS,
@@ -13,12 +11,13 @@ from backend.generation_runtime import (
     _optimized_replenishment_request,
     _quota_replenishment_guidance,
     _reset_resolution_session,
+    _select_resolved_tracks,
     _stage_name,
-    install_generation_wrappers,
+    discover_for_seed,
+    discover_from_anchors,
+    generate_playlist_draft,
+    resolve_candidates,
 )
-
-install_generation_wrappers()
-_select_resolved_tracks = _generation_runtime._select_resolved_tracks
 
 __all__ = [
     "_ACTIVE_RESOLUTION_QUOTAS",
@@ -33,5 +32,8 @@ __all__ = [
     "_reset_resolution_session",
     "_select_resolved_tracks",
     "_stage_name",
-    "install_generation_wrappers",
+    "discover_for_seed",
+    "discover_from_anchors",
+    "generate_playlist_draft",
+    "resolve_candidates",
 ]
