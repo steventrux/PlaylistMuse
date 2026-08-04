@@ -95,6 +95,58 @@ def _combine_periods(
     return alternatives, contradiction
 
 
+def effective_temporal_range(prompt: str) -> tuple[int, int] | None:
+    """Return one exact interval only when all valid periods are contiguous."""
+    from backend import prompt_validation as module
+
+    periods = _bounded_periods(module, prompt)
+    alternatives, _ = _combine_periods(prompt, periods)
+    if not alternatives:
+        return None
+
+    lower_bounds = [
+        int(match.group(1)) + 1
+        for match in module._AFTER_RE.finditer(prompt)
+    ]
+    lower_bounds.extend(
+        int(match.group(1))
+        for match in module._FROM_ONWARD_RE.finditer(prompt)
+    )
+    upper_bounds = [
+        int(match.group(1)) - 1
+        for match in module._BEFORE_RE.finditer(prompt)
+    ]
+    upper_bounds.extend(
+        int(match.group(1))
+        for match in module._UNTIL_RE.finditer(prompt)
+    )
+    global_lower = max(lower_bounds) if lower_bounds else None
+    global_upper = min(upper_bounds) if upper_bounds else None
+
+    constrained: list[tuple[int, int]] = []
+    for period_lower, period_upper in alternatives:
+        lower = max(
+            period_lower,
+            global_lower if global_lower is not None else period_lower,
+        )
+        upper = min(
+            period_upper,
+            global_upper if global_upper is not None else period_upper,
+        )
+        if lower <= upper:
+            constrained.append((lower, upper))
+    if not constrained:
+        return None
+
+    ordered = sorted(constrained)
+    merged_lower, merged_upper = ordered[0]
+    for lower, upper in ordered[1:]:
+        if lower > merged_upper + 1:
+            return None
+        merged_upper = max(merged_upper, upper)
+    return merged_lower, merged_upper
+
+
 def temporal_assessment(prompt: str) -> Any | None:
     """Validate unions of periods while intersecting additional date limits."""
     from backend import prompt_validation as module
