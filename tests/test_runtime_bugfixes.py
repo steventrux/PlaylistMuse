@@ -225,7 +225,7 @@ def test_provider_request_errors_are_sanitized() -> None:
     assert "sk-abcdefghijklmnop" not in message
 
 
-def test_runtime_guards_use_integrated_generation_modules() -> None:
+def test_runtime_guards_use_explicit_generation_modules() -> None:
     from backend import (
         artist_quota_detection,
         constraint_relationships,
@@ -237,14 +237,14 @@ def test_runtime_guards_use_integrated_generation_modules() -> None:
         youtube,
     )
 
-    assert getattr(
-        llm.generate_playlist_draft,
-        "_playlistmuse_generation_wrapper",
-        False,
+    assert (
+        generation_runtime.generate_playlist_draft.__module__
+        == "backend.generation_runtime"
     )
+    assert llm.generate_playlist_draft.__module__ == "backend.llm"
     assert not getattr(
         llm.generate_playlist_draft,
-        "_playlistmuse_policy_persistence_wrapper",
+        "_playlistmuse_generation_wrapper",
         False,
     )
     assert (
