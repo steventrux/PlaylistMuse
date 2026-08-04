@@ -232,7 +232,7 @@ def test_recording_selection_prefers_original_over_higher_scored_reissue():
         {
             "id": "original-recording",
             "title": "Crazy Train",
-            "score": 98,
+            "score": 50,
             "artist-credit": [
                 {
                     "name": "Ozzy Osbourne",

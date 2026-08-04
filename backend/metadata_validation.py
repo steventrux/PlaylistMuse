@@ -27,7 +27,7 @@ NEGATIVE_TTL_SECONDS = 24 * 60 * 60
 MIN_MATCH_SCORE = 0.78
 HIGH_MATCH_SCORE = 0.90
 MIN_CONSTRAINT_CONFIDENCE = 0.85
-METADATA_CACHE_VERSION = "3"
+METADATA_CACHE_VERSION = "4"
 
 ValidationStatus = Literal["valid", "invalid", "unknown"]
 
@@ -558,24 +558,24 @@ def _metadata_from_recording(
 def _select_best_metadata(
     candidates: list[TrackMetadata],
 ) -> TrackMetadata:
-    """Prefer the original recording among equivalently strong matches."""
+    """Prefer the earliest release among all sufficiently reliable matches."""
     if not candidates:
         raise ValueError("No metadata candidates were provided")
 
-    best_score = max(candidate.match_score for candidate in candidates)
-    competitive_floor = max(MIN_MATCH_SCORE, best_score - 0.03)
-    competitive = [
+    reliable = [
         candidate
         for candidate in candidates
-        if candidate.match_score >= competitive_floor
+        if candidate.match_score >= MIN_MATCH_SCORE
     ]
-    return min(
-        competitive,
-        key=lambda candidate: (
-            _date_key(candidate.original_release_date),
-            -candidate.match_score,
-        ),
-    )
+    if reliable:
+        return min(
+            reliable,
+            key=lambda candidate: (
+                _date_key(candidate.original_release_date),
+                -candidate.match_score,
+            ),
+        )
+    return max(candidates, key=lambda candidate: candidate.match_score)
 
 
 async def _rate_limited_get(
