@@ -11,6 +11,10 @@ import httpx
 from backend.musicbrainz_client import rate_limited_get
 
 
+class MetadataServiceUnavailableError(RuntimeError):
+    """Raised when strict metadata verification cannot reach MusicBrainz."""
+
+
 def metadata_lookup_limit(candidate_count: int) -> int:
     """Validate every candidate unless an explicit administrator limit is set."""
     raw = os.getenv("METADATA_VALIDATION_MAX_LOOKUPS")
@@ -20,6 +24,28 @@ def metadata_lookup_limit(candidate_count: int) -> int:
         return max(0, int(raw))
     except ValueError:
         return candidate_count
+
+
+def _temporarily_unavailable(result: Any) -> bool:
+    """Distinguish provider outages from genuine unknown metadata."""
+    if result.status != "unknown" or result.violations:
+        return False
+    warnings = getattr(result.metadata, "warnings", ())
+    return any(
+        str(warning).startswith("Metadata lookup unavailable:")
+        for warning in warnings
+    )
+
+
+def _metadata_rejection(
+    module: Any,
+    candidate: dict[str, str],
+    result: Any,
+) -> dict[str, Any]:
+    rejection = module._metadata_rejection(candidate, result)
+    if _temporarily_unavailable(result):
+        rejection["unresolved_reason"] = "metadata_service_unavailable"
+    return rejection
 
 
 async def metadata_filter(
@@ -46,6 +72,8 @@ async def metadata_filter(
     accepted: list[dict[str, str]] = []
     rejected: list[dict[str, Any]] = []
     remaining_lookups = metadata_lookup_limit(len(unique_candidates))
+    network_attempts = 0
+    temporary_failures = 0
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(8.0),
         headers={
@@ -61,11 +89,14 @@ async def metadata_filter(
                 result = module.validate_metadata(cached, constraints)
             elif remaining_lookups > 0:
                 remaining_lookups -= 1
+                network_attempts += 1
                 result = await module.validate_candidate(
                     candidate,
                     constraints,
                     client=client,
                 )
+                if _temporarily_unavailable(result):
+                    temporary_failures += 1
             else:
                 result = module._budget_exceeded_result(candidate)
 
@@ -74,7 +105,12 @@ async def metadata_filter(
                 copy["metadata_validation"] = asdict(result.metadata)  # type: ignore[assignment]
                 accepted.append(copy)
             else:
-                rejected.append(module._metadata_rejection(candidate, result))
+                rejected.append(_metadata_rejection(module, candidate, result))
+
+    if network_attempts > 0 and temporary_failures == network_attempts:
+        raise MetadataServiceUnavailableError(
+            "MusicBrainz metadata verification is temporarily unavailable."
+        )
     return accepted, rejected
 
 
