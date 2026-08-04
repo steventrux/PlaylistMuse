@@ -1,0 +1,288 @@
+name: Refactor runtime adapters
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - .github/workflows/refactor-runtime-adapters.yml
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out dev
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Integrate remaining adapters
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file_path = Path(path)
+              text = file_path.read_text(encoding="utf-8")
+              if text.count(old) != 1:
+                  raise SystemExit(f"Expected exactly one match in {path}: {old[:80]!r}")
+              file_path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          metadata_path = Path("backend/metadata_validation.py")
+          metadata = metadata_path.read_text(encoding="utf-8")
+          metadata = metadata.replace("import asyncio\n", "", 1)
+          metadata = metadata.replace(
+              "import httpx\n\nfrom backend.text_normalization import normalize_identity as _normalize\n",
+              "import httpx\n\nfrom backend.musicbrainz_client import rate_limited_get\n"
+              "from backend.text_normalization import normalize_identity as _normalize\n",
+              1,
+          )
+          metadata = metadata.replace(
+              "_REQUEST_LOCK = asyncio.Lock()\n_LAST_REQUEST_AT = 0.0\n",
+              "",
+              1,
+          )
+          limiter_start = metadata.index("async def _rate_limited_get(")
+          limiter_end = metadata.index("\n\nasync def lookup_track_metadata(", limiter_start)
+          metadata_limiter = '''async def _rate_limited_get(
+              client: httpx.AsyncClient,
+              params: dict[str, str],
+          ) -> httpx.Response:
+              """Use the process-wide MusicBrainz request scheduler."""
+              return await rate_limited_get(
+                  client,
+                  f"{API_ROOT}/recording",
+                  params=params,
+              )
+          '''
+          metadata = metadata[:limiter_start] + metadata_limiter + metadata[limiter_end:]
+          if "asyncio." in metadata:
+              raise SystemExit("Unexpected asyncio usage remains in metadata_validation.py")
+          metadata_path.write_text(metadata, encoding="utf-8")
+
+          youtube_path = Path("backend/youtube.py")
+          youtube = youtube_path.read_text(encoding="utf-8")
+          youtube = youtube.replace(
+              "from backend.text_normalization import normalize_identity as _normalize_identity\n",
+              "from backend.metadata_runtime import (\n"
+              "    MetadataServiceUnavailableError,\n"
+              "    metadata_lookup_limit,\n"
+              ")\n"
+              "from backend.text_normalization import normalize_identity as _normalize_identity\n",
+              1,
+          )
+          filter_start = youtube.index("async def _metadata_filter(")
+          filter_end = youtube.index("\n\nasync def resolve_candidates(", filter_start)
+          integrated_filter = '''def _temporarily_unavailable(result: Any) -> bool:
+              """Distinguish MusicBrainz outages from genuine unknown metadata."""
+              if result.status != "unknown" or result.violations:
+                  return False
+              return any(
+                  str(warning).startswith("Metadata lookup unavailable:")
+                  for warning in result.metadata.warnings
+              )
+
+
+          async def _metadata_filter(
+              candidates: list[dict[str, str]],
+          ) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
+              constraints = active_constraints()
+              if not constraints.active:
+                  return list(candidates), []
+
+              unique_candidates: list[dict[str, str]] = []
+              seen_keys: set[str] = set()
+              for candidate in candidates:
+                  key = track_identity_key(
+                      candidate.get("title", ""),
+                      candidate.get("artist", ""),
+                  )
+                  if not key or key in seen_keys:
+                      continue
+                  seen_keys.add(key)
+                  unique_candidates.append(candidate)
+
+              accepted: list[dict[str, str]] = []
+              rejected: list[dict[str, Any]] = []
+              remaining_lookups = metadata_lookup_limit(len(unique_candidates))
+              network_attempts = 0
+              temporary_failures = 0
+              async with httpx.AsyncClient(
+                  timeout=httpx.Timeout(8.0),
+                  headers={
+                      "User-Agent": METADATA_USER_AGENT,
+                      "Accept": "application/json",
+                  },
+              ) as client:
+                  for candidate in unique_candidates:
+                      artist = str(candidate.get("artist", "")).strip()
+                      title = str(candidate.get("title", "")).strip()
+                      cached = _read_cache(artist, title)
+                      if cached is not None:
+                          result = validate_metadata(cached, constraints)
+                      elif remaining_lookups > 0:
+                          remaining_lookups -= 1
+                          network_attempts += 1
+                          result = await validate_candidate(
+                              candidate,
+                              constraints,
+                              client=client,
+                          )
+                          if _temporarily_unavailable(result):
+                              temporary_failures += 1
+                      else:
+                          result = _budget_exceeded_result(candidate)
+
+                      if result.status == "valid":
+                          copy = dict(candidate)
+                          copy["metadata_validation"] = asdict(result.metadata)  # type: ignore[assignment]
+                          accepted.append(copy)
+                      else:
+                          rejection = _metadata_rejection(candidate, result)
+                          if _temporarily_unavailable(result):
+                              rejection["unresolved_reason"] = "metadata_service_unavailable"
+                          rejected.append(rejection)
+
+              if network_attempts > 0 and temporary_failures == network_attempts:
+                  raise MetadataServiceUnavailableError(
+                      "MusicBrainz metadata verification is temporarily unavailable."
+                  )
+              return accepted, rejected
+          '''
+          youtube = youtube[:filter_start] + integrated_filter + youtube[filter_end:]
+          youtube_path.write_text(youtube, encoding="utf-8")
+
+          replace_once(
+              "backend/llm.py",
+              "    if isinstance(error, ProviderRequestError):\n        return str(error)\n",
+              "",
+          )
+
+          Path("backend/metadata_runtime.py").write_text(
+              '''"""Shared metadata validation types and capacity controls."""
+
+          from __future__ import annotations
+
+          import os
+
+
+          class MetadataServiceUnavailableError(RuntimeError):
+              """Raised when strict metadata verification cannot reach MusicBrainz."""
+
+
+          def metadata_lookup_limit(candidate_count: int) -> int:
+              """Validate every candidate unless an administrator sets a limit."""
+              raw = os.getenv("METADATA_VALIDATION_MAX_LOOKUPS")
+              if raw is None:
+                  return candidate_count
+              try:
+                  return max(0, int(raw))
+              except ValueError:
+                  return candidate_count
+          ''',
+              encoding="utf-8",
+          )
+
+          Path("backend/runtime_fixes.py").write_text(
+              '''"""Backward-compatible bootstrap hook; runtime patches are no longer required."""
+
+          from __future__ import annotations
+
+
+          def install_pre_generation_fixes() -> None:
+              """Retained for callers from older installations; intentionally does nothing."""
+              return None
+          ''',
+              encoding="utf-8",
+          )
+
+          replace_once(
+              "backend/generation_runtime.py",
+              "    from backend.runtime_fixes import install_pre_generation_fixes\n\n"
+              "    install_pre_generation_fixes()\n\n",
+              "",
+          )
+
+          tests_path = Path("tests/test_runtime_bugfixes.py")
+          tests = tests_path.read_text(encoding="utf-8")
+          test_start = tests.index("def test_runtime_guards_use_integrated_generation_modules()")
+          integrated_test = '''def test_runtime_guards_use_integrated_generation_modules() -> None:
+              from backend import (
+                  artist_quota_detection,
+                  constraint_relationships,
+                  entity_resolution,
+                  metadata_validation,
+                  playlist_policy,
+                  prompt_validation,
+                  runtime_fixes,
+                  youtube,
+              )
+
+              assert getattr(
+                  llm.generate_playlist_draft,
+                  "_playlistmuse_generation_wrapper",
+                  False,
+              )
+              assert not getattr(
+                  llm.generate_playlist_draft,
+                  "_playlistmuse_policy_persistence_wrapper",
+                  False,
+              )
+              assert (
+                  artist_quota_detection.extract_artist_minimum_quotas.__module__
+                  == "backend.artist_quota_detection"
+              )
+              assert (
+                  prompt_validation._local_temporal_assessment.__module__
+                  == "backend.prompt_validation"
+              )
+              assert playlist_policy.apply_playlist_policy.__module__ == "backend.playlist_policy"
+              assert backend._select_resolved_tracks.__module__ == "backend.generation_runtime"
+              assert metadata_validation._rate_limited_get.__module__ == "backend.metadata_validation"
+              assert entity_resolution._search_artist.__module__ == "backend.entity_resolution"
+              assert (
+                  constraint_relationships._verify_album_artist_pair.__module__
+                  == "backend.constraint_relationships"
+              )
+              assert youtube._metadata_filter.__module__ == "backend.youtube"
+              assert llm.safe_error_message.__module__ == "backend.llm"
+              assert not getattr(
+                  runtime_fixes.install_pre_generation_fixes,
+                  "_installed",
+                  False,
+              )
+          '''
+          tests_path.write_text(tests[:test_start] + integrated_test, encoding="utf-8")
+
+      - name: Compile Python sources
+        run: python -m compileall -q backend tests
+
+      - name: Run Ruff
+        run: ruff check --select E4,E7,E9,F backend tests
+
+      - name: Run Python tests
+        run: python -m pytest -q
+
+      - name: Commit refactor
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend tests
+          git diff --cached --quiet && exit 0
+          git commit -m "Integrate remaining runtime adapters"
+          git push origin HEAD:dev
