@@ -16,15 +16,9 @@ from backend.generation_runtime import (
     _stage_name,
     install_generation_wrappers,
 )
-from backend.runtime_fixes import (
-    install_post_generation_fixes,
-    install_pre_generation_fixes,
-)
 
-install_pre_generation_fixes()
-_select_resolved_tracks = _generation_runtime._select_resolved_tracks
 install_generation_wrappers()
-install_post_generation_fixes()
+_select_resolved_tracks = _generation_runtime._select_resolved_tracks
 
 __all__ = [
     "_ACTIVE_RESOLUTION_QUOTAS",
