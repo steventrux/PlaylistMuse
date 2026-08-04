@@ -12,6 +12,11 @@ _REQUEST_MARKERS = (
     "The original playlist request is:\n",
     "Create the final playlist for this request:\n",
 )
+_QUOTA_CLAUSE_SEPARATOR_RE = re.compile(
+    r"[,;]\s*(?=(?:(?:almeno|minimo|min\.|at\s+least|minimum(?:\s+of)?)\s+)?"
+    r"\d{1,3}\s+(?:canzoni|brani|tracce|pezzi|songs|tracks)\b)",
+    re.IGNORECASE,
+)
 
 _IT_TRACK_WORDS = r"(?:canzoni|brani|tracce|pezzi)"
 _EN_TRACK_WORDS = r"(?:songs|tracks)"
@@ -123,7 +128,7 @@ def _deduplicate_quotas(
 
 def extract_artist_minimum_quotas(prompt: str) -> list[ArtistMinimumQuota]:
     """Extract explicit numeric minimums, preserving one independent quota per artist."""
-    request = user_request_text(prompt)
+    request = _QUOTA_CLAUSE_SEPARATOR_RE.sub(" e ", user_request_text(prompt))
     positions: list[tuple[int, ArtistMinimumQuota]] = []
     for pattern in (_IT_MINIMUM_RE, _EN_MINIMUM_RE):
         for match in pattern.finditer(request):
