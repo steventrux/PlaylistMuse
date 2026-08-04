@@ -233,6 +233,8 @@ def test_runtime_guards_use_integrated_generation_modules() -> None:
         metadata_validation,
         playlist_policy,
         prompt_validation,
+        runtime_fixes,
+        youtube,
     )
 
     assert getattr(
@@ -253,11 +255,24 @@ def test_runtime_guards_use_integrated_generation_modules() -> None:
         prompt_validation._local_temporal_assessment.__module__
         == "backend.prompt_validation"
     )
-    assert playlist_policy.apply_playlist_policy.__module__ == "backend.playlist_policy"
+    assert (
+        playlist_policy.apply_playlist_policy.__module__
+        == "backend.playlist_policy"
+    )
     assert backend._select_resolved_tracks.__module__ == "backend.generation_runtime"
-    assert metadata_validation._rate_limited_get.__module__ == "backend.metadata_runtime"
+    assert (
+        metadata_validation._rate_limited_get.__module__
+        == "backend.metadata_validation"
+    )
     assert entity_resolution._search_artist.__module__ == "backend.entity_resolution"
     assert (
         constraint_relationships._verify_album_artist_pair.__module__
         == "backend.constraint_relationships"
+    )
+    assert youtube._metadata_filter.__module__ == "backend.youtube"
+    assert llm.safe_error_message.__module__ == "backend.llm"
+    assert not getattr(
+        runtime_fixes.install_pre_generation_fixes,
+        "_installed",
+        False,
     )

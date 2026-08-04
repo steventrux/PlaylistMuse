@@ -214,10 +214,6 @@ def _select_resolved_tracks(
 
 def install_generation_wrappers() -> None:
     """Install request interpretation, timing and catalogue-selection wrappers once."""
-    from backend.runtime_fixes import install_pre_generation_fixes
-
-    install_pre_generation_fixes()
-
     from backend import lastfm_discovery, llm, youtube
     from backend.artist_quota_detection import (
         artist_matches,

@@ -27,6 +27,10 @@ from backend.metadata_validation import (
     validate_candidate,
     validate_metadata,
 )
+from backend.metadata_runtime import (
+    MetadataServiceUnavailableError,
+    metadata_lookup_limit,
+)
 from backend.text_normalization import normalize_identity as _normalize_identity
 
 _TITLE_TOKEN_RE = re.compile(r"[a-z0-9]+")
@@ -44,7 +48,6 @@ _COLLECTION_TERMS = (
 MIN_TITLE_SCORE = 70.0
 MIN_ARTIST_SCORE = 75.0
 MIN_COMBINED_SCORE = 72.0
-DEFAULT_METADATA_LOOKUP_BUDGET = 12
 DEFAULT_YOUTUBE_RESOLUTION_CONCURRENCY = 4
 DEFAULT_YOUTUBE_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60
 DEFAULT_YOUTUBE_NEGATIVE_CACHE_TTL_SECONDS = 24 * 60 * 60
@@ -350,14 +353,6 @@ def _metadata_rejection(candidate: dict[str, str], result: Any) -> dict[str, Any
     }
 
 
-def _metadata_lookup_budget() -> int:
-    raw = os.getenv("METADATA_VALIDATION_MAX_LOOKUPS", str(DEFAULT_METADATA_LOOKUP_BUDGET))
-    try:
-        return max(0, int(raw))
-    except ValueError:
-        return DEFAULT_METADATA_LOOKUP_BUDGET
-
-
 def _youtube_resolution_concurrency() -> int:
     raw = os.getenv(
         "YOUTUBE_RESOLUTION_CONCURRENCY",
@@ -381,6 +376,16 @@ def _budget_exceeded_result(candidate: dict[str, str]) -> ValidationResult:
     )
 
 
+def _temporarily_unavailable(result: Any) -> bool:
+    """Distinguish MusicBrainz outages from genuine unknown metadata."""
+    if result.status != "unknown" or result.violations:
+        return False
+    return any(
+        str(warning).startswith("Metadata lookup unavailable:")
+        for warning in result.metadata.warnings
+    )
+
+
 async def _metadata_filter(
     candidates: list[dict[str, str]],
 ) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
@@ -391,7 +396,10 @@ async def _metadata_filter(
     unique_candidates: list[dict[str, str]] = []
     seen_keys: set[str] = set()
     for candidate in candidates:
-        key = track_identity_key(candidate.get("title", ""), candidate.get("artist", ""))
+        key = track_identity_key(
+            candidate.get("title", ""),
+            candidate.get("artist", ""),
+        )
         if not key or key in seen_keys:
             continue
         seen_keys.add(key)
@@ -399,10 +407,15 @@ async def _metadata_filter(
 
     accepted: list[dict[str, str]] = []
     rejected: list[dict[str, Any]] = []
-    remaining_lookups = _metadata_lookup_budget()
+    remaining_lookups = metadata_lookup_limit(len(unique_candidates))
+    network_attempts = 0
+    temporary_failures = 0
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(8.0),
-        headers={"User-Agent": METADATA_USER_AGENT, "Accept": "application/json"},
+        headers={
+            "User-Agent": METADATA_USER_AGENT,
+            "Accept": "application/json",
+        },
     ) as client:
         for candidate in unique_candidates:
             artist = str(candidate.get("artist", "")).strip()
@@ -412,7 +425,14 @@ async def _metadata_filter(
                 result = validate_metadata(cached, constraints)
             elif remaining_lookups > 0:
                 remaining_lookups -= 1
-                result = await validate_candidate(candidate, constraints, client=client)
+                network_attempts += 1
+                result = await validate_candidate(
+                    candidate,
+                    constraints,
+                    client=client,
+                )
+                if _temporarily_unavailable(result):
+                    temporary_failures += 1
             else:
                 result = _budget_exceeded_result(candidate)
 
@@ -421,9 +441,18 @@ async def _metadata_filter(
                 copy["metadata_validation"] = asdict(result.metadata)  # type: ignore[assignment]
                 accepted.append(copy)
             else:
-                rejected.append(_metadata_rejection(candidate, result))
-    return accepted, rejected
+                rejection = _metadata_rejection(candidate, result)
+                if _temporarily_unavailable(result):
+                    rejection["unresolved_reason"] = (
+                        "metadata_service_unavailable"
+                    )
+                rejected.append(rejection)
 
+    if network_attempts > 0 and temporary_failures == network_attempts:
+        raise MetadataServiceUnavailableError(
+            "MusicBrainz metadata verification is temporarily unavailable."
+        )
+    return accepted, rejected
 
 async def resolve_candidates(
     candidates: list[dict[str, str]], exclusions: dict[str, bool]

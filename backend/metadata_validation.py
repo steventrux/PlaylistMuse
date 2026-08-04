@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import re
@@ -16,6 +15,7 @@ from typing import Any, Literal
 
 import httpx
 
+from backend.musicbrainz_client import rate_limited_get
 from backend.text_normalization import normalize_identity as _normalize
 
 API_ROOT = "https://musicbrainz.org/ws/2"
@@ -26,8 +26,6 @@ NEGATIVE_TTL_SECONDS = 24 * 60 * 60
 MIN_MATCH_SCORE = 0.78
 HIGH_MATCH_SCORE = 0.90
 MIN_CONSTRAINT_CONFIDENCE = 0.85
-_REQUEST_LOCK = asyncio.Lock()
-_LAST_REQUEST_AT = 0.0
 
 ValidationStatus = Literal["valid", "invalid", "unknown"]
 
@@ -528,15 +526,12 @@ async def _rate_limited_get(
     client: httpx.AsyncClient,
     params: dict[str, str],
 ) -> httpx.Response:
-    global _LAST_REQUEST_AT
-    async with _REQUEST_LOCK:
-        delay = 1.05 - (time.monotonic() - _LAST_REQUEST_AT)
-        if delay > 0:
-            await asyncio.sleep(delay)
-        response = await client.get(f"{API_ROOT}/recording", params=params)
-        _LAST_REQUEST_AT = time.monotonic()
-        return response
-
+    """Use the process-wide MusicBrainz request scheduler."""
+    return await rate_limited_get(
+        client,
+        f"{API_ROOT}/recording",
+        params=params,
+    )
 
 async def lookup_track_metadata(
     artist: str,
