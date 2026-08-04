@@ -30,6 +30,7 @@ _DECADE_RE = re.compile(
 _RANGE_RE = re.compile(
     r"\b(?:between|from|dal|dall['’]?|tra(?:\s+il)?|entre)\s*"
     r"(19\d{2}|20\d{2})\s*(?:and|e|to|al|a|et|y|-)\s*"
+    r"(?:(?:il|l['’]?|the|le|la|el)\s*)?"
     r"(19\d{2}|20\d{2})\b",
     re.IGNORECASE,
 )
@@ -115,45 +116,10 @@ def _decade_bounds(value: str) -> tuple[int, int]:
 
 
 def _local_temporal_assessment(prompt: str) -> PromptAssessment | None:
-    """Detect explicit date constraints whose intersection is empty."""
-    lower_bounds: list[int] = []
-    upper_bounds: list[int] = []
+    """Validate temporal unions and intersections deterministically."""
+    from backend.validation_fixes import temporal_assessment
 
-    for match in _DECADE_RE.finditer(prompt):
-        value = match.group(1) or match.group(2)
-        lower, upper = _decade_bounds(value)
-        lower_bounds.append(lower)
-        upper_bounds.append(upper)
-
-    for match in _RANGE_RE.finditer(prompt):
-        first, second = sorted((int(match.group(1)), int(match.group(2))))
-        lower_bounds.append(first)
-        upper_bounds.append(second)
-
-    lower_bounds.extend(int(match.group(1)) + 1 for match in _AFTER_RE.finditer(prompt))
-    lower_bounds.extend(int(match.group(1)) for match in _FROM_ONWARD_RE.finditer(prompt))
-    upper_bounds.extend(int(match.group(1)) - 1 for match in _BEFORE_RE.finditer(prompt))
-    upper_bounds.extend(int(match.group(1)) for match in _UNTIL_RE.finditer(prompt))
-
-    if not lower_bounds or not upper_bounds:
-        return None
-
-    effective_lower = max(lower_bounds)
-    effective_upper = min(upper_bounds)
-    if effective_lower <= effective_upper:
-        return None
-
-    if _ITALIAN_HINT_RE.search(prompt):
-        reason = (
-            "I vincoli temporali sono incompatibili: richiedono contemporaneamente "
-            f"brani non precedenti al {effective_lower} e non successivi al {effective_upper}."
-        )
-    else:
-        reason = (
-            "The date constraints are incompatible: they require tracks released no earlier "
-            f"than {effective_lower} and no later than {effective_upper}."
-        )
-    return PromptAssessment(status="impossible", reasons=(reason,))
+    return temporal_assessment(prompt)
 
 
 def _clean_local_entity(value: str) -> str:
