@@ -15,6 +15,12 @@ _TEMPORAL_UNION_RE = re.compile(
     r"(?:\b(?:e|o|oppure|and|or|et|ou|y|und|oder)\b|[/;])",
     re.IGNORECASE,
 )
+_TEMPORAL_RANGE_RE = re.compile(
+    r"\b(?:between|from|dal|dall['’]?|tra(?:\s+il)?|entre)\s*"
+    r"(19\d{2}|20\d{2})\s*(?:and|e|to|al|a|et|y|-)\s*"
+    r"(?:(?:il|lo|la|the|le|el)\s+)?(19\d{2}|20\d{2})\b",
+    re.IGNORECASE,
+)
 
 
 def _temporal_failure(
@@ -50,7 +56,7 @@ def _bounded_periods(module: Any, prompt: str) -> list[tuple[int, int, int, int]
         value = match.group(1) or match.group(2)
         lower, upper = module._decade_bounds(value)
         periods.append((match.start(), match.end(), lower, upper))
-    for match in module._RANGE_RE.finditer(prompt):
+    for match in _TEMPORAL_RANGE_RE.finditer(prompt):
         lower, upper = sorted((int(match.group(1)), int(match.group(2))))
         periods.append((match.start(), match.end(), lower, upper))
     return sorted(periods, key=lambda item: (item[0], item[1]))
