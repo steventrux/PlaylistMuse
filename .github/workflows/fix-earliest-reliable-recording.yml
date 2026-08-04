@@ -1,4 +1,4 @@
-name: Fix earliest reliable recording
+name: Revert broad recording preference
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  fix:
+  revert:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out dev
@@ -31,75 +31,12 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Apply focused fix
-        shell: python
+      - name: Revert unsupported hypothesis
         run: |
-          from pathlib import Path
-
-          path = Path("backend/metadata_validation.py")
-          text = path.read_text(encoding="utf-8")
-          text = text.replace(
-              'METADATA_CACHE_VERSION = "3"',
-              'METADATA_CACHE_VERSION = "4"',
-              1,
-          )
-          old = '''def _select_best_metadata(
-              candidates: list[TrackMetadata],
-          ) -> TrackMetadata:
-              """Prefer the original recording among equivalently strong matches."""
-              if not candidates:
-                  raise ValueError("No metadata candidates were provided")
-
-              best_score = max(candidate.match_score for candidate in candidates)
-              competitive_floor = max(MIN_MATCH_SCORE, best_score - 0.03)
-              competitive = [
-                  candidate
-                  for candidate in candidates
-                  if candidate.match_score >= competitive_floor
-              ]
-              return min(
-                  competitive,
-                  key=lambda candidate: (
-                      _date_key(candidate.original_release_date),
-                      -candidate.match_score,
-                  ),
-              )
-          '''
-          new = '''def _select_best_metadata(
-              candidates: list[TrackMetadata],
-          ) -> TrackMetadata:
-              """Prefer the earliest release among all sufficiently reliable matches."""
-              if not candidates:
-                  raise ValueError("No metadata candidates were provided")
-
-              reliable = [
-                  candidate
-                  for candidate in candidates
-                  if candidate.match_score >= MIN_MATCH_SCORE
-              ]
-              if reliable:
-                  return min(
-                      reliable,
-                      key=lambda candidate: (
-                          _date_key(candidate.original_release_date),
-                          -candidate.match_score,
-                      ),
-                  )
-              return max(candidates, key=lambda candidate: candidate.match_score)
-          '''
-          if text.count(old) != 1:
-              raise SystemExit("Could not locate _select_best_metadata")
-          path.write_text(text.replace(old, new, 1), encoding="utf-8")
-
-          test_path = Path("tests/test_metadata_validation.py")
-          tests = test_path.read_text(encoding="utf-8")
-          old_score = '''            "score": 98,
-          '''
-          if tests.count(old_score) != 1:
-              raise SystemExit("Could not locate original recording score")
-          tests = tests.replace(old_score, '''            "score": 50,
-          ''', 1)
-          test_path.write_text(tests, encoding="utf-8")
+          target="$(git log --format=%H --grep='^Prefer earliest reliable MusicBrainz recording$' -n 1)"
+          test -n "$target"
+          git revert --no-commit "$target"
+          rm .github/workflows/fix-earliest-reliable-recording.yml
 
       - name: Compile Python sources
         run: python -m compileall -q backend tests
@@ -110,11 +47,10 @@ jobs:
       - name: Run tests
         run: python -m pytest -q
 
-      - name: Commit fix
+      - name: Commit revert
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add backend/metadata_validation.py tests/test_metadata_validation.py
-          git diff --cached --quiet && exit 0
-          git commit -m "Prefer earliest reliable MusicBrainz recording"
+          git add backend/metadata_validation.py tests/test_metadata_validation.py .github/workflows/fix-earliest-reliable-recording.yml
+          git commit -m "Revert broad MusicBrainz recording preference"
           git push origin HEAD:dev
