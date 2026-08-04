@@ -225,18 +225,39 @@ def test_provider_request_errors_are_sanitized() -> None:
     assert "sk-abcdefghijklmnop" not in message
 
 
-def test_runtime_guards_are_installed_on_backend_import() -> None:
-    from backend import constraint_relationships, entity_resolution, metadata_validation
+def test_runtime_guards_use_integrated_generation_modules() -> None:
+    from backend import (
+        artist_quota_detection,
+        constraint_relationships,
+        entity_resolution,
+        metadata_validation,
+        playlist_policy,
+        prompt_validation,
+    )
 
     assert getattr(
+        llm.generate_playlist_draft,
+        "_playlistmuse_generation_wrapper",
+        False,
+    )
+    assert not getattr(
         llm.generate_playlist_draft,
         "_playlistmuse_policy_persistence_wrapper",
         False,
     )
+    assert (
+        artist_quota_detection.extract_artist_minimum_quotas.__module__
+        == "backend.artist_quota_detection"
+    )
+    assert (
+        prompt_validation._local_temporal_assessment.__module__
+        == "backend.prompt_validation"
+    )
+    assert playlist_policy.apply_playlist_policy.__module__ == "backend.playlist_policy"
+    assert backend._select_resolved_tracks.__module__ == "backend.generation_runtime"
     assert metadata_validation._rate_limited_get.__module__ == "backend.metadata_runtime"
     assert entity_resolution._search_artist.__module__ == "backend.metadata_runtime"
     assert (
         constraint_relationships._verify_album_artist_pair.__module__
         == "backend.metadata_runtime"
     )
-    assert backend._select_resolved_tracks is guarded_select_resolved_tracks
