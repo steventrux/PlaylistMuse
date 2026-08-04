@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import sqlite3
@@ -12,6 +11,7 @@ from typing import Any
 
 import httpx
 
+from backend.musicbrainz_client import rate_limited_get
 from backend.text_normalization import normalize_identity as _normalize
 
 API_ROOT = "https://musicbrainz.org/ws/2"
@@ -19,8 +19,6 @@ USER_AGENT = "PlaylistMuse/0.7 (https://github.com/steventrux/PlaylistMuse)"
 CACHE_TTL_SECONDS = 180 * 24 * 60 * 60
 MIN_API_SCORE = 90
 MAX_NAMES_PER_REQUEST = 8
-_REQUEST_LOCK = asyncio.Lock()
-_LAST_REQUEST_AT = 0.0
 
 
 def _cache_path() -> Path:
@@ -82,23 +80,30 @@ def _write_cache(name: str, payload: dict[str, str]) -> None:
 
 
 async def _search_artist(name: str, client: httpx.AsyncClient) -> dict[str, str] | None:
-    global _LAST_REQUEST_AT
     cached = _read_cache(name)
     if cached is not None:
         return cached or None
-    async with _REQUEST_LOCK:
-        delay = 1.05 - (time.monotonic() - _LAST_REQUEST_AT)
-        if delay > 0:
-            await asyncio.sleep(delay)
-        response = await client.get(
-            f"{API_ROOT}/artist",
-            params={"query": f'artist:"{name}"', "fmt": "json", "limit": "5"},
-        )
-        _LAST_REQUEST_AT = time.monotonic()
+    response = await rate_limited_get(
+        client,
+        f"{API_ROOT}/artist",
+        params={
+            "query": f'artist:"{name}"',
+            "fmt": "json",
+            "limit": "5",
+        },
+    )
     response.raise_for_status()
-    candidates = [item for item in response.json().get("artists", []) if isinstance(item, dict)]
+    candidates = [
+        item
+        for item in response.json().get("artists", [])
+        if isinstance(item, dict)
+    ]
     expected = _normalize(name)
-    exact = [item for item in candidates if _normalize(str(item.get("name", ""))) == expected]
+    exact = [
+        item
+        for item in candidates
+        if _normalize(str(item.get("name", ""))) == expected
+    ]
     matches = exact or candidates
     if not matches:
         _write_cache(name, {})
@@ -110,12 +115,19 @@ async def _search_artist(name: str, client: httpx.AsyncClient) -> dict[str, str]
     if score < MIN_API_SCORE or not canonical or not mbid:
         _write_cache(name, {})
         return None
-    result = {"input": name, "name": canonical, "mbid": mbid, "score": str(score)}
+    result = {
+        "input": name,
+        "name": canonical,
+        "mbid": mbid,
+        "score": str(score),
+    }
     _write_cache(name, result)
     return result
 
 
-async def canonicalize_interpretation(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+async def canonicalize_interpretation(
+    payload: dict[str, Any] | None,
+) -> dict[str, Any] | None:
     """Canonicalize high-confidence artist fields without changing uncertain names."""
     if not isinstance(payload, dict):
         return payload
