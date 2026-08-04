@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -157,8 +156,16 @@ def policy_from_payload(
     def value(field_name: str, cleaner):
         return cleaner(payload.get(field_name)) if _trusted(confidence, field_name) else None
 
-    required = _clean_tracks(payload.get("required_tracks")) if _trusted(confidence, "required_tracks") else []
-    excluded = _clean_tracks(payload.get("excluded_tracks")) if _trusted(confidence, "excluded_tracks") else []
+    required = (
+        _clean_tracks(payload.get("required_tracks"))
+        if _trusted(confidence, "required_tracks")
+        else []
+    )
+    excluded = (
+        _clean_tracks(payload.get("excluded_tracks"))
+        if _trusted(confidence, "excluded_tracks")
+        else []
+    )
 
     quota_artists = (
         _clean_names(payload.get("quota_artists"))
@@ -171,10 +178,14 @@ def policy_from_payload(
         "minimum_allowed_artist_count",
         "maximum_allowed_artist_count",
     )
-    has_trusted_quota = any(_trusted(confidence, field_name) for field_name in quota_fields)
-    if not quota_artists and has_trusted_quota and _trusted(confidence, "allowed_artists"):
-        # Backward compatibility with schema v4, where the quota target was overloaded
-        # into allowed_artists. It must not become a hard 100% artist filter.
+    has_trusted_quota = any(
+        _trusted(confidence, field_name) for field_name in quota_fields
+    )
+    if (
+        not quota_artists
+        and has_trusted_quota
+        and _trusted(confidence, "allowed_artists")
+    ):
         quota_artists = _clean_names(payload.get("allowed_artists"))
 
     unsupported: list[str] = []
@@ -194,12 +205,25 @@ def policy_from_payload(
         required_tracks=required,
         excluded_tracks=excluded,
         quota_artists=quota_artists,
-        minimum_allowed_artist_ratio=value("minimum_allowed_artist_ratio", _clean_ratio),
-        maximum_allowed_artist_ratio=value("maximum_allowed_artist_ratio", _clean_ratio),
-        minimum_allowed_artist_count=value("minimum_allowed_artist_count", _clean_count),
-        maximum_allowed_artist_count=value("maximum_allowed_artist_count", _clean_count),
-        strict_artist_majority=bool(quota_artists and _STRICT_MAJORITY_RE.search(prompt)),
-        max_tracks_per_artist=value("max_tracks_per_artist", lambda item: _clean_count(item, maximum=100)),
+        minimum_allowed_artist_ratio=value(
+            "minimum_allowed_artist_ratio", _clean_ratio
+        ),
+        maximum_allowed_artist_ratio=value(
+            "maximum_allowed_artist_ratio", _clean_ratio
+        ),
+        minimum_allowed_artist_count=value(
+            "minimum_allowed_artist_count", _clean_count
+        ),
+        maximum_allowed_artist_count=value(
+            "maximum_allowed_artist_count", _clean_count
+        ),
+        strict_artist_majority=bool(
+            quota_artists and _STRICT_MAJORITY_RE.search(prompt)
+        ),
+        max_tracks_per_artist=value(
+            "max_tracks_per_artist",
+            lambda item: _clean_count(item, maximum=100),
+        ),
         lyrics_language=lyrics_language,
         release_country=release_country,
         target_market=target_market,
@@ -220,34 +244,11 @@ def hard_allowed_artists(
     if not policy.has_artist_quota or _EXCLUSIVE_ARTIST_RE.search(prompt):
         return list(allowed_artists)
     quota_keys = {_normalize(artist) for artist in policy.quota_artists}
-    return [artist for artist in allowed_artists if _normalize(artist) not in quota_keys]
-
-
-def _track_key(artist: str, title: str) -> str:
-    return f"{_normalize(artist)}|{_normalize(title)}"
-
-
-def _artist_key(track: dict[str, Any]) -> str:
-    return _normalize(str(track.get("artist", track.get("artists", ""))))
-
-
-def _matches_named_track(track: dict[str, Any], named: NamedTrack) -> bool:
-    return _track_key(str(track.get("artist", "")), str(track.get("title", ""))) == _track_key(named.artist, named.title)
-
-
-def _required_candidate(named: NamedTrack) -> dict[str, str]:
-    return {
-        "artist": named.artist,
-        "title": named.title,
-        "description": "Explicitly requested track.",
-        "reason": "Included because it was explicitly required in the playlist request.",
-        "source": "required_constraint",
-    }
-
-
-def _quota_artist_match(track: dict[str, Any], quota_artists: list[str]) -> bool:
-    actual = f" {_artist_key(track)} "
-    return any(f" {_normalize(artist)} " in actual for artist in quota_artists if _normalize(artist))
+    return [
+        artist
+        for artist in allowed_artists
+        if _normalize(artist) not in quota_keys
+    ]
 
 
 def apply_playlist_policy(
@@ -257,71 +258,12 @@ def apply_playlist_policy(
     allowed_artists: list[str] | None = None,
     requested_count: int,
 ) -> tuple[dict[str, Any], list[str]]:
-    """Apply deterministic list-level rules and return non-fatal feasibility issues."""
-    tracks = [dict(track) for track in draft.get("tracks", []) if isinstance(track, dict)]
-    issues: list[str] = []
+    """Apply the integrated deterministic list-level policy implementation."""
+    from backend.policy_consistency import apply_playlist_policy as integrated_apply
 
-    if policy.excluded_tracks:
-        tracks = [
-            track
-            for track in tracks
-            if not any(_matches_named_track(track, excluded) for excluded in policy.excluded_tracks)
-        ]
-
-    if policy.max_tracks_per_artist is not None:
-        limited: list[dict[str, Any]] = []
-        counts: dict[str, int] = {}
-        for track in tracks:
-            artist = _artist_key(track)
-            if counts.get(artist, 0) >= policy.max_tracks_per_artist:
-                continue
-            counts[artist] = counts.get(artist, 0) + 1
-            limited.append(track)
-        tracks = limited
-
-    existing = {_track_key(str(track.get("artist", "")), str(track.get("title", ""))) for track in tracks}
-    required_candidates: list[dict[str, Any]] = []
-    for required in policy.required_tracks:
-        key = _track_key(required.artist, required.title)
-        if key not in existing:
-            required_candidates.append(_required_candidate(required))
-            existing.add(key)
-    if required_candidates:
-        tracks = required_candidates + tracks
-
-    tracks = tracks[:requested_count]
-    quota_count = (
-        sum(_quota_artist_match(track, policy.quota_artists) for track in tracks)
-        if policy.quota_artists
-        else 0
+    return integrated_apply(
+        draft,
+        policy,
+        allowed_artists=allowed_artists,
+        requested_count=requested_count,
     )
-    total = len(tracks)
-
-    minimum = policy.minimum_allowed_artist_count
-    if policy.minimum_allowed_artist_ratio is not None:
-        minimum = max(minimum or 0, math.ceil(requested_count * policy.minimum_allowed_artist_ratio))
-    if policy.strict_artist_majority:
-        minimum = max(minimum or 0, requested_count // 2 + 1)
-
-    maximum = policy.maximum_allowed_artist_count
-    if policy.maximum_allowed_artist_ratio is not None:
-        ratio_max = math.floor(requested_count * policy.maximum_allowed_artist_ratio)
-        maximum = ratio_max if maximum is None else min(maximum, ratio_max)
-
-    if policy.quota_artists and minimum is not None and quota_count < minimum:
-        issues.append(f"quota artist minimum unmet: {quota_count}/{minimum}")
-    if policy.quota_artists and maximum is not None and quota_count > maximum:
-        issues.append(f"quota artist maximum exceeded: {quota_count}/{maximum}")
-    if len(policy.required_tracks) > requested_count:
-        issues.append("required tracks exceed requested playlist size")
-    if policy.max_tracks_per_artist and policy.quota_artists:
-        capacity = policy.max_tracks_per_artist * len(policy.quota_artists)
-        if minimum is not None and minimum > capacity:
-            issues.append(f"artist quota is impossible: minimum {minimum}, capacity {capacity}")
-    if total < requested_count:
-        issues.append(f"policy filtering left {total} of {requested_count} candidates")
-    issues.extend(f"verification unavailable: {name}" for name in policy.unsupported_verification)
-
-    result = dict(draft)
-    result["tracks"] = tracks
-    return result, issues
