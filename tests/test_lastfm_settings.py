@@ -104,10 +104,8 @@ def test_environment_key_remains_active_after_saved_key_is_removed(
     tmp_path,
 ) -> None:
     _use_temporary_settings(monkeypatch, tmp_path)
-    monkeypatch.setenv(
-        "PLAYLISTMUSE_LASTFM_API_KEY",
-        "environment-key-0123456789",
-    )
+    environment_key = "00112233445566778899aabbccddeeff"
+    monkeypatch.setenv("PLAYLISTMUSE_LASTFM_API_KEY", environment_key)
     lastfm_settings.save_lastfm_api_key("fedcba9876543210fedcba9876543210")
 
     response = lastfm_settings.disconnect_lastfm()
@@ -117,4 +115,93 @@ def test_environment_key_remains_active_after_saved_key_is_removed(
         "api_key_set": True,
         "source": "environment",
     }
-    assert lastfm_settings.lastfm_api_key() == "environment-key-0123456789"
+    assert lastfm_settings.lastfm_api_key() == environment_key
+
+
+def test_malformed_environment_key_is_not_locally_configured(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    _use_temporary_settings(monkeypatch, tmp_path)
+    monkeypatch.setenv("PLAYLISTMUSE_LASTFM_API_KEY", "not-a-valid-key")
+
+    assert lastfm_settings.lastfm_settings_response() == {
+        "configured": False,
+        "api_key_set": False,
+        "source": "",
+    }
+    assert lastfm_settings.lastfm_api_key() == ""
+
+
+def test_valid_environment_key_is_verified_by_status_route(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    _use_temporary_settings(monkeypatch, tmp_path)
+    environment_key = "00112233445566778899aabbccddeeff"
+    monkeypatch.setenv("PLAYLISTMUSE_LASTFM_API_KEY", environment_key)
+
+    async def accept_key(api_key: str) -> str:
+        assert api_key == environment_key
+        return api_key
+
+    monkeypatch.setattr(lastfm_settings, "validate_lastfm_api_key", accept_key)
+    response = TestClient(main_module.app).get("/api/lastfm/status")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "configured": True,
+        "api_key_set": True,
+        "source": "environment",
+        "validation_status": "valid",
+    }
+
+
+def test_rejected_environment_key_is_not_reported_as_configured(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    _use_temporary_settings(monkeypatch, tmp_path)
+    monkeypatch.setenv(
+        "PLAYLISTMUSE_LASTFM_API_KEY",
+        "00112233445566778899aabbccddeeff",
+    )
+
+    async def reject_key(_api_key: str) -> str:
+        raise ValueError("Last.fm rejected this API key.")
+
+    monkeypatch.setattr(lastfm_settings, "validate_lastfm_api_key", reject_key)
+    response = TestClient(main_module.app).get("/api/lastfm/settings")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "configured": False,
+        "api_key_set": True,
+        "source": "environment",
+        "validation_status": "invalid",
+    }
+
+
+def test_environment_validation_outage_is_reported_as_unavailable(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    _use_temporary_settings(monkeypatch, tmp_path)
+    monkeypatch.setenv(
+        "PLAYLISTMUSE_LASTFM_API_KEY",
+        "00112233445566778899aabbccddeeff",
+    )
+
+    async def unavailable(_api_key: str) -> str:
+        raise RuntimeError("temporary network failure")
+
+    monkeypatch.setattr(lastfm_settings, "validate_lastfm_api_key", unavailable)
+    response = TestClient(main_module.app).get("/api/lastfm/status")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "configured": False,
+        "api_key_set": True,
+        "source": "environment",
+        "validation_status": "unavailable",
+    }
