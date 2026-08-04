@@ -21,6 +21,7 @@ from backend.lastfm_settings import (
     disconnect_lastfm,
     lastfm_settings_response,
     save_lastfm_api_key,
+    validate_lastfm_api_key,
 )
 from backend.onboarding import acknowledge_onboarding, onboarding_status
 from backend.playlist_cover import normalize_thumbnail_urls
@@ -250,13 +251,14 @@ async def get_lastfm_settings() -> dict[str, object]:
 @router.put("/lastfm/settings", tags=["lastfm"])
 async def update_lastfm_settings(request: LastFmSettingsUpdate) -> dict[str, object]:
     try:
-        return save_lastfm_api_key(request.api_key)
+        validated_key = await validate_lastfm_api_key(request.api_key)
+        return save_lastfm_api_key(validated_key)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except Exception as error:
         raise HTTPException(
             status_code=502,
-            detail="The Last.fm API key could not be saved.",
+            detail="The Last.fm API key could not be verified or saved.",
         ) from error
 
 
