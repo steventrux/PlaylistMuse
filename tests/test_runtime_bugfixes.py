@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 import backend
 from backend import generation_runtime, llm
 from backend.artist_quota_detection import (
@@ -21,6 +23,25 @@ from backend.policy_enforcement import (
 )
 from backend.prompt_validation import _local_temporal_assessment
 from backend.selection_guard import guarded_select_resolved_tracks
+
+
+@pytest.fixture(autouse=True)
+def _reset_runtime_context():
+    """Prevent request-scoped ContextVars from leaking into later tests."""
+    defaults = (
+        (generation_runtime._ACTIVE_RESOLUTION_QUOTAS, ()),
+        (generation_runtime._REQUESTED_SESSION_COUNT, 0),
+        (generation_runtime._RESOLVED_SESSION_TRACKS, ()),
+        (_ACTIVE_POLICY, None),
+        (_POLICY_BASE_TRACKS, ()),
+        (_REPLACEMENT_MODE, False),
+        (_REPLACEMENT_FINAL_COUNT, 0),
+    )
+    for variable, value in defaults:
+        variable.set(value)
+    yield
+    for variable, value in defaults:
+        variable.set(value)
 
 
 def _confidence(*fields: str) -> dict[str, float]:
