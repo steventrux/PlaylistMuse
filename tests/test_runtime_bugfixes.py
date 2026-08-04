@@ -18,9 +18,9 @@ from backend.policy_enforcement import (
     _REPLACEMENT_FINAL_COUNT,
     _REPLACEMENT_MODE,
     replacement_candidate_valid,
-    select_resolved_tracks,
 )
 from backend.prompt_validation import _local_temporal_assessment
+from backend.selection_guard import guarded_select_resolved_tracks
 
 
 def _confidence(*fields: str) -> dict[str, float]:
@@ -34,6 +34,14 @@ def _track(artist: str, title: str, album: str = "Album") -> dict[str, str]:
         "album": album,
         "video_id": f"{artist}-{title}",
     }
+
+
+def _youtube() -> SimpleNamespace:
+    return SimpleNamespace(
+        track_identity_key=lambda title, artists: (
+            f"{artists.casefold()}::{title.casefold()}"
+        )
+    )
 
 
 def test_multiple_decades_are_treated_as_a_valid_union() -> None:
@@ -97,18 +105,48 @@ def test_quota_selection_never_records_more_tracks_than_capacity() -> None:
     _REPLACEMENT_MODE.set(False)
     _REPLACEMENT_FINAL_COUNT.set(0)
 
-    youtube = SimpleNamespace(
-        track_identity_key=lambda title, artists: (
-            f"{artists.casefold()}::{title.casefold()}"
-        )
-    )
-    selected = select_resolved_tracks(
+    selected = guarded_select_resolved_tracks(
         [
             _track("AC/DC", "One"),
             _track("AC/DC", "Two"),
             _track("AC/DC", "Three"),
         ],
-        youtube=youtube,
+        youtube=_youtube(),
+        artist_matches=artist_matches,
+        quota_deficits=quota_deficits,
+    )
+
+    assert len(selected) == 1
+    assert len(generation_runtime._RESOLVED_SESSION_TRACKS.get()) == 2
+
+
+def test_combined_required_track_and_quota_reserve_separate_slots() -> None:
+    policy = policy_from_payload(
+        {
+            "required_tracks": [
+                {"artist": "AC/DC", "title": "Highway to Hell"}
+            ],
+            "field_confidence": _confidence("required_tracks"),
+        }
+    )
+    _ACTIVE_POLICY.set(policy)
+    _POLICY_BASE_TRACKS.set(())
+    _REPLACEMENT_MODE.set(False)
+    _REPLACEMENT_FINAL_COUNT.set(0)
+    generation_runtime._ACTIVE_RESOLUTION_QUOTAS.set(
+        (ArtistMinimumQuota("Metallica", 1),)
+    )
+    generation_runtime._REQUESTED_SESSION_COUNT.set(4)
+    generation_runtime._RESOLVED_SESSION_TRACKS.set(
+        (_track("Existing Artist", "Existing"),)
+    )
+
+    selected = guarded_select_resolved_tracks(
+        [
+            _track("General Artist", "General One"),
+            _track("Another Artist", "General Two"),
+        ],
+        youtube=_youtube(),
         artist_matches=artist_matches,
         quota_deficits=quota_deficits,
     )
@@ -180,4 +218,4 @@ def test_runtime_guards_are_installed_on_backend_import() -> None:
         constraint_relationships._verify_album_artist_pair.__module__
         == "backend.metadata_runtime"
     )
-    assert backend._select_resolved_tracks is select_resolved_tracks
+    assert backend._select_resolved_tracks is guarded_select_resolved_tracks
