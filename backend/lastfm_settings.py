@@ -15,6 +15,7 @@ LASTFM_SETTINGS_PATH = DATA_DIR / "lastfm.json"
 LASTFM_API_ROOT = "https://ws.audioscrobbler.com/2.0/"
 LASTFM_VALIDATION_TIMEOUT_SECONDS = 8.0
 _LASTFM_API_KEY_RE = re.compile(r"[0-9a-fA-F]{32}\Z")
+_LASTFM_INVALID_KEY_ERROR_CODES = frozenset({10, 26})
 
 
 def _normalize_api_key(api_key: str) -> str:
@@ -117,6 +118,13 @@ async def validated_lastfm_settings_response() -> dict[str, object]:
     )
 
 
+def _lastfm_error_code(payload: dict[str, Any]) -> int | None:
+    try:
+        return int(payload.get("error"))
+    except (TypeError, ValueError):
+        return None
+
+
 async def validate_lastfm_api_key(
     api_key: str,
     *,
@@ -139,14 +147,27 @@ async def validate_lastfm_api_key(
                 "format": "json",
             },
         )
+        try:
+            payload: Any = response.json()
+        except ValueError:
+            response.raise_for_status()
+            raise ValueError("Last.fm returned an invalid validation response.")
+
+        if isinstance(payload, dict) and payload.get("error") is not None:
+            error_code = _lastfm_error_code(payload)
+            if error_code in _LASTFM_INVALID_KEY_ERROR_CODES:
+                raise ValueError(
+                    "Last.fm rejected this API key. Check the key and try again."
+                )
+            response.raise_for_status()
+            message = str(payload.get("message", "")).strip()
+            raise RuntimeError(
+                message or "Last.fm could not validate the API key right now."
+            )
+
         response.raise_for_status()
-        payload: Any = response.json()
         if not isinstance(payload, dict):
             raise ValueError("Last.fm returned an invalid validation response.")
-        if payload.get("error"):
-            raise ValueError(
-                "Last.fm rejected this API key. Check the key and try again."
-            )
         if not isinstance(payload.get("artists"), dict):
             raise ValueError("Last.fm could not validate this API key.")
         return normalized
