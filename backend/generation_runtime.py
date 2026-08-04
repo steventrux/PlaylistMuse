@@ -201,59 +201,23 @@ def _select_resolved_tracks(
     artist_matches: Any,
     quota_deficits: Any,
 ) -> list[dict[str, Any]]:
-    """Select fresh resolved tracks while reserving unresolved quota capacity."""
-    requested = _REQUESTED_SESSION_COUNT.get()
-    if requested <= 0:
-        return resolved
+    """Apply the integrated policy-aware catalogue selection guard."""
+    from backend.selection_guard import guarded_select_resolved_tracks
 
-    accepted = list(_RESOLVED_SESSION_TRACKS.get())
-    accepted_keys = {
-        youtube.track_identity_key(
-            str(track.get("title", "")),
-            str(track.get("artists", track.get("artist", ""))),
-        )
-        for track in accepted
-    }
-    fresh: list[dict[str, Any]] = []
-    for track in resolved:
-        key = youtube.track_identity_key(
-            str(track.get("title", "")),
-            str(track.get("artists", track.get("artist", ""))),
-        )
-        if key and key not in accepted_keys:
-            accepted_keys.add(key)
-            fresh.append(track)
-
-    quotas = list(_ACTIVE_RESOLUTION_QUOTAS.get())
-    deficits = quota_deficits(accepted, quotas)
-    needed: list[dict[str, Any]] = []
-    general: list[dict[str, Any]] = []
-    for track in fresh:
-        artists = str(track.get("artists", track.get("artist", "")))
-        target = needed if any(
-            artist_matches(artists, deficit.artist) for deficit in deficits
-        ) else general
-        target.append(track)
-
-    selected = sorted(needed, key=lambda item: _diversity_rank(item, accepted))
-    deficits_after_needed = quota_deficits(accepted + selected, quotas)
-    reserved_slots = sum(item.minimum for item in deficits_after_needed)
-    general_capacity = max(
-        0, requested - len(accepted) - len(selected) - reserved_slots
+    return guarded_select_resolved_tracks(
+        resolved,
+        youtube=youtube,
+        artist_matches=artist_matches,
+        quota_deficits=quota_deficits,
     )
-    for track in sorted(
-        general, key=lambda item: _diversity_rank(item, accepted + selected)
-    ):
-        if len(selected) >= len(needed) + general_capacity:
-            break
-        selected.append(track)
-
-    _RESOLVED_SESSION_TRACKS.set(tuple(accepted + selected))
-    return selected
 
 
 def install_generation_wrappers() -> None:
     """Install request interpretation, timing and catalogue-selection wrappers once."""
+    from backend.runtime_fixes import install_pre_generation_fixes
+
+    install_pre_generation_fixes()
+
     from backend import lastfm_discovery, llm, youtube
     from backend.artist_quota_detection import (
         artist_matches,
@@ -268,10 +232,14 @@ def install_generation_wrappers() -> None:
         constraints_from_payload,
         extract_metadata_constraints,
     )
-    from backend.playlist_policy import (
-        apply_playlist_policy,
-        hard_allowed_artists,
-        policy_from_payload,
+    from backend.playlist_policy import hard_allowed_artists, policy_from_payload
+    from backend.policy_consistency import apply_playlist_policy
+    from backend.policy_enforcement import (
+        _ACTIVE_POLICY,
+        _POLICY_BASE_TRACKS,
+        _REPLACEMENT_FINAL_COUNT,
+        _REPLACEMENT_MODE,
+        parse_replacement_tracks,
     )
     from backend.prompt_validation import assess_interpretation, assess_prompt
     from backend.request_constraints import (
@@ -290,6 +258,18 @@ def install_generation_wrappers() -> None:
                 prompt, count
             )
             stage = _stage_name(optimized_prompt)
+            if stage == "llm_initial":
+                _ACTIVE_POLICY.set(None)
+                _POLICY_BASE_TRACKS.set(())
+                _REPLACEMENT_MODE.set(False)
+                _REPLACEMENT_FINAL_COUNT.set(0)
+            elif stage == "llm_replacement":
+                base_tracks, final_count = parse_replacement_tracks(optimized_prompt)
+                _ACTIVE_POLICY.set(None)
+                _POLICY_BASE_TRACKS.set(tuple(base_tracks))
+                _REPLACEMENT_MODE.set(True)
+                _REPLACEMENT_FINAL_COUNT.set(final_count)
+
             started_at = time.perf_counter()
             should_interpret = stage in {"llm_initial", "llm_replacement"}
             source_prompt = _constraint_source(optimized_prompt, stage)
@@ -386,6 +366,7 @@ def install_generation_wrappers() -> None:
                     policy = policy_from_payload(
                         interpreted, prompt=source_prompt
                     )
+                    _ACTIVE_POLICY.set(policy)
                     constraints.allowed_artists = hard_allowed_artists(
                         constraints.allowed_artists,
                         policy,
@@ -417,6 +398,17 @@ def install_generation_wrappers() -> None:
                         [asdict(item) for item in generation_deficits],
                         draft["prompt_assessment"],
                     )
+                else:
+                    active_policy = _ACTIVE_POLICY.get()
+                    if active_policy is not None:
+                        draft, _ = apply_playlist_policy(
+                            draft,
+                            active_policy,
+                            requested_count=max(
+                                optimized_count,
+                                len(draft.get("tracks", [])),
+                            ),
+                        )
                 return draft
             finally:
                 _log_stage(
