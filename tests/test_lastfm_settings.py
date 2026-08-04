@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 import backend.lastfm_settings as lastfm_settings
 import backend.main as main_module
+import backend.youtube_routes as youtube_routes
 
 
 def _use_temporary_settings(monkeypatch, tmp_path: Path) -> Path:
@@ -38,6 +39,11 @@ def test_lastfm_key_is_stored_securely_and_never_returned(monkeypatch, tmp_path)
 
 def test_lastfm_settings_routes_control_header_status(monkeypatch, tmp_path) -> None:
     _use_temporary_settings(monkeypatch, tmp_path)
+
+    async def accept_key(api_key: str) -> str:
+        return api_key
+
+    monkeypatch.setattr(youtube_routes, "validate_lastfm_api_key", accept_key)
     client = TestClient(main_module.app)
 
     initial = client.get("/api/lastfm/status")
@@ -72,6 +78,24 @@ def test_invalid_lastfm_key_is_not_saved(monkeypatch, tmp_path) -> None:
 
     assert response.status_code == 400
     assert "32-character" in response.json()["detail"]
+    assert not path.exists()
+
+
+def test_lastfm_rejected_key_is_not_saved(monkeypatch, tmp_path) -> None:
+    path = _use_temporary_settings(monkeypatch, tmp_path)
+
+    async def reject_key(_api_key: str) -> str:
+        raise ValueError("Last.fm rejected this API key. Check the key and try again.")
+
+    monkeypatch.setattr(youtube_routes, "validate_lastfm_api_key", reject_key)
+    client = TestClient(main_module.app)
+    response = client.put(
+        "/api/lastfm/settings",
+        json={"api_key": "abcdef0123456789abcdef0123456789"},
+    )
+
+    assert response.status_code == 400
+    assert "rejected" in response.json()["detail"]
     assert not path.exists()
 
 
