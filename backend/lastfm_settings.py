@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
+import re
 
 from backend.config import DATA_DIR
 from backend.storage import delete_file, read_json_object, write_secure_json
 
 LASTFM_SETTINGS_PATH = DATA_DIR / "lastfm.json"
+_LASTFM_API_KEY_RE = re.compile(r"[0-9a-fA-F]{32}\Z")
 
 
 def _saved_api_key() -> str:
@@ -37,10 +39,8 @@ def lastfm_settings_response() -> dict[str, object]:
 
 def save_lastfm_api_key(api_key: str) -> dict[str, object]:
     normalized = str(api_key or "").strip()
-    if len(normalized) < 8:
-        raise ValueError("Enter a valid Last.fm API key.")
-    if len(normalized) > 256:
-        raise ValueError("The Last.fm API key is too long.")
+    if not _LASTFM_API_KEY_RE.fullmatch(normalized):
+        raise ValueError("Enter a valid 32-character Last.fm API key.")
 
     write_secure_json(
         LASTFM_SETTINGS_PATH,
