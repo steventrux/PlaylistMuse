@@ -162,6 +162,12 @@
     state.pollTimer = window.setTimeout(pollAuthorization, state.pollInterval);
   }
 
+  function allowConnectionRetry() {
+    const connect = $('connect');
+    connect.disabled = false;
+    connect.textContent = 'Connect account';
+  }
+
   async function pollAuthorization() {
     try {
       const result = await readJson(await fetch('/api/youtube/connect/poll', {
@@ -186,9 +192,11 @@
         return;
       }
 
+      allowConnectionRetry();
       setAccountStatus(result.message || 'Google authorization was not completed.', 'error');
     } catch (error) {
       stopPolling();
+      allowConnectionRetry();
       setAccountStatus(error.message || String(error), 'error');
     }
   }
