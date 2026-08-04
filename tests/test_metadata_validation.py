@@ -4,6 +4,7 @@ from backend.metadata_validation import (
     MetadataConstraints,
     TrackMetadata,
     _album_matches,
+    _metadata_from_recording,
     _read_cache,
     _write_cache,
     constraints_from_payload,
@@ -184,6 +185,45 @@ def test_unknown_when_metadata_is_missing_or_match_is_weak():
         MetadataConstraints(release_year=2026, artist_country="IT"),
     )
     assert result.status == "unknown"
+
+
+def test_release_group_date_prevents_reissue_year_drift():
+    metadata = _metadata_from_recording(
+        {
+            "id": "crazy-train-recording",
+            "title": "Crazy Train",
+            "score": 100,
+            "artist-credit": [
+                {
+                    "name": "Ozzy Osbourne",
+                    "artist": {"name": "Ozzy Osbourne", "country": "GB"},
+                }
+            ],
+            "releases": [
+                {
+                    "title": "Blizzard of Ozz (40th Anniversary Expanded Edition)",
+                    "date": "2021-09-17",
+                    "release-group": {
+                        "id": "blizzard-of-ozz",
+                        "title": "Blizzard of Ozz",
+                        "first-release-date": "1980-09-20",
+                    },
+                }
+            ],
+        },
+        "Ozzy Osbourne",
+        "Crazy Train",
+    )
+
+    assert metadata.original_release_date == "1980-09-20"
+    assert metadata.original_release_year == 1980
+
+    result = validate_metadata(
+        metadata,
+        MetadataConstraints(release_year_from=1986, release_year_to=1999),
+    )
+    assert result.status == "invalid"
+    assert "release year 1980 is before 1986" in result.violations
 
 
 def test_sqlite_cache_round_trip(tmp_path: Path):
