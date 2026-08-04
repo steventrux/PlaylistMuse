@@ -11,8 +11,8 @@ from backend.metadata_runtime import (
 from backend.policy_enforcement import (
     apply_playlist_policy,
     install_generation_policy_wrapper,
-    select_resolved_tracks,
 )
+from backend.selection_guard import guarded_select_resolved_tracks
 from backend.validation_fixes import (
     quota_extractor,
     safe_error_message,
@@ -47,7 +47,7 @@ def install_pre_generation_fixes() -> None:
     metadata_validation._rate_limited_get = metadata_rate_limited_get
     entity_resolution._search_artist = search_artist
     constraint_relationships._verify_album_artist_pair = verify_album_artist_pair
-    generation_runtime._select_resolved_tracks = select_resolved_tracks
+    generation_runtime._select_resolved_tracks = guarded_select_resolved_tracks
     install_pre_generation_fixes._installed = True  # type: ignore[attr-defined]
 
 
