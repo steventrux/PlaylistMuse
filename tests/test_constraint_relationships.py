@@ -38,13 +38,25 @@ def test_album_artist_pair_is_verified_with_composite_query(monkeypatch):
     client = _Client()
     writes: list[tuple[str, str, dict]] = []
 
+    async def fake_rate_limited_get(
+        active_client: _Client,
+        url: str,
+        *,
+        params: dict[str, str],
+    ) -> _Response:
+        return await active_client.get(url, params=params)
+
     monkeypatch.setattr(constraint_relationships, "_read_cache", lambda *_args: None)
     monkeypatch.setattr(
         constraint_relationships,
         "_write_cache",
         lambda album, artist, payload: writes.append((album, artist, payload)),
     )
-    monkeypatch.setattr(constraint_relationships, "_LAST_REQUEST_AT", 0.0)
+    monkeypatch.setattr(
+        constraint_relationships,
+        "rate_limited_get",
+        fake_rate_limited_get,
+    )
 
     result = asyncio.run(
         constraint_relationships._verify_album_artist_pair(
