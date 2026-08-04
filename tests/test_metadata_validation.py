@@ -5,6 +5,7 @@ from backend.metadata_validation import (
     TrackMetadata,
     _album_matches,
     _metadata_from_recording,
+    _select_best_metadata,
     _read_cache,
     _write_cache,
     constraints_from_payload,
@@ -224,6 +225,71 @@ def test_release_group_date_prevents_reissue_year_drift():
     )
     assert result.status == "invalid"
     assert "release year 1980 is before 1986" in result.violations
+
+
+def test_recording_selection_prefers_original_over_higher_scored_reissue():
+    original = _metadata_from_recording(
+        {
+            "id": "original-recording",
+            "title": "Crazy Train",
+            "score": 98,
+            "artist-credit": [
+                {
+                    "name": "Ozzy Osbourne",
+                    "artist": {"name": "Ozzy Osbourne", "country": "GB"},
+                }
+            ],
+            "releases": [
+                {
+                    "title": "Blizzard of Ozz",
+                    "date": "1980-09-20",
+                    "release-group": {
+                        "id": "original-release-group",
+                        "title": "Blizzard of Ozz",
+                        "first-release-date": "1980-09-20",
+                    },
+                }
+            ],
+        },
+        "Ozzy Osbourne",
+        "Crazy Train",
+    )
+    reissue = _metadata_from_recording(
+        {
+            "id": "reissue-recording",
+            "title": "Crazy Train",
+            "score": 100,
+            "artist-credit": [
+                {
+                    "name": "Ozzy Osbourne",
+                    "artist": {"name": "Ozzy Osbourne", "country": "GB"},
+                }
+            ],
+            "releases": [
+                {
+                    "title": "Blizzard of Ozz (40th Anniversary Expanded Edition)",
+                    "date": "2021-09-17",
+                    "release-group": {
+                        "id": "reissue-release-group",
+                        "title": "Blizzard of Ozz (40th Anniversary Expanded Edition)",
+                        "first-release-date": "2021-09-17",
+                    },
+                }
+            ],
+        },
+        "Ozzy Osbourne",
+        "Crazy Train",
+    )
+
+    selected = _select_best_metadata([reissue, original])
+
+    assert selected.recording_mbid == "original-recording"
+    assert selected.original_release_year == 1980
+    result = validate_metadata(
+        selected,
+        MetadataConstraints(release_year_from=1986, release_year_to=1999),
+    )
+    assert result.status == "invalid"
 
 
 def test_sqlite_cache_round_trip(tmp_path: Path):
