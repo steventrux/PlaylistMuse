@@ -2,10 +2,8 @@ import asyncio
 
 import pytest
 
-from backend.metadata_runtime import (
-    MetadataServiceUnavailableError,
-    metadata_filter,
-)
+from backend.metadata_runtime import MetadataServiceUnavailableError
+from backend.youtube import _metadata_filter as metadata_filter
 from backend.metadata_validation import (
     TrackMetadata,
     ValidationResult,

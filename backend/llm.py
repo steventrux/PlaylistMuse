@@ -260,8 +260,6 @@ def _safe_provider_message(provider: str, response: httpx.Response) -> str:
 
 def safe_error_message(error: Exception) -> str:
     """Return a concise public error without URLs, keys, request bodies or trace detail."""
-    if isinstance(error, ProviderRequestError):
-        return str(error)
     text = str(error)
     text = _URL_RE.sub("", text)
     text = _API_KEY_RE.sub("[redacted]", text)
