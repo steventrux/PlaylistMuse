@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import sqlite3
@@ -12,6 +11,7 @@ from typing import Any
 
 import httpx
 
+from backend.musicbrainz_client import rate_limited_get
 from backend.text_normalization import normalize_identity
 
 API_ROOT = "https://musicbrainz.org/ws/2"
@@ -20,8 +20,6 @@ CACHE_TTL_SECONDS = 180 * 24 * 60 * 60
 NEGATIVE_CACHE_TTL_SECONDS = 24 * 60 * 60
 MIN_API_SCORE = 90
 MAX_NAMES_PER_REQUEST = 8
-_REQUEST_LOCK = asyncio.Lock()
-_LAST_REQUEST_AT = 0.0
 
 
 def _cache_path() -> Path:
@@ -104,7 +102,11 @@ def _artist_credit_names(item: dict[str, Any]) -> list[str]:
         if not isinstance(credit, dict):
             continue
         artist = credit.get("artist")
-        name = str(artist.get("name", "")).strip() if isinstance(artist, dict) else ""
+        name = (
+            str(artist.get("name", "")).strip()
+            if isinstance(artist, dict)
+            else ""
+        )
         name = name or str(credit.get("name", "")).strip()
         if name and name not in names:
             names.append(name)
@@ -116,24 +118,19 @@ async def _verify_album_artist_pair(
     artist: str,
     client: httpx.AsyncClient,
 ) -> dict[str, Any]:
-    global _LAST_REQUEST_AT
     cached = _read_cache(album, artist)
     if cached is not None:
         return cached
 
-    async with _REQUEST_LOCK:
-        delay = 1.05 - (time.monotonic() - _LAST_REQUEST_AT)
-        if delay > 0:
-            await asyncio.sleep(delay)
-        response = await client.get(
-            f"{API_ROOT}/release-group",
-            params={
-                "query": f'releasegroup:"{album}" AND artist:"{artist}"',
-                "fmt": "json",
-                "limit": "8",
-            },
-        )
-        _LAST_REQUEST_AT = time.monotonic()
+    response = await rate_limited_get(
+        client,
+        f"{API_ROOT}/release-group",
+        params={
+            "query": f'releasegroup:"{album}" AND artist:"{artist}"',
+            "fmt": "json",
+            "limit": "8",
+        },
+    )
     response.raise_for_status()
 
     expected_album = normalize_identity(album)
@@ -147,7 +144,10 @@ async def _verify_album_artist_pair(
         if normalize_identity(str(item.get("title", ""))) != expected_album:
             continue
         credited = _artist_credit_names(item)
-        if not any(normalize_identity(name) == expected_artist for name in credited):
+        if not any(
+            normalize_identity(name) == expected_artist
+            for name in credited
+        ):
             continue
         matches.append(item)
 
@@ -196,7 +196,11 @@ async def find_album_artist_conflict(
         ) as client:
             for album in albums:
                 for artist in excluded_artists:
-                    relationship = await _verify_album_artist_pair(album, artist, client)
+                    relationship = await _verify_album_artist_pair(
+                        album,
+                        artist,
+                        client,
+                    )
                     if relationship.get("matches"):
                         return str(relationship.get("album", album)), artist
     except httpx.HTTPError:
