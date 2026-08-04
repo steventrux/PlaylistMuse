@@ -5,7 +5,6 @@ from __future__ import annotations
 import math
 import re
 from contextvars import ContextVar
-from functools import wraps
 from typing import Any
 
 _ACTIVE_POLICY: ContextVar[Any | None] = ContextVar(
@@ -476,44 +475,3 @@ def select_resolved_tracks(
 
     runtime._RESOLVED_SESSION_TRACKS.set(tuple([*accepted, *selected]))
     return selected
-
-
-def install_generation_policy_wrapper() -> None:
-    """Keep interpreted policy active across Last.fm and replenishment passes."""
-    from backend import generation_runtime, llm
-
-    current = llm.generate_playlist_draft
-    if getattr(current, "_playlistmuse_policy_persistence_wrapper", False):
-        return
-
-    @wraps(current)
-    async def wrapped(
-        config: Any,
-        prompt: str,
-        count: int,
-    ) -> dict[str, Any]:
-        stage = generation_runtime._stage_name(prompt)
-        if stage == "llm_initial":
-            _ACTIVE_POLICY.set(None)
-            _POLICY_BASE_TRACKS.set(())
-            _REPLACEMENT_MODE.set(False)
-            _REPLACEMENT_FINAL_COUNT.set(0)
-        elif stage == "llm_replacement":
-            base_tracks, final_count = parse_replacement_tracks(prompt)
-            _ACTIVE_POLICY.set(None)
-            _POLICY_BASE_TRACKS.set(tuple(base_tracks))
-            _REPLACEMENT_MODE.set(True)
-            _REPLACEMENT_FINAL_COUNT.set(final_count)
-
-        draft = await current(config, prompt, count)
-        policy = _ACTIVE_POLICY.get()
-        if stage in {"llm_guided", "llm_replenishment"} and policy is not None:
-            draft, _ = apply_playlist_policy(
-                draft,
-                policy,
-                requested_count=max(count, len(draft.get("tracks", []))),
-            )
-        return draft
-
-    wrapped._playlistmuse_policy_persistence_wrapper = True  # type: ignore[attr-defined]
-    llm.generate_playlist_draft = wrapped
