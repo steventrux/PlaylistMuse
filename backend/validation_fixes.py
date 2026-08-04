@@ -11,64 +11,163 @@ _QUOTA_CLAUSE_SEPARATOR_RE = re.compile(
     r"\d{1,3}\s+(?:canzoni|brani|tracce|pezzi|songs|tracks)\b)",
     re.IGNORECASE,
 )
+_TEMPORAL_UNION_RE = re.compile(
+    r"(?:\b(?:e|o|oppure|and|or|et|ou|y|und|oder)\b|[/;])",
+    re.IGNORECASE,
+)
+
+
+def _temporal_failure(
+    module: Any,
+    prompt: str,
+    lower: int | None,
+    upper: int | None,
+) -> Any:
+    if module._ITALIAN_HINT_RE.search(prompt):
+        if lower is not None and upper is not None:
+            reason = (
+                "I vincoli temporali sono incompatibili: richiedono contemporaneamente "
+                f"brani non precedenti al {lower} e non successivi al {upper}."
+            )
+        else:
+            reason = (
+                "I periodi e i limiti temporali richiesti non hanno alcuna "
+                "sovrapposizione valida."
+            )
+    elif lower is not None and upper is not None:
+        reason = (
+            "The date constraints are incompatible: they require tracks released no earlier "
+            f"than {lower} and no later than {upper}."
+        )
+    else:
+        reason = "The requested periods and date limits have no valid overlap."
+    return module.PromptAssessment(status="impossible", reasons=(reason,))
+
+
+def _bounded_periods(module: Any, prompt: str) -> list[tuple[int, int, int, int]]:
+    periods: list[tuple[int, int, int, int]] = []
+    for match in module._DECADE_RE.finditer(prompt):
+        value = match.group(1) or match.group(2)
+        lower, upper = module._decade_bounds(value)
+        periods.append((match.start(), match.end(), lower, upper))
+    for match in module._RANGE_RE.finditer(prompt):
+        lower, upper = sorted((int(match.group(1)), int(match.group(2))))
+        periods.append((match.start(), match.end(), lower, upper))
+    return sorted(periods, key=lambda item: (item[0], item[1]))
+
+
+def _combine_periods(
+    prompt: str,
+    periods: list[tuple[int, int, int, int]],
+) -> tuple[list[tuple[int, int]], tuple[int, int] | None]:
+    if not periods:
+        return [], None
+
+    _, previous_end, lower, upper = periods[0]
+    alternatives = [(lower, upper)]
+    contradiction: tuple[int, int] | None = None
+
+    for start, end, next_lower, next_upper in periods[1:]:
+        separator = prompt[previous_end:start]
+        previous_end = end
+        if _TEMPORAL_UNION_RE.search(separator):
+            alternatives.append((next_lower, next_upper))
+            continue
+
+        intersected: list[tuple[int, int]] = []
+        for current_lower, current_upper in alternatives:
+            combined_lower = max(current_lower, next_lower)
+            combined_upper = min(current_upper, next_upper)
+            if combined_lower <= combined_upper:
+                intersected.append((combined_lower, combined_upper))
+            elif contradiction is None:
+                contradiction = (combined_lower, combined_upper)
+        alternatives = intersected
+        if not alternatives:
+            break
+
+    return alternatives, contradiction
 
 
 def temporal_assessment(prompt: str) -> Any | None:
-    """Reject true temporal intersections, not unions of multiple periods."""
+    """Validate unions of periods while intersecting additional date limits."""
     from backend import prompt_validation as module
 
-    decade_matches = list(module._DECADE_RE.finditer(prompt))
-    range_matches = list(module._RANGE_RE.finditer(prompt))
-    if len(decade_matches) + len(range_matches) > 1:
-        return None
+    periods = _bounded_periods(module, prompt)
+    alternatives, contradiction = _combine_periods(prompt, periods)
+    if periods and not alternatives:
+        lower, upper = contradiction or (None, None)
+        return _temporal_failure(module, prompt, lower, upper)
 
-    lower_bounds: list[int] = []
-    upper_bounds: list[int] = []
-    for match in decade_matches:
-        value = match.group(1) or match.group(2)
-        lower, upper = module._decade_bounds(value)
-        lower_bounds.append(lower)
-        upper_bounds.append(upper)
-    for match in range_matches:
-        first, second = sorted((int(match.group(1)), int(match.group(2))))
-        lower_bounds.append(first)
-        upper_bounds.append(second)
-
-    lower_bounds.extend(
+    lower_bounds = [
         int(match.group(1)) + 1
         for match in module._AFTER_RE.finditer(prompt)
-    )
+    ]
     lower_bounds.extend(
         int(match.group(1))
         for match in module._FROM_ONWARD_RE.finditer(prompt)
     )
-    upper_bounds.extend(
+    upper_bounds = [
         int(match.group(1)) - 1
         for match in module._BEFORE_RE.finditer(prompt)
-    )
+    ]
     upper_bounds.extend(
         int(match.group(1))
         for match in module._UNTIL_RE.finditer(prompt)
     )
 
-    if not lower_bounds or not upper_bounds:
-        return None
-    effective_lower = max(lower_bounds)
-    effective_upper = min(upper_bounds)
-    if effective_lower <= effective_upper:
+    global_lower = max(lower_bounds) if lower_bounds else None
+    global_upper = min(upper_bounds) if upper_bounds else None
+    if (
+        global_lower is not None
+        and global_upper is not None
+        and global_lower > global_upper
+    ):
+        return _temporal_failure(
+            module,
+            prompt,
+            global_lower,
+            global_upper,
+        )
+
+    if not alternatives:
         return None
 
-    if module._ITALIAN_HINT_RE.search(prompt):
-        reason = (
-            "I vincoli temporali sono incompatibili: richiedono contemporaneamente "
-            f"brani non precedenti al {effective_lower} e non successivi al {effective_upper}."
+    constrained: list[tuple[int, int]] = []
+    for period_lower, period_upper in alternatives:
+        effective_lower = max(
+            period_lower,
+            global_lower if global_lower is not None else period_lower,
         )
-    else:
-        reason = (
-            "The date constraints are incompatible: they require tracks released no earlier "
-            f"than {effective_lower} and no later than {effective_upper}."
+        effective_upper = min(
+            period_upper,
+            global_upper if global_upper is not None else period_upper,
         )
-    return module.PromptAssessment(status="impossible", reasons=(reason,))
+        if effective_lower <= effective_upper:
+            constrained.append((effective_lower, effective_upper))
+
+    if constrained:
+        return None
+
+    if global_lower is not None and all(
+        period_upper < global_lower for _, period_upper in alternatives
+    ):
+        return _temporal_failure(
+            module,
+            prompt,
+            global_lower,
+            max(period_upper for _, period_upper in alternatives),
+        )
+    if global_upper is not None and all(
+        period_lower > global_upper for period_lower, _ in alternatives
+    ):
+        return _temporal_failure(
+            module,
+            prompt,
+            min(period_lower for period_lower, _ in alternatives),
+            global_upper,
+        )
+    return _temporal_failure(module, prompt, global_lower, global_upper)
 
 
 def quota_extractor(
