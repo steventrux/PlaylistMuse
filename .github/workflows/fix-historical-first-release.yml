@@ -1,0 +1,412 @@
+name: Fix historical first release
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - .github/workflows/fix-historical-first-release.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out dev
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Apply historical first-release lookup
+        shell: python
+        run: |
+          from pathlib import Path
+          from textwrap import dedent
+
+          module_path = Path("backend/metadata_validation.py")
+          text = module_path.read_text(encoding="utf-8")
+
+          if 'METADATA_CACHE_VERSION = "4"' not in text:
+              raise SystemExit("Unexpected metadata cache version")
+          text = text.replace(
+              'METADATA_CACHE_VERSION = "4"',
+              'METADATA_CACHE_VERSION = "5"',
+              1,
+          )
+
+          insertion_marker = '''\n\nasync def lookup_track_metadata(\n'''
+          helper = dedent(
+              '''
+
+              def _historical_probe_cutoff(
+                  metadata: TrackMetadata,
+                  constraints: MetadataConstraints,
+              ) -> int | None:
+                  """Return the latest year needed to resolve an earlier first release."""
+                  year = metadata.original_release_year
+                  if constraints.release_year is not None:
+                      return constraints.release_year
+                  if (
+                      constraints.release_year_from is not None
+                      and constraints.release_year_to is not None
+                  ):
+                      return constraints.release_year_to
+                  if constraints.release_year_from is not None:
+                      if year is None or year >= constraints.release_year_from:
+                          return constraints.release_year_from - 1
+                      return None
+                  if constraints.release_year_to is not None:
+                      if year is None or year > constraints.release_year_to:
+                          return constraints.release_year_to
+                  return None
+
+
+              async def _lookup_historical_metadata(
+                  artist: str,
+                  title: str,
+                  cutoff_year: int,
+                  *,
+                  client: httpx.AsyncClient | None = None,
+              ) -> TrackMetadata | None:
+                  """Find the earliest reliable recording released no later than cutoff."""
+                  owns_client = client is None
+                  active_client = client or httpx.AsyncClient(
+                      timeout=httpx.Timeout(8.0),
+                      headers={
+                          "User-Agent": USER_AGENT,
+                          "Accept": "application/json",
+                      },
+                  )
+                  try:
+                      query = (
+                          f'recording:"{title}" AND artist:"{artist}" AND '
+                          f'firstreleasedate:[* TO {cutoff_year}-12-31] AND status:official'
+                      )
+                      response = await _rate_limited_get(
+                          active_client,
+                          {
+                              "query": query,
+                              "fmt": "json",
+                              "limit": "100",
+                              "inc": "artists+releases+release-groups+isrcs",
+                          },
+                      )
+                      response.raise_for_status()
+                      recordings = [
+                          item
+                          for item in response.json().get("recordings", [])
+                          if isinstance(item, dict)
+                      ]
+                      if not recordings:
+                          return None
+                      metadata = _select_best_metadata(
+                          [
+                              _metadata_from_recording(item, artist, title)
+                              for item in recordings
+                          ]
+                      )
+                      return (
+                          metadata
+                          if metadata.match_score >= MIN_MATCH_SCORE
+                          else None
+                      )
+                  except (httpx.HTTPError, ValueError, TypeError):
+                      return None
+                  finally:
+                      if owns_client:
+                          await active_client.aclose()
+              '''
+          ).rstrip()
+          if text.count(insertion_marker) != 1:
+              raise SystemExit("Could not locate historical helper insertion point")
+          text = text.replace(insertion_marker, helper + insertion_marker, 1)
+
+          old_validate = dedent(
+              '''
+              async def validate_candidate(
+                  candidate: dict[str, Any],
+                  constraints: MetadataConstraints,
+                  *,
+                  client: httpx.AsyncClient | None = None,
+                  cache_path: Path | None = None,
+              ) -> ValidationResult:
+                  artist = str(candidate.get("artist", candidate.get("artists", ""))).strip()
+                  title = str(candidate.get("title", "")).strip()
+                  metadata = await lookup_track_metadata(
+                      artist,
+                      title,
+                      client=client,
+                      cache_path=cache_path,
+                  )
+                  return validate_metadata(metadata, constraints)
+              '''
+          ).strip()
+          new_validate = dedent(
+              '''
+              async def validate_candidate(
+                  candidate: dict[str, Any],
+                  constraints: MetadataConstraints,
+                  *,
+                  client: httpx.AsyncClient | None = None,
+                  cache_path: Path | None = None,
+              ) -> ValidationResult:
+                  artist = str(candidate.get("artist", candidate.get("artists", ""))).strip()
+                  title = str(candidate.get("title", "")).strip()
+                  metadata = await lookup_track_metadata(
+                      artist,
+                      title,
+                      client=client,
+                      cache_path=cache_path,
+                  )
+
+                  cutoff = _historical_probe_cutoff(metadata, constraints)
+                  if cutoff is not None:
+                      historical = await _lookup_historical_metadata(
+                          artist,
+                          title,
+                          cutoff,
+                          client=client,
+                      )
+                      if historical is not None and (
+                          metadata.original_release_date is None
+                          or _date_key(historical.original_release_date)
+                          < _date_key(metadata.original_release_date)
+                      ):
+                          metadata = historical
+                          ttl = (
+                              RECENT_TTL_SECONDS
+                              if metadata.original_release_year
+                              and metadata.original_release_year
+                              >= time.gmtime().tm_year - 1
+                              else DEFAULT_TTL_SECONDS
+                          )
+                          try:
+                              _write_cache(metadata, ttl=ttl, path=cache_path)
+                          except sqlite3.Error:
+                              pass
+
+                  return validate_metadata(metadata, constraints)
+              '''
+          ).strip()
+          if text.count(old_validate) != 1:
+              raise SystemExit("Could not locate validate_candidate implementation")
+          text = text.replace(old_validate, new_validate, 1)
+          module_path.write_text(text, encoding="utf-8")
+
+          test_path = Path("tests/test_metadata_historical_probe.py")
+          test_path.write_text(
+              dedent(
+                  '''
+                  import asyncio
+
+                  import backend.metadata_validation as metadata_validation
+                  from backend.metadata_validation import (
+                      MetadataConstraints,
+                      TrackMetadata,
+                      validate_candidate,
+                  )
+
+
+                  class StubResponse:
+                      def __init__(self, payload: dict) -> None:
+                          self._payload = payload
+
+                      def raise_for_status(self) -> None:
+                          return None
+
+                      def json(self) -> dict:
+                          return self._payload
+
+
+                  def _recording(
+                      *,
+                      recording_id: str,
+                      artist: str,
+                      title: str,
+                      api_score: int,
+                      release_title: str,
+                      release_date: str,
+                  ) -> dict:
+                      return {
+                          "id": recording_id,
+                          "title": title,
+                          "score": api_score,
+                          "artist-credit": [
+                              {
+                                  "name": artist,
+                                  "artist": {"name": artist},
+                              }
+                          ],
+                          "releases": [
+                              {
+                                  "title": release_title,
+                                  "date": release_date,
+                                  "release-group": {
+                                      "id": f"{recording_id}-group",
+                                      "title": release_title,
+                                      "first-release-date": release_date,
+                                  },
+                              }
+                          ],
+                      }
+
+
+                  def test_historical_probe_rejects_compilation_date_false_positive(
+                      monkeypatch,
+                      tmp_path,
+                  ):
+                      initial = TrackMetadata(
+                          artist="Survivor",
+                          title="Eye of the Tiger",
+                          recording_mbid="compilation-recording",
+                          original_release_date="1993-02-09",
+                          original_release_year=1993,
+                          matched_artist="Survivor",
+                          release_titles=["Ces années-là : 1976/1985"],
+                          match_score=1.0,
+                          confidence="high",
+                      )
+
+                      async def fake_lookup(*args, **kwargs):
+                          return initial
+
+                      async def fake_get(client, params):
+                          assert "firstreleasedate:[* TO 1999-12-31]" in params["query"]
+                          return StubResponse(
+                              {
+                                  "recordings": [
+                                      _recording(
+                                          recording_id="original-recording",
+                                          artist="Survivor",
+                                          title="Eye of the Tiger",
+                                          api_score=35,
+                                          release_title="Eye of the Tiger",
+                                          release_date="1982-05-29",
+                                      )
+                                  ]
+                              }
+                          )
+
+                      monkeypatch.setattr(
+                          metadata_validation,
+                          "lookup_track_metadata",
+                          fake_lookup,
+                      )
+                      monkeypatch.setattr(
+                          metadata_validation,
+                          "_rate_limited_get",
+                          fake_get,
+                      )
+
+                      result = asyncio.run(
+                          validate_candidate(
+                              {"artist": "Survivor", "title": "Eye of the Tiger"},
+                              MetadataConstraints(
+                                  release_year_from=1986,
+                                  release_year_to=1999,
+                              ),
+                              cache_path=tmp_path / "metadata.sqlite3",
+                          )
+                      )
+
+                      assert result.status == "invalid"
+                      assert result.metadata.original_release_year == 1982
+                      assert "release year 1982 is before 1986" in result.violations
+
+
+                  def test_historical_probe_keeps_reissue_when_original_is_in_range(
+                      monkeypatch,
+                      tmp_path,
+                  ):
+                      initial = TrackMetadata(
+                          artist="Example Artist",
+                          title="Example Song",
+                          recording_mbid="reissue-recording",
+                          original_release_date="2020-06-01",
+                          original_release_year=2020,
+                          matched_artist="Example Artist",
+                          release_titles=["Example Song (2020 Remaster)"],
+                          match_score=1.0,
+                          confidence="high",
+                      )
+
+                      async def fake_lookup(*args, **kwargs):
+                          return initial
+
+                      async def fake_get(client, params):
+                          assert "firstreleasedate:[* TO 1999-12-31]" in params["query"]
+                          return StubResponse(
+                              {
+                                  "recordings": [
+                                      _recording(
+                                          recording_id="original-recording",
+                                          artist="Example Artist",
+                                          title="Example Song",
+                                          api_score=40,
+                                          release_title="Example Album",
+                                          release_date="1988-03-12",
+                                      )
+                                  ]
+                              }
+                          )
+
+                      monkeypatch.setattr(
+                          metadata_validation,
+                          "lookup_track_metadata",
+                          fake_lookup,
+                      )
+                      monkeypatch.setattr(
+                          metadata_validation,
+                          "_rate_limited_get",
+                          fake_get,
+                      )
+
+                      result = asyncio.run(
+                          validate_candidate(
+                              {"artist": "Example Artist", "title": "Example Song"},
+                              MetadataConstraints(
+                                  release_year_from=1986,
+                                  release_year_to=1999,
+                              ),
+                              cache_path=tmp_path / "metadata.sqlite3",
+                          )
+                      )
+
+                      assert result.status == "valid"
+                      assert result.metadata.original_release_year == 1988
+                  '''
+              ).lstrip(),
+              encoding="utf-8",
+          )
+
+      - name: Compile Python sources
+        run: python -m compileall -q backend tests
+
+      - name: Run Ruff
+        run: ruff check --select E4,E7,E9,F backend tests
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/metadata_validation.py tests/test_metadata_historical_probe.py
+          git diff --cached --quiet && exit 0
+          git commit -m "Probe historical first releases for temporal validation"
+          git push origin HEAD:dev
