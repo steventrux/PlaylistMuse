@@ -27,7 +27,7 @@ NEGATIVE_TTL_SECONDS = 24 * 60 * 60
 MIN_MATCH_SCORE = 0.78
 HIGH_MATCH_SCORE = 0.90
 MIN_CONSTRAINT_CONFIDENCE = 0.85
-METADATA_CACHE_VERSION = "4"
+METADATA_CACHE_VERSION = "5"
 
 ValidationStatus = Literal["valid", "invalid", "unknown"]
 
@@ -607,6 +607,84 @@ async def _rate_limited_get(
     )
 
 
+def _historical_probe_cutoff(
+    metadata: TrackMetadata,
+    constraints: MetadataConstraints,
+) -> int | None:
+    """Return the latest year needed to resolve an earlier first release."""
+    year = metadata.original_release_year
+    if constraints.release_year is not None:
+        return constraints.release_year
+    if (
+        constraints.release_year_from is not None
+        and constraints.release_year_to is not None
+    ):
+        return constraints.release_year_to
+    if constraints.release_year_from is not None:
+        if year is None or year >= constraints.release_year_from:
+            return constraints.release_year_from - 1
+        return None
+    if constraints.release_year_to is not None:
+        if year is None or year > constraints.release_year_to:
+            return constraints.release_year_to
+    return None
+
+
+async def _lookup_historical_metadata(
+    artist: str,
+    title: str,
+    cutoff_year: int,
+    *,
+    client: httpx.AsyncClient | None = None,
+) -> TrackMetadata | None:
+    """Find the earliest reliable recording released no later than cutoff."""
+    owns_client = client is None
+    active_client = client or httpx.AsyncClient(
+        timeout=httpx.Timeout(8.0),
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept": "application/json",
+        },
+    )
+    try:
+        query = (
+            f'recording:"{title}" AND artist:"{artist}" AND '
+            f'firstreleasedate:[* TO {cutoff_year}-12-31] AND status:official'
+        )
+        response = await _rate_limited_get(
+            active_client,
+            {
+                "query": query,
+                "fmt": "json",
+                "limit": "100",
+                "inc": "artists+releases+release-groups+isrcs",
+            },
+        )
+        response.raise_for_status()
+        recordings = [
+            item
+            for item in response.json().get("recordings", [])
+            if isinstance(item, dict)
+        ]
+        if not recordings:
+            return None
+        metadata = _select_best_metadata(
+            [
+                _metadata_from_recording(item, artist, title)
+                for item in recordings
+            ]
+        )
+        return (
+            metadata
+            if metadata.match_score >= MIN_MATCH_SCORE
+            else None
+        )
+    except (httpx.HTTPError, ValueError, TypeError):
+        return None
+    finally:
+        if owns_client:
+            await active_client.aclose()
+
 async def lookup_track_metadata(
     artist: str,
     title: str,
@@ -807,4 +885,31 @@ async def validate_candidate(
         client=client,
         cache_path=cache_path,
     )
+
+    cutoff = _historical_probe_cutoff(metadata, constraints)
+    if cutoff is not None:
+        historical = await _lookup_historical_metadata(
+            artist,
+            title,
+            cutoff,
+            client=client,
+        )
+        if historical is not None and (
+            metadata.original_release_date is None
+            or _date_key(historical.original_release_date)
+            < _date_key(metadata.original_release_date)
+        ):
+            metadata = historical
+            ttl = (
+                RECENT_TTL_SECONDS
+                if metadata.original_release_year
+                and metadata.original_release_year
+                >= time.gmtime().tm_year - 1
+                else DEFAULT_TTL_SECONDS
+            )
+            try:
+                _write_cache(metadata, ttl=ttl, path=cache_path)
+            except sqlite3.Error:
+                pass
+
     return validate_metadata(metadata, constraints)
