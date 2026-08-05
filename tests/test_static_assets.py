@@ -127,14 +127,14 @@ def test_first_run_setup_is_persistent_and_two_step() -> None:
     assert "playlistmuse-youtube-settings-opened" in youtube_account
 
 
-def test_home_and_results_share_narrower_content_width_and_complete_wordmark() -> None:
+def test_header_home_and_results_share_content_width() -> None:
     index = _html("index.html")
     playlist = _html("playlist.html")
     layout = _style("layout.css")
 
-    assert '<link rel="stylesheet" href="/static/layout.css?v=4">' in index
-    assert '<link rel="stylesheet" href="/static/layout.css?v=4">' in playlist
-    assert "main,\n.playlist-shell" in layout
+    assert '<link rel="stylesheet" href="/static/layout.css?v=5">' in index
+    assert '<link rel="stylesheet" href="/static/layout.css?v=5">' in playlist
+    assert ".app-header,\nmain,\n.playlist-shell" in layout
     assert "width: min(860px, calc(100% - 32px));" in layout
     assert ".hero" in layout
     assert "max-width: none" in layout
