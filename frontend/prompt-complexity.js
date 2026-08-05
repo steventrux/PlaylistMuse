@@ -14,7 +14,7 @@
 
   function clarityText(result) {
     const level = String(result.clarity_level || '');
-    if (level.toLowerCase() === 'excellent') return `Clarity: ${level}`;
+    if (['excellent', 'good'].includes(level.toLowerCase())) return `Clarity: ${level}`;
     const issues = Array.isArray(result.issues) ? result.issues : [];
     const issueSummary = issues.length ? ` · ${issues.join(' · ')}` : '';
     return `Clarity: ${level}${issueSummary}`;
