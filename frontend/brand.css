@@ -1,31 +1,40 @@
-/* Shared PlaylistMuse logo lockup. */
+/* Shared PlaylistMuse header banner. */
 
 .brand-lockup {
   display: flex;
   align-items: center;
-  gap: 14px;
   min-width: 0;
+  max-width: 400px;
+  flex: 1 1 auto;
 }
 
-.brand-logo {
+.brand-banner {
   display: block;
-  width: 54px;
-  height: 68px;
-  flex: 0 0 auto;
-  object-fit: contain;
+  width: 100%;
+  height: auto;
+  max-width: 400px;
+  flex: 0 1 auto;
 }
 
 .brand-copy {
   min-width: 0;
 }
 
-@media (max-width: 650px) {
-  .brand-lockup {
-    gap: 10px;
-  }
+.brand-copy-accessible {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 
-  .brand-logo {
-    width: 44px;
-    height: 56px;
+@media (max-width: 650px) {
+  .brand-lockup,
+  .brand-banner {
+    max-width: 250px;
   }
 }

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from hashlib import sha256
+
 import re
 from pathlib import Path
 
@@ -42,13 +44,13 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
         '<script src="/static/youtube-account.js?v=5"></script>'
     )
     assert index.index(common) < index.index(
-        '<script src="/static/home-status.js?v=13"></script>'
+        '<script src="/static/home-status.js?v=14"></script>'
     )
     assert generation_state in index
     assert index.index(generation_state) < index.index(app)
     assert index.index(common) < index.index(app)
     assert '<script src="/static/prompt-complexity.js?v=6"></script>' in index
-    assert index.index('<script src="/static/home-status.js?v=13"></script>') < (
+    assert index.index('<script src="/static/home-status.js?v=14"></script>') < (
         index.index(app)
     )
 
@@ -56,7 +58,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     ai_settings = '<script src="/static/ai-settings.js?v=12"></script>'
     home_status = (
         '<script data-playlistmuse-footer-status '
-        'src="/static/home-status.js?v=13"></script>'
+        'src="/static/home-status.js?v=14"></script>'
     )
     assert playlist.index(common) < playlist.index(ai_results)
     assert playlist.index(ai_results) < playlist.index(ai_settings)
@@ -166,6 +168,28 @@ def test_seed_guidance_follows_search_and_selection() -> None:
     assert "This playlist will be built around “${seed.title}” by ${seed.artists}." in app
     assert "setSeedGuidance('');\n    message('Searching YouTube Music…');" in app
     assert "change.addEventListener('click'" in app
+
+
+def test_header_uses_exact_uploaded_banner() -> None:
+    index = _html("index.html")
+    playlist = _html("playlist.html")
+    status = _script("home-status.js")
+    brand = _style("brand.css")
+    banner = (FRONTEND / "playlistmuse-banner.svg").read_bytes()
+
+    assert '/static/home-status.js?v=14' in index
+    assert '/static/home-status.js?v=14' in playlist
+    assert "const HEADER_BANNER_URL = '/static/playlistmuse-banner.svg?v=1';" in status
+    assert "function installBrandBanner()" in status
+    assert "header.querySelector('.brand-banner')" in status
+    assert "copy.classList.add('brand-copy', 'brand-copy-accessible')" in status
+    assert "installBrandBanner();" in status
+    assert ".brand-banner" in brand
+    assert "max-width: 400px" in brand
+    assert "max-width: 250px" in brand
+    assert sha256(banner).hexdigest() == (
+        "f5cae7189adfdf9e1b40a4dd68a7c2e1c3fe6c723270b599fbeccc1795740b5e"
+    )
 
 
 def test_header_indicators_show_active_provider_without_neon() -> None:
