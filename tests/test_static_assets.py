@@ -47,7 +47,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     assert generation_state in index
     assert index.index(generation_state) < index.index(app)
     assert index.index(common) < index.index(app)
-    assert '<script src="/static/prompt-complexity.js?v=3"></script>' in index
+    assert '<script src="/static/prompt-complexity.js?v=4"></script>' in index
     assert index.index('<script src="/static/home-status.js?v=13"></script>') < (
         index.index(app)
     )
