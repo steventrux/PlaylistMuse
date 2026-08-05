@@ -21,14 +21,46 @@
     {key: 'sections', points: 7, pattern: /\b(sezion[ei]|fas[ei]|capitol[io]|divid[ei]|suddivid[ei]|in \d+ parti|sections?|phases?)\b/i},
   ];
 
-  const HARD_CONSTRAINT = /\b(senza|esclud[ei]|evita|non includere|solo|soltanto|no\s+\w+|exclude|without|avoid|only|must|deve)\b/gi;
   const SOFT_CONSTRAINT = /\b(preferibilmente|possibilmente|circa|più o meno|non tropp[oaie]|prefer(?:ably)?|roughly|about|ideally|try to)\b/gi;
-  const RELATION = /\b(?:degli?|delle?|dal|tra|between|from)\b|\b(?:mentre|ma|senza|while|but|without|all'inizio|alla fine|at the (?:start|end))\b/gi;
-  const AMBIGUOUS = /\b(bell[oaie]|particolar[ei]|interessante|originale|giust[oa]|nice|good|interesting|special|original|the right)\b/gi;
+  const RELATION = /\b(?:degli?|delle?|dal|tra|dopo|between|from|after)\b|\b(?:mentre|ma|senza|while|but|without|all'inizio|alla fine|at the (?:start|end))\b/gi;
+  const AMBIGUOUS = /\b(bell[oaie]|brutt[oaie]|particolar[ei]|interessante|originale|giust[oa]|nice|good|bad|interesting|special|original|the right)\b/gi;
   const IMPRECISE = /\b(non tropp[oaie]|abbastanza|un po['’]?|circa|più o meno|not too|quite|somewhat|roughly|about)\b/gi;
+  const ONLY_CONSTRAINT = /\b(?:solo|soltanto|only)\b/gi;
+  const INCLUDE_CONSTRAINT = /\b(?:includ[ei]|inserisci|include|add)\b/gi;
+  const EXCLUDE_CONSTRAINT = /\b(?:senza|esclud[ei]|evita|non includere|exclude|without|avoid|no)\b/gi;
+
+  const EXTERNAL_FILTERS = [
+    {setting: 'excludeLive', target: /\b(?:live|dal vivo)\b/i},
+    {setting: 'excludeCovers', target: /\bcover\b/i},
+    {setting: 'excludeRemixes', target: /\bremix(?:es)?\b/i},
+  ];
 
   function uniqueMatches(text, pattern) {
     return new Set(text.match(pattern) || []).size;
+  }
+
+  function countHardConstraints(prompt, settings) {
+    let promptConstraints = uniqueMatches(prompt, ONLY_CONSTRAINT)
+      + uniqueMatches(prompt, INCLUDE_CONSTRAINT)
+      + uniqueMatches(prompt, EXCLUDE_CONSTRAINT);
+
+    const externalConstraints = EXTERNAL_FILTERS.filter(({setting, target}) => (
+      settings[setting] && !target.test(prompt)
+    )).length;
+
+    return promptConstraints + externalConstraints;
+  }
+
+  function detectClarityIssues(prompt) {
+    const issues = [];
+    const femaleOnly = /\b(?:solo|soltanto|only)\s+(?:(?:con|da|di)\s+)?(?:cantanti|artist[ei]|voci|singers?|artists?|vocals?)\s+(?:donn[ae]|femminil[ei]|female|women)\b/i.test(prompt);
+    const includesElvis = /\b(?:includ[ei]|inserisci|include|add)\s+(?:anche\s+)?(?:elvis|elwis)(?:\s+presley)?\b/i.test(prompt);
+    const misspelledElvis = /\belwis(?:\s+presley)?\b/i.test(prompt);
+
+    if (femaleOnly && includesElvis) issues.push('conflicting artist constraints');
+    if (uniqueMatches(prompt, AMBIGUOUS)) issues.push('subjective terms');
+    if (misspelledElvis) issues.push('possible artist typo');
+    return issues;
   }
 
   function quantityPoints(trackCount) {
@@ -60,10 +92,7 @@
 
     const dimensions = DIMENSIONS.filter(({pattern}) => pattern.test(prompt));
     const dimensionScore = Math.min(20, dimensions.reduce((sum, item) => sum + item.points, 0));
-    const hardFromPrompt = uniqueMatches(prompt, HARD_CONSTRAINT);
-    const externalConstraints = ['excludeLive', 'excludeCovers', 'excludeRemixes']
-      .filter((key) => settings[key]).length;
-    const hardConstraints = hardFromPrompt + externalConstraints;
+    const hardConstraints = countHardConstraints(prompt, settings);
     const softConstraints = uniqueMatches(prompt, SOFT_CONSTRAINT);
     const constraintScore = Math.min(25, (4 * hardConstraints) + (2 * softConstraints));
     const structures = STRUCTURES.filter(({pattern}) => pattern.test(prompt));
@@ -76,13 +105,18 @@
 
     const ambiguityCount = uniqueMatches(prompt, AMBIGUOUS);
     const imprecisionCount = uniqueMatches(prompt, IMPRECISE);
-    const clarity = Math.max(0, 100 - (10 * ambiguityCount) - (5 * imprecisionCount));
+    const clarityIssues = detectClarityIssues(prompt);
+    const conflictCount = clarityIssues.includes('conflicting artist constraints') ? 1 : 0;
+    const typoCount = clarityIssues.includes('possible artist typo') ? 1 : 0;
+    const clarity = Math.max(0, 100 - (10 * ambiguityCount) - (25 * conflictCount)
+      - (5 * imprecisionCount) - (5 * typoCount));
 
     return {
       score,
       level: level(score),
       clarity,
       clarityLevel: clarityLevel(clarity),
+      clarityIssues,
       dimensions: dimensions.length,
       hardConstraints,
       softConstraints,
@@ -118,7 +152,8 @@
         `${constraintCount} ${constraintCount === 1 ? 'constraint' : 'constraints'}`,
         `${result.structures} structural ${result.structures === 1 ? 'rule' : 'rules'}`,
       ].join(' · ');
-      clarity.textContent = `Clarity: ${result.clarityLevel}`;
+      const issueSummary = result.clarityIssues.length ? ` · ${result.clarityIssues.join(' · ')}` : '';
+      clarity.textContent = `Clarity: ${result.clarityLevel}${issueSummary}`;
     };
 
     const schedule = () => {
