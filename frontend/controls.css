@@ -263,6 +263,19 @@ input::placeholder,
   box-shadow: none;
 }
 
+/* Selected seeds use the same restrained emphasis as expanded tracks. */
+.selected-seed {
+  border-color: rgba(183, 156, 255, .42);
+  background:
+    linear-gradient(
+      135deg,
+      rgba(139, 92, 246, .12),
+      rgba(236, 72, 153, .08) 52%,
+      rgba(56, 189, 248, .10)
+    );
+  box-shadow: 0 12px 30px rgba(2, 4, 18, .24);
+}
+
 @media (max-width: 650px) {
   .status-badge,
   .settings-icon-btn {
