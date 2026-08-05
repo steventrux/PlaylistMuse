@@ -1,6 +1,9 @@
 (() => {
   'use strict';
 
+  let approvedClick = false;
+  let validating = false;
+
   function promptText() {
     const value = document.getElementById('prompt')?.value || '';
     return String(value).trim().replace(/\s+/g, ' ');
@@ -25,11 +28,18 @@
     if (status === 'valid') {
       node.textContent = '';
       node.className = 'generation-feedback hidden';
+      node.removeAttribute('data-feedback-icon');
       return;
     }
-    node.textContent = Array.isArray(result?.reasons)
-      ? result.reasons.join(' ')
-      : 'The request contains incompatible constraints.';
+
+    const reasons = Array.isArray(result?.reasons)
+      ? result.reasons.filter(Boolean)
+      : [];
+    node.textContent = reasons.join(' ') || (
+      status === 'impossible'
+        ? 'The request contains mutually incompatible constraints.'
+        : 'The request may be interpreted in more than one way.'
+    );
     node.className = status === 'impossible'
       ? 'generation-feedback generation-feedback-impossible'
       : 'generation-feedback generation-feedback-incomplete';
@@ -48,6 +58,44 @@
     });
   }
 
+  async function intercept(event) {
+    const button = event.target.closest?.('#generate');
+    if (!button) return;
+    if (approvedClick) {
+      approvedClick = false;
+      return;
+    }
+
+    const promptMode = document.querySelector('.mode.active')?.dataset.mode === 'prompt';
+    if (!promptMode || validating || !promptText()) return;
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    validating = true;
+    const submittedPrompt = promptText();
+
+    try {
+      const result = await validate();
+      if (submittedPrompt !== promptText()) return;
+      render(result);
+      if (result.status === 'impossible') return;
+
+      approvedClick = true;
+      button.click();
+    } catch (error) {
+      render({
+        status: 'impossible',
+        reasons: [error.message || String(error)],
+      });
+    } finally {
+      validating = false;
+    }
+  }
+
+  document.addEventListener('click', intercept, true);
+  document.getElementById('prompt')?.addEventListener('input', () => {
+    render({status: 'valid'});
+  });
+
   window.PlaylistMusePromptValidationGuard = {promptText, render, validate};
-  document.getElementById('prompt')?.addEventListener('input', () => render({status: 'valid'}));
 })();
