@@ -1,7 +1,7 @@
 <div align="center">
   <img alt="PlaylistMuse — AI-assisted playlist creation for YouTube Music" src=".github/assets/playlistmuse-logo-lockup.svg" width="100%">
 
-  <br><br>
+  <br>
 
   <a href="https://github.com/steventrux/PlaylistMuse/actions/workflows/ci.yml?query=branch%3Adev"><img src="https://img.shields.io/github/actions/workflow/status/steventrux/PlaylistMuse/ci.yml?branch=dev&style=flat-square&label=CI&logo=github" alt="CI status" height="24"></a>
   <img src="https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.12" height="24">
