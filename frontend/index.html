@@ -36,6 +36,14 @@
       <div id="prompt-panel">
         <label for="prompt">Describe the playlist you want</label>
         <textarea id="prompt" maxlength="1950" rows="5" placeholder="A slow-burning road-trip playlist with blues rock, warm guitars and a steady night-drive mood..."></textarea>
+        <div id="prompt-complexity" class="prompt-complexity hidden" aria-live="polite">
+          <div class="prompt-complexity-heading">
+            <span>Request complexity</span>
+            <strong id="prompt-complexity-score"></strong>
+          </div>
+          <p id="prompt-complexity-summary"></p>
+          <span id="prompt-clarity" class="prompt-clarity"></span>
+        </div>
       </div>
 
       <div id="seed-panel" class="hidden">
@@ -225,6 +233,7 @@
   <script src="/static/youtube-account.js?v=5"></script>
   <script src="/static/home-status.js?v=13"></script>
   <script src="/static/generation-state.js?v=2"></script>
+  <script src="/static/prompt-complexity.js?v=1"></script>
   <script src="/static/app.js?v=17"></script>
 </body>
 </html>
