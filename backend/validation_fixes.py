@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from functools import wraps
 from typing import Any, Callable
 
@@ -15,12 +16,24 @@ _TEMPORAL_UNION_RE = re.compile(
     r"(?:\b(?:e|o|oppure|and|or|et|ou|y|und|oder)\b|[/;])",
     re.IGNORECASE,
 )
+_YEAR_TOKEN = r"(?:\d{2}|19\d{2}|20\d{2})"
 _TEMPORAL_RANGE_RE = re.compile(
-    r"\b(?:between|from|dal|dall['’]?|tra(?:\s+il)?|entre)\s*"
-    r"(19\d{2}|20\d{2})\s*(?:and|e|to|al|a|et|y|-)\s*"
-    r"(?:(?:il|lo|la|the|le|el)\s+)?(19\d{2}|20\d{2})\b",
+    rf"\b(?:between|from|dal|dall['’]?|tra(?:\s+il)?|entre)\s*"
+    rf"({_YEAR_TOKEN})\s*(?:and|e|to|al|a|et|y|-)\s*"
+    rf"(?:(?:il|lo|la|the|le|el)\s+)?({_YEAR_TOKEN})\b",
     re.IGNORECASE,
 )
+
+
+def _expand_year(value: str) -> int:
+    """Expand common two-digit years relative to the current century boundary."""
+    year = int(value)
+    if year >= 100:
+        return year
+    current_year = datetime.now(timezone.utc).year
+    current_two_digits = current_year % 100
+    century = current_year - current_two_digits
+    return century + year if year <= current_two_digits else century - 100 + year
 
 
 def _temporal_failure(
@@ -57,7 +70,9 @@ def _bounded_periods(module: Any, prompt: str) -> list[tuple[int, int, int, int]
         lower, upper = module._decade_bounds(value)
         periods.append((match.start(), match.end(), lower, upper))
     for match in _TEMPORAL_RANGE_RE.finditer(prompt):
-        lower, upper = sorted((int(match.group(1)), int(match.group(2))))
+        lower, upper = sorted(
+            (_expand_year(match.group(1)), _expand_year(match.group(2)))
+        )
         periods.append((match.start(), match.end(), lower, upper))
     return sorted(periods, key=lambda item: (item[0], item[1]))
 
