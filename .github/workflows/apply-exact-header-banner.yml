@@ -21,6 +21,7 @@ jobs:
       - name: Replace the generated logo and text with the exact banner
         run: |
           python - <<'PY'
+          import re
           from hashlib import sha256
           from pathlib import Path
 
@@ -32,62 +33,54 @@ jobs:
 
           status_path = Path('frontend/home-status.js')
           status = status_path.read_text(encoding='utf-8')
+          if status.count("const LOGO_URL = '/static/playlistmuse-logo.png?v=1';") != 1:
+              raise SystemExit('Unexpected logo constant count')
           status = status.replace(
-              "  const LOGO_URL = '/static/playlistmuse-logo.png?v=1';\n",
-              "  const HEADER_BANNER_URL = '/static/playlistmuse-banner.svg?v=1';\n",
+              "const LOGO_URL = '/static/playlistmuse-logo.png?v=1';",
+              "const HEADER_BANNER_URL = '/static/playlistmuse-banner.svg?v=1';",
               1,
           )
+          if status.count("stylesheet.href = '/static/brand.css?v=1';") != 1:
+              raise SystemExit('Unexpected brand stylesheet version count')
           status = status.replace(
-              "    stylesheet.href = '/static/brand.css?v=1';",
-              "    stylesheet.href = '/static/brand.css?v=2';",
+              "stylesheet.href = '/static/brand.css?v=1';",
+              "stylesheet.href = '/static/brand.css?v=2';",
               1,
           )
 
-          old_installer = '''  function installBrandLogo() {
-            const header = document.querySelector('.app-header');
-            if (!header || header.querySelector('.brand-logo')) return;
-
-            const copy = header.firstElementChild;
-            if (!copy) return;
-
-            const lockup = document.createElement('div');
-            lockup.className = 'brand-lockup';
-
-            const logo = document.createElement('img');
-            logo.className = 'brand-logo';
-            logo.src = LOGO_URL;
-            logo.alt = '';
-            logo.setAttribute('aria-hidden', 'true');
-
-            copy.classList.add('brand-copy');
-            header.insertBefore(lockup, copy);
-            lockup.append(logo, copy);
-          }
-          '''
-          new_installer = '''  function installBrandBanner() {
-            const header = document.querySelector('.app-header');
-            if (!header || header.querySelector('.brand-banner')) return;
-
-            const copy = header.firstElementChild;
-            if (!copy) return;
-
-            const lockup = document.createElement('div');
-            lockup.className = 'brand-lockup';
-
-            const banner = document.createElement('img');
-            banner.className = 'brand-banner';
-            banner.src = HEADER_BANNER_URL;
-            banner.alt = '';
-            banner.setAttribute('aria-hidden', 'true');
-
-            copy.classList.add('brand-copy', 'brand-copy-accessible');
-            header.insertBefore(lockup, copy);
-            lockup.append(banner);
-          }
-          '''
-          if old_installer not in status:
-              raise SystemExit('Existing brand installer did not match the expected source')
-          status = status.replace(old_installer, new_installer, 1)
+          new_installer = (
+              "  function installBrandBanner() {\n"
+              "    const header = document.querySelector('.app-header');\n"
+              "    if (!header || header.querySelector('.brand-banner')) return;\n"
+              "\n"
+              "    const copy = header.firstElementChild;\n"
+              "    if (!copy) return;\n"
+              "\n"
+              "    const lockup = document.createElement('div');\n"
+              "    lockup.className = 'brand-lockup';\n"
+              "\n"
+              "    const banner = document.createElement('img');\n"
+              "    banner.className = 'brand-banner';\n"
+              "    banner.src = HEADER_BANNER_URL;\n"
+              "    banner.alt = '';\n"
+              "    banner.setAttribute('aria-hidden', 'true');\n"
+              "\n"
+              "    copy.classList.add('brand-copy', 'brand-copy-accessible');\n"
+              "    header.insertBefore(lockup, copy);\n"
+              "    lockup.append(banner);\n"
+              "  }\n"
+          )
+          installer_pattern = re.compile(
+              r"^  function installBrandLogo\(\) \{\n.*?^  \}\n",
+              flags=re.MULTILINE | re.DOTALL,
+          )
+          status, installer_count = installer_pattern.subn(
+              new_installer,
+              status,
+              count=1,
+          )
+          if installer_count != 1:
+              raise SystemExit(f'Unexpected brand installer match count: {installer_count}')
           if status.count('installBrandLogo();') != 1:
               raise SystemExit('Unexpected installBrandLogo call count')
           status = status.replace('installBrandLogo();', 'installBrandBanner();', 1)
@@ -148,7 +141,12 @@ jobs:
 
           test_path = Path('tests/test_static_assets.py')
           tests = test_path.read_text(encoding='utf-8')
-          tests = tests.replace('from __future__ import annotations\n', 'from __future__ import annotations\n\nfrom hashlib import sha256\n', 1)
+          if 'from hashlib import sha256' not in tests:
+              tests = tests.replace(
+                  'from __future__ import annotations\n',
+                  'from __future__ import annotations\n\nfrom hashlib import sha256\n',
+                  1,
+              )
           tests = tests.replace('home-status.js?v=13', 'home-status.js?v=14')
           marker = '\n\ndef test_header_indicators_show_active_provider_without_neon() -> None:\n'
           new_test = '''
