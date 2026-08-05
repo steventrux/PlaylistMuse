@@ -1,5 +1,11 @@
 /* Shared page alignment, wordmark and header service indicators. */
 
+/* Keep the working area narrower than the shared header on wide screens. */
+main,
+.playlist-shell {
+  width: min(860px, calc(100% - 32px));
+}
+
 .hero {
   width: 100%;
   max-width: none;
