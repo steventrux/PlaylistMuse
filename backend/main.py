@@ -768,7 +768,12 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
             "request. Try a broader prompt or request fewer tracks."
         )
 
+    from backend.policy_enforcement import _ACTIVE_POLICY, apply_track_positions
+
     final_tracks = tracks[:count]
+    active_policy = _ACTIVE_POLICY.get()
+    if active_policy is not None:
+        final_tracks = apply_track_positions(final_tracks, active_policy)
     return {
         "name": draft["title"],
         "description": draft["description"],
