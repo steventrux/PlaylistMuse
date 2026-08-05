@@ -3,6 +3,11 @@
 
   const DEBOUNCE_MS = 500;
 
+  function complexityHue(value) {
+    const score = Math.max(0, Math.min(100, Number(value) || 0));
+    return Math.round(120 - (score * 1.2));
+  }
+
   function analysisPayload(prompt, settings = {}) {
     return {
       prompt: String(prompt || '').trim(),
@@ -36,6 +41,7 @@
     });
 
     const render = (result) => {
+      indicator.style.setProperty('--complexity-hue', complexityHue(result.score));
       score.textContent = `${result.level} · ${result.score}/100`;
       const constraintCount = result.hard_constraints + result.soft_constraints;
       summary.textContent = [
@@ -96,6 +102,10 @@
     });
   }
 
-  window.PlaylistMusePromptComplexity = {analysisPayload, debounceMs: DEBOUNCE_MS};
+  window.PlaylistMusePromptComplexity = {
+    analysisPayload,
+    complexityHue,
+    debounceMs: DEBOUNCE_MS,
+  };
   if (typeof document !== 'undefined') init();
 })();
