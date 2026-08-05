@@ -1,0 +1,189 @@
+name: Apply exact header banner
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - .github/workflows/apply-exact-header-banner.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-banner:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+
+      - name: Replace the generated logo and text with the exact banner
+        run: |
+          python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+
+          banner_path = Path('frontend/playlistmuse-banner.svg')
+          expected_banner_hash = 'f5cae7189adfdf9e1b40a4dd68a7c2e1c3fe6c723270b599fbeccc1795740b5e'
+          actual_banner_hash = sha256(banner_path.read_bytes()).hexdigest()
+          if actual_banner_hash != expected_banner_hash:
+              raise SystemExit(f'Banner hash mismatch: {actual_banner_hash}')
+
+          status_path = Path('frontend/home-status.js')
+          status = status_path.read_text(encoding='utf-8')
+          status = status.replace(
+              "  const LOGO_URL = '/static/playlistmuse-logo.png?v=1';\n",
+              "  const HEADER_BANNER_URL = '/static/playlistmuse-banner.svg?v=1';\n",
+              1,
+          )
+          status = status.replace(
+              "    stylesheet.href = '/static/brand.css?v=1';",
+              "    stylesheet.href = '/static/brand.css?v=2';",
+              1,
+          )
+
+          old_installer = '''  function installBrandLogo() {
+            const header = document.querySelector('.app-header');
+            if (!header || header.querySelector('.brand-logo')) return;
+
+            const copy = header.firstElementChild;
+            if (!copy) return;
+
+            const lockup = document.createElement('div');
+            lockup.className = 'brand-lockup';
+
+            const logo = document.createElement('img');
+            logo.className = 'brand-logo';
+            logo.src = LOGO_URL;
+            logo.alt = '';
+            logo.setAttribute('aria-hidden', 'true');
+
+            copy.classList.add('brand-copy');
+            header.insertBefore(lockup, copy);
+            lockup.append(logo, copy);
+          }
+          '''
+          new_installer = '''  function installBrandBanner() {
+            const header = document.querySelector('.app-header');
+            if (!header || header.querySelector('.brand-banner')) return;
+
+            const copy = header.firstElementChild;
+            if (!copy) return;
+
+            const lockup = document.createElement('div');
+            lockup.className = 'brand-lockup';
+
+            const banner = document.createElement('img');
+            banner.className = 'brand-banner';
+            banner.src = HEADER_BANNER_URL;
+            banner.alt = '';
+            banner.setAttribute('aria-hidden', 'true');
+
+            copy.classList.add('brand-copy', 'brand-copy-accessible');
+            header.insertBefore(lockup, copy);
+            lockup.append(banner);
+          }
+          '''
+          if old_installer not in status:
+              raise SystemExit('Existing brand installer did not match the expected source')
+          status = status.replace(old_installer, new_installer, 1)
+          if status.count('installBrandLogo();') != 1:
+              raise SystemExit('Unexpected installBrandLogo call count')
+          status = status.replace('installBrandLogo();', 'installBrandBanner();', 1)
+          status_path.write_text(status, encoding='utf-8')
+
+          brand_css = '''/* Shared PlaylistMuse header banner. */
+
+          .brand-lockup {
+            display: flex;
+            align-items: center;
+            min-width: 0;
+            max-width: 400px;
+            flex: 1 1 auto;
+          }
+
+          .brand-banner {
+            display: block;
+            width: 100%;
+            height: auto;
+            max-width: 400px;
+            flex: 0 1 auto;
+          }
+
+          .brand-copy {
+            min-width: 0;
+          }
+
+          .brand-copy-accessible {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+          }
+
+          @media (max-width: 650px) {
+            .brand-lockup,
+            .brand-banner {
+              max-width: 250px;
+            }
+          }
+          '''
+          Path('frontend/brand.css').write_text(brand_css, encoding='utf-8')
+
+          for filename in ('frontend/index.html', 'frontend/playlist.html'):
+              path = Path(filename)
+              html = path.read_text(encoding='utf-8')
+              if html.count('home-status.js?v=13') != 1:
+                  raise SystemExit(f'Unexpected home-status version count in {filename}')
+              path.write_text(
+                  html.replace('home-status.js?v=13', 'home-status.js?v=14', 1),
+                  encoding='utf-8',
+              )
+
+          test_path = Path('tests/test_static_assets.py')
+          tests = test_path.read_text(encoding='utf-8')
+          tests = tests.replace('from __future__ import annotations\n', 'from __future__ import annotations\n\nfrom hashlib import sha256\n', 1)
+          tests = tests.replace('home-status.js?v=13', 'home-status.js?v=14')
+          marker = '\n\ndef test_header_indicators_show_active_provider_without_neon() -> None:\n'
+          new_test = '''
+
+          def test_header_uses_exact_uploaded_banner() -> None:
+              index = _html("index.html")
+              playlist = _html("playlist.html")
+              status = _script("home-status.js")
+              brand = _style("brand.css")
+              banner = (FRONTEND / "playlistmuse-banner.svg").read_bytes()
+
+              assert '/static/home-status.js?v=14' in index
+              assert '/static/home-status.js?v=14' in playlist
+              assert "const HEADER_BANNER_URL = '/static/playlistmuse-banner.svg?v=1';" in status
+              assert "function installBrandBanner()" in status
+              assert "header.querySelector('.brand-banner')" in status
+              assert "copy.classList.add('brand-copy', 'brand-copy-accessible')" in status
+              assert "installBrandBanner();" in status
+              assert ".brand-banner" in brand
+              assert "max-width: 400px" in brand
+              assert "max-width: 250px" in brand
+              assert sha256(banner).hexdigest() == (
+                  "f5cae7189adfdf9e1b40a4dd68a7c2e1c3fe6c723270b599fbeccc1795740b5e"
+              )
+          '''
+          if marker not in tests:
+              raise SystemExit('Static asset test insertion point was not found')
+          tests = tests.replace(marker, new_test + marker, 1)
+          test_path.write_text(tests, encoding='utf-8')
+          PY
+
+      - name: Commit header integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/home-status.js frontend/brand.css frontend/index.html frontend/playlist.html tests/test_static_assets.py
+          git commit -m "Use exact banner in site header"
+          git push origin HEAD:dev
