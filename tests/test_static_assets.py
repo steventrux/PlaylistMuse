@@ -75,7 +75,7 @@ def test_prompt_complexity_uses_simple_label_and_hides_excellent_details() -> No
     assert "return level === 'Detailed' ? 'Simple' : level;" in script
     assert "displayLevel(result.level)" in script
     assert "level.toLowerCase() === 'excellent'" in script
-    assert "return \`Clarity: \${level}\`;" in script
+    assert "return `Clarity: ${level}`;" in script
     assert "clarity.textContent = clarityText(result);" in script
 
 
