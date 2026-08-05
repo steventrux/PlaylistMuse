@@ -1,5 +1,16 @@
 /* PlaylistMuse controls: solid colours and simple connected/disconnected lights. */
 
+/* Shared secondary contrast for controls and inactive service states. */
+:root {
+  --text-muted: #9098b8;
+}
+
+textarea::placeholder,
+input::placeholder,
+.header-indicator.off {
+  color: #7b84a4;
+}
+
 .primary {
   border: 1px solid #8b5cf6;
   background: #8b5cf6;
@@ -173,7 +184,7 @@
   border: 1px solid rgba(169, 155, 255, .18);
   border-radius: 10px;
   background: #11162c;
-  color: #737b99;
+  color: #7b84a4;
   box-shadow: none;
   opacity: 1;
   font-size: .72rem;
@@ -201,14 +212,14 @@
 .status-badge.pending {
   border-color: rgba(169, 155, 255, .18);
   background: #11162c;
-  color: #737b99;
+  color: #7b84a4;
   opacity: .75;
 }
 
 .status-badge.off {
   border-color: rgba(128, 136, 168, .2);
   background: #11162c;
-  color: #69718f;
+  color: #7b84a4;
 }
 
 #home-ai-status.on {
