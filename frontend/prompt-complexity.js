@@ -8,6 +8,18 @@
     return Math.round(120 - (score * 1.2));
   }
 
+  function displayLevel(level) {
+    return level === 'Detailed' ? 'Simple' : level;
+  }
+
+  function clarityText(result) {
+    const level = String(result.clarity_level || '');
+    if (level.toLowerCase() === 'excellent') return `Clarity: ${level}`;
+    const issues = Array.isArray(result.issues) ? result.issues : [];
+    const issueSummary = issues.length ? ` · ${issues.join(' · ')}` : '';
+    return `Clarity: ${level}${issueSummary}`;
+  }
+
   function analysisPayload(prompt, settings = {}) {
     return {
       prompt: String(prompt || '').trim(),
@@ -42,15 +54,14 @@
 
     const render = (result) => {
       indicator.style.setProperty('--complexity-hue', complexityHue(result.score));
-      score.textContent = `${result.level} · ${result.score}/100`;
+      score.textContent = `${displayLevel(result.level)} · ${result.score}/100`;
       const constraintCount = result.hard_constraints + result.soft_constraints;
       summary.textContent = [
         `${result.dimensions} musical ${result.dimensions === 1 ? 'dimension' : 'dimensions'}`,
         `${constraintCount} ${constraintCount === 1 ? 'constraint' : 'constraints'}`,
         `${result.structures} structural ${result.structures === 1 ? 'rule' : 'rules'}`,
       ].join(' · ');
-      const issueSummary = result.issues.length ? ` · ${result.issues.join(' · ')}` : '';
-      clarity.textContent = `Clarity: ${result.clarity_level}${issueSummary}`;
+      clarity.textContent = clarityText(result);
       indicator.classList.remove('hidden');
     };
 
@@ -104,7 +115,9 @@
 
   window.PlaylistMusePromptComplexity = {
     analysisPayload,
+    clarityText,
     complexityHue,
+    displayLevel,
     debounceMs: DEBOUNCE_MS,
   };
   if (typeof document !== 'undefined') init();
