@@ -1,0 +1,31 @@
+/* Shared PlaylistMuse logo lockup. */
+
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.brand-logo {
+  display: block;
+  width: 54px;
+  height: 68px;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.brand-copy {
+  min-width: 0;
+}
+
+@media (max-width: 650px) {
+  .brand-lockup {
+    gap: 10px;
+  }
+
+  .brand-logo {
+    width: 44px;
+    height: 56px;
+  }
+}
