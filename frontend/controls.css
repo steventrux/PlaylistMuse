@@ -254,6 +254,15 @@ input::placeholder,
   background: #351521;
 }
 
+/* Search results should stay subordinate to selected and expanded states. */
+.seed-result:hover,
+.track-result-card:not(.expanded):hover {
+  transform: none;
+  border-color: rgba(183, 156, 255, .38);
+  background: rgba(21, 26, 51, .86);
+  box-shadow: none;
+}
+
 @media (max-width: 650px) {
   .status-badge,
   .settings-icon-btn {
