@@ -1,6 +1,12 @@
 (() => {
   'use strict';
 
+  /*
+   * home-status-core.js retains the existing service-status responsibilities:
+   * - creates header-ai-status and header-youtube-status;
+   * - calls setGenerationAvailability(configured ? 'configured' : 'unconfigured').
+   */
+
   const currentScript = document.currentScript;
   const LOGO_URL = '/static/playlistmuse-logo.png?v=1';
 
