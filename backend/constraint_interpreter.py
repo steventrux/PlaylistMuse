@@ -253,20 +253,31 @@ def _openai_text(data: dict[str, Any]) -> str:
     return content
 
 
-async def _request(config: AppConfig, prompt: str) -> str:
-    model = config.model_chain[0]
+async def request_structured_json(
+    config: AppConfig,
+    prompt: str,
+    *,
+    system_prompt: str = SYSTEM_PROMPT,
+    max_tokens: int = 1_600,
+    model: str | None = None,
+) -> str:
+    """Request one provider-neutral JSON object using the active AI configuration."""
+    selected_model = model or config.model_chain[0]
     timeout = httpx.Timeout(45.0, connect=10.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
         if config.provider == "gemini":
             response = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-                headers={"x-goog-api-key": config.api_key, "content-type": "application/json"},
+                f"https://generativelanguage.googleapis.com/v1beta/models/{selected_model}:generateContent",
+                headers={
+                    "x-goog-api-key": config.api_key,
+                    "content-type": "application/json",
+                },
                 json={
-                    "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+                    "systemInstruction": {"parts": [{"text": system_prompt}]},
                     "contents": [{"role": "user", "parts": [{"text": prompt}]}],
                     "generationConfig": {
                         "temperature": 0,
-                        "maxOutputTokens": 1_600,
+                        "maxOutputTokens": max_tokens,
                         "responseMimeType": "application/json",
                     },
                 },
@@ -283,10 +294,10 @@ async def _request(config: AppConfig, prompt: str) -> str:
                     "content-type": "application/json",
                 },
                 json={
-                    "model": model,
-                    "max_tokens": 1_600,
+                    "model": selected_model,
+                    "max_tokens": max_tokens,
                     "temperature": 0,
-                    "system": SYSTEM_PROMPT,
+                    "system": system_prompt,
                     "messages": [{"role": "user", "content": prompt}],
                 },
             )
@@ -301,12 +312,12 @@ async def _request(config: AppConfig, prompt: str) -> str:
             response = await client.post(
                 f"{config.base_url.rstrip('/')}/api/chat",
                 json={
-                    "model": model,
+                    "model": selected_model,
                     "stream": False,
                     "format": "json",
                     "options": {"temperature": 0},
                     "messages": [
-                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "system", "content": system_prompt},
                         {"role": "user", "content": prompt},
                     ],
                 },
@@ -332,12 +343,12 @@ async def _request(config: AppConfig, prompt: str) -> str:
             f"{base_url}/chat/completions",
             headers=headers,
             json={
-                "model": model,
+                "model": selected_model,
                 "temperature": 0,
-                "max_tokens": 1_600,
+                "max_tokens": max_tokens,
                 "response_format": {"type": "json_object"},
                 "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt},
                 ],
             },
@@ -356,7 +367,7 @@ async def interpret_constraints(config: AppConfig, prompt: str) -> dict[str, Any
         if unwrapped is not None:
             return unwrapped
     try:
-        payload = _extract_json(await _request(config, prompt))
+        payload = _extract_json(await request_structured_json(config, prompt))
     except (httpx.HTTPError, ValueError, TypeError, json.JSONDecodeError):
         return None
     _write_cache(config, prompt, payload)

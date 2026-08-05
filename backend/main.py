@@ -27,6 +27,7 @@ from backend.generation_runtime import (
 )
 from backend.lastfm_discovery import select_prompt_anchors
 from backend.llm import safe_error_message
+from backend.prompt_analysis import analyze_prompt_semantics
 from backend.youtube import search_songs, track_identity_key
 from backend.youtube_routes import router as youtube_router
 
@@ -164,6 +165,119 @@ class GenerateRequest(BaseModel):
     @classmethod
     def normalize_prompt(cls, value: str) -> str:
         return _normalize_prompt_text(value)
+
+
+class PromptAnalysisRequest(GenerateRequest):
+    pass
+
+
+_DIMENSION_POINTS = {
+    "genre": 3,
+    "period": 3,
+    "mood_energy": 3,
+    "context": 2,
+    "references": 2,
+    "language_geography": 2,
+    "popularity": 3,
+    "sound": 3,
+}
+_STRUCTURE_POINTS = {
+    "ordering": 4,
+    "alternation": 7,
+    "progression": 8,
+    "proportions": 6,
+    "transitions": 6,
+    "sections": 7,
+}
+
+
+def _quantity_points(track_count: int) -> int:
+    if track_count <= 15:
+        return 0
+    if track_count <= 30:
+        return 3
+    if track_count <= 50:
+        return 7
+    if track_count <= 100:
+        return 11
+    return 15
+
+
+def _complexity_level(score: int) -> str:
+    if score < 20:
+        return "Simple"
+    if score < 40:
+        return "Detailed"
+    if score < 65:
+        return "Complex"
+    if score < 85:
+        return "Very complex"
+    return "Extreme"
+
+
+def _clarity_level(score: int) -> str:
+    if score >= 90:
+        return "Excellent"
+    if score >= 75:
+        return "Good"
+    if score >= 55:
+        return "Fair"
+    return "Needs clarification"
+
+
+def _score_prompt_analysis(analysis: dict, track_count: int) -> dict:
+    dimensions = list(dict.fromkeys(analysis["dimensions"]))
+    structures = list(dict.fromkeys(analysis["structures"]))
+    hard_constraints = int(analysis["hard_constraints"])
+    soft_constraints = int(analysis["soft_constraints"])
+    relations = int(analysis["relations"])
+    dimension_score = min(
+        20, sum(_DIMENSION_POINTS.get(item, 0) for item in dimensions)
+    )
+    constraint_score = min(25, (4 * hard_constraints) + (2 * soft_constraints))
+    structure_score = min(
+        25, sum(_STRUCTURE_POINTS.get(item, 0) for item in structures)
+    )
+    relation_score = min(15, 3 * relations)
+    score = min(
+        100,
+        5
+        + dimension_score
+        + constraint_score
+        + structure_score
+        + relation_score
+        + _quantity_points(track_count),
+    )
+
+    ambiguities = analysis["ambiguities"]
+    conflicts = analysis["conflicts"]
+    missing = analysis["missing_information"]
+    imprecisions = analysis["imprecisions"]
+    typos = analysis["possible_typos"]
+    clarity = max(
+        0,
+        100
+        - (10 * len(ambiguities))
+        - (25 * len(conflicts))
+        - (15 * len(missing))
+        - (5 * len(imprecisions))
+        - (5 * len(typos)),
+    )
+    issues = list(
+        dict.fromkeys([*conflicts, *ambiguities, *missing, *imprecisions, *typos])
+    )
+    return {
+        "score": score,
+        "level": _complexity_level(score),
+        "clarity": clarity,
+        "clarity_level": _clarity_level(clarity),
+        "dimensions": len(dimensions),
+        "hard_constraints": hard_constraints,
+        "soft_constraints": soft_constraints,
+        "structures": len(structures),
+        "relations": relations,
+        "issues": issues,
+    }
 
 
 class SeedTrack(BaseModel):
@@ -745,6 +859,25 @@ async def generate_playlist(request: GenerateRequest) -> dict:
         raise HTTPException(
             status_code=502,
             detail="Playlist generation failed. Please try again.",
+        ) from error
+
+
+@app.post("/api/prompts/analyze")
+async def analyze_prompt(request: PromptAnalysisRequest) -> dict:
+    try:
+        semantics = await analyze_prompt_semantics(
+            load_config(),
+            request.prompt,
+            track_count=request.track_count,
+            options=request.options.model_dump(),
+        )
+        return _score_prompt_analysis(semantics, request.track_count)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=502,
+            detail="Prompt analysis failed. Please try again.",
         ) from error
 
 

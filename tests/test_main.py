@@ -22,6 +22,88 @@ def test_health() -> None:
     assert response.json() == {"status": "healthy", "application": "PlaylistMuse"}
 
 
+def test_prompt_analysis_scores_general_semantic_result(monkeypatch) -> None:
+    captured: dict = {}
+
+    async def fake_analyze(config, prompt, *, track_count, options):
+        captured.update(
+            prompt=prompt,
+            track_count=track_count,
+            options=options,
+        )
+        return {
+            "dimensions": ["genre", "period", "mood_energy", "popularity"],
+            "hard_constraints": 3,
+            "soft_constraints": 0,
+            "structures": ["alternation", "progression"],
+            "relations": 2,
+            "ambiguities": [],
+            "conflicts": [],
+            "missing_information": [],
+            "imprecisions": [],
+            "possible_typos": [],
+        }
+
+    monkeypatch.setattr(main_module, "analyze_prompt_semantics", fake_analyze)
+    monkeypatch.setattr(main_module, "load_config", lambda: AppConfig())
+    client = TestClient(main_module.app)
+    response = client.post(
+        "/api/prompts/analyze",
+        json={
+            "prompt": "任意の言語で書かれたプレイリストのリクエスト",
+            "track_count": 15,
+            "options": {
+                "exclude_live": True,
+                "exclude_covers": True,
+                "exclude_remixes": True,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "score": 50,
+        "level": "Complex",
+        "clarity": 100,
+        "clarity_level": "Excellent",
+        "dimensions": 4,
+        "hard_constraints": 3,
+        "soft_constraints": 0,
+        "structures": 2,
+        "relations": 2,
+        "issues": [],
+    }
+    assert captured["prompt"] == "任意の言語で書かれたプレイリストのリクエスト"
+
+
+def test_prompt_analysis_reports_general_conflicts_and_ambiguities(monkeypatch) -> None:
+    async def fake_analyze(config, prompt, *, track_count, options):
+        return {
+            "dimensions": ["genre"],
+            "hard_constraints": 2,
+            "soft_constraints": 0,
+            "structures": [],
+            "relations": 1,
+            "ambiguities": ["Define what makes a song beautiful or ugly."],
+            "conflicts": ["The two artist requirements cannot both be satisfied."],
+            "missing_information": [],
+            "imprecisions": [],
+            "possible_typos": [],
+        }
+
+    monkeypatch.setattr(main_module, "analyze_prompt_semantics", fake_analyze)
+    monkeypatch.setattr(main_module, "load_config", lambda: AppConfig())
+    response = TestClient(main_module.app).post(
+        "/api/prompts/analyze",
+        json={"prompt": "A contradictory request", "track_count": 15},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["clarity"] == 65
+    assert response.json()["clarity_level"] == "Fair"
+    assert len(response.json()["issues"]) == 2
+
+
 def test_openrouter_modes_share_one_api_key_slot() -> None:
     assert api_key_slot("openrouter_auto") == "openrouter"
     assert api_key_slot("openrouter_free") == "openrouter"
