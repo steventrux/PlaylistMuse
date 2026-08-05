@@ -1,9 +1,5 @@
 <div align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/playlistmuse-hero-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset=".github/assets/playlistmuse-hero-light.svg">
-    <img alt="PlaylistMuse — AI-assisted playlist creation for YouTube Music" src=".github/assets/playlistmuse-hero-dark.svg" width="100%">
-  </picture>
+  <img alt="PlaylistMuse — AI-assisted playlist creation for YouTube Music" src=".github/assets/playlistmuse-logo-lockup.svg" width="100%">
 
   <br><br>
 
