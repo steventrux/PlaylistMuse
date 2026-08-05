@@ -9,33 +9,20 @@ const script = fs.readFileSync(
   'utf8',
 );
 vm.runInNewContext(script, context);
-const {analyze, quantityPoints} = context.window.PlaylistMusePromptComplexity;
+const {analysisPayload, debounceMs} = context.window.PlaylistMusePromptComplexity;
 
-assert.equal(quantityPoints(15), 0);
-assert.equal(quantityPoints(25), 3);
-assert.equal(quantityPoints(50), 7);
-assert.equal(quantityPoints(100), 11);
+assert.equal(debounceMs, 500);
 
-const simple = analyze('Rock anni 70 per un viaggio', {trackCount: 15});
-assert.equal(simple.level, 'Simple');
-assert.ok(simple.score >= 10 && simple.score < 20);
-
-const complex = analyze(
-  'Crea una playlist rock e blues dal 1968 al 1982, senza live, alternando brani famosi e meno conosciuti, con energia crescente',
-  {trackCount: 50},
-);
-assert.equal(complex.level, 'Complex');
-assert.equal(complex.hardConstraints, 1);
-assert.equal(complex.structures, 2);
-assert.ok(complex.score >= 40 && complex.score < 65);
-
-const filtered = analyze('Rock anni 70', {
+const payload = analysisPayload('  音楽を作ってください  ', {
   trackCount: 25,
   excludeLive: true,
   excludeCovers: true,
   excludeRemixes: true,
 });
-assert.equal(filtered.hardConstraints, 3);
-assert.ok(filtered.score > simple.score);
-
-assert.equal(analyze(''), null);
+assert.equal(payload.prompt, '音楽を作ってください');
+assert.equal(payload.track_count, 25);
+assert.deepEqual(JSON.parse(JSON.stringify(payload.options)), {
+  exclude_live: true,
+  exclude_covers: true,
+  exclude_remixes: true,
+});
