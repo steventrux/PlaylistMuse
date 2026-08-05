@@ -47,7 +47,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     assert generation_state in index
     assert index.index(generation_state) < index.index(app)
     assert index.index(common) < index.index(app)
-    assert '<script src="/static/prompt-complexity.js?v=4"></script>' in index
+    assert '<script src="/static/prompt-complexity.js?v=5"></script>' in index
     assert index.index('<script src="/static/home-status.js?v=13"></script>') < (
         index.index(app)
     )
@@ -67,6 +67,16 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     assert playlist.index(common) < playlist.index(
         '<script src="/static/youtube-publish.js?v=13"></script>'
     )
+
+
+def test_prompt_complexity_uses_simple_label_and_hides_excellent_details() -> None:
+    script = _script("prompt-complexity.js")
+
+    assert "return level === 'Detailed' ? 'Simple' : level;" in script
+    assert "displayLevel(result.level)" in script
+    assert "level.toLowerCase() === 'excellent'" in script
+    assert "return \`Clarity: \${level}\`;" in script
+    assert "clarity.textContent = clarityText(result);" in script
 
 
 def test_generation_requires_configured_ai_provider() -> None:
