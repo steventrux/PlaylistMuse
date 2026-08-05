@@ -2,6 +2,7 @@
   'use strict';
 
   const LOGO_URL = '/static/playlistmuse-logo.png?v=1';
+  const FAVICON_URL = '/static/playlistmuse-favicon.svg?v=1';
 
   function ensureBrandStyles() {
     if (document.querySelector('link[href^="/static/brand.css"]')) return;
@@ -18,8 +19,8 @@
       favicon.rel = 'icon';
       document.head.append(favicon);
     }
-    favicon.type = 'image/png';
-    favicon.href = LOGO_URL;
+    favicon.type = 'image/svg+xml';
+    favicon.href = FAVICON_URL;
   }
 
   function installBrandLogo() {
