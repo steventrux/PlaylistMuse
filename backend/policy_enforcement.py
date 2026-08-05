@@ -46,6 +46,34 @@ def named_track_matches(track: dict[str, Any], named: Any) -> bool:
     )
 
 
+def apply_track_positions(
+    tracks: list[dict[str, Any]], policy: Any
+) -> list[dict[str, Any]]:
+    """Apply explicit absolute song placements without disturbing other relative order."""
+    ordered = list(tracks)
+    placements = list(getattr(policy, "track_positions", []) or [])
+    for placement in placements:
+        match_index = next(
+            (
+                index
+                for index, track in enumerate(ordered)
+                if named_track_matches(track, placement)
+            ),
+            None,
+        )
+        if match_index is None:
+            continue
+        track = ordered.pop(match_index)
+        if placement.position == "first":
+            target = 0
+        elif placement.position == "last":
+            target = len(ordered)
+        else:
+            target = min(max(0, int(placement.index or 1) - 1), len(ordered))
+        ordered.insert(target, track)
+    return ordered
+
+
 def quota_artist_match(track: dict[str, Any], quota_artists: list[str]) -> bool:
     from backend.text_normalization import normalize_identity
 
@@ -157,7 +185,7 @@ def apply_playlist_policy(
             bounded.append(track)
         tracks = bounded
 
-    tracks = tracks[:requested_count]
+    tracks = apply_track_positions(tracks[:requested_count], policy)
     quota_count = (
         sum(quota_artist_match(track, policy.quota_artists) for track in tracks)
         if policy.quota_artists

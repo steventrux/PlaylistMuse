@@ -28,9 +28,18 @@ class NamedTrack:
 
 
 @dataclass(slots=True)
+class TrackPosition:
+    artist: str
+    title: str
+    position: str
+    index: int | None = None
+
+
+@dataclass(slots=True)
 class PlaylistPolicy:
     required_tracks: list[NamedTrack] = field(default_factory=list)
     excluded_tracks: list[NamedTrack] = field(default_factory=list)
+    track_positions: list[TrackPosition] = field(default_factory=list)
     quota_artists: list[str] = field(default_factory=list)
     minimum_allowed_artist_ratio: float | None = None
     maximum_allowed_artist_ratio: float | None = None
@@ -64,6 +73,7 @@ class PlaylistPolicy:
             (
                 self.required_tracks,
                 self.excluded_tracks,
+                self.track_positions,
                 self.has_artist_quota,
                 self.max_tracks_per_artist is not None,
                 self.lyrics_language,
@@ -121,6 +131,29 @@ def _clean_tracks(value: Any) -> list[NamedTrack]:
     return cleaned
 
 
+def _clean_track_positions(value: Any) -> list[TrackPosition]:
+    if not isinstance(value, list):
+        return []
+    cleaned: list[TrackPosition] = []
+    seen: set[str] = set()
+    for item in value[:30]:
+        if not isinstance(item, dict):
+            continue
+        artist = " ".join(str(item.get("artist", "")).split()).strip(" .,-")[:180]
+        title = " ".join(str(item.get("title", "")).split()).strip(" .,-")[:220]
+        position = str(item.get("position", "")).strip().casefold()
+        index = _clean_count(item.get("index"), maximum=500)
+        if position not in {"first", "last", "index"}:
+            continue
+        if position == "index" and (index is None or index < 1):
+            continue
+        key = f"{_normalize(artist)}|{_normalize(title)}"
+        if artist and title and key not in seen:
+            seen.add(key)
+            cleaned.append(TrackPosition(artist, title, position, index))
+    return cleaned
+
+
 def _clean_ratio(value: Any) -> float | None:
     try:
         ratio = float(value)
@@ -166,6 +199,11 @@ def policy_from_payload(
         if _trusted(confidence, "excluded_tracks")
         else []
     )
+    track_positions = (
+        _clean_track_positions(payload.get("track_positions"))
+        if _trusted(confidence, "track_positions")
+        else []
+    )
 
     quota_artists = (
         _clean_names(payload.get("quota_artists"))
@@ -204,6 +242,7 @@ def policy_from_payload(
     return PlaylistPolicy(
         required_tracks=required,
         excluded_tracks=excluded,
+        track_positions=track_positions,
         quota_artists=quota_artists,
         minimum_allowed_artist_ratio=value(
             "minimum_allowed_artist_ratio", _clean_ratio
