@@ -19,6 +19,13 @@ jobs:
           python-version: "3.12"
       - name: Run repository structure audit
         run: python .github/scripts/repository_audit.py
+      - name: Verify visual asset references
+        run: |
+          for asset in .github/assets/* frontend/*.png frontend/*.svg; do
+            name="$(basename "$asset")"
+            references="$(grep -RFl --exclude="$name" --exclude-dir=.git -- "$name" . || true)"
+            printf '%s\n%s\n' "ASSET: $asset" "${references:-UNREFERENCED}"
+          done
       - name: Run broader Ruff diagnostics
         continue-on-error: true
         run: |
