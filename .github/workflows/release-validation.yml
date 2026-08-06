@@ -4,13 +4,16 @@ on:
   push:
     branches:
       - beta
+  pull_request:
+    branches:
+      - beta
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: playlistmuse-release-validation-${{ github.ref }}
+  group: playlistmuse-release-validation-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
