@@ -19,13 +19,16 @@ from backend.config import (
     load_config,
     save_config,
 )
-from backend.lastfm_discovery import (
+from backend.generation_runtime import (
     discover_for_seed as similar_track_candidates,
     discover_from_anchors,
-    select_prompt_anchors,
+    generate_playlist_draft,
+    resolve_candidates,
 )
-from backend.llm import generate_playlist_draft, safe_error_message
-from backend.youtube import resolve_candidates, search_songs, track_identity_key
+from backend.lastfm_discovery import select_prompt_anchors
+from backend.llm import safe_error_message
+from backend.prompt_analysis import analyze_prompt_semantics
+from backend.youtube import search_songs, track_identity_key
 from backend.youtube_routes import router as youtube_router
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -47,6 +50,7 @@ OPENROUTER_MODELS = {
 MAX_REPLENISHMENT_ROUNDS = 6
 MAX_STALLED_ROUNDS = 2
 MAX_LASTFM_CONTEXT_TRACKS = 60
+SeedMode = Literal["strict", "balanced", "exploratory"]
 _ARTIST_SEPARATOR_RE = re.compile(
     r"\s*(?:,|&|\bfeat\.?\b|\bfeaturing\b|\bwith\b)\s*",
     re.IGNORECASE,
@@ -60,6 +64,10 @@ _SEED_ANCHORS: ContextVar[tuple[dict[str, str], ...]] = ContextVar(
     "playlistmuse_seed_anchors",
     default=(),
 )
+_SEED_MODE: ContextVar[str] = ContextVar(
+    "playlistmuse_seed_mode",
+    default="",
+)
 
 app = FastAPI(
     title="PlaylistMuse",
@@ -72,6 +80,46 @@ app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
 
 def _normalize_prompt_text(value: str) -> str:
     return " ".join(value.split())
+
+
+def _constraint_priority_prompt(prompt: str) -> str:
+    """Make literal user constraints outrank editorial flow and creative interpretation."""
+    return (
+        "Follow the user's request literally. First identify every explicit constraint, "
+        "including dates, years, eras, languages, countries, markets, genres, exclusions, "
+        "artist limits, quantities and words such as only, exclusively, exactly, before "
+        "or after. Treat those constraints as mandatory and never relax, reinterpret or "
+        "silently broaden them to improve flow, variety, familiarity or storytelling. "
+        "Use musical progression only to order tracks that already satisfy all mandatory "
+        "constraints. If uncertain whether a song complies, do not include it. Do not "
+        "substitute a famous or stylistically suitable song from another year, language, "
+        "country or category.\n\n"
+        f"User request:\n{prompt}"
+    )
+
+
+def _seed_mode_instruction(mode: str) -> str:
+    if mode == "strict":
+        return (
+            "STRICT seed mode: musical similarity to the seed is the primary mandatory "
+            "criterion. Prefer exact Last.fm similar-track evidence. Keep style, timbre, "
+            "energy, mood and era close to the seed. Do not add contrast tracks, broad "
+            "genre neighbours or famous songs merely to create a journey. Variety and "
+            "flow must never weaken similarity."
+        )
+    if mode == "exploratory":
+        return (
+            "EXPLORATORY seed mode: begin close to the seed, then allow a wider sequence "
+            "through defensible musical links. Every track must still connect through at "
+            "least one concrete characteristic such as sound, rhythm, mood, instrumentation, "
+            "scene or artist affinity. Avoid arbitrary contrast or unrelated hits."
+        )
+    return (
+        "BALANCED seed mode: keep the seed clearly central. Most tracks should be close "
+        "matches supported by Last.fm or strong musical affinity, with a limited number "
+        "of compatible variations. Flow may organise the result but may not override "
+        "similarity to the seed."
+    )
 
 
 class SettingsResponse(BaseModel):
@@ -119,6 +167,119 @@ class GenerateRequest(BaseModel):
         return _normalize_prompt_text(value)
 
 
+class PromptAnalysisRequest(GenerateRequest):
+    pass
+
+
+_DIMENSION_POINTS = {
+    "genre": 3,
+    "period": 3,
+    "mood_energy": 3,
+    "context": 2,
+    "references": 2,
+    "language_geography": 2,
+    "popularity": 3,
+    "sound": 3,
+}
+_STRUCTURE_POINTS = {
+    "ordering": 4,
+    "alternation": 7,
+    "progression": 8,
+    "proportions": 6,
+    "transitions": 6,
+    "sections": 7,
+}
+
+
+def _quantity_points(track_count: int) -> int:
+    if track_count <= 15:
+        return 0
+    if track_count <= 30:
+        return 3
+    if track_count <= 50:
+        return 7
+    if track_count <= 100:
+        return 11
+    return 15
+
+
+def _complexity_level(score: int) -> str:
+    if score < 20:
+        return "Simple"
+    if score < 40:
+        return "Detailed"
+    if score < 65:
+        return "Complex"
+    if score < 85:
+        return "Very complex"
+    return "Extreme"
+
+
+def _clarity_level(score: int) -> str:
+    if score >= 90:
+        return "Excellent"
+    if score >= 75:
+        return "Good"
+    if score >= 55:
+        return "Fair"
+    return "Needs clarification"
+
+
+def _score_prompt_analysis(analysis: dict, track_count: int) -> dict:
+    dimensions = list(dict.fromkeys(analysis["dimensions"]))
+    structures = list(dict.fromkeys(analysis["structures"]))
+    hard_constraints = int(analysis["hard_constraints"])
+    soft_constraints = int(analysis["soft_constraints"])
+    relations = int(analysis["relations"])
+    dimension_score = min(
+        20, sum(_DIMENSION_POINTS.get(item, 0) for item in dimensions)
+    )
+    constraint_score = min(25, (4 * hard_constraints) + (2 * soft_constraints))
+    structure_score = min(
+        25, sum(_STRUCTURE_POINTS.get(item, 0) for item in structures)
+    )
+    relation_score = min(15, 3 * relations)
+    score = min(
+        100,
+        5
+        + dimension_score
+        + constraint_score
+        + structure_score
+        + relation_score
+        + _quantity_points(track_count),
+    )
+
+    ambiguities = analysis["ambiguities"]
+    conflicts = analysis["conflicts"]
+    missing = analysis["missing_information"]
+    imprecisions = analysis["imprecisions"]
+    typos = analysis["possible_typos"]
+    clarity = max(
+        0,
+        100
+        - (10 * len(ambiguities))
+        - (25 * len(conflicts))
+        - (15 * len(missing))
+        - (5 * len(imprecisions))
+        - (5 * len(typos)),
+    )
+    issues = list(
+        dict.fromkeys([*conflicts, *ambiguities, *missing, *imprecisions, *typos])
+    )
+    return {
+        "score": score,
+        "level": _complexity_level(score),
+        "clarity": clarity,
+        "clarity_level": _clarity_level(clarity),
+        "dimensions": len(dimensions),
+        "hard_constraints": hard_constraints,
+        "soft_constraints": soft_constraints,
+        "structures": len(structures),
+        "relations": relations,
+        "issues": issues,
+    }
+
+
 class SeedTrack(BaseModel):
     video_id: str = Field(min_length=3, max_length=32)
     title: str = Field(min_length=1, max_length=300)
@@ -131,6 +292,7 @@ class SeedTrack(BaseModel):
 
 class SeedGenerateRequest(BaseModel):
     seed: SeedTrack
+    seed_mode: SeedMode = "balanced"
     track_count: int = Field(default=25, ge=5, le=100)
     options: PlaylistOptions = Field(default_factory=PlaylistOptions)
 
@@ -238,6 +400,8 @@ def _discovery_prompt(
     first_draft: dict,
     candidates: list[dict[str, str]],
     count: int,
+    *,
+    seed_mode: str = "",
 ) -> str:
     first_pass = "\n".join(
         f"- {track.get('artist', 'Unknown artist')} — "
@@ -250,21 +414,27 @@ def _discovery_prompt(
         f"[{candidate.get('lastfm_strategy', 'lastfm')}]"
         for candidate in candidates[:MAX_LASTFM_CONTEXT_TRACKS]
     )
+    seed_instruction = f"\n{_seed_mode_instruction(seed_mode)}\n" if seed_mode else ""
     return (
         f"Create the final playlist for this request:\n{original_prompt}\n\n"
+        "MANDATORY PRIORITY: preserve every explicit constraint in the original request. "
+        "Dates, years, eras, languages, countries, markets, exclusions and words such as "
+        "only or exactly are hard filters. A candidate that violates one must be rejected, "
+        "even if it improves coherence, discovery, variety or flow. Never silently broaden "
+        "the request. Musical flow may only order already compliant tracks."
+        f"{seed_instruction}\n"
         "You have two complementary inputs:\n"
         "1. Your own first-pass musical ideas.\n"
         "2. Last.fm collaborative-listening evidence derived from the seed or from "
         "representative tracks in the first pass.\n\n"
         f"First-pass ideas:\n{first_pass or '- None'}\n\n"
         f"Last.fm evidence:\n{evidence or '- None'}\n\n"
-        f"Return a cohesive final playlist of up to {count} tracks. Combine the original "
-        "request, your musical judgment and the Last.fm evidence. There is no quota: "
-        "use any number of Last.fm suggestions, including zero, only when they improve "
-        "coherence, discovery, variety or flow. You may also select tracks not listed "
-        "above. Avoid mechanically copying either list. For every selected song, write "
-        "a natural song description and a playlist-specific reason in the normal "
-        "PlaylistMuse style. Use canonical artist and released track names."
+        f"Return a final playlist of up to {count} tracks. Use Last.fm evidence only when "
+        "it satisfies the original request and the selected seed mode. You may select "
+        "tracks not listed above only when they satisfy every mandatory constraint and "
+        "have a clear musical justification. Do not add contrast tracks merely to create "
+        "a narrative arc. For every selected song, write a natural song description and "
+        "a playlist-specific reason. Use canonical artist and released track names."
     )
 
 
@@ -423,6 +593,8 @@ def _replenishment_prompt(
     tracks: list[dict],
     attempted_candidates: list[dict],
     lastfm_candidates: list[dict[str, str]] | None = None,
+    *,
+    seed_mode: str = "",
 ) -> str:
     forbidden_lines: list[str] = []
     for track in tracks:
@@ -442,19 +614,27 @@ def _replenishment_prompt(
         for candidate in (lastfm_candidates or [])[:30]
     )
     discovery_note = (
-        "\nLast.fm collaborative evidence remains available as optional inspiration:\n"
+        "\nLast.fm collaborative evidence remains available. Use it only when it "
+        "satisfies all original constraints:\n"
         f"{evidence}\n"
         if evidence
         else ""
     )
+    seed_instruction = f"\n{_seed_mode_instruction(seed_mode)}\n" if seed_mode else ""
     return (
         f"The original playlist request is:\n{original_prompt}\n\n"
+        "Every explicit condition in that request remains mandatory during replenishment. "
+        "Do not broaden dates, years, language, country, market, genre, exclusions or any "
+        "other stated limit merely to fill the requested count. If a candidate is uncertain "
+        "or non-compliant, do not propose it."
+        f"{seed_instruction}\n"
         f"Playlist title: {playlist_title}\n"
         f"Playlist description: {playlist_description}\n"
         f"The playlist still needs {missing} resolvable songs. Suggest exactly "
         f"{pool_size} NEW replacement candidates that are likely to exist as normal "
-        "song entries on YouTube Music. Use canonical released titles and mainstream "
-        "artist spelling. Do not repeat any forbidden song."
+        "song entries on YouTube Music and that satisfy every original constraint. "
+        "Use canonical released titles and mainstream artist spelling. Do not repeat "
+        "any forbidden song."
         f"{discovery_note}\n"
         f"Forbidden or already attempted songs:\n{forbidden or '- None'}"
     )
@@ -462,7 +642,12 @@ def _replenishment_prompt(
 
 async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     config = load_config()
-    first_draft = await generate_playlist_draft(config, prompt, count)
+    seed_mode = _SEED_MODE.get()
+    first_draft = await generate_playlist_draft(
+        config,
+        _constraint_priority_prompt(prompt),
+        count,
+    )
 
     lastfm_anchors = list(_SEED_ANCHORS.get())
     lastfm_candidates = list(_SEED_RECOMMENDATIONS.get())
@@ -484,7 +669,13 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     draft = first_draft
     guidance_applied = False
     if lastfm_candidates:
-        guided_prompt = _discovery_prompt(prompt, first_draft, lastfm_candidates, count)
+        guided_prompt = _discovery_prompt(
+            prompt,
+            first_draft,
+            lastfm_candidates,
+            count,
+            seed_mode=seed_mode,
+        )
         try:
             draft = await generate_playlist_draft(config, guided_prompt, count)
             guidance_applied = True
@@ -522,6 +713,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
             tracks,
             attempted_candidates,
             lastfm_candidates,
+            seed_mode=seed_mode,
         )
         refill = await generate_playlist_draft(config, refill_prompt, pool_size)
         refill_tracks = _annotate_lastfm_sources(
@@ -572,11 +764,16 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     if len(tracks) < count:
         raise ValueError(
             f"PlaylistMuse found only {len(tracks)} of {count} distinct tracks that "
-            "could be verified on YouTube Music. Try a broader prompt or request "
-            "fewer tracks."
+            "could be verified on YouTube Music without deliberately relaxing the "
+            "request. Try a broader prompt or request fewer tracks."
         )
 
+    from backend.policy_enforcement import _ACTIVE_POLICY, apply_track_positions
+
     final_tracks = tracks[:count]
+    active_policy = _ACTIVE_POLICY.get()
+    if active_policy is not None:
+        final_tracks = apply_track_positions(final_tracks, active_policy)
     return {
         "name": draft["title"],
         "description": draft["description"],
@@ -670,13 +867,33 @@ async def generate_playlist(request: GenerateRequest) -> dict:
         ) from error
 
 
+@app.post("/api/prompts/analyze")
+async def analyze_prompt(request: PromptAnalysisRequest) -> dict:
+    try:
+        semantics = await analyze_prompt_semantics(
+            load_config(),
+            request.prompt,
+            track_count=request.track_count,
+            options=request.options.model_dump(),
+        )
+        return _score_prompt_analysis(semantics, request.track_count)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=502,
+            detail="Prompt analysis failed. Please try again.",
+        ) from error
+
+
 @app.post("/api/playlists/generate-from-seed")
 async def generate_from_seed(request: SeedGenerateRequest) -> dict:
     seed = request.seed
     prompt = (
-        f"Create a cohesive playlist inspired by the song '{seed.title}' by "
-        f"{seed.artists}. Match its style, mood, energy and musical character while "
-        "including varied compatible artists."
+        f"Create a playlist from the seed song '{seed.title}' by {seed.artists}. "
+        f"{_seed_mode_instruction(request.seed_mode)} The seed must remain the primary "
+        "reference for every selection. Do not let editorial sequencing or a narrative "
+        "journey override the selected similarity mode."
     )
     lastfm_candidates = await similar_track_candidates(
         seed.artists,
@@ -690,6 +907,7 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
     }
     recommendation_token = _SEED_RECOMMENDATIONS.set(tuple(lastfm_candidates))
     anchor_token = _SEED_ANCHORS.set((seed_anchor,))
+    mode_token = _SEED_MODE.set(request.seed_mode)
     try:
         result = await _generate(prompt, request.track_count, request.options)
     except ValueError as error:
@@ -700,6 +918,7 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
             detail="Playlist generation failed. Please try again.",
         ) from error
     finally:
+        _SEED_MODE.reset(mode_token)
         _SEED_ANCHORS.reset(anchor_token)
         _SEED_RECOMMENDATIONS.reset(recommendation_token)
 
@@ -736,6 +955,7 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
     result["tracks"] = [seed_payload, *remaining_tracks][: request.track_count]
     result["resolved_count"] = len(result["tracks"])
     result["seed"] = seed_payload
+    result["seed_mode"] = request.seed_mode
     if isinstance(result.get("lastfm"), dict):
         _refresh_lastfm_selection(result["lastfm"], result["tracks"])
     return result
@@ -750,6 +970,9 @@ async def replace_track(request: ReplaceTrackRequest) -> dict:
     replacement_prompt = (
         "Suggest exactly 6 strong replacement candidates for one song in an existing playlist.\n"
         f"Original playlist request: {request.prompt}\n"
+        "All explicit constraints in the original request remain mandatory. Do not relax "
+        "dates, years, language, country, genre, exclusions or other limits when replacing "
+        "the song.\n"
         f"Playlist title: {request.playlist_name or 'Untitled playlist'}\n"
         f"Playlist description: {request.playlist_description or 'Not provided'}\n"
         f"Song being replaced: {current.artists} — {current.title}\n"

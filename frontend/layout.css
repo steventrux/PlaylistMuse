@@ -1,5 +1,12 @@
 /* Shared page alignment, wordmark and header service indicators. */
 
+/* Align the header and working area on wide screens. */
+.app-header,
+main,
+.playlist-shell {
+  width: min(860px, calc(100% - 32px));
+}
+
 .hero {
   width: 100%;
   max-width: none;

@@ -120,7 +120,7 @@ def test_prompt_generation_uses_lastfm_as_ai_context_without_fixed_quota(monkeyp
     assert len(prompts) == 2
     assert "Italian electronic pop for a summer drive" in prompts[1]
     assert "Last.fm collaborative-listening evidence" in prompts[1]
-    assert "There is no quota" in prompts[1]
+    assert "You may select tracks not listed above" in prompts[1]
     assert "Last.fm Artist — Discovery Track" in prompts[1]
     assert result["name"] == "Final Guided Playlist"
 

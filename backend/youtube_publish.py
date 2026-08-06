@@ -13,6 +13,7 @@ import logging
 import re
 import time
 import uuid
+from contextlib import suppress
 from typing import Any
 
 import httpx
@@ -292,10 +293,8 @@ def _set_privacy(
 
 
 def _delete_quietly(client: httpx.Client, playlist_id: str) -> None:
-    try:
+    with suppress(Exception):
         _request(client, "DELETE", "playlists", params={"id": playlist_id})
-    except Exception:
-        pass
 
 
 def _create_playlist_sync(

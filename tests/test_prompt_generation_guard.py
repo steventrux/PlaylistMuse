@@ -1,0 +1,42 @@
+from pathlib import Path
+
+from backend.prompt_validation import _local_temporal_assessment
+from backend.validation_fixes import effective_temporal_range
+
+
+ROOT = Path(__file__).resolve().parents[1]
+FRONTEND = ROOT / "frontend"
+
+
+def test_abbreviated_year_range_is_expanded_deterministically():
+    assert effective_temporal_range("canzoni rock dal 70 al 90") == (1970, 1990)
+
+
+def test_abbreviated_range_after_cutoff_is_impossible():
+    assessment = _local_temporal_assessment(
+        "canzoni rock dal 70 al 90, pubblicate dopo il 1999"
+    )
+
+    assert assessment is not None
+    assert assessment.status == "impossible"
+    assert "2000" in assessment.reasons[0]
+    assert "1990" in assessment.reasons[0]
+
+
+def test_prompt_validation_guard_is_loaded_after_app_listener_registration():
+    html = (FRONTEND / "index.html").read_text(encoding="utf-8")
+    app = '<script src="/static/app.js?v=17"></script>'
+    guard = '<script src="/static/prompt-validation-guard.js?v=1"></script>'
+
+    assert app in html
+    assert guard in html
+    assert html.index(app) < html.index(guard)
+
+
+def test_prompt_validation_guard_blocks_impossible_status_before_generation():
+    script = (FRONTEND / "prompt-validation-guard.js").read_text(encoding="utf-8")
+
+    assert "event.stopImmediatePropagation()" in script
+    assert "result.status === 'impossible'" in script
+    assert "button.click()" in script
+    assert "/api/playlists/validate-prompt" in script
