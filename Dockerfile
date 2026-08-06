@@ -12,4 +12,4 @@ COPY frontend frontend
 RUN mkdir -p data
 
 EXPOSE 5780
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "5780"]
+CMD ["uvicorn", "backend.application:app", "--host", "0.0.0.0", "--port", "5780"]

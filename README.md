@@ -11,7 +11,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/steventrux/PlaylistMuse?style=flat-square&color=EC4899" alt="MIT license" height="24"></a>
 
   <p>
-    Create, refine and publish YouTube Music playlists from a written idea or a reference song.
+    Create, save, refine and publish YouTube Music playlists from a written idea or a reference song.
   </p>
 
   <p>
@@ -33,7 +33,7 @@ PlaylistMuse is a self hosted web application that turns a musical idea into an 
 
 Describe a mood, genre, era, activity or journey, or begin with an existing song. PlaylistMuse uses the AI provider you choose, finds matching tracks in the YouTube Music catalogue and prepares a playlist that you can review before publishing.
 
-Last.fm can optionally add listening based discovery signals. Connecting YouTube Music is only required when you want to publish directly from PlaylistMuse.
+Generated playlists are saved automatically in a local library, so they can be reopened after the browser or container restarts. Last.fm can optionally add listening based discovery signals. Connecting YouTube Music is only required when you want to publish directly from PlaylistMuse.
 
 <table>
   <tr>
@@ -48,12 +48,22 @@ Last.fm can optionally add listening based discovery signals. Connecting YouTube
   </tr>
   <tr>
     <td width="50%" valign="top">
+      <h3>💾 Save</h3>
+      <p>Keep generated playlists in the local library, reopen them later, duplicate drafts or remove entries you no longer need.</p>
+    </td>
+    <td width="50%" valign="top">
       <h3>🔎 Discover</h3>
       <p>Use optional Last.fm signals to help the AI find related tracks and artists beyond the most obvious choices.</p>
     </td>
+  </tr>
+  <tr>
     <td width="50%" valign="top">
       <h3>▶️ Publish</h3>
       <p>Edit the title, review the sequence, create a cover mosaic and publish to YouTube Music with the visibility you prefer.</p>
+    </td>
+    <td width="50%" valign="top">
+      <h3>🗂️ Reopen</h3>
+      <p>See whether a playlist is still a draft or has already been published, with its YouTube Music link retained.</p>
     </td>
   </tr>
 </table>
@@ -75,7 +85,11 @@ Last.fm can optionally add listening based discovery signals. Connecting YouTube
   </tr>
   <tr>
     <td width="8%" align="center"><strong>4</strong></td>
-    <td><strong>Review and publish</strong><br>Replace songs, edit the title and send the finished playlist to YouTube Music when ready.</td>
+    <td><strong>Review and save</strong><br>The generated playlist is saved automatically. You can edit its title, replace tracks, reopen it from My playlists or create an independent copy.</td>
+  </tr>
+  <tr>
+    <td width="8%" align="center"><strong>5</strong></td>
+    <td><strong>Publish when ready</strong><br>Send the finished playlist to YouTube Music and retain its remote link in the local library.</td>
   </tr>
 </table>
 
@@ -204,9 +218,11 @@ To enable direct publishing:
 
 ## Data and access
 
-Settings, credentials and authorization data are stored in the persistent `./data` directory.
+Settings, credentials, authorization data and the local playlist library are stored in the persistent `./data` directory.
 
-Back up this directory before moving or updating the installation.
+The playlist library uses `data/playlists.db`. SQLite may also create temporary `playlists.db-wal` and `playlists.db-shm` files while the application is running.
+
+Back up the complete `data` directory before moving or updating the installation. For the most consistent backup, stop the container first or use an SQLite-aware backup tool.
 
 For remote access, use a trusted private network or protect the application with HTTPS and authentication.
 

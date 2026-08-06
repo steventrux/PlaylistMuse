@@ -3,9 +3,13 @@
 
   const STORAGE_KEY = 'playlistmuse-generated-playlist';
   const REQUEST_KEY = 'playlistmuse-generation-request';
+  const LIBRARY_ENDPOINT = '/api/library/playlists';
   const $ = (id) => document.getElementById(id);
   const {readJson, setLoadingButton} = window.PlaylistMuseCommon;
   let expandedIndex = null;
+  let persistenceTimer = null;
+  let createRecordPromise = null;
+  let localRevision = 0;
 
   function readStoredJson(key) {
     try {
@@ -15,8 +19,124 @@
     }
   }
 
-  function savePlaylist() {
+  let data = readStoredJson(STORAGE_KEY);
+  let generationRequest = readStoredJson(REQUEST_KEY);
+  const requestedLibraryId = new URLSearchParams(window.location.search).get('id');
+
+  function writeSessionPlaylist() {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  }
+
+  function playlistDocument() {
+    const playlist = JSON.parse(JSON.stringify(data));
+    delete playlist.library_id;
+    return playlist;
+  }
+
+  function libraryRequestBody() {
+    return JSON.stringify({
+      playlist: playlistDocument(),
+      generation_request: generationRequest || null,
+    });
+  }
+
+  async function persistLibraryRecord(revision = localRevision) {
+    if (!data?.library_id) return;
+    try {
+      await readJson(await fetch(`${LIBRARY_ENDPOINT}/${encodeURIComponent(data.library_id)}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: libraryRequestBody(),
+        keepalive: true,
+      }));
+      if (revision === localRevision) document.body.dataset.librarySaveState = 'saved';
+    } catch (error) {
+      document.body.dataset.librarySaveState = 'error';
+      console.warn('Playlist library save failed:', error);
+    }
+  }
+
+  function schedulePersistence({immediate = false} = {}) {
+    if (!data?.library_id) {
+      void ensureLibraryRecord();
+      return;
+    }
+    localRevision += 1;
+    document.body.dataset.librarySaveState = 'saving';
+    clearTimeout(persistenceTimer);
+    const revision = localRevision;
+    if (immediate) {
+      void persistLibraryRecord(revision);
+      return;
+    }
+    persistenceTimer = window.setTimeout(() => {
+      void persistLibraryRecord(revision);
+    }, 350);
+  }
+
+  function savePlaylist(options = {}) {
+    writeSessionPlaylist();
+    schedulePersistence(options);
+  }
+
+  async function ensureLibraryRecord() {
+    if (!data || !Array.isArray(data.tracks) || data.library_id) return data?.library_id || null;
+    if (createRecordPromise) return createRecordPromise;
+
+    document.body.dataset.librarySaveState = 'saving';
+    createRecordPromise = (async () => {
+      const record = await readJson(await fetch(LIBRARY_ENDPOINT, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: libraryRequestBody(),
+      }));
+      data.library_id = record.id;
+      writeSessionPlaylist();
+      document.body.dataset.librarySaveState = 'saved';
+      await persistLibraryRecord(localRevision);
+      return record.id;
+    })().catch((error) => {
+      document.body.dataset.librarySaveState = 'error';
+      console.warn('Playlist library migration failed:', error);
+      return null;
+    }).finally(() => {
+      createRecordPromise = null;
+    });
+
+    return createRecordPromise;
+  }
+
+  async function loadRequestedPlaylist() {
+    try {
+      const record = await readJson(await fetch(
+        `${LIBRARY_ENDPOINT}/${encodeURIComponent(requestedLibraryId)}`,
+        {cache: 'no-store'},
+      ));
+      data = {...record.playlist, library_id: record.id};
+      generationRequest = record.generation_request || null;
+      writeSessionPlaylist();
+      if (generationRequest) {
+        sessionStorage.setItem(REQUEST_KEY, JSON.stringify(generationRequest));
+      } else {
+        sessionStorage.removeItem(REQUEST_KEY);
+      }
+      window.location.replace('/static/playlist.html');
+    } catch (error) {
+      $('empty-state').textContent = error.message || 'The requested playlist could not be opened.';
+      $('empty-state').classList.remove('hidden');
+      $('playlist-summary').textContent = '';
+    }
+  }
+
+  function ensureLibraryLink() {
+    const toolbar = document.querySelector('.playlist-toolbar');
+    if (!toolbar || toolbar.querySelector('[data-library-link]')) return;
+    const link = document.createElement('a');
+    link.href = '/static/library.html';
+    link.className = 'back-link';
+    link.dataset.libraryLink = 'true';
+    link.textContent = 'My playlists';
+    toolbar.append(link);
   }
 
   function isPublished() {
@@ -165,7 +285,7 @@
       data.tracks[index] = payload.track;
       data.resolved_count = data.tracks.length;
       expandedIndex = index;
-      savePlaylist();
+      savePlaylist({immediate: true});
       renderPlaylist();
     } catch (error) {
       status.textContent = error.message || String(error);
@@ -237,7 +357,6 @@
         track.reason || 'The role of this track was not stored with this earlier playlist generation.',
       ),
     );
-
     const actions = document.createElement('div');
     actions.className = 'track-actions';
 
@@ -294,8 +413,16 @@
     renderPlaylistCover();
   }
 
-  const data = readStoredJson(STORAGE_KEY);
-  const generationRequest = readStoredJson(REQUEST_KEY);
+  ensureLibraryLink();
+
+  if (requestedLibraryId && data?.library_id !== requestedLibraryId) {
+    $('playlist-summary').textContent = 'Loading playlist…';
+    void loadRequestedPlaylist();
+    return;
+  }
+  if (requestedLibraryId) {
+    window.history.replaceState(null, '', '/static/playlist.html');
+  }
 
   if (!data || !Array.isArray(data.tracks)) {
     $('empty-state').classList.remove('hidden');
@@ -321,9 +448,16 @@
     if (!result?.url) return;
     data.youtube_playlist = result;
     expandedIndex = null;
-    savePlaylist();
+    savePlaylist({immediate: true});
     renderPlaylist();
   });
 
+  window.addEventListener('pagehide', () => {
+    if (data?.library_id && document.body.dataset.librarySaveState === 'saving') {
+      void persistLibraryRecord(localRevision);
+    }
+  });
+
   renderPlaylist();
+  void ensureLibraryRecord();
 })();
