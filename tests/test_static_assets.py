@@ -78,7 +78,7 @@ def test_prompt_complexity_uses_compact_icon_popover() -> None:
     complexity_style = _style("prompt-complexity.css")
 
     assert '<link rel="stylesheet" href="/static/style.css?v=10">' in index
-    assert '<link rel="stylesheet" href="/static/prompt-complexity.css?v=2">' in index
+    assert '<link rel="stylesheet" href="/static/prompt-complexity.css?v=3">' in index
     assert '<script src="/static/prompt-complexity.js?v=7"></script>' in index
     assert 'id="prompt-complexity-trigger"' in index
     assert '<div class="prompt-label-row">' in index
@@ -100,6 +100,9 @@ def test_prompt_complexity_uses_compact_icon_popover() -> None:
     assert "height: 24px" in complexity_style
     assert "width: 12px" in complexity_style
     assert ".prompt-complexity-popover" in complexity_style
+    assert "right: -4px" in complexity_style
+    assert "left: auto" in complexity_style
+    assert "calc(100vw - 72px)" in complexity_style
     assert ".prompt-complexity {" not in style
     assert "padding: 11px 13px" not in style
 
