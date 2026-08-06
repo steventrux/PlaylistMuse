@@ -1,0 +1,31 @@
+name: Repository audit
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - .github/workflows/repository-audit.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run repository structure audit
+        run: python .github/scripts/repository_audit.py
+      - name: Run broader Ruff diagnostics
+        continue-on-error: true
+        run: |
+          python -m pip install ruff==0.16.1
+          ruff check --select B,C4,SIM,UP,RUF backend tests
+      - name: Validate shell and compose files
+        run: |
+          bash -n scripts/*.sh
+          cp .env.example .env
+          docker compose -f docker-compose.yml config --quiet
