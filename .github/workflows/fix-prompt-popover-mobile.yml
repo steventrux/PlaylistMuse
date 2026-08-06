@@ -1,0 +1,34 @@
+name: Fix mobile prompt complexity popover
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - .github/workflows/fix-prompt-popover-mobile.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+
+      - name: Apply responsive popover fix
+        run: python .github/scripts/fix_prompt_popover_mobile.py
+
+      - name: Verify focused checks
+        run: |
+          python -m compileall -q .github/scripts/fix_prompt_popover_mobile.py
+          node --check frontend/prompt-complexity.js
+
+      - name: Commit responsive popover fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/index.html frontend/prompt-complexity.css tests/test_static_assets.py
+          git commit -m "Fix prompt complexity popover on mobile"
+          git push origin dev
