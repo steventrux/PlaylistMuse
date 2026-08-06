@@ -34,12 +34,14 @@
 
   function init() {
     const prompt = document.getElementById('prompt');
-    const indicator = document.getElementById('prompt-complexity');
-    if (!prompt || !indicator) return;
-
+    const component = document.getElementById('prompt-complexity');
+    const trigger = document.getElementById('prompt-complexity-trigger');
+    const popover = document.getElementById('prompt-complexity-popover');
     const score = document.getElementById('prompt-complexity-score');
     const summary = document.getElementById('prompt-complexity-summary');
     const clarity = document.getElementById('prompt-clarity');
+    if (!prompt || !component || !trigger || !popover || !score || !summary || !clarity) return;
+
     const cache = new Map();
     let timer = null;
     let controller = null;
@@ -52,9 +54,25 @@
       excludeRemixes: document.getElementById('exclude-remixes')?.checked,
     });
 
+    const setPopoverOpen = (open) => {
+      trigger.setAttribute('aria-expanded', String(open));
+      trigger.setAttribute('aria-label', open ? 'Hide request complexity' : 'Show request complexity');
+      popover.hidden = !open;
+    };
+
+    const hideComponent = () => {
+      controller?.abort();
+      component.classList.add('hidden');
+      setPopoverOpen(false);
+    };
+
     const render = (result) => {
-      indicator.style.setProperty('--complexity-hue', complexityHue(result.score));
-      score.textContent = `${displayLevel(result.level)} · ${result.score}/100`;
+      const numericScore = Math.max(0, Math.min(100, Number(result.score) || 0));
+      const level = displayLevel(result.level);
+      component.style.setProperty('--complexity-hue', complexityHue(numericScore));
+      component.style.setProperty('--complexity-score', `${numericScore}%`);
+      score.textContent = `${level} · ${numericScore}/100`;
+      trigger.title = `Request complexity: ${level} · ${numericScore}/100`;
       const constraintCount = result.hard_constraints + result.soft_constraints;
       summary.textContent = [
         `${result.dimensions} musical ${result.dimensions === 1 ? 'dimension' : 'dimensions'}`,
@@ -62,14 +80,13 @@
         `${result.structures} structural ${result.structures === 1 ? 'rule' : 'rules'}`,
       ].join(' · ');
       clarity.textContent = clarityText(result);
-      indicator.classList.remove('hidden');
+      component.classList.remove('hidden');
     };
 
     const analyze = async () => {
       const payload = analysisPayload(prompt.value, settings());
       if (!payload.prompt) {
-        controller?.abort();
-        indicator.classList.add('hidden');
+        hideComponent();
         return;
       }
 
@@ -95,9 +112,7 @@
         cache.set(key, result);
         render(result);
       } catch (error) {
-        if (error.name !== 'AbortError' && sequence === requestSequence) {
-          indicator.classList.add('hidden');
-        }
+        if (error.name !== 'AbortError' && sequence === requestSequence) hideComponent();
       }
     };
 
@@ -107,6 +122,15 @@
       timer = window.setTimeout(analyze, DEBOUNCE_MS);
     };
 
+    trigger.addEventListener('click', () => {
+      setPopoverOpen(trigger.getAttribute('aria-expanded') !== 'true');
+    });
+    document.addEventListener('click', (event) => {
+      if (!component.contains(event.target)) setPopoverOpen(false);
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') setPopoverOpen(false);
+    });
     prompt.addEventListener('input', schedule);
     ['track-count', 'exclude-live', 'exclude-covers', 'exclude-remixes'].forEach((id) => {
       document.getElementById(id)?.addEventListener('change', schedule);
