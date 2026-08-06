@@ -11,128 +11,90 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/steventrux/PlaylistMuse?style=flat-square&color=EC4899" alt="MIT license" height="24"></a>
 
   <p>
-    Turn a natural-language idea or a seed song into an editable YouTube Music playlist.<br>
-    Combine AI musical judgment with optional Last.fm listening signals, refine the result and publish it directly from the browser.
+    Create, refine and publish YouTube Music playlists from a written idea or a reference song.
   </p>
 
   <p>
-    <a href="#features"><strong>Features</strong></a> ·
-    <a href="#how-it-works"><strong>How it works</strong></a> ·
-    <a href="#lastfm-guided-discovery"><strong>Last.fm</strong></a> ·
-    <a href="#quick-start"><strong>Quick start</strong></a> ·
-    <a href="#ai-providers"><strong>AI providers</strong></a> ·
-    <a href="#youtube-music-publishing"><strong>YouTube Music</strong></a>
+    <a href="#playlistmuse-at-a-glance"><strong>Overview</strong></a>
+    &nbsp;·&nbsp;
+    <a href="#from-idea-to-playlist"><strong>How it works</strong></a>
+    &nbsp;·&nbsp;
+    <a href="#installation"><strong>Installation</strong></a>
+    &nbsp;·&nbsp;
+    <a href="#configuration"><strong>Configuration</strong></a>
   </p>
 </div>
 
----
+<br>
 
 > [!CAUTION]
 > This is the active development branch. It may contain incomplete or changing functionality and is not published as a Docker image. Use `main` with `ghcr.io/steventrux/playlistmuse:latest` for stable installations or `beta` with `ghcr.io/steventrux/playlistmuse:beta` for public preview builds.
 
-## What is PlaylistMuse?
+## PlaylistMuse at a glance
 
-PlaylistMuse is a self-hosted web application that turns a written idea or a reference song into a complete YouTube Music playlist.
+PlaylistMuse is a self hosted web application that turns a musical idea into an editable YouTube Music playlist.
 
-Describe a mood, genre, era, activity or sound, or start from an existing track. PlaylistMuse asks the selected AI provider for an initial musical direction, optionally expands it with Last.fm collaborative-listening evidence, then lets the AI build the final sequence without applying a fixed Last.fm quota.
+Describe a mood, genre, era, activity or journey, or begin with an existing song. PlaylistMuse uses the AI provider you choose, finds matching tracks in the YouTube Music catalogue and prepares a playlist that you can review before publishing.
 
-Every proposed song is resolved against the YouTube Music catalogue. PlaylistMuse removes duplicates and rejects unwanted live recordings, covers, tribute versions, karaoke tracks and remixes according to your preferences. Matching checks title, artist and album metadata so an identical title cannot compensate for the wrong artist.
+Last.fm can optionally add listening based discovery signals. Connecting YouTube Music is only required when you want to publish directly from PlaylistMuse.
 
-The result remains editable before publication. Review track details, replace individual songs, change the title, choose playlist visibility and publish the final sequence directly to YouTube Music.
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>🎵 Create</h3>
+      <p>Generate a playlist from a natural language prompt or a seed song, with between 5 and 100 tracks.</p>
+    </td>
+    <td width="50%" valign="top">
+      <h3>✨ Refine</h3>
+      <p>Exclude live recordings, covers and remixes, remove duplicates and replace individual songs.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>🔎 Discover</h3>
+      <p>Use optional Last.fm signals to help the AI find related tracks and artists beyond the most obvious choices.</p>
+    </td>
+    <td width="50%" valign="top">
+      <h3>▶️ Publish</h3>
+      <p>Edit the title, review the sequence, create a cover mosaic and publish to YouTube Music with the visibility you prefer.</p>
+    </td>
+  </tr>
+</table>
 
-## Features
+## From idea to playlist
 
-| Create | Refine | Publish |
-| --- | --- | --- |
-| Natural-language prompts | Expandable track details | Direct YouTube Music publishing |
-| Seed-song generation | Individual track replacement | Private, unlisted or public playlists |
-| AI-guided Last.fm discovery | Live, cover, tribute and remix filters | Google OAuth device authorization |
-| 5–100 requested tracks | Duplicate prevention and replenishment | Locally generated cover mosaic |
-| Multiple AI providers | Title, artist and album validation | Editable title and description |
+<table>
+  <tr>
+    <td width="8%" align="center"><strong>1</strong></td>
+    <td><strong>Describe what you want</strong><br>Write a prompt or choose a song as the starting point.</td>
+  </tr>
+  <tr>
+    <td width="8%" align="center"><strong>2</strong></td>
+    <td><strong>Let the AI shape the direction</strong><br>The selected provider interprets your request and proposes a coherent sequence. When Last.fm is enabled, it can add related listening signals.</td>
+  </tr>
+  <tr>
+    <td width="8%" align="center"><strong>3</strong></td>
+    <td><strong>Match real catalogue tracks</strong><br>PlaylistMuse checks title, artist and album information, removes duplicates and rejects unwanted versions.</td>
+  </tr>
+  <tr>
+    <td width="8%" align="center"><strong>4</strong></td>
+    <td><strong>Review and publish</strong><br>Replace songs, edit the title and send the finished playlist to YouTube Music when ready.</td>
+  </tr>
+</table>
 
-Additional highlights:
+## Installation
 
-- Google Gemini, OpenAI, Anthropic, OpenRouter, Ollama and OpenAI-compatible endpoints
-- Automatic model discovery based on the configured provider
-- Multiple AI provider profiles with quick switching
-- OpenRouter Auto and Free routing modes
-- Last.fm discovery for both natural-language prompts and seed-song generation
-- `track.getSimilar` discovery with `artist.getSimilar` fallback for new or sparsely played tracks
-- No fixed Last.fm percentage: the AI decides which signals improve coherence, discovery, variety or flow
-- Detailed Last.fm diagnostics with anchors, signals, strategies and final-selection metadata
-- Stricter YouTube Music matching against title, artist and album metadata
-- Four-tile playlist artwork generated locally in the browser
-- Responsive interface built with semantic HTML, modern CSS and vanilla JavaScript
-- Docker-based deployment with persistent application data
-
-## How it works
-
-1. **Start with an idea or a song.**  
-   Write a prompt or select a YouTube Music track as the musical reference.
-
-2. **Create a first AI draft.**  
-   The active AI provider identifies a musical direction and proposes representative songs.
-
-3. **Gather optional Last.fm evidence.**  
-   For prompt generation, PlaylistMuse selects up to three representative tracks from the first draft as discovery anchors. For seed generation, the selected seed is the anchor. Last.fm returns similar tracks, or similar artists when a track does not yet have enough listening data.
-
-4. **Let the AI build the final playlist.**  
-   The AI receives the original request, its first draft and the Last.fm evidence. It may use any number of Last.fm suggestions, including none. There is no fixed quota.
-
-5. **Resolve and clean the catalogue results.**  
-   PlaylistMuse matches the final suggestions to real YouTube Music entries, checks title, artist and album metadata, removes duplicates and replenishes unresolved positions.
-
-6. **Review and publish.**  
-   Expand track details, replace individual songs, edit the title and description, choose visibility and publish the playlist to YouTube Music.
-
-## Last.fm-guided discovery
-
-Last.fm is optional. PlaylistMuse continues to work with the AI provider alone when no Last.fm key is configured or when the Last.fm API is temporarily unavailable.
-
-### Prompt generation
-
-For a natural-language prompt, PlaylistMuse first asks the AI for a draft. Up to three representative songs from that draft become Last.fm anchors. The resulting listening signals are then passed back to the AI together with the original prompt.
-
-### Seed generation
-
-For a seed song, PlaylistMuse first requests `track.getSimilar`. When Last.fm recognizes the track but does not yet have enough similarity data, PlaylistMuse falls back to `artist.getSimilar`. The AI then chooses appropriate tracks from the related-artist context rather than receiving a rigid list of top songs.
-
-### No fixed quota
-
-Last.fm is an input to the AI, not a separate block of automatically inserted tracks. The final number of Last.fm-influenced selections varies for every playlist. The AI can use zero, a few or many suggestions when they improve the result.
-
-### Descriptions and provenance
-
-All final track descriptions and playlist-specific reasons are written by the AI, including tracks discovered through Last.fm. Exact `similar_track` matches retain technical provenance metadata such as:
-
-```json
-{
-  "source": "lastfm",
-  "lastfm_strategy": "similar_track"
-}
-```
-
-The playlist response also exposes a diagnostic `lastfm` object containing:
-
-- whether Last.fm guidance was applied;
-- the anchors used for discovery;
-- the number and type of signals supplied to the AI;
-- exact Last.fm track suggestions selected in the final playlist;
-- represented signals and unique represented artists;
-- the originating anchor and Last.fm match value for each signal.
-
-The API key is never returned to the browser. It can be saved from the Last.fm settings panel or supplied through `PLAYLISTMUSE_LASTFM_API_KEY`.
-
-## Quick start
+> **Development setup**
+>
+> The `dev` branch is not published as a Docker image. Build it from source to run the current development code.
 
 ### Requirements
 
-- Docker Engine
-- Docker Compose v2
+1. Docker Engine
 
-### Build and run the development branch
+2. Docker Compose v2
 
-The `dev` branch must be built from source so the running container matches the current development code:
+### Build and run
 
 ```bash
 git clone --branch dev --single-branch https://github.com/steventrux/PlaylistMuse.git
@@ -143,134 +105,88 @@ docker compose up -d --build
 
 Open **http://localhost:5780**.
 
-To update an existing development checkout:
+The initial setup guides you through the required AI provider configuration and the optional YouTube Music connection.
+
+### Update
 
 ```bash
 git pull --ff-only origin dev
 docker compose up -d --build
 ```
 
-On first launch, the onboarding flow guides you through configuring the AI provider and YouTube Music. Last.fm can be configured later from its settings button.
-
-Application settings, provider credentials, Last.fm configuration and YouTube authorization data are stored in the persistent `./data` directory.
-
-To stop the development installation:
+### Stop
 
 ```bash
 docker compose down
 ```
 
-## AI providers
+## Configuration
 
-| Provider | Model selection | Notes |
-| --- | --- | --- |
-| Google Gemini | Models available to the configured API key | Availability can depend on the Google project |
-| OpenAI | Compatible models available to the account | Non-chat models are excluded |
-| Anthropic | Claude models available to the account | Availability follows account access |
-| OpenRouter Auto | `openrouter/auto` | OpenRouter selects the model automatically |
-| OpenRouter Free | `openrouter/free` | Uses OpenRouter's free routing pool |
-| Ollama | Models installed on the configured server | Embedding-only models are excluded |
-| Compatible endpoint | Models reported by an OpenAI-compatible `/models` endpoint | Manual model identifiers are supported |
+<table>
+  <tr>
+    <th align="left">Service</th>
+    <th align="left">Required</th>
+    <th align="left">Purpose</th>
+  </tr>
+  <tr>
+    <td><strong>AI provider</strong></td>
+    <td>Yes</td>
+    <td>Interprets the request and creates the playlist.</td>
+  </tr>
+  <tr>
+    <td><strong>Last.fm</strong></td>
+    <td>No</td>
+    <td>Adds listening based discovery signals.</td>
+  </tr>
+  <tr>
+    <td><strong>YouTube Music</strong></td>
+    <td>No</td>
+    <td>Publishes the finished playlist directly to your account.</td>
+  </tr>
+</table>
 
-Provider credentials and model settings are managed from the web interface. Configured providers can be switched without editing application files.
+### AI provider
 
-The AI-guided Last.fm flow adds a second AI pass when listening evidence is available. If that pass fails, PlaylistMuse safely falls back to the original AI draft.
+Credentials, models and saved profiles are managed from the web interface.
 
-## YouTube Music catalogue matching
+PlaylistMuse supports Google Gemini, OpenAI, Anthropic, OpenRouter, Ollama and OpenAI compatible endpoints.
 
-PlaylistMuse searches YouTube Music for every AI-selected candidate and ranks catalogue results using separate title and artist scores. A high title score cannot compensate for an unrelated artist.
+### Last.fm
 
-When the corresponding filters are enabled, PlaylistMuse checks title, album and artist metadata to reject:
+Add an API key from the Last.fm settings panel or through `PLAYLISTMUSE_LASTFM_API_KEY` in `.env`.
 
-- live, concert and session recordings;
-- covers, tribute releases and karaoke versions;
-- remixes, edits and mashups;
-- collection-style uploads such as medleys, complete albums and greatest-hits compilations.
+Playlist generation continues to work normally when Last.fm is not configured.
 
-Unresolved or rejected positions are replenished with new AI candidates until the requested playlist size is reached or the retry limit is exhausted.
-
-## YouTube Music publishing
-
-Connecting YouTube Music is optional. Playlist generation, editing and track replacement work without it.
+### YouTube Music
 
 To enable direct publishing:
 
 1. Create or select a project in Google Cloud Console.
+
 2. Enable **YouTube Data API v3**.
+
 3. Configure the OAuth consent screen.
+
 4. Create an OAuth client of type **TVs and Limited Input devices**.
-5. Open **YouTube Music Settings** in PlaylistMuse.
-6. Save the OAuth client ID and secret.
-7. Select **Connect account** and complete Google's device authorization flow.
 
-After connection, PlaylistMuse can create **Private**, **Unlisted** or **Public** playlists directly in the connected YouTube Music account.
+5. Enter the client ID and secret in PlaylistMuse.
 
-OAuth credentials and the refreshable account token are stored in the persistent data directory with restricted file permissions. Saved secrets are never returned to the browser.
+6. Select **Connect account** and complete the authorization.
 
-## Self-hosting
+## Data and access
 
-PlaylistMuse is designed for personal self-hosting on a server, NAS or VPS.
+Settings, credentials and authorization data are stored in the persistent `./data` directory.
 
-Recommended practices:
+Back up this directory before moving or updating the installation.
 
-- Keep access limited to the local network, a VPN or another trusted private network.
-- For remote access, use a reverse proxy with HTTPS and an authentication layer.
-- Back up the persistent `data` directory.
-- Never commit provider keys, Last.fm keys, OAuth credentials, tokens or application data.
-- Keep the container and dependencies updated.
-
-The container listens on port `5780` and exposes `GET /api/health` for health monitoring.
-
-## Technology
-
-- **Backend:** Python 3.12, FastAPI, Uvicorn and HTTPX
-- **AI integration:** provider-specific REST APIs and OpenAI-compatible endpoints
-- **Listening-data discovery:** Last.fm Web Services
-- **Music catalogue:** `ytmusicapi`
-- **Frontend:** semantic HTML, modern CSS and vanilla JavaScript
-- **Deployment:** Docker and Docker Compose
-- **Quality:** Pytest, Ruff and Node's built-in test runner
-
-<details>
-<summary><strong>Development and testing</strong></summary>
-
-### Local backend
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt -r requirements-dev.txt
-uvicorn backend.main:app --reload --port 5780
-```
-
-### Test suite
-
-```bash
-python -m compileall -q backend tests
-ruff check --select E4,E7,E9,F backend tests
-python -m pytest -q
-
-find frontend -maxdepth 1 -name "*.js" -print0 | xargs -0 -n1 node --check
-find tests -maxdepth 1 -name "*.cjs" -print0 | xargs -0 -n1 node --check
-node --test tests/*.cjs
-```
-
-</details>
-
-## Contributing
-
-Issues and pull requests are welcome. Keep changes focused, preserve the self-hosted architecture and include regression tests for behavior changes.
+For remote access, use a trusted private network or protect the application with HTTPS and authentication.
 
 ## Disclaimer
 
 PlaylistMuse is an independent project and is not affiliated with Google, YouTube or Last.fm.
 
-`ytmusicapi` is an unofficial YouTube Music client. Google or YouTube may change authentication requirements or internal endpoints without notice. Last.fm API availability and listening data depend on the Last.fm service.
+YouTube Music access relies on third party and Google APIs that may change over time.
 
 ## License
 
 PlaylistMuse is released under the [MIT License](LICENSE).
-
-<div align="center">
-  <sub>Built for people who would rather describe a sound than manually assemble a queue.</sub>
-</div>
