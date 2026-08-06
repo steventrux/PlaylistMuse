@@ -1,0 +1,37 @@
+name: Apply prompt complexity info icon
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - .github/workflows/apply-prompt-complexity-info-icon.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+
+      - name: Apply info icon update
+        run: python .github/scripts/update_prompt_complexity_info_icon.py
+
+      - name: Verify focused frontend checks
+        run: |
+          node --check frontend/prompt-complexity.js
+          node tests/test_prompt_complexity.cjs
+          python -m py_compile tests/test_static_assets.py
+
+      - name: Commit cleaned implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/apply-prompt-complexity-info-icon.yml
+          git rm .github/scripts/update_prompt_complexity_info_icon.py
+          git add frontend/index.html frontend/prompt-complexity.css tests/test_static_assets.py
+          git commit -m "Use compact info icon for prompt complexity"
+          git push origin dev
