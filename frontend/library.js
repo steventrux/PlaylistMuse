@@ -7,6 +7,33 @@
   const $ = (id) => document.getElementById(id);
   const {readJson, setLoadingButton} = window.PlaylistMuseCommon;
 
+  function readSessionJson(key) {
+    try {
+      return JSON.parse(sessionStorage.getItem(key) || 'null');
+    } catch {
+      return null;
+    }
+  }
+
+  async function migrateSessionPlaylist() {
+    const playlist = readSessionJson(STORAGE_KEY);
+    if (!playlist || !Array.isArray(playlist.tracks) || playlist.library_id) return;
+
+    const generationRequest = readSessionJson(REQUEST_KEY);
+    const playlistDocument = {...playlist};
+    delete playlistDocument.library_id;
+    const record = await readJson(await fetch(ENDPOINT, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        playlist: playlistDocument,
+        generation_request: generationRequest || null,
+      }),
+    }));
+    playlist.library_id = record.id;
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(playlist));
+  }
+
   function setStatus(text = '', error = false) {
     const status = $('library-status');
     status.textContent = text;
@@ -202,6 +229,17 @@
     }
   }
 
+  async function initializeLibrary() {
+    let migrationError = '';
+    try {
+      await migrateSessionPlaylist();
+    } catch (error) {
+      migrationError = error.message || String(error);
+    }
+    await loadLibrary();
+    if (migrationError) setStatus(migrationError, true);
+  }
+
   $('library-sort').addEventListener('change', () => void loadLibrary());
-  void loadLibrary();
+  void initializeLibrary();
 })();
