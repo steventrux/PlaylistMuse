@@ -149,6 +149,14 @@
 
 @media (max-width: 520px) {
   .prompt-complexity-popover {
-    width: min(300px, calc(100vw - 56px));
+    right: -4px;
+    left: auto;
+    width: min(290px, calc(100vw - 72px));
+    overflow-wrap: anywhere;
+  }
+
+  .prompt-complexity-popover::before {
+    right: 10px;
+    left: auto;
   }
 }
