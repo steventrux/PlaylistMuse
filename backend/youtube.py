@@ -123,11 +123,13 @@ def _is_excluded(
         return True
     if remixes and _REMIX_RE.search(title_and_album):
         return True
-    if covers and (
-        _COVER_RE.search(title_and_album) or _COVER_RE.search(normalized_artists)
-    ):
-        return True
-    return False
+    return bool(
+        covers
+        and (
+            _COVER_RE.search(title_and_album)
+            or _COVER_RE.search(normalized_artists)
+        )
+    )
 
 
 def _looks_like_collection(candidate_title: str, result_title: str) -> bool:

@@ -5,7 +5,8 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 from functools import wraps
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 _QUOTA_CLAUSE_SEPARATOR_RE = re.compile(
     r"[,;]\s*(?=(?:(?:almeno|minimo|min\.|at\s+least|minimum(?:\s+of)?)\s+)?"

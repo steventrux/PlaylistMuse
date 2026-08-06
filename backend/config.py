@@ -33,14 +33,14 @@ def api_key_matches_provider(provider: str, api_key: str) -> bool:
         return False
     if provider in OPENROUTER_PROVIDERS and key.startswith("AIza"):
         return False
-    if provider in {"openai", "anthropic"} and key.startswith("sk-or-"):
-        return False
-    return True
+    return not (
+        provider in {"openai", "anthropic"} and key.startswith("sk-or-")
+    )
 
 
 def _normalize_profile(raw: Any) -> dict[str, str]:
     if not isinstance(raw, dict):
-        return {field_name: "" for field_name in PROFILE_FIELDS}
+        return dict.fromkeys(PROFILE_FIELDS, "")
     return {
         field_name: str(raw.get(field_name, "") or "").strip()
         for field_name in PROFILE_FIELDS

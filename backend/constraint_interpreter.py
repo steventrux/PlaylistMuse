@@ -143,7 +143,7 @@ def _cache_key(config: AppConfig, prompt: str) -> str:
     source = (
         f"schema={INTERPRETER_SCHEMA_VERSION}|prompt={INTERPRETER_PROMPT_VERSION}|"
         f"provider={config.provider}|model={config.model}|request={prompt}"
-    ).encode("utf-8")
+    ).encode()
     return hashlib.sha256(source).hexdigest()
 
 
