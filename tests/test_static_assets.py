@@ -78,9 +78,12 @@ def test_prompt_complexity_uses_compact_icon_popover() -> None:
     complexity_style = _style("prompt-complexity.css")
 
     assert '<link rel="stylesheet" href="/static/style.css?v=10">' in index
-    assert '<link rel="stylesheet" href="/static/prompt-complexity.css?v=1">' in index
+    assert '<link rel="stylesheet" href="/static/prompt-complexity.css?v=2">' in index
     assert '<script src="/static/prompt-complexity.js?v=7"></script>' in index
     assert 'id="prompt-complexity-trigger"' in index
+    assert '<div class="prompt-label-row">' in index
+    assert 'class="prompt-complexity-info-dot"' in index
+    assert index.index('<div class="prompt-label-row">') < index.index('<textarea id="prompt"')
     assert 'aria-controls="prompt-complexity-popover"' in index
     assert 'id="prompt-complexity-popover"' in index
     assert 'class="prompt-complexity-meter"' in index
@@ -93,9 +96,9 @@ def test_prompt_complexity_uses_compact_icon_popover() -> None:
     assert "popover.hidden = !open" in script
     assert "--complexity-score" in script
     assert ".prompt-complexity-trigger" in complexity_style
-    assert "width: 32px" in complexity_style
-    assert "height: 32px" in complexity_style
-    assert "width: 17px" in complexity_style
+    assert "width: 24px" in complexity_style
+    assert "height: 24px" in complexity_style
+    assert "width: 12px" in complexity_style
     assert ".prompt-complexity-popover" in complexity_style
     assert ".prompt-complexity {" not in style
     assert "padding: 11px 13px" not in style
