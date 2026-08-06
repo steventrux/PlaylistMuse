@@ -7,6 +7,7 @@ import os
 import re
 import sqlite3
 import time
+from contextlib import suppress
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
 from difflib import SequenceMatcher
@@ -101,9 +102,9 @@ class ValidationResult:
     metadata: TrackMetadata
 
 
-_ACTIVE_CONSTRAINTS: ContextVar[MetadataConstraints] = ContextVar(
+_ACTIVE_CONSTRAINTS: ContextVar[MetadataConstraints | None] = ContextVar(
     "playlistmuse_metadata_constraints",
-    default=MetadataConstraints(),
+    default=None,
 )
 _SIMILARITY_RE = re.compile(
     r"\b(?:come|simile(?:\s+a|\s+ai|\s+agli)?|ispirat[oaie]?\s+a|"
@@ -202,9 +203,8 @@ def _confidence_map(payload: dict[str, Any]) -> dict[str, float]:
         return result
     overall = str(payload.get("confidence", "")).casefold()
     legacy = {"high": 0.95, "medium": 0.80, "low": 0.0}.get(overall, 0.0)
-    return {
-        key: legacy
-        for key in (
+    return dict.fromkeys(
+        (
             "allowed_artists",
             "excluded_artists",
             "allowed_albums",
@@ -214,8 +214,9 @@ def _confidence_map(payload: dict[str, Any]) -> dict[str, float]:
             "release_year_to",
             "artist_country",
             "exception_tracks",
-        )
-    }
+        ),
+        legacy,
+    )
 
 
 def constraints_from_payload(
@@ -366,7 +367,7 @@ def activate_constraints(constraints: MetadataConstraints) -> None:
 
 
 def active_constraints() -> MetadataConstraints:
-    return _ACTIVE_CONSTRAINTS.get()
+    return _ACTIVE_CONSTRAINTS.get() or MetadataConstraints()
 
 
 def _cache_path() -> Path:
@@ -624,9 +625,11 @@ def _historical_probe_cutoff(
         if year is None or year >= constraints.release_year_from:
             return constraints.release_year_from - 1
         return None
-    if constraints.release_year_to is not None:
-        if year is None or year > constraints.release_year_to:
-            return constraints.release_year_to
+    if (
+        constraints.release_year_to is not None
+        and (year is None or year > constraints.release_year_to)
+    ):
+        return constraints.release_year_to
     return None
 
 
@@ -907,9 +910,7 @@ async def validate_candidate(
                 >= time.gmtime().tm_year - 1
                 else DEFAULT_TTL_SECONDS
             )
-            try:
+            with suppress(sqlite3.Error):
                 _write_cache(metadata, ttl=ttl, path=cache_path)
-            except sqlite3.Error:
-                pass
 
     return validate_metadata(metadata, constraints)

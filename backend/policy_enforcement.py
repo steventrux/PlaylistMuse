@@ -501,5 +501,5 @@ def select_resolved_tracks(
         if take(track):
             general_capacity -= 1
 
-    runtime._RESOLVED_SESSION_TRACKS.set(tuple([*accepted, *selected]))
+    runtime._RESOLVED_SESSION_TRACKS.set((*accepted, *selected))
     return selected

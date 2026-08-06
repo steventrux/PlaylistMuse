@@ -149,9 +149,11 @@ async def validate_lastfm_api_key(
         )
         try:
             payload: Any = response.json()
-        except ValueError:
+        except ValueError as error:
             response.raise_for_status()
-            raise ValueError("Last.fm returned an invalid validation response.")
+            raise ValueError(
+                "Last.fm returned an invalid validation response."
+            ) from error
 
         if isinstance(payload, dict) and payload.get("error") is not None:
             error_code = _lastfm_error_code(payload)

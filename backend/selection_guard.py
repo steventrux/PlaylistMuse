@@ -105,5 +105,5 @@ def guarded_select_resolved_tracks(
             break
         kept.pop(removable_index)
 
-    runtime._RESOLVED_SESSION_TRACKS.set(tuple([*before, *kept]))
+    runtime._RESOLVED_SESSION_TRACKS.set((*before, *kept))
     return kept
