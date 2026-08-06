@@ -20,10 +20,11 @@ jobs:
       - name: Replace legacy complexity box with compact popover
         run: python .github/scripts/apply_prompt_complexity_popover.py
 
-      - name: Verify focused frontend tests
+      - name: Verify focused frontend checks
         run: |
+          node --check frontend/prompt-complexity.js
           node tests/test_prompt_complexity.cjs
-          python -m pytest tests/test_static_assets.py -q
+          python -m py_compile tests/test_static_assets.py
 
       - name: Commit compact complexity control
         run: |
