@@ -1,34 +1,13 @@
-/* Shared AI provider settings layout. */
+@import url("/static/settings-dialog.css?v=4");
 
-#setup-ai-step.settings-block,
-#ai-settings-dialog .settings-block {
-  padding-top: 14px;
-}
-
-.ai-active-summary {
-  margin: 0 0 14px;
-  padding: 0 0 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-.ai-active-status {
-  margin: 0;
-  color: #86efac;
-  font-size: 1rem;
-  font-weight: 800;
-  line-height: 1.4;
-}
-
-.ai-active-status:not(.ok) {
-  color: var(--text-secondary);
-}
+/* AI provider-specific layout. Shared status spacing lives in settings-dialog.css. */
 
 .ai-provider-selection-heading {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 7px;
+  margin-bottom: 10px;
 }
 
 .ai-provider-selection-heading h3 {
@@ -58,6 +37,19 @@
 
 .ai-provider-selection > .settings-status {
   margin-bottom: 16px;
+}
+
+.ai-provider-selection > .settings-status.ok {
+  display: none;
+}
+
+.ai-provider-selection .settings-fields > label[for="ai-provider"] {
+  gap: 0;
+  font-size: 0;
+}
+
+.ai-provider-selection .settings-fields > label[for="ai-provider"] select {
+  font-size: 1rem;
 }
 
 #fallback-row {

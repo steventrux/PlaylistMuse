@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 import backend.youtube as youtube_module
 
 
@@ -8,6 +10,12 @@ DEFAULT_EXCLUSIONS = {
     "exclude_covers": True,
     "exclude_remixes": True,
 }
+
+
+@pytest.fixture(autouse=True)
+def isolate_youtube_resolution(monkeypatch):
+    monkeypatch.setattr(youtube_module, "_read_youtube_cache", lambda *args, **kwargs: (False, None))
+    monkeypatch.setattr(youtube_module, "_write_youtube_cache", lambda *args, **kwargs: None)
 
 
 def _result(
@@ -46,7 +54,7 @@ def test_resolver_rejects_live_album_metadata_and_uses_studio_version(monkeypatc
                 ),
             ]
 
-    monkeypatch.setattr(youtube_module, "_client", lambda: FakeClient())
+    monkeypatch.setattr(youtube_module, "_thread_client", lambda: FakeClient())
 
     track = youtube_module._resolve_one(
         {
@@ -81,7 +89,7 @@ def test_resolver_rejects_tribute_cover_even_when_title_matches(monkeypatch) -> 
                 ),
             ]
 
-    monkeypatch.setattr(youtube_module, "_client", lambda: FakeClient())
+    monkeypatch.setattr(youtube_module, "_thread_client", lambda: FakeClient())
 
     track = youtube_module._resolve_one(
         {
@@ -110,7 +118,7 @@ def test_resolver_rejects_same_title_from_wrong_artist(monkeypatch) -> None:
                 )
             ]
 
-    monkeypatch.setattr(youtube_module, "_client", lambda: FakeClient())
+    monkeypatch.setattr(youtube_module, "_thread_client", lambda: FakeClient())
 
     track = youtube_module._resolve_one(
         {
@@ -137,7 +145,7 @@ def test_resolver_accepts_legitimate_artist_variant(monkeypatch) -> None:
                 )
             ]
 
-    monkeypatch.setattr(youtube_module, "_client", lambda: FakeClient())
+    monkeypatch.setattr(youtube_module, "_thread_client", lambda: FakeClient())
 
     track = youtube_module._resolve_one(
         {
@@ -165,7 +173,7 @@ def test_live_version_is_allowed_when_filter_is_disabled(monkeypatch) -> None:
                 )
             ]
 
-    monkeypatch.setattr(youtube_module, "_client", lambda: FakeClient())
+    monkeypatch.setattr(youtube_module, "_thread_client", lambda: FakeClient())
 
     track = youtube_module._resolve_one(
         {

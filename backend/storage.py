@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -28,16 +29,12 @@ def write_secure_json(
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = temporary_path or path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    try:
+    with suppress(OSError):
         temporary.chmod(0o600)
-    except OSError:
-        pass
     temporary.replace(path)
 
 
 def delete_file(path: Path) -> None:
     """Best-effort removal for local credential and pending-state files."""
-    try:
+    with suppress(OSError):
         path.unlink(missing_ok=True)
-    except OSError:
-        pass

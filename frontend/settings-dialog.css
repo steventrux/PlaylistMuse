@@ -1,0 +1,141 @@
+/* Shared visual language for every PlaylistMuse settings dialog. */
+
+.settings-dialog-card .dialog-head {
+  min-height: 58px;
+  gap: 20px;
+}
+
+#ai-settings-dialog .dialog-head h2::before,
+#youtube-settings-dialog .dialog-head h2::before {
+  content: "Configuration";
+  display: block;
+  margin-bottom: 5px;
+  color: var(--cyan-light);
+  font-size: .75rem;
+  font-weight: 800;
+  letter-spacing: .16em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+/* Keep the onboarding gap only while the onboarding progress is visible. */
+#setup-dialog .setup-dialog-card:has(#setup-progress.hidden) .dialog-head {
+  margin-bottom: 0;
+}
+
+#ai-settings-dialog .settings-block,
+#youtube-settings-dialog .settings-block,
+#setup-dialog .setup-step.settings-block {
+  padding-top: 0;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+/* Identical status band for AI, YouTube Music and Last.fm. */
+.settings-dialog-card .ai-active-summary,
+.settings-dialog-card .youtube-account-summary,
+.settings-dialog-card .settings-summary {
+  margin: 0 0 20px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-dialog-card .ai-active-summary {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.settings-dialog-card .youtube-account-summary-heading,
+.settings-dialog-card .settings-summary-heading {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin: 0;
+}
+
+.settings-dialog-card .youtube-account-summary-heading h3,
+.settings-dialog-card .settings-summary-heading h3,
+.settings-dialog-card .youtube-credentials-section > h3 {
+  display: none;
+}
+
+.settings-dialog-card .ai-active-status,
+.settings-dialog-card .youtube-account-state,
+.settings-dialog-card .settings-state {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  min-height: 36px;
+  max-width: 100%;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(148, 163, 184, .25);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, .52);
+  color: var(--text-secondary);
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1.3;
+  white-space: normal;
+}
+
+.settings-dialog-card .ai-active-status.ok,
+.settings-dialog-card .youtube-account-state.ok,
+.settings-dialog-card .settings-state.ok {
+  border-color: rgba(52, 211, 153, .35);
+  background: rgba(6, 78, 59, .2);
+  color: #86efac;
+}
+
+.settings-dialog-card .ai-active-status.error,
+.settings-dialog-card .youtube-account-state.error,
+.settings-dialog-card .settings-state.error {
+  border-color: rgba(251, 113, 133, .4);
+  background: rgba(127, 29, 29, .2);
+  color: var(--error);
+}
+
+.settings-dialog-card .youtube-account-profile:not(.hidden) {
+  margin-top: 12px;
+}
+
+.settings-dialog-card .youtube-credentials-section,
+.settings-dialog-card .settings-section {
+  padding-top: 0;
+}
+
+.settings-dialog-card .settings-section h3 {
+  margin: 0 0 12px;
+}
+
+.settings-dialog-card .settings-fields,
+.settings-dialog-card .youtube-settings-fields {
+  gap: 16px;
+  margin-top: 0;
+}
+
+.settings-dialog-card .youtube-settings-help,
+.settings-dialog-card .settings-help {
+  margin: 9px 0 0;
+  line-height: 1.5;
+}
+
+.settings-dialog-card .settings-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.settings-dialog-card .settings-actions .primary,
+.settings-dialog-card .settings-actions .secondary {
+  min-height: 42px;
+}
+
+@media (max-width: 600px) {
+  .settings-dialog-card .settings-actions > button {
+    flex: 1 1 100%;
+  }
+}

@@ -19,11 +19,13 @@ from backend.config import (
 )
 from backend.lastfm_settings import (
     disconnect_lastfm,
-    lastfm_settings_response,
     save_lastfm_api_key,
+    validate_lastfm_api_key,
+    validated_lastfm_settings_response,
 )
 from backend.onboarding import acknowledge_onboarding, onboarding_status
 from backend.playlist_cover import normalize_thumbnail_urls
+from backend.prompt_validation import assess_prompt
 from backend.youtube_account import (
     YouTubeAccountError,
     disconnect_youtube,
@@ -70,6 +72,15 @@ class AIModelDiscoveryRequest(BaseModel):
     @classmethod
     def trim_discovery_value(cls, value: str) -> str:
         return value.strip()
+
+
+class PromptValidationRequest(BaseModel):
+    prompt: str = Field(min_length=3, max_length=1950)
+
+    @field_validator("prompt")
+    @classmethod
+    def normalize_prompt(cls, value: str) -> str:
+        return " ".join(value.split())
 
 
 class LastFmSettingsUpdate(BaseModel):
@@ -186,6 +197,12 @@ async def acknowledge_initial_setup() -> dict[str, bool]:
     return acknowledge_onboarding()
 
 
+@router.post("/playlists/validate-prompt", tags=["playlists"])
+async def validate_playlist_prompt(request: PromptValidationRequest) -> dict[str, object]:
+    assessment = await assess_prompt(load_config(), request.prompt)
+    return assessment.as_dict()
+
+
 @router.get("/ai/profiles", tags=["ai-settings"])
 async def get_ai_profiles() -> dict:
     return _ai_profiles_response(_ensure_active_ai_config(load_config()))
@@ -223,30 +240,32 @@ async def delete_ai_provider(provider: str) -> dict:
 
 @router.get("/lastfm/status", tags=["lastfm"])
 async def get_lastfm_status() -> dict[str, object]:
-    return lastfm_settings_response()
+    return await validated_lastfm_settings_response()
 
 
 @router.get("/lastfm/settings", tags=["lastfm"])
 async def get_lastfm_settings() -> dict[str, object]:
-    return lastfm_settings_response()
+    return await validated_lastfm_settings_response()
 
 
 @router.put("/lastfm/settings", tags=["lastfm"])
 async def update_lastfm_settings(request: LastFmSettingsUpdate) -> dict[str, object]:
     try:
-        return save_lastfm_api_key(request.api_key)
+        validated_key = await validate_lastfm_api_key(request.api_key)
+        return save_lastfm_api_key(validated_key)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except Exception as error:
         raise HTTPException(
             status_code=502,
-            detail="The Last.fm API key could not be saved.",
+            detail="The Last.fm API key could not be verified or saved.",
         ) from error
 
 
 @router.delete("/lastfm/settings", tags=["lastfm"])
 async def delete_lastfm_settings() -> dict[str, object]:
-    return disconnect_lastfm()
+    disconnect_lastfm()
+    return await validated_lastfm_settings_response()
 
 
 @router.get("/youtube/settings", tags=["youtube-music"])

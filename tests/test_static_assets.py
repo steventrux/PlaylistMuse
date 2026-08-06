@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from hashlib import sha256
+
 import re
 from pathlib import Path
 
@@ -32,7 +34,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     index = _html("index.html")
     playlist = _html("playlist.html")
     common = '<script src="/static/common.js?v=1"></script>'
-    generation_state = '<script src="/static/generation-state.js?v=1"></script>'
+    generation_state = '<script src="/static/generation-state.js?v=2"></script>'
     app = '<script src="/static/app.js?v=17"></script>'
 
     assert index.index(common) < index.index(
@@ -42,12 +44,13 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
         '<script src="/static/youtube-account.js?v=5"></script>'
     )
     assert index.index(common) < index.index(
-        '<script src="/static/home-status.js?v=13"></script>'
+        '<script src="/static/home-status.js?v=14"></script>'
     )
     assert generation_state in index
     assert index.index(generation_state) < index.index(app)
     assert index.index(common) < index.index(app)
-    assert index.index('<script src="/static/home-status.js?v=13"></script>') < (
+    assert '<script src="/static/prompt-complexity.js?v=7"></script>' in index
+    assert index.index('<script src="/static/home-status.js?v=14"></script>') < (
         index.index(app)
     )
 
@@ -55,7 +58,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     ai_settings = '<script src="/static/ai-settings.js?v=12"></script>'
     home_status = (
         '<script data-playlistmuse-footer-status '
-        'src="/static/home-status.js?v=13"></script>'
+        'src="/static/home-status.js?v=14"></script>'
     )
     assert playlist.index(common) < playlist.index(ai_results)
     assert playlist.index(ai_results) < playlist.index(ai_settings)
@@ -66,6 +69,42 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     assert playlist.index(common) < playlist.index(
         '<script src="/static/youtube-publish.js?v=13"></script>'
     )
+
+
+def test_prompt_complexity_uses_compact_icon_popover() -> None:
+    index = _html("index.html")
+    script = _script("prompt-complexity.js")
+    style = _style("style.css")
+    complexity_style = _style("prompt-complexity.css")
+
+    assert '<link rel="stylesheet" href="/static/style.css?v=10">' in index
+    assert '<link rel="stylesheet" href="/static/prompt-complexity.css?v=3">' in index
+    assert '<script src="/static/prompt-complexity.js?v=7"></script>' in index
+    assert 'id="prompt-complexity-trigger"' in index
+    assert '<div class="prompt-label-row">' in index
+    assert 'class="prompt-complexity-info-dot"' in index
+    assert index.index('<div class="prompt-label-row">') < index.index('<textarea id="prompt"')
+    assert 'aria-controls="prompt-complexity-popover"' in index
+    assert 'id="prompt-complexity-popover"' in index
+    assert 'class="prompt-complexity-meter"' in index
+    assert "return level === 'Detailed' ? 'Simple' : level;" in script
+    assert "displayLevel(result.level)" in script
+    assert "['excellent', 'good'].includes(level.toLowerCase())" in script
+    assert "return `Clarity: ${level}`;" in script
+    assert "clarity.textContent = clarityText(result);" in script
+    assert "const setPopoverOpen = (open) =>" in script
+    assert "popover.hidden = !open" in script
+    assert "--complexity-score" in script
+    assert ".prompt-complexity-trigger" in complexity_style
+    assert "width: 24px" in complexity_style
+    assert "height: 24px" in complexity_style
+    assert "width: 12px" in complexity_style
+    assert ".prompt-complexity-popover" in complexity_style
+    assert "right: -4px" in complexity_style
+    assert "left: auto" in complexity_style
+    assert "calc(100vw - 72px)" in complexity_style
+    assert ".prompt-complexity {" not in style
+    assert "padding: 11px 13px" not in style
 
 
 def test_generation_requires_configured_ai_provider() -> None:
@@ -114,13 +153,15 @@ def test_first_run_setup_is_persistent_and_two_step() -> None:
     assert "playlistmuse-youtube-settings-opened" in youtube_account
 
 
-def test_home_and_results_share_page_width_and_complete_wordmark() -> None:
+def test_header_home_and_results_share_content_width() -> None:
     index = _html("index.html")
     playlist = _html("playlist.html")
     layout = _style("layout.css")
 
-    assert '<link rel="stylesheet" href="/static/layout.css?v=3">' in index
-    assert '<link rel="stylesheet" href="/static/layout.css?v=3">' in playlist
+    assert '<link rel="stylesheet" href="/static/layout.css?v=5">' in index
+    assert '<link rel="stylesheet" href="/static/layout.css?v=5">' in playlist
+    assert ".app-header,\nmain,\n.playlist-shell" in layout
+    assert "width: min(860px, calc(100% - 32px));" in layout
     assert ".hero" in layout
     assert "max-width: none" in layout
     assert "padding-right: .08em" in layout
@@ -153,6 +194,28 @@ def test_seed_guidance_follows_search_and_selection() -> None:
     assert "This playlist will be built around “${seed.title}” by ${seed.artists}." in app
     assert "setSeedGuidance('');\n    message('Searching YouTube Music…');" in app
     assert "change.addEventListener('click'" in app
+
+
+def test_header_uses_exact_uploaded_banner() -> None:
+    index = _html("index.html")
+    playlist = _html("playlist.html")
+    status = _script("home-status.js")
+    brand = _style("brand.css")
+    banner = (FRONTEND / "playlistmuse-banner.svg").read_bytes()
+
+    assert '/static/home-status.js?v=14' in index
+    assert '/static/home-status.js?v=14' in playlist
+    assert "const HEADER_BANNER_URL = '/static/playlistmuse-banner.svg?v=1';" in status
+    assert "function installBrandBanner()" in status
+    assert "header.querySelector('.brand-banner')" in status
+    assert "copy.classList.add('brand-copy', 'brand-copy-accessible')" in status
+    assert "installBrandBanner();" in status
+    assert ".brand-banner" in brand
+    assert "max-width: 400px" in brand
+    assert "max-width: 250px" in brand
+    assert sha256(banner).hexdigest() == (
+        "f5cae7189adfdf9e1b40a4dd68a7c2e1c3fe6c723270b599fbeccc1795740b5e"
+    )
 
 
 def test_header_indicators_show_active_provider_without_neon() -> None:
@@ -215,6 +278,7 @@ def test_ai_settings_separate_active_and_selected_provider_states() -> None:
     bridge = _script("ai-results-settings.js")
     ai_settings = _script("ai-settings.js")
     ai_style = _style("ai-settings.css")
+    shared_style = _style("settings-dialog.css")
     app = _script("app.js")
 
     assert '/static/ai-settings.css?v=3' in index
@@ -234,13 +298,16 @@ def test_ai_settings_separate_active_and_selected_provider_states() -> None:
     assert "intro.classList.toggle('hidden', !onboarding)" in app
     assert "Configure the AI provider used to generate and refine playlists." not in app
     assert "Configure and connect the YouTube Music account used for direct publishing." not in app
-    assert ".ai-active-summary" in ai_style
-    assert "font-size: 1rem" in ai_style
-    assert "font-weight: 800" in ai_style
-    assert "margin: 0 0 14px" in ai_style
-    assert "padding: 0 0 12px" in ai_style
-    assert "padding-top: 14px" in ai_style
-    assert "border-bottom: 1px solid var(--border)" in ai_style
+    assert '@import url("/static/settings-dialog.css?v=4");' in ai_style
+    assert ".ai-active-summary" not in ai_style
+    assert ".settings-dialog-card .ai-active-summary" in shared_style
+    assert "margin: 0 0 20px" in shared_style
+    assert "padding: 14px 0" in shared_style
+    assert "border-bottom: 1px solid var(--border)" in shared_style
+    assert "font-size: 1rem" in shared_style
+    assert "font-weight: 800" in shared_style
+    assert "padding: 8px 10px" in shared_style
+    assert ":has(#setup-progress.hidden) .dialog-head" in shared_style
 
 
 def test_results_page_opens_ai_settings_without_losing_playlist() -> None:
@@ -273,6 +340,7 @@ def test_youtube_settings_show_account_and_relevant_actions() -> None:
     playlist = _html("playlist.html")
     youtube_account = _script("youtube-account.js")
     youtube_style = _style("youtube-settings.css")
+    shared_style = _style("settings-dialog.css")
 
     assert '/static/youtube-settings.css?v=1' in index
     assert '/static/youtube-settings.css?v=1' in playlist
@@ -282,13 +350,17 @@ def test_youtube_settings_show_account_and_relevant_actions() -> None:
     assert "youtube-account-summary" in playlist
     assert "Google OAuth credentials" in index
     assert "Google OAuth credentials" in playlist
+    assert ".youtube-credentials-section > h3" in shared_style
+    assert "display: none" in shared_style
     assert "status.account_name || 'Connected YouTube Music account'" in youtube_account
     assert "status.channel_handle || 'Google account details unavailable'" in youtube_account
     assert "profile.classList.toggle('no-photo', !photoUrl)" in youtube_account
     assert "connect.classList.toggle('hidden', connected)" in youtube_account
     assert "disconnect.classList.toggle('hidden', !connected)" in youtube_account
     assert "setAccountStatus('Connected', 'ok')" in youtube_account
-    assert ".youtube-account-summary" in youtube_style
+    assert ".youtube-account-summary" not in youtube_style
+    assert ".youtube-account-state" not in youtube_style
+    assert ".settings-dialog-card .youtube-account-summary" in shared_style
     assert ".youtube-account-profile.no-photo" in youtube_style
     assert "width: 100%" in youtube_style
 

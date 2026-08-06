@@ -5,7 +5,9 @@
   grid-template-columns: minmax(150px, 220px) minmax(0, 1fr);
   gap: 1.5rem;
   align-items: start;
-  margin-bottom: 1.25rem;
+  margin-bottom: 0;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border);
 }
 
 .playlist-overview-copy {
@@ -63,6 +65,30 @@
 .playlist-description {
   width: 100%;
   max-width: none;
+}
+
+/* Keep the Tracks label equally spaced from publishing controls and results. */
+.playlist-card .youtube-publish {
+  margin-bottom: 0;
+}
+
+.playlist-tracks-section {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.playlist-tracks-heading {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: .76rem;
+  font-weight: 850;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.playlist-tracks-section .track-list {
+  margin-top: 0;
 }
 
 @media (max-width: 720px) {

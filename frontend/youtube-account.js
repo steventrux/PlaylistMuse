@@ -16,7 +16,13 @@
 
   function setAccountStatus(text, kind = '') {
     const element = $('account-status');
-    element.textContent = text;
+    const displayText = {
+      Connected: 'YouTube Music account connected.',
+      'Not connected': 'YouTube Music account not connected.',
+      'OAuth setup required': 'YouTube Music OAuth setup required.',
+    }[text] || text;
+
+    element.textContent = displayText;
     element.classList.toggle('ok', kind === 'ok');
     element.classList.toggle('error', kind === 'error');
   }
@@ -156,6 +162,12 @@
     state.pollTimer = window.setTimeout(pollAuthorization, state.pollInterval);
   }
 
+  function allowConnectionRetry() {
+    const connect = $('connect');
+    connect.disabled = false;
+    connect.textContent = 'Connect account';
+  }
+
   async function pollAuthorization() {
     try {
       const result = await readJson(await fetch('/api/youtube/connect/poll', {
@@ -180,9 +192,11 @@
         return;
       }
 
+      allowConnectionRetry();
       setAccountStatus(result.message || 'Google authorization was not completed.', 'error');
     } catch (error) {
       stopPolling();
+      allowConnectionRetry();
       setAccountStatus(error.message || String(error), 'error');
     }
   }
@@ -246,7 +260,11 @@
     }
   }
 
-  $('save-youtube').addEventListener('click', saveSettings);
+  const saveButton = $('save-youtube');
+  saveButton.classList.remove('secondary');
+  saveButton.classList.add('primary');
+
+  saveButton.addEventListener('click', saveSettings);
   $('connect').addEventListener('click', connectAccount);
   $('disconnect').addEventListener('click', disconnectAccount);
   $('youtube-authorization-link').addEventListener('click', () => {
