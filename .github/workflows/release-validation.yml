@@ -1,0 +1,101 @@
+name: Release validation
+
+on:
+  push:
+    branches:
+      - beta
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: playlistmuse-release-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chromium:
+    name: Chromium end-to-end
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Playwright
+        run: |
+          python -m pip install "playwright>=1.55,<2"
+          python -m playwright install --with-deps chromium
+
+      - name: Build release image
+        run: docker build --tag playlistmuse:release-validation .
+
+      - name: Start release container
+        shell: bash
+        run: |
+          mkdir -p .release-data
+          docker run --detach \
+            --name playlistmuse-release-validation \
+            --publish 5780:5780 \
+            --volume "$PWD/.release-data:/app/data" \
+            playlistmuse:release-validation
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:5780/api/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          docker logs playlistmuse-release-validation
+          exit 1
+
+      - name: Prepare persistent application state
+        run: >-
+          python scripts/release_functional_smoke.py
+          --base-url http://127.0.0.1:5780
+          --phase initial
+
+      - name: Restart release container
+        shell: bash
+        run: |
+          docker rm --force playlistmuse-release-validation
+          docker run --detach \
+            --name playlistmuse-release-validation \
+            --publish 5780:5780 \
+            --volume "$PWD/.release-data:/app/data" \
+            playlistmuse:release-validation
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:5780/api/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          docker logs playlistmuse-release-validation
+          exit 1
+
+      - name: Verify persisted state
+        run: >-
+          python scripts/release_functional_smoke.py
+          --base-url http://127.0.0.1:5780
+          --phase persisted
+
+      - name: Run Chromium functional checks
+        run: >-
+          python scripts/release_browser_smoke.py
+          --base-url http://127.0.0.1:5780
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker logs playlistmuse-release-validation
+
+      - name: Stop release container
+        if: always()
+        run: docker rm --force playlistmuse-release-validation || true
