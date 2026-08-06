@@ -8,7 +8,7 @@ from contextlib import suppress
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
@@ -300,7 +300,7 @@ def _not_found(playlist_id: str) -> HTTPException:
 
 @router.get("")
 async def list_playlists(
-    sort: SortOrder = Query(default="updated_desc"),
+    sort: Annotated[SortOrder, Query()] = "updated_desc",
 ) -> dict[str, list[dict[str, Any]]]:
     return {"items": get_library().list(sort)}
 
