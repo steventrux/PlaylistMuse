@@ -149,8 +149,8 @@ replace_once(
 )
 replace_once(
     "backend/storage.py",
-    'import json\nimport os\n',
-    'import json\nimport os\nfrom contextlib import suppress\n',
+    'import json\nfrom pathlib import Path\n',
+    'import json\nfrom contextlib import suppress\nfrom pathlib import Path\n',
 )
 replace_once(
     "backend/storage.py",
