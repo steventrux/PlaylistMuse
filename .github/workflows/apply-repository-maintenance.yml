@@ -5,6 +5,7 @@ on:
     branches: [dev]
     paths:
       - .github/workflows/apply-repository-maintenance.yml
+      - .github/scripts/apply_repository_maintenance.py
 
 permissions:
   contents: write
