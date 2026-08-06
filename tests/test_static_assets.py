@@ -49,7 +49,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     assert generation_state in index
     assert index.index(generation_state) < index.index(app)
     assert index.index(common) < index.index(app)
-    assert '<script src="/static/prompt-complexity.js?v=6"></script>' in index
+    assert '<script src="/static/prompt-complexity.js?v=7"></script>' in index
     assert index.index('<script src="/static/home-status.js?v=14"></script>') < (
         index.index(app)
     )
@@ -71,14 +71,34 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     )
 
 
-def test_prompt_complexity_uses_simple_label_and_hides_positive_clarity_details() -> None:
+def test_prompt_complexity_uses_compact_icon_popover() -> None:
+    index = _html("index.html")
     script = _script("prompt-complexity.js")
+    style = _style("style.css")
+    complexity_style = _style("prompt-complexity.css")
 
+    assert '<link rel="stylesheet" href="/static/style.css?v=10">' in index
+    assert '<link rel="stylesheet" href="/static/prompt-complexity.css?v=1">' in index
+    assert '<script src="/static/prompt-complexity.js?v=7"></script>' in index
+    assert 'id="prompt-complexity-trigger"' in index
+    assert 'aria-controls="prompt-complexity-popover"' in index
+    assert 'id="prompt-complexity-popover"' in index
+    assert 'class="prompt-complexity-meter"' in index
     assert "return level === 'Detailed' ? 'Simple' : level;" in script
     assert "displayLevel(result.level)" in script
     assert "['excellent', 'good'].includes(level.toLowerCase())" in script
     assert "return `Clarity: ${level}`;" in script
     assert "clarity.textContent = clarityText(result);" in script
+    assert "const setPopoverOpen = (open) =>" in script
+    assert "popover.hidden = !open" in script
+    assert "--complexity-score" in script
+    assert ".prompt-complexity-trigger" in complexity_style
+    assert "width: 32px" in complexity_style
+    assert "height: 32px" in complexity_style
+    assert "width: 17px" in complexity_style
+    assert ".prompt-complexity-popover" in complexity_style
+    assert ".prompt-complexity {" not in style
+    assert "padding: 11px 13px" not in style
 
 
 def test_generation_requires_configured_ai_provider() -> None:

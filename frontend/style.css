@@ -246,37 +246,6 @@ select { color-scheme: dark; }
   border-radius: 13px;
 }
 .compact-button { padding: 8px 12px; font-size: .82rem; }
-.prompt-complexity {
-  --complexity-hue: 120;
-  --complexity-color: hsl(var(--complexity-hue) 78% 68%);
-  margin-top: 10px;
-  padding: 11px 13px;
-  border: 1px solid hsl(var(--complexity-hue) 72% 58% / .24);
-  border-radius: 10px;
-  background:
-    linear-gradient(90deg, hsl(var(--complexity-hue) 72% 50% / .08), transparent 38%),
-    rgba(139, 92, 246, .04);
-  color: var(--text-secondary);
-  font-size: .78rem;
-}
-.prompt-complexity-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.prompt-complexity-heading > span {
-  color: var(--complexity-color);
-  font-weight: 700;
-}
-.prompt-complexity-heading strong {
-  color: var(--complexity-color);
-  font-size: .82rem;
-  font-weight: 800;
-}
-.prompt-complexity p { margin: 6px 0 0; }
-.prompt-clarity { display: block; margin-top: 4px; color: #86efac; }
-
 .status { min-height: 1.4em; margin: 15px 0 0; color: var(--text-secondary); }
 .status.error { color: var(--error); }
 .hint, .field-hint { color: var(--text-muted); font-size: .82rem; font-weight: 450; }
