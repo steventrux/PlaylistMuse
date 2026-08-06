@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="/static/style.css?v=10">
   <link rel="stylesheet" href="/static/layout.css?v=5">
   <link rel="stylesheet" href="/static/controls.css?v=7">
-  <link rel="stylesheet" href="/static/prompt-complexity.css?v=1">
+  <link rel="stylesheet" href="/static/prompt-complexity.css?v=2">
   <link rel="stylesheet" href="/static/generation.css?v=5">
   <link rel="stylesheet" href="/static/youtube.css?v=3">
   <link rel="stylesheet" href="/static/youtube-settings.css?v=1">
@@ -35,40 +35,42 @@
       </div>
 
       <div id="prompt-panel">
-        <label for="prompt">Describe the playlist you want</label>
-        <textarea id="prompt" maxlength="1950" rows="5" placeholder="A slow-burning road-trip playlist with blues rock, warm guitars and a steady night-drive mood..."></textarea>
-        <div id="prompt-complexity" class="prompt-complexity hidden">
-          <button
-            id="prompt-complexity-trigger"
-            class="prompt-complexity-trigger"
-            type="button"
-            aria-expanded="false"
-            aria-controls="prompt-complexity-popover"
-            aria-label="Show request complexity"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M4 16a8 8 0 1 1 16 0" />
-              <path d="m12 16 4-5" />
-              <path d="M7 16h10" />
-            </svg>
-          </button>
+        <div class="prompt-label-row">
+          <label for="prompt">Describe the playlist you want</label>
+          <div id="prompt-complexity" class="prompt-complexity hidden">
+            <button
+              id="prompt-complexity-trigger"
+              class="prompt-complexity-trigger"
+              type="button"
+              aria-expanded="false"
+              aria-controls="prompt-complexity-popover"
+              aria-label="Show request complexity"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <circle cx="12" cy="12" r="8.5" />
+                <path d="M12 10.5v5" />
+                <circle class="prompt-complexity-info-dot" cx="12" cy="7.5" r=".8" />
+              </svg>
+            </button>
 
-          <div
-            id="prompt-complexity-popover"
-            class="prompt-complexity-popover"
-            role="region"
-            aria-labelledby="prompt-complexity-title"
-            hidden
-          >
-            <div class="prompt-complexity-heading">
-              <span id="prompt-complexity-title">Request complexity</span>
-              <strong id="prompt-complexity-score"></strong>
+            <div
+              id="prompt-complexity-popover"
+              class="prompt-complexity-popover"
+              role="region"
+              aria-labelledby="prompt-complexity-title"
+              hidden
+            >
+              <div class="prompt-complexity-heading">
+                <span id="prompt-complexity-title">Request complexity</span>
+                <strong id="prompt-complexity-score"></strong>
+              </div>
+              <div class="prompt-complexity-meter" aria-hidden="true"><span></span></div>
+              <p id="prompt-complexity-summary"></p>
+              <span id="prompt-clarity" class="prompt-clarity"></span>
             </div>
-            <div class="prompt-complexity-meter" aria-hidden="true"><span></span></div>
-            <p id="prompt-complexity-summary"></p>
-            <span id="prompt-clarity" class="prompt-clarity"></span>
           </div>
         </div>
+        <textarea id="prompt" maxlength="1950" rows="5" placeholder="A slow-burning road-trip playlist with blues rock, warm guitars and a steady night-drive mood..."></textarea>
       </div>
 
       <div id="seed-panel" class="hidden">

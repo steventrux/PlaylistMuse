@@ -1,32 +1,47 @@
 /* Compact prompt analysis trigger and popover. */
 
+.prompt-label-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 3px;
+  width: max-content;
+  max-width: 100%;
+  margin-bottom: 8px;
+}
+
+.prompt-label-row > label {
+  display: block;
+  line-height: 1.25;
+}
+
 .prompt-complexity {
   --complexity-hue: 120;
   --complexity-score: 0%;
   --complexity-color: hsl(var(--complexity-hue) 78% 68%);
   position: relative;
-  width: max-content;
-  margin-top: 8px;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  margin-top: -5px;
 }
 
 .prompt-complexity-trigger {
   display: grid;
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   place-items: center;
-  border: 1px solid hsl(var(--complexity-hue) 72% 58% / .32);
-  border-radius: 10px;
-  background: rgba(10, 13, 30, .72);
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
   color: var(--complexity-color);
   box-shadow: none;
-  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+  transition: background 160ms ease, transform 160ms ease;
 }
 
 .prompt-complexity-trigger:hover,
 .prompt-complexity-trigger[aria-expanded="true"] {
-  border-color: hsl(var(--complexity-hue) 76% 64% / .58);
-  background: hsl(var(--complexity-hue) 72% 42% / .12);
+  background: hsl(var(--complexity-hue) 72% 42% / .11);
 }
 
 .prompt-complexity-trigger:hover {
@@ -34,23 +49,29 @@
 }
 
 .prompt-complexity-trigger svg {
-  width: 17px;
-  height: 17px;
+  width: 12px;
+  height: 12px;
   overflow: visible;
 }
 
-.prompt-complexity-trigger path {
+.prompt-complexity-trigger path,
+.prompt-complexity-trigger circle {
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.9;
+  stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
+.prompt-complexity-trigger .prompt-complexity-info-dot {
+  fill: currentColor;
+  stroke: none;
+}
+
 .prompt-complexity-popover {
   position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
+  top: calc(100% + 6px);
+  left: -4px;
   z-index: 15;
   width: min(320px, calc(100vw - 64px));
   padding: 14px 15px;
