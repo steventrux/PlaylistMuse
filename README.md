@@ -3,7 +3,7 @@
 
   <br>
 
-  <a href="https://github.com/steventrux/PlaylistMuse/actions/workflows/ci.yml?query=branch%3Adev"><img src="https://img.shields.io/github/actions/workflow/status/steventrux/PlaylistMuse/ci.yml?branch=dev&style=flat-square&label=CI&logo=github" alt="CI status" height="24"></a>
+  <a href="https://github.com/steventrux/PlaylistMuse/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/steventrux/PlaylistMuse/ci.yml?branch=main&style=flat-square&label=CI&logo=github" alt="CI status" height="24"></a>
   <img src="https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.12" height="24">
   <img src="https://img.shields.io/badge/FastAPI-0.116+-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI" height="24">
   <img src="https://img.shields.io/badge/Docker-ready-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker ready" height="24">
@@ -26,9 +26,6 @@
 </div>
 
 <br>
-
-> [!CAUTION]
-> This is the active development branch. It may contain incomplete or changing functionality and is not published as a Docker image. Use `main` with `ghcr.io/steventrux/playlistmuse:latest` for stable installations or `beta` with `ghcr.io/steventrux/playlistmuse:beta` for public preview builds.
 
 ## PlaylistMuse at a glance
 
@@ -84,23 +81,31 @@ Last.fm can optionally add listening based discovery signals. Connecting YouTube
 
 ## Installation
 
-> **Development setup**
+> **Recommended setup**
 >
-> The `dev` branch is not published as a Docker image. Build it from source to run the current development code.
+> Run the published Docker image and store application data in a persistent local directory.
 
 ### Requirements
 
 1. Docker Engine
 
-2. Docker Compose v2
+2. Docker Compose v2, only when building from source
 
-### Build and run
+### Run the published image
 
 ```bash
-git clone --branch dev --single-branch https://github.com/steventrux/PlaylistMuse.git
+git clone https://github.com/steventrux/PlaylistMuse.git
 cd PlaylistMuse
 cp .env.example .env
-docker compose up -d --build
+mkdir -p data
+
+docker run -d \
+  --name playlistmuse \
+  --restart unless-stopped \
+  -p 5780:5780 \
+  --env-file .env \
+  -v "$(pwd)/data:/app/data" \
+  ghcr.io/steventrux/playlistmuse:latest
 ```
 
 Open **http://localhost:5780**.
@@ -110,15 +115,39 @@ The initial setup guides you through the required AI provider configuration and 
 ### Update
 
 ```bash
-git pull --ff-only origin dev
-docker compose up -d --build
+docker pull ghcr.io/steventrux/playlistmuse:latest
+docker rm -f playlistmuse
 ```
+
+Run the installation command again after pulling the new image.
+
+Use a versioned image tag instead of `latest` when you want to keep a specific release.
 
 ### Stop
 
 ```bash
+docker rm -f playlistmuse
+```
+
+<details>
+<summary><strong>Build from source</strong></summary>
+
+<br>
+
+```bash
+git clone https://github.com/steventrux/PlaylistMuse.git
+cd PlaylistMuse
+cp .env.example .env
+docker compose up -d --build
+```
+
+To stop the Docker Compose installation:
+
+```bash
 docker compose down
 ```
+
+</details>
 
 ## Configuration
 
