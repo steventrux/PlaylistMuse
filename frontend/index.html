@@ -8,10 +8,11 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=8">
-  <link rel="stylesheet" href="/static/layout.css?v=3">
-  <link rel="stylesheet" href="/static/controls.css?v=4">
-  <link rel="stylesheet" href="/static/generation.css?v=4">
+  <link rel="stylesheet" href="/static/style.css?v=10">
+  <link rel="stylesheet" href="/static/layout.css?v=5">
+  <link rel="stylesheet" href="/static/controls.css?v=7">
+  <link rel="stylesheet" href="/static/prompt-complexity.css?v=3">
+  <link rel="stylesheet" href="/static/generation.css?v=5">
   <link rel="stylesheet" href="/static/youtube.css?v=3">
   <link rel="stylesheet" href="/static/youtube-settings.css?v=1">
   <link rel="stylesheet" href="/static/onboarding.css?v=2">
@@ -34,7 +35,41 @@
       </div>
 
       <div id="prompt-panel">
-        <label for="prompt">Describe the playlist you want</label>
+        <div class="prompt-label-row">
+          <label for="prompt">Describe the playlist you want</label>
+          <div id="prompt-complexity" class="prompt-complexity hidden">
+            <button
+              id="prompt-complexity-trigger"
+              class="prompt-complexity-trigger"
+              type="button"
+              aria-expanded="false"
+              aria-controls="prompt-complexity-popover"
+              aria-label="Show request complexity"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <circle cx="12" cy="12" r="8.5" />
+                <path d="M12 10.5v5" />
+                <circle class="prompt-complexity-info-dot" cx="12" cy="7.5" r=".8" />
+              </svg>
+            </button>
+
+            <div
+              id="prompt-complexity-popover"
+              class="prompt-complexity-popover"
+              role="region"
+              aria-labelledby="prompt-complexity-title"
+              hidden
+            >
+              <div class="prompt-complexity-heading">
+                <span id="prompt-complexity-title">Request complexity</span>
+                <strong id="prompt-complexity-score"></strong>
+              </div>
+              <div class="prompt-complexity-meter" aria-hidden="true"><span></span></div>
+              <p id="prompt-complexity-summary"></p>
+              <span id="prompt-clarity" class="prompt-clarity"></span>
+            </div>
+          </div>
+        </div>
         <textarea id="prompt" maxlength="1950" rows="5" placeholder="A slow-burning road-trip playlist with blues rock, warm guitars and a steady night-drive mood..."></textarea>
       </div>
 
@@ -223,8 +258,10 @@
   <script src="/static/common.js?v=1"></script>
   <script src="/static/ai-settings.js?v=12"></script>
   <script src="/static/youtube-account.js?v=5"></script>
-  <script src="/static/home-status.js?v=13"></script>
-  <script src="/static/generation-state.js?v=1"></script>
+  <script src="/static/home-status.js?v=14"></script>
+  <script src="/static/generation-state.js?v=2"></script>
+  <script src="/static/prompt-complexity.js?v=7"></script>
   <script src="/static/app.js?v=17"></script>
+  <script src="/static/prompt-validation-guard.js?v=1"></script>
 </body>
 </html>

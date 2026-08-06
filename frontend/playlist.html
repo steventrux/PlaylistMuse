@@ -9,12 +9,12 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css?v=8">
-  <link rel="stylesheet" href="/static/layout.css?v=3">
-  <link rel="stylesheet" href="/static/controls.css?v=4">
+  <link rel="stylesheet" href="/static/layout.css?v=5">
+  <link rel="stylesheet" href="/static/controls.css?v=7">
   <link rel="stylesheet" href="/static/playlist.css?v=5">
-  <link rel="stylesheet" href="/static/playlist-cards.css?v=2">
+  <link rel="stylesheet" href="/static/playlist-cards.css?v=3">
   <link rel="stylesheet" href="/static/compact-cards.css?v=7">
-  <link rel="stylesheet" href="/static/playlist-header.css?v=4">
+  <link rel="stylesheet" href="/static/playlist-header.css?v=5">
   <link rel="stylesheet" href="/static/generation.css?v=3">
   <link rel="stylesheet" href="/static/youtube.css?v=5">
   <link rel="stylesheet" href="/static/youtube-settings.css?v=1">
@@ -92,8 +92,11 @@
       </section>
       <p id="youtube-publish-status" class="youtube-publish-status hidden" aria-live="polite"></p>
 
-      <ol id="track-list" class="track-list"></ol>
-      <div id="empty-state" class="empty-state hidden">No generated playlist was found in this browser session.</div>
+      <section class="playlist-tracks-section" aria-labelledby="playlist-tracks-heading">
+        <h2 id="playlist-tracks-heading" class="playlist-tracks-heading">Tracks</h2>
+        <ol id="track-list" class="track-list"></ol>
+        <div id="empty-state" class="empty-state hidden">No generated playlist was found in this browser session.</div>
+      </section>
     </section>
   </main>
 
@@ -163,7 +166,7 @@
   <script src="/static/playlist-mosaic.js?v=1"></script>
   <script src="/static/playlist.js?v=19"></script>
   <script src="/static/youtube-account.js?v=5"></script>
-  <script data-playlistmuse-footer-status src="/static/home-status.js?v=13"></script>
+  <script data-playlistmuse-footer-status src="/static/home-status.js?v=14"></script>
   <script src="/static/youtube-publish.js?v=13"></script>
 </body>
 </html>

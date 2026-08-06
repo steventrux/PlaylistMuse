@@ -1,6 +1,49 @@
 (() => {
   'use strict';
 
+  const HEADER_BANNER_URL = '/static/playlistmuse-banner.svg?v=1';
+  const FAVICON_URL = '/static/playlistmuse-favicon.svg?v=1';
+
+  function ensureBrandStyles() {
+    if (document.querySelector('link[href^="/static/brand.css"]')) return;
+    const stylesheet = document.createElement('link');
+    stylesheet.rel = 'stylesheet';
+    stylesheet.href = '/static/brand.css?v=2';
+    document.head.append(stylesheet);
+  }
+
+  function ensureFavicon() {
+    let favicon = document.querySelector('link[rel~="icon"]');
+    if (!favicon) {
+      favicon = document.createElement('link');
+      favicon.rel = 'icon';
+      document.head.append(favicon);
+    }
+    favicon.type = 'image/svg+xml';
+    favicon.href = FAVICON_URL;
+  }
+
+  function installBrandBanner() {
+    const header = document.querySelector('.app-header');
+    if (!header || header.querySelector('.brand-banner')) return;
+
+    const copy = header.firstElementChild;
+    if (!copy) return;
+
+    const lockup = document.createElement('div');
+    lockup.className = 'brand-lockup';
+
+    const banner = document.createElement('img');
+    banner.className = 'brand-banner';
+    banner.src = HEADER_BANNER_URL;
+    banner.alt = '';
+    banner.setAttribute('aria-hidden', 'true');
+
+    copy.classList.add('brand-copy', 'brand-copy-accessible');
+    header.insertBefore(lockup, copy);
+    lockup.append(banner);
+  }
+
   const $ = (id) => document.getElementById(id);
   const INDICATOR_STATES = ['pending', 'on', 'off', 'error'];
   const SETTINGS_REQUEST_KEY = 'playlistmuse-open-settings';
@@ -248,6 +291,9 @@
     ]);
   }
 
+  ensureBrandStyles();
+  ensureFavicon();
+  installBrandBanner();
   createHeaderStatus();
   bindIndicatorActions();
   restoreRequestedSettings();

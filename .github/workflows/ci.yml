@@ -4,10 +4,13 @@ on:
   push:
     branches:
       - main
+      - beta
       - dev
   pull_request:
     branches:
       - main
+      - beta
+      - dev
 
 permissions:
   contents: read
@@ -40,7 +43,9 @@ jobs:
         run: python -m compileall -q backend tests
 
       - name: Run Ruff
-        run: ruff check --select E4,E7,E9,F backend tests
+        run: |
+          ruff check --select E4,E7,E9,F backend tests
+          ruff check --select B,C4,SIM,UP backend
 
       - name: Run Python tests
         run: python -m pytest -q
@@ -75,6 +80,13 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Validate deployment configuration
+        shell: bash
+        run: |
+          bash -n scripts/*.sh
+          cp .env.example .env
+          docker compose -f docker-compose.yml config --quiet
 
       - name: Build image
         run: docker build --tag playlistmuse:ci .

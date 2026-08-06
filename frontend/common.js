@@ -127,9 +127,175 @@
     }
   }
 
-  if (document.readyState === 'complete') {
+  function installPromptAssessmentStyles() {
+    if (document.getElementById('prompt-assessment-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'prompt-assessment-styles';
+    style.textContent = `
+      .prompt-assessment {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: .65rem;
+        align-items: start;
+        margin-top: .65rem;
+        padding: .75rem .85rem;
+        border: 1px solid transparent;
+        border-radius: .75rem;
+        font-size: .9rem;
+        line-height: 1.45;
+      }
+      .prompt-assessment.hidden { display: none; }
+      .prompt-assessment-icon {
+        font-size: 1.05rem;
+        line-height: 1.35;
+      }
+      .prompt-assessment-reasons {
+        display: grid;
+        gap: .2rem;
+      }
+      .prompt-assessment-impossible {
+        color: #fecaca;
+        background: rgba(127, 29, 29, .34);
+        border-color: rgba(248, 113, 113, .58);
+      }
+      .prompt-assessment-ambiguous {
+        color: #fde68a;
+        background: rgba(113, 63, 18, .34);
+        border-color: rgba(250, 204, 21, .52);
+      }
+    `;
+    document.head.append(style);
+  }
+
+  function ensurePromptAssessment() {
+    const prompt = document.getElementById('prompt');
+    if (!prompt) return null;
+    let assessment = document.getElementById('prompt-assessment');
+    if (assessment) return assessment;
+
+    assessment = document.createElement('div');
+    assessment.id = 'prompt-assessment';
+    assessment.className = 'prompt-assessment hidden';
+    assessment.setAttribute('role', 'alert');
+    assessment.setAttribute('aria-live', 'assertive');
+
+    const icon = document.createElement('span');
+    icon.className = 'prompt-assessment-icon';
+    icon.setAttribute('aria-hidden', 'true');
+
+    const reasons = document.createElement('div');
+    reasons.className = 'prompt-assessment-reasons';
+
+    assessment.append(icon, reasons);
+    prompt.insertAdjacentElement('afterend', assessment);
+    return assessment;
+  }
+
+  function clearPromptAssessment() {
+    const assessment = document.getElementById('prompt-assessment');
+    if (!assessment) return;
+    assessment.className = 'prompt-assessment hidden';
+    assessment.querySelector('.prompt-assessment-icon').textContent = '';
+    assessment.querySelector('.prompt-assessment-reasons').replaceChildren();
+  }
+
+  function renderPromptAssessment(status, reasons = []) {
+    const assessment = ensurePromptAssessment();
+    if (!assessment || status === 'valid') {
+      clearPromptAssessment();
+      return;
+    }
+
+    const impossible = status === 'impossible';
+    assessment.className = `prompt-assessment prompt-assessment-${status}`;
+    assessment.querySelector('.prompt-assessment-icon').textContent = impossible ? '⛔' : '⚠️';
+
+    const reasonsContainer = assessment.querySelector('.prompt-assessment-reasons');
+    reasonsContainer.replaceChildren();
+    const values = Array.isArray(reasons) && reasons.length
+      ? reasons
+      : [impossible
+        ? 'The request contains mutually incompatible constraints.'
+        : 'The request can be interpreted in more than one way.'];
+    values.forEach((reason) => {
+      const line = document.createElement('span');
+      line.textContent = String(reason);
+      reasonsContainer.append(line);
+    });
+  }
+
+  function installPromptPreflight() {
+    const prompt = document.getElementById('prompt');
+    const generate = document.getElementById('generate');
+    const promptPanel = document.getElementById('prompt-panel');
+    if (!prompt || !generate || !promptPanel) return;
+
+    installPromptAssessmentStyles();
+    ensurePromptAssessment();
+
+    prompt.addEventListener('input', () => {
+      delete generate.dataset.validatedPrompt;
+      clearPromptAssessment();
+    });
+
+    generate.addEventListener('click', async (event) => {
+      if (promptPanel.classList.contains('hidden')) return;
+      const normalized = prompt.value.trim().replace(/\s+/g, ' ');
+      if (!normalized || generate.dataset.validatedPrompt === normalized) {
+        delete generate.dataset.validatedPrompt;
+        return;
+      }
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (generate.dataset.assessing === 'true') return;
+
+      const previousText = generate.textContent;
+      generate.dataset.assessing = 'true';
+      generate.disabled = true;
+      generate.textContent = 'Checking request…';
+
+      try {
+        const response = await fetch('/api/playlists/validate-prompt', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({prompt: normalized}),
+        });
+        const result = await window.PlaylistMuseCommon.readJson(response, {
+          flattenValidationErrors: true,
+        });
+        renderPromptAssessment(result.status, result.reasons);
+        if (result.status === 'impossible') return;
+
+        generate.dataset.validatedPrompt = normalized;
+        generate.disabled = false;
+        generate.textContent = previousText;
+        generate.click();
+      } catch {
+        // Provider or validation failures must not make an otherwise valid request unusable.
+        clearPromptAssessment();
+        generate.dataset.validatedPrompt = normalized;
+        generate.disabled = false;
+        generate.textContent = previousText;
+        generate.click();
+      } finally {
+        delete generate.dataset.assessing;
+        if (generate.textContent === 'Checking request…') {
+          generate.disabled = false;
+          generate.textContent = previousText;
+        }
+      }
+    }, true);
+  }
+
+  function initializeEnhancements() {
+    installPromptPreflight();
     void loadLastFmEnhancements();
+  }
+
+  if (document.readyState === 'complete') {
+    initializeEnhancements();
   } else {
-    window.addEventListener('load', () => void loadLastFmEnhancements(), {once: true});
+    window.addEventListener('load', initializeEnhancements, {once: true});
   }
 })();

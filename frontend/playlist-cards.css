@@ -20,19 +20,17 @@
 
 .track-result-card.expanded,
 .track-result-card.expanded:hover {
-  border-color: rgba(183, 156, 255, .76);
+  border-color: rgba(183, 156, 255, .56);
   background:
     linear-gradient(
       135deg,
-      rgba(139, 92, 246, .25),
-      rgba(236, 72, 153, .16) 52%,
-      rgba(56, 189, 248, .21)
+      rgba(139, 92, 246, .17),
+      rgba(236, 72, 153, .11) 52%,
+      rgba(56, 189, 248, .14)
     );
-  box-shadow:
-    0 18px 42px rgba(2, 4, 18, .28),
-    0 14px 34px rgba(46, 24, 100, .22);
+  box-shadow: 0 18px 42px rgba(2, 4, 18, .28);
 }
 
 .track-result-card.expanded .track-explanation {
-  border-top-color: rgba(183, 156, 255, .28);
+  border-top-color: rgba(183, 156, 255, .22);
 }

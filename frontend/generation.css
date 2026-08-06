@@ -55,6 +55,53 @@
   color: #ffffff;
 }
 
+.generation-feedback {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 12px 0 0;
+  padding: 14px 16px;
+  border: 1px solid rgba(251, 113, 133, .48);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(82, 22, 48, .56), rgba(28, 24, 59, .7));
+  box-shadow: 0 12px 30px rgba(35, 8, 26, .18);
+  color: #fda4af;
+  font-size: .9rem;
+  line-height: 1.48;
+}
+
+.generation-feedback::before {
+  content: attr(data-feedback-icon);
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  color: #fecdd3;
+  font-size: 1rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.status.error.generation-feedback-incomplete,
+.generation-feedback-incomplete {
+  border-color: #fbbf24;
+  background: linear-gradient(135deg, rgba(92, 61, 14, .5), rgba(28, 24, 59, .72));
+  color: #fbbf24;
+}
+
+.status.error.generation-feedback-incomplete::before,
+.generation-feedback-incomplete::before {
+  color: #fbbf24;
+}
+
+.generation-feedback-impossible::before,
+.generation-feedback-error::before {
+  color: #fb7185;
+}
+
 .replace-track-button {
   min-width: 146px;
 }
