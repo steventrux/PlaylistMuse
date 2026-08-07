@@ -6,11 +6,7 @@
 }
 
 .library-heading-row {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 22px;
+  margin-bottom: 20px;
 }
 
 .library-heading-row h2 {
@@ -26,10 +22,71 @@
   line-height: 1.55;
 }
 
-.library-sort {
-  min-width: 190px;
+.library-controls {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto 190px;
+  gap: 14px;
+  align-items: end;
+  margin-bottom: 20px;
+}
+
+.library-search,
+.library-sort,
+.library-filter-group {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
   color: var(--text-secondary);
   font-size: .82rem;
+  font-weight: 650;
+}
+
+.library-search input,
+.library-sort select {
+  width: 100%;
+  min-height: 42px;
+}
+
+.library-filter-tabs {
+  display: flex;
+  gap: 5px;
+  min-height: 42px;
+  padding: 4px;
+  border: 1px solid rgba(169, 155, 255, .2);
+  border-radius: 12px;
+  background: #090c1b;
+}
+
+.library-filter {
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: #151a33;
+  color: #b8bdd2;
+  font-size: .78rem;
+  font-weight: 760;
+  line-height: 1;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.library-filter:hover {
+  border-color: rgba(183, 156, 255, .38);
+  background: #29315b;
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.library-filter.active,
+.library-filter.active:hover {
+  border-color: #8b5cf6;
+  background: #8b5cf6;
+  color: #fff;
+  transform: none;
 }
 
 /* Match the compact result-card rhythm. */
@@ -329,13 +386,22 @@
 }
 
 @media (max-width: 760px) {
-  .library-heading-row {
-    align-items: stretch;
-    flex-direction: column;
+  .library-controls {
+    grid-template-columns: 1fr;
+    gap: 12px;
   }
 
-  .library-sort {
+  .library-sort,
+  .library-filter-group {
     width: 100%;
+  }
+
+  .library-filter-tabs {
+    width: 100%;
+  }
+
+  .library-filter {
+    flex: 1 1 0;
   }
 }
 
@@ -387,7 +453,8 @@
   .library-item,
   .library-cover,
   .library-expand-icon,
-  .library-details {
+  .library-details,
+  .library-filter {
     transition: none;
   }
 }
