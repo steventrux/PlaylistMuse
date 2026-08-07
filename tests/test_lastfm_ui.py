@@ -51,3 +51,23 @@ def test_lastfm_settings_panel_saves_without_exposing_the_key() -> None:
     assert "PlaylistMuseOpenLastFmSettings" in script
     assert "playlistmuse-ai-settings-opened" in script
     assert "playlistmuse-youtube-settings-opened" in script
+
+
+def test_seed_die_is_shown_only_for_valid_lastfm_status() -> None:
+    html = (FRONTEND / "index.html").read_text(encoding="utf-8")
+    app = (FRONTEND / "app.js").read_text(encoding="utf-8")
+    status = (FRONTEND / "lastfm-status.js").read_text(encoding="utf-8")
+    style = (FRONTEND / "prompt-surprise.css").read_text(encoding="utf-8")
+
+    assert 'id="seed-surprise"' in html
+    assert 'title="Surprise me with Last.fm"' in html
+    assert "hidden\n            >" in html
+    assert "playlistmuse-lastfm-status" in status
+    assert "publishAvailability(configured)" in status
+    assert "publishAvailability(false)" in status
+    assert "state.lastFmConfigured = Boolean(event.detail?.configured)" in app
+    assert "button.hidden = !state.lastFmConfigured" in app
+    assert "fetch('/api/lastfm/random-seed'" in app
+    assert "$('seed-query').value = query" in app
+    assert ".seed-surprise" in style
+    assert "right: 8px" in style
