@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="/static/style.css?v=10">
   <link rel="stylesheet" href="/static/layout.css?v=5">
   <link rel="stylesheet" href="/static/controls.css?v=7">
-  <link rel="stylesheet" href="/static/library.css?v=6">
+  <link rel="stylesheet" href="/static/library.css?v=7">
 </head>
 <body>
   <header class="app-header">
@@ -30,6 +30,28 @@
           <h2 id="library-heading">My playlists</h2>
           <p class="library-intro">Generated playlists are saved here and remain available after the container restarts.</p>
         </div>
+      </div>
+
+      <div class="library-controls" aria-label="Playlist library controls">
+        <label class="library-search" for="library-search">
+          <span>Search</span>
+          <input
+            id="library-search"
+            type="search"
+            autocomplete="off"
+            placeholder="Search playlists..."
+          >
+        </label>
+
+        <div class="library-filter-group">
+          <span class="library-control-label">Status</span>
+          <div class="library-filter-tabs" role="group" aria-label="Filter playlists by status">
+            <button class="library-filter active" type="button" data-status-filter="all" aria-pressed="true">All</button>
+            <button class="library-filter" type="button" data-status-filter="draft" aria-pressed="false">Draft</button>
+            <button class="library-filter" type="button" data-status-filter="published" aria-pressed="false">Published</button>
+          </div>
+        </div>
+
         <label class="library-sort" for="library-sort">
           Sort by
           <select id="library-sort">
@@ -50,7 +72,7 @@
   </main>
 
   <script src="/static/common.js?v=1"></script>
-  <script src="/static/library.js?v=2"></script>
+  <script src="/static/library.js?v=3"></script>
   <script src="/static/home-status.js?v=14"></script>
 </body>
 </html>
