@@ -16,7 +16,7 @@ def test_prompt_placeholder_is_generated_from_random_prompt_engine() -> None:
     )
     assert old_placeholder not in html
     assert '<textarea id="prompt" maxlength="1950" rows="5"></textarea>' in html
-    assert "const example = buildPrompt();" in surprise
+    assert "const example = buildPrompt('example');" in surprise
     assert "prompt.placeholder = example;" in surprise
     assert "♪" not in surprise
     assert "♫" not in surprise
