@@ -27,6 +27,11 @@ from backend.playlist_library import (
     PlaylistWriteRequest,
     get_library,
 )
+from backend.playlist_ordering import (
+    ChronologicalOrder,
+    chronological_order_from_payload,
+    order_tracks_by_release_date,
+)
 from backend.prompt_validation import assess_interpretation
 from backend.text_normalization import normalize_identity
 from backend.youtube import track_identity_key
@@ -80,6 +85,7 @@ class _PlaylistOptions(BaseModel):
 class _RefinementConstraints:
     metadata: MetadataConstraints
     excluded_tracks: tuple[dict[str, str], ...] = ()
+    chronological_order: ChronologicalOrder | None = None
 
     @property
     def active(self) -> bool:
@@ -285,8 +291,8 @@ def _merge_refinement_constraints(
 
     The generic constraint interpreter is designed for full playlist requests. In a refinement,
     a positive phrase such as "add Litfiba" must not be promoted to an allow-list for every
-    track. Only exclusions are safe to enforce globally here; additions, style shifts, ordering,
-    eras and similar positive edits remain part of the natural-language refinement instruction.
+    track. Only exclusions are safe to enforce globally here. Explicit release chronology is
+    kept separately as a deterministic post-selection operation.
     """
     ai = interpreted.metadata
 
@@ -314,6 +320,9 @@ def _merge_refinement_constraints(
             field_confidence=dict(ai.field_confidence),
         ),
         excluded_tracks=tuple(excluded_tracks[:20]),
+        chronological_order=(
+            interpreted.chronological_order or local.chronological_order
+        ),
     )
 
 
@@ -324,19 +333,26 @@ async def _interpret_refinement_constraints(
 ) -> _RefinementConstraints:
     """Extract hard constraints without making interpretation mandatory for refinement."""
     local = _local_explicit_removals(instruction, current_tracks or [])
+    local.chronological_order = chronological_order_from_payload(None, instruction)
     payload = await interpret_constraints(config, instruction)
     if not isinstance(payload, dict):
         return local
 
+    interpreted_order = chronological_order_from_payload(payload, instruction)
+    if interpreted_order is not None:
+        local.chronological_order = interpreted_order
+
     assessment = assess_interpretation(payload)
     if assessment.status != "valid":
-        # Preview is non-destructive. Keep only locally provable removals when the hard-
-        # constraint interpreter is uncertain, and let the refinement model handle the prose.
+        # Preview is non-destructive. Keep only locally provable removals and any independently
+        # trusted chronological direction when the generic hard-constraint interpretation is
+        # uncertain; the editing model still handles the rest of the prose.
         return local
 
     interpreted = _RefinementConstraints(
         metadata=constraints_from_payload(payload),
         excluded_tracks=_clean_excluded_tracks(payload),
+        chronological_order=interpreted_order,
     )
     return _merge_refinement_constraints(interpreted, local)
 
@@ -655,6 +671,12 @@ async def _build_preview(record: dict[str, Any], instruction: str) -> dict[str, 
             "constraint. Try a slightly broader refinement instruction."
         )
 
+    if constraints.chronological_order is not None:
+        refined_tracks = await order_tracks_by_release_date(
+            refined_tracks,
+            constraints.chronological_order,
+        )
+
     preview = deepcopy(playlist)
     preview["tracks"] = refined_tracks
     preview["requested_count"] = len(refined_tracks)
@@ -716,6 +738,12 @@ async def apply_playlist_refinement(
             dict(track) for track in playlist.get("tracks", []) if isinstance(track, dict)
         ]
         _validate_direct_constraints(preview_tracks, constraints)
+        if constraints.chronological_order is not None:
+            preview_tracks = await order_tracks_by_release_date(
+                preview_tracks,
+                constraints.chronological_order,
+            )
+            playlist["tracks"] = preview_tracks
         expected_count = int(record.get("track_count") or len(source_tracks))
         if len(preview_tracks) != expected_count:
             raise ValueError("The refinement preview no longer has the expected number of tracks.")
