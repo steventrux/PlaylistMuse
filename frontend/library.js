@@ -296,6 +296,14 @@
     }
 
     detailsInner.append(detailGrid, actions);
+    if (item.status === 'draft') {
+      window.PlaylistMuseLibraryRefine?.install({
+        item,
+        actions,
+        detailsInner,
+        reload: loadLibrary,
+      });
+    }
     details.append(detailsInner);
 
     card.append(copy, expandIcon, details);
