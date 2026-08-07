@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from copy import deepcopy
 from typing import Any
 
 import httpx
@@ -79,23 +78,41 @@ def _demote_missing_playlist(
     record: dict[str, Any],
     remote_id: str,
 ) -> bool:
-    """Remove stale YouTube publication metadata if the record still matches."""
-    current = library.get(str(record["id"]))
-    if current.get("status") != "published":
-        return False
-    if str(current.get("youtube_playlist_id") or "").strip() != remote_id:
-        return False
+    """Remove stale YouTube metadata without changing the playlist update time."""
+    playlist_id = str(record["id"])
+    with library._connect() as connection:
+        row = connection.execute(
+            """
+            SELECT status, youtube_playlist_id, playlist_json
+            FROM playlists
+            WHERE id = ?
+            """,
+            (playlist_id,),
+        ).fetchone()
+        if row is None or row["status"] != "published":
+            return False
+        if str(row["youtube_playlist_id"] or "").strip() != remote_id:
+            return False
 
-    playlist = deepcopy(current["playlist"])
-    if not isinstance(playlist, dict):
-        return False
-    playlist.pop("youtube_playlist", None)
-    library.update(
-        str(record["id"]),
-        playlist,
-        deepcopy(current.get("generation_request")),
-    )
-    return True
+        playlist = library._decode(row["playlist_json"], {})
+        if not isinstance(playlist, dict):
+            return False
+        playlist.pop("youtube_playlist", None)
+
+        cursor = connection.execute(
+            """
+            UPDATE playlists
+            SET status = 'draft',
+                youtube_playlist_id = NULL,
+                youtube_playlist_url = NULL,
+                playlist_json = ?
+            WHERE id = ?
+              AND status = 'published'
+              AND youtube_playlist_id = ?
+            """,
+            (library._json(playlist), playlist_id, remote_id),
+        )
+    return cursor.rowcount > 0
 
 
 async def reconcile_deleted_youtube_playlists(
