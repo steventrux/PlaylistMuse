@@ -3,7 +3,7 @@
 
   const prompt = document.getElementById('prompt');
   const button = document.getElementById('prompt-surprise');
-  if (!prompt || !button) return;
+  if (!prompt) return;
 
   const MUSIC_FAMILIES = [
     {
@@ -244,5 +244,9 @@
     prompt.setSelectionRange(prompt.value.length, prompt.value.length);
   }
 
-  button.addEventListener('click', surpriseMe);
+  const example = buildPrompt();
+  prompt.placeholder = example;
+  previousPrompt = example;
+
+  button?.addEventListener('click', surpriseMe);
 })();
