@@ -96,3 +96,18 @@ def test_library_heading_is_compact_and_count_tracks_visible_results() -> None:
     assert "border-bottom: 1px solid" in style
     assert ".library-intro" not in style
     assert ".library-heading-row .eyebrow" not in style
+
+
+def test_selected_seed_matches_compact_card_layout_and_restrained_palette() -> None:
+    html = _text("index.html")
+    style = _text("controls.css")
+
+    assert "/static/controls.css?v=8" in html
+    assert ".selected-seed {" in style
+    assert "grid-template-columns: 54px minmax(0, 1fr) auto;" in style
+    assert "background: rgba(21, 26, 51, .86);" in style
+    assert "box-shadow: none;" in style
+    assert ".selected-seed img" in style
+    assert "width: 54px;" in style
+    assert "grid-template-columns: 48px minmax(0, 1fr) auto;" in style
+    assert "width: 48px;" in style
