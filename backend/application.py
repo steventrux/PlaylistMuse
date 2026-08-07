@@ -5,6 +5,7 @@ from fastapi import Request
 from backend.main import app
 from backend.playlist_library import router as playlist_library_router
 from backend.playlist_publication_sync import reconcile_deleted_youtube_playlists
+from backend.playlist_refinement import router as playlist_refinement_router
 
 
 @app.middleware("http")
@@ -16,5 +17,6 @@ async def refresh_library_publication_state(request: Request, call_next):
 
 
 app.include_router(playlist_library_router, prefix="/api")
+app.include_router(playlist_refinement_router, prefix="/api")
 
 __all__ = ["app"]
