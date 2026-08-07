@@ -8,15 +8,12 @@
   height: 32px;
   min-width: 32px;
   min-height: 32px;
-  margin: 0 7px 0 0;
+  margin: 0 7px 0 auto;
   padding: 0;
   place-items: center;
   border: 1px solid rgba(251, 191, 36, .58);
   border-radius: 10px;
   background-color: rgba(64, 45, 10, .5);
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: 19px 19px;
   color: transparent;
   box-shadow: 0 0 18px rgba(251, 191, 36, .13);
   font-size: 0;
@@ -30,20 +27,35 @@
     transform 180ms ease;
 }
 
-.library-header-link[href="/static/library.html"] {
+.library-header-link::before {
+  content: "";
+  width: 19px;
+  height: 19px;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 19px 19px;
+}
+
+.library-header-link[href="/static/library.html"]::before {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fde68a' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='5' cy='7' r='1' fill='%23fde68a' stroke='none'/%3E%3Cpath d='M9 7h10'/%3E%3Ccircle cx='5' cy='12' r='1' fill='%23fde68a' stroke='none'/%3E%3Cpath d='M9 12h10'/%3E%3Ccircle cx='5' cy='17' r='1' fill='%23fde68a' stroke='none'/%3E%3Cpath d='M9 17h10'/%3E%3C/svg%3E");
 }
 
-.library-header-link[href="/"] {
+.library-header-link[href="/"]::before {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fde68a' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 10.5 12 4l8 6.5'/%3E%3Cpath d='M6.5 9.5V20h11V9.5'/%3E%3Cpath d='M10 20v-6h4v6'/%3E%3C/svg%3E");
 }
 
-.library-header-link:hover,
-.library-header-link:focus-visible {
+.library-header-link.secondary:hover:not(:disabled),
+.library-header-link.secondary:focus-visible {
   transform: translateY(-1px);
   border-color: rgba(253, 230, 138, .84);
   background-color: rgba(92, 62, 12, .66);
   box-shadow: 0 0 22px rgba(251, 191, 36, .2);
+}
+
+.library-header-link.secondary:active:not(:disabled) {
+  transform: translateY(0);
+  border-color: rgba(251, 191, 36, .66);
+  background-color: rgba(64, 45, 10, .58);
 }
 
 .header-service-status {
