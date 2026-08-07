@@ -39,14 +39,21 @@ def test_results_allow_manual_reordering_only_before_publication() -> None:
 
 
 def test_library_cards_match_compact_result_card_proportions_and_expand() -> None:
+    html = _text("library.html")
     script = _text("library.js")
     style = _text("library.css")
 
+    assert "/static/library.js?v=6" in html
     assert "let expandedLibraryId = null;" in script
     assert "function toggleLibraryCard(card, item)" in script
     assert "library-expand-icon" in script
     assert "library-details" in script
-    assert "Original request" in script
+    assert "Initial request" in script
+    assert "Original request" not in script
+    assert "function refinementPrompts(generationRequest)" in script
+    assert "function hydrateRefinementHistory(item, block)" in script
+    assert "strong.textContent = 'Refinements';" in script
+    assert "data-request-history" in script
     assert "Playlist details" in script
     assert "Created ${formatDate(item.created_at)}" in script
     assert ".library-item.expanded" in style
