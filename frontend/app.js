@@ -363,7 +363,8 @@
 
   async function generate() {
     const button = $('generate');
-    if (button.disabled || state.generating) return;
+    if (button.disabled) return;
+    if (state.generating) return;
 
     let endpoint;
     let request;
