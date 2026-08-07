@@ -19,6 +19,7 @@ from backend.config import (
     load_config,
     save_config,
 )
+from backend.constraint_interpreter import interpret_constraints
 from backend.generation_runtime import (
     discover_for_seed as similar_track_candidates,
     discover_from_anchors,
@@ -27,6 +28,10 @@ from backend.generation_runtime import (
 )
 from backend.lastfm_discovery import select_prompt_anchors
 from backend.llm import safe_error_message
+from backend.playlist_ordering import (
+    chronological_order_from_payload,
+    order_tracks_by_release_date,
+)
 from backend.prompt_analysis import analyze_prompt_semantics
 from backend.youtube import search_songs, track_identity_key
 from backend.youtube_routes import router as youtube_router
@@ -774,6 +779,30 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     active_policy = _ACTIVE_POLICY.get()
     if active_policy is not None:
         final_tracks = apply_track_positions(final_tracks, active_policy)
+
+    interpretation = await interpret_constraints(config, prompt)
+    chronological_order = chronological_order_from_payload(interpretation, prompt)
+    if chronological_order is not None:
+        ordered_tracks = await order_tracks_by_release_date(
+            final_tracks,
+            chronological_order,
+        )
+        if active_policy is not None and active_policy.track_positions:
+            positioned = apply_track_positions(ordered_tracks, active_policy)
+            ordered_keys = [
+                track_identity_key(track.get("title", ""), track.get("artists", ""))
+                for track in ordered_tracks
+            ]
+            positioned_keys = [
+                track_identity_key(track.get("title", ""), track.get("artists", ""))
+                for track in positioned
+            ]
+            if positioned_keys != ordered_keys:
+                raise ValueError(
+                    "The requested chronological ordering conflicts with an explicit track position."
+                )
+        final_tracks = ordered_tracks
+
     return {
         "name": draft["title"],
         "description": draft["description"],
