@@ -6,6 +6,7 @@
     selectedSeed: null,
     seedMode: 'balanced',
     seedSearching: false,
+    generating: false,
     setupMode: 'single',
     setupStep: 'ai',
   };
@@ -34,6 +35,15 @@
     },
   };
 
+  const GENERATION_LOCKED_CONTROL_IDS = [
+    'prompt',
+    'track-count',
+    'exclude-live',
+    'exclude-covers',
+    'exclude-remixes',
+    'prompt-surprise',
+  ];
+
   function message(text = '', error = false) {
     $('status').textContent = text;
     $('status').classList.toggle('error', error);
@@ -59,6 +69,16 @@
 
   function normalizedPrompt() {
     return generationState.normalizePrompt($('prompt').value);
+  }
+
+  function setGenerationInputsLocked(locked) {
+    state.generating = locked;
+    GENERATION_LOCKED_CONTROL_IDS.forEach((id) => {
+      const control = $(id);
+      if (!control) return;
+      control.disabled = locked;
+      control.setAttribute('aria-disabled', String(locked));
+    });
   }
 
   function updateGenerationControls() {
@@ -343,7 +363,7 @@
 
   async function generate() {
     const button = $('generate');
-    if (button.disabled) return;
+    if (button.disabled || state.generating) return;
 
     let endpoint;
     let request;
@@ -369,6 +389,7 @@
       resetText: 'Generate playlist',
       ariaLabel: 'Generating playlist',
     });
+    setGenerationInputsLocked(true);
     message('Generating and resolving tracks on YouTube Music…');
 
     try {
@@ -387,6 +408,7 @@
       }));
       window.location.assign('/static/playlist.html');
     } catch (error) {
+      setGenerationInputsLocked(false);
       resetGeneratingButton();
       message(error.message || String(error), true);
     }
