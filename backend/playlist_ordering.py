@@ -69,12 +69,16 @@ _LIVE_ALBUM_RE = re.compile(
     r"(?:^|\b)(?:live(?:\s+(?:at|from|in)\b)?|dal\s+vivo|en\s+vivo|ao\s+vivo)(?:\b|$)",
     re.I,
 )
-_REMASTER_BRACKET_SUFFIX_RE = re.compile(
-    r"\s*[\[(][^\])]*\bremaster(?:ed)?\b[^\])]*[\])]\s*$",
+_VERSION_TERMS = (
+    r"remaster(?:ed)?|radio\s+edit|single\s+version|album\s+version|"
+    r"mono(?:\s+version)?|stereo(?:\s+version)?|acoustic\s+version|demo\s+version"
+)
+_VERSION_BRACKET_SUFFIX_RE = re.compile(
+    rf"\s*[\[(][^\])]*(?:{_VERSION_TERMS})[^\])]*[\])]\s*$",
     re.I,
 )
-_REMASTER_DASH_SUFFIX_RE = re.compile(
-    r"\s*[-–—]\s*(?:\d{4}\s+)?remaster(?:ed)?\b.*$",
+_VERSION_DASH_SUFFIX_RE = re.compile(
+    rf"\s*[-–—]\s*(?:\d{{4}}\s+)?(?:{_VERSION_TERMS})\b.*$",
     re.I,
 )
 
@@ -148,31 +152,35 @@ def _strip_live_suffix(title: str) -> str:
     return cleaned or str(title).strip()
 
 
-def _strip_remaster_suffix(title: str) -> str:
-    cleaned = str(title).strip()
-    for pattern in (_REMASTER_BRACKET_SUFFIX_RE, _REMASTER_DASH_SUFFIX_RE):
+def _strip_version_suffix(title: str) -> str:
+    """Strip only unambiguous edition/version suffixes used for metadata lookup."""
+    cleaned = _strip_live_suffix(title)
+    for pattern in (_VERSION_BRACKET_SUFFIX_RE, _VERSION_DASH_SUFFIX_RE):
         cleaned = pattern.sub("", cleaned).strip(" -–—")
     return cleaned or str(title).strip()
+
+
+def _has_version_suffix(track: dict[str, Any]) -> bool:
+    title = _track_title(track)
+    return _is_live_track(track) or _strip_version_suffix(title).casefold() != title.casefold()
 
 
 def _chronology_lookup_titles(track: dict[str, Any]) -> list[str]:
     """Return conservative metadata lookup titles in preference order.
 
-    A live recording is deliberately resolved only through the underlying song title so its
-    concert/live-album year can never become the chronological year. For non-live tracks the
-    catalogue title remains primary, with a remaster suffix removed only as a fallback.
+    A live recording is resolved only through the underlying song title so its concert or
+    live-album year can never become the chronological year. Other recognized editions try
+    the exact title first and then the versionless title; the earliest reliable year wins.
     """
     title = _track_title(track)
     if not title:
         return []
+    normalized = _strip_version_suffix(title)
     if _is_live_track(track):
-        return [_strip_live_suffix(title)]
-
-    variants = [title]
-    remasterless = _strip_remaster_suffix(title)
-    if remasterless and remasterless.casefold() != title.casefold():
-        variants.append(remasterless)
-    return variants
+        return [normalized]
+    if normalized.casefold() == title.casefold():
+        return [title]
+    return [title, normalized]
 
 
 def _release_year(metadata: TrackMetadata) -> int | None:
@@ -192,9 +200,9 @@ def _metadata_has_reliable_year(metadata: TrackMetadata) -> bool:
 
 
 def _embedded_release_year(track: dict[str, Any]) -> int | None:
-    # Embedded metadata for a live item may describe the live recording itself. Always resolve
-    # the underlying song again so chronology uses the song's original release year.
-    if _is_live_track(track):
+    # Version metadata can describe the edition itself. Resolve recognized live/remaster/etc.
+    # variants again so chronology is based on the underlying song's first publication year.
+    if _has_version_suffix(track):
         return None
     metadata = track.get("metadata_validation")
     if not isinstance(metadata, dict):
@@ -217,36 +225,59 @@ def _embedded_release_year(track: dict[str, Any]) -> int | None:
     return parsed if parsed and 1800 <= parsed <= time.gmtime().tm_year else None
 
 
+async def _historical_fallback_year(
+    artist: str,
+    title: str,
+    *,
+    client: httpx.AsyncClient,
+) -> int | None:
+    """Use the existing 100-recording historical probe after an exact lookup is insufficient."""
+    broad_constraints = MetadataConstraints(
+        release_year_from=1800,
+        release_year_to=time.gmtime().tm_year,
+    )
+    validation = await validate_candidate(
+        {"artist": artist, "title": title},
+        broad_constraints,
+        client=client,
+    )
+    if _metadata_has_reliable_year(validation.metadata):
+        return _release_year(validation.metadata)
+    return None
+
+
 async def _lookup_original_release_year(
     track: dict[str, Any],
     *,
     client: httpx.AsyncClient,
 ) -> int | None:
-    """Resolve an original song year with a direct historical probe as a safe fallback."""
+    """Resolve an original song year using increasingly broad, non-destructive fallbacks."""
     artist = _track_artist(track)
     if not artist:
         return None
 
-    broad_constraints = MetadataConstraints(
-        release_year_from=1800,
-        release_year_to=time.gmtime().tm_year,
-    )
+    reliable_years: list[int] = []
     for title in _chronology_lookup_titles(track):
+        # lookup_track_metadata reads the verified SQLite cache first, then runs the normal
+        # exact MusicBrainz recording+artist query and evaluates multiple returned recordings.
         metadata = await lookup_track_metadata(artist, title, client=client)
         if _metadata_has_reliable_year(metadata):
-            return _release_year(metadata)
+            year = _release_year(metadata)
+            if year is not None:
+                reliable_years.append(year)
+            continue
 
-        # A stale/negative cache entry or an initially weak MusicBrainz match must not make a
-        # well-known song unverifiable. validate_candidate triggers the existing direct
-        # historical MusicBrainz probe for this broad range and refreshes reliable metadata.
-        validation = await validate_candidate(
-            {"artist": artist, "title": title},
-            broad_constraints,
+        # If exact lookup is missing/weak (including a cached negative result), broaden only
+        # this unresolved title to the existing 100-recording historical MusicBrainz probe.
+        fallback_year = await _historical_fallback_year(
+            artist,
+            title,
             client=client,
         )
-        if _metadata_has_reliable_year(validation.metadata):
-            return _release_year(validation.metadata)
-    return None
+        if fallback_year is not None:
+            reliable_years.append(fallback_year)
+
+    return min(reliable_years) if reliable_years else None
 
 
 async def order_tracks_by_release_date(
@@ -298,6 +329,8 @@ async def order_tracks_by_release_date(
         for track, year in zip(tracks, years, strict=True)
         if year is not None
     ]
+    # Python's sort is stable, including reverse sorting: equal-year songs keep their existing
+    # relative order rather than pretending to know an exact day/month that is unavailable.
     decorated.sort(
         key=lambda item: item[0],
         reverse=direction == "newest_first",
