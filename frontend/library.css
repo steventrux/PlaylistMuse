@@ -310,6 +310,14 @@
     width: 96px;
   }
 
+  .library-item.expanded .library-title {
+    flex: 1 1 100%;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
   .library-details {
     grid-column: 1 / -1;
   }
