@@ -48,7 +48,7 @@ _REMOVAL_INTENT_RE = re.compile(
     re.IGNORECASE,
 )
 _MIN_HARD_CONSTRAINT_CONFIDENCE = 0.85
-_MAX_REFINEMENT_ATTEMPTS = 2
+_MAX_REFINEMENT_ATTEMPTS = 3
 
 
 class RefinementInstruction(BaseModel):
@@ -281,7 +281,13 @@ def _merge_refinement_constraints(
     interpreted: _RefinementConstraints,
     local: _RefinementConstraints,
 ) -> _RefinementConstraints:
-    """Merge trusted AI interpretation with deterministic current-playlist removals."""
+    """Keep exclusions hard while leaving positive refinement goals to the editing model.
+
+    The generic constraint interpreter is designed for full playlist requests. In a refinement,
+    a positive phrase such as "add Litfiba" must not be promoted to an allow-list for every
+    track. Only exclusions are safe to enforce globally here; additions, style shifts, ordering,
+    eras and similar positive edits remain part of the natural-language refinement instruction.
+    """
     ai = interpreted.metadata
 
     excluded_artists: list[str] = []
@@ -302,15 +308,8 @@ def _merge_refinement_constraints(
 
     return _RefinementConstraints(
         metadata=MetadataConstraints(
-            release_year=ai.release_year,
-            release_year_from=ai.release_year_from,
-            release_year_to=ai.release_year_to,
-            artist_country=ai.artist_country,
-            allowed_artists=list(ai.allowed_artists),
             excluded_artists=excluded_artists,
-            allowed_albums=list(ai.allowed_albums),
             excluded_albums=list(ai.excluded_albums),
-            exception_tracks=list(ai.exception_tracks),
             contradictions=list(ai.contradictions),
             field_confidence=dict(ai.field_confidence),
         ),
@@ -457,7 +456,10 @@ def _refinement_prompt(
         f"Original request:\n{original_prompt or 'No original request is available.'}\n\n"
         f"Previously applied refinements:\n{previous_text}\n\n"
         f"New refinement instruction:\n{instruction}\n\n"
-        "The following hard constraints were extracted from the NEW refinement instruction. "
+        "Treat positive edit requests such as add/include, more/less, newer/older, genre or "
+        "mood changes, and reordering as targeted edits to the existing playlist, not as "
+        "filters that every track must satisfy unless the user explicitly says so.\n\n"
+        "The following explicit exclusions were extracted from the NEW refinement instruction. "
         "They are mandatory and override stylistic preferences when they conflict:\n"
         f"{_constraint_guidance(constraints)}\n\n"
         f"Current playlist ({count} tracks):\n{current}\n\n"
