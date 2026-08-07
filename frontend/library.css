@@ -118,16 +118,11 @@
     box-shadow 160ms ease;
 }
 
+/* Use the same restrained hover treatment as search result cards. */
 .library-item:hover {
-  border-color: rgba(183, 156, 255, .72);
-  background:
-    linear-gradient(
-      135deg,
-      rgba(139, 92, 246, .23),
-      rgba(236, 72, 153, .15) 52%,
-      rgba(56, 189, 248, .19)
-    );
-  box-shadow: 0 15px 34px rgba(46, 24, 100, .22);
+  border-color: rgba(183, 156, 255, .38);
+  background: rgba(21, 26, 51, .86);
+  box-shadow: none;
 }
 
 .library-item:focus-visible {
@@ -135,6 +130,7 @@
   outline-offset: 2px;
 }
 
+/* Expanded cards use the same restrained emphasis as selected result cards. */
 .library-item.expanded,
 .library-item.expanded:hover {
   grid-template-columns: 138px minmax(0, 1fr) 28px;
@@ -143,15 +139,15 @@
   row-gap: 14px;
   align-items: start;
   padding: 16px;
-  border-color: rgba(183, 156, 255, .56);
+  border-color: rgba(183, 156, 255, .42);
   background:
     linear-gradient(
       135deg,
-      rgba(139, 92, 246, .17),
-      rgba(236, 72, 153, .11) 52%,
-      rgba(56, 189, 248, .14)
+      rgba(139, 92, 246, .12),
+      rgba(236, 72, 153, .08) 52%,
+      rgba(56, 189, 248, .10)
     );
-  box-shadow: 0 18px 42px rgba(2, 4, 18, .28);
+  box-shadow: 0 12px 30px rgba(2, 4, 18, .24);
 }
 
 .library-cover {
@@ -299,6 +295,7 @@
   align-self: start;
   margin-top: 38px;
   overflow: visible;
+  color: var(--text-secondary);
   text-overflow: clip;
   white-space: normal;
   line-height: 1.45;
@@ -410,14 +407,50 @@
     gap: 8px;
   }
 
+  /* Keep result-card proportions, but let the extra library metadata breathe. */
   .library-item {
     grid-template-columns: 48px minmax(0, 1fr) 24px;
-    grid-template-rows: 48px;
+    grid-template-rows: minmax(68px, auto);
     column-gap: 11px;
+    align-items: center;
   }
 
   .library-cover {
     width: 48px;
+  }
+
+  .library-item:not(.expanded) .library-cover {
+    align-self: start;
+    margin-top: 2px;
+  }
+
+  .library-item:not(.expanded) .library-copy {
+    display: grid;
+    gap: 5px;
+    align-self: center;
+  }
+
+  .library-item:not(.expanded) .library-title-row {
+    display: grid;
+    gap: 5px;
+    margin-bottom: 0;
+  }
+
+  .library-item:not(.expanded) .library-title {
+    font-size: .96rem;
+    line-height: 1.2;
+  }
+
+  .library-item:not(.expanded) .library-status-badge {
+    justify-self: start;
+    padding: 2px 7px;
+    font-size: .64rem;
+  }
+
+  .library-item:not(.expanded) .library-meta {
+    color: var(--text-secondary);
+    font-size: .77rem;
+    line-height: 1.35;
   }
 
   .library-item.expanded {
