@@ -8,14 +8,6 @@
   min-width: 0;
 }
 
-.library-heading-row .eyebrow {
-  margin-bottom: 6px;
-  color: var(--cyan-light);
-  font-size: .68rem;
-  font-weight: 850;
-  letter-spacing: .14em;
-}
-
 .library-title-line {
   display: flex;
   align-items: center;
@@ -46,14 +38,6 @@
   white-space: nowrap;
 }
 
-.library-heading-row .library-intro {
-  max-width: 660px;
-  margin: 8px 0 0;
-  color: var(--text-secondary);
-  font-size: .9rem;
-  line-height: 1.5;
-}
-
 @media (max-width: 650px) {
   .library-heading-row {
     margin-bottom: 18px;
@@ -68,10 +52,5 @@
     min-height: 24px;
     padding: 3px 8px;
     font-size: .68rem;
-  }
-
-  .library-heading-row .library-intro {
-    margin-top: 7px;
-    font-size: .86rem;
   }
 }
