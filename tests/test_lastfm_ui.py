@@ -58,10 +58,15 @@ def test_seed_die_is_shown_only_for_valid_lastfm_status() -> None:
     app = (FRONTEND / "app.js").read_text(encoding="utf-8")
     status = (FRONTEND / "lastfm-status.js").read_text(encoding="utf-8")
     style = (FRONTEND / "prompt-surprise.css").read_text(encoding="utf-8")
+    app_asset = '<script src="/static/app.js?v=18"></script>'
+    status_asset = '<script src="/static/lastfm-status.js?v=2"></script>'
 
     assert 'id="seed-surprise"' in html
     assert 'title="Surprise me with Last.fm"' in html
     assert "hidden\n            >" in html
+    assert app_asset in html
+    assert status_asset in html
+    assert html.index(app_asset) < html.index(status_asset)
     assert "playlistmuse-lastfm-status" in status
     assert "publishAvailability(configured)" in status
     assert "publishAvailability(false)" in status
