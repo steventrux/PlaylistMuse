@@ -11,8 +11,8 @@ def _text(name: str) -> str:
 def test_library_loads_refinement_assets_before_library_renderer() -> None:
     html = _text("library.html")
 
-    assert '/static/library-refine.css?v=1' in html
-    refine = '<script src="/static/library-refine.js?v=1"></script>'
+    assert '/static/library-refine.css?v=2' in html
+    refine = '<script src="/static/library-refine.js?v=2"></script>'
     library = '<script src="/static/library.js?v=5"></script>'
     assert refine in html
     assert library in html
@@ -43,11 +43,46 @@ def test_refinement_uses_preview_before_apply_and_invalidates_stale_preview() ->
     assert "Apply changes" in script
 
 
-def test_refinement_preview_is_compact_and_scrollable() -> None:
+def test_refine_loads_current_tracks_when_panel_opens() -> None:
+    script = _text("library-refine.js")
+
+    assert "async function loadCurrentPlaylist()" in script
+    assert "{cache: 'no-store'}" in script
+    assert "currentPlaylist = record.playlist;" in script
+    assert "renderCurrentPlaylist();" in script
+    assert "trackHeading.textContent = 'Current playlist';" in script
+    assert "void loadCurrentPlaylist();" in script
+
+
+def test_refinement_preview_marks_removed_and_added_tracks_without_guessing_pairs() -> None:
+    script = _text("library-refine.js")
+    style = _text("library-refine.css")
+
+    assert "function renderComparison(proposed)" in script
+    assert "const removed = currentTracks.filter" in script
+    assert "const added = proposedTracks.filter" in script
+    assert "createChangeGroup('Removed'" in script
+    assert "createChangeGroup('Added'" in script
+    assert "proposedHeading.textContent = 'Proposed playlist';" in script
+    assert ".library-refine-track-removed" in style
+    assert "text-decoration: line-through;" in style
+    assert ".library-refine-track-added" in style
+    assert "color: #86efac;" in style
+
+
+def test_refinement_textarea_leaves_room_for_focus_ring() -> None:
+    style = _text("library-refine.css")
+
+    assert "width: calc(100% - 8px);" in style
+    assert "margin-inline: 4px;" in style
+    assert "box-sizing: border-box;" in style
+
+
+def test_refinement_track_area_is_compact_and_scrollable() -> None:
     style = _text("library-refine.css")
 
     assert ".library-refine-panel" in style
-    assert ".library-refine-preview" in style
-    assert "max-height: 280px;" in style
+    assert ".library-refine-track-area" in style
+    assert "max-height: 320px;" in style
     assert "overflow: auto;" in style
     assert ".library-refine-actions" in style
