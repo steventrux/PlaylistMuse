@@ -17,8 +17,10 @@ from backend.config import (
     load_config,
     save_config,
 )
+from backend.lastfm_random_seed import random_seed_suggestion
 from backend.lastfm_settings import (
     disconnect_lastfm,
+    lastfm_api_key,
     save_lastfm_api_key,
     validate_lastfm_api_key,
     validated_lastfm_settings_response,
@@ -246,6 +248,19 @@ async def get_lastfm_status() -> dict[str, object]:
 @router.get("/lastfm/settings", tags=["lastfm"])
 async def get_lastfm_settings() -> dict[str, object]:
     return await validated_lastfm_settings_response()
+
+
+@router.get("/lastfm/random-seed", tags=["lastfm"])
+async def get_lastfm_random_seed() -> dict[str, str]:
+    if not lastfm_api_key().strip():
+        raise HTTPException(status_code=409, detail="Last.fm is not configured.")
+    suggestion = await random_seed_suggestion()
+    if not suggestion:
+        raise HTTPException(
+            status_code=502,
+            detail="Last.fm could not suggest a seed right now. Please try again.",
+        )
+    return suggestion
 
 
 @router.put("/lastfm/settings", tags=["lastfm"])
