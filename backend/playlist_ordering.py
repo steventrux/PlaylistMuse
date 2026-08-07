@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from typing import Any, Literal
 
 import httpx
@@ -11,9 +12,11 @@ import httpx
 from backend.metadata_validation import (
     MIN_MATCH_SCORE,
     USER_AGENT,
+    MetadataConstraints,
+    TrackMetadata,
     lookup_track_metadata,
+    validate_candidate,
 )
-from backend.text_normalization import normalize_identity
 
 ChronologicalOrder = Literal["oldest_first", "newest_first"]
 _MIN_ORDER_CONFIDENCE = 0.85
@@ -48,6 +51,31 @@ _NEWEST_FIRST_PATTERNS = (
     re.compile(r"\bchronologisch\s+r[uü]ckw[aä]rts\b", re.I),
     re.compile(r"\bmais\s+recente\b.{0,60}\bmais\s+antig[ao]\b", re.I),
     re.compile(r"\bordem\s+cronol[oó]gica\s+inversa\b", re.I),
+)
+
+_LIVE_BRACKET_SUFFIX_RE = re.compile(
+    r"\s*[\[(][^\])]*(?:\blive\b|\bdal\s+vivo\b|\ben\s+vivo\b|\bao\s+vivo\b)[^\])]*[\])]\s*$",
+    re.I,
+)
+_LIVE_DASH_SUFFIX_RE = re.compile(
+    r"\s*[-–—]\s*(?:live\b.*|dal\s+vivo\b.*|en\s+vivo\b.*|ao\s+vivo\b.*)$",
+    re.I,
+)
+_LIVE_WORD_SUFFIX_RE = re.compile(
+    r"\s+(?:live|dal\s+vivo|en\s+vivo|ao\s+vivo)(?:\s+\d{4})?\s*$",
+    re.I,
+)
+_LIVE_ALBUM_RE = re.compile(
+    r"(?:^|\b)(?:live(?:\s+(?:at|from|in)\b)?|dal\s+vivo|en\s+vivo|ao\s+vivo)(?:\b|$)",
+    re.I,
+)
+_REMASTER_BRACKET_SUFFIX_RE = re.compile(
+    r"\s*[\[(][^\])]*\bremaster(?:ed)?\b[^\])]*[\])]\s*$",
+    re.I,
+)
+_REMASTER_DASH_SUFFIX_RE = re.compile(
+    r"\s*[-–—]\s*(?:\d{4}\s+)?remaster(?:ed)?\b.*$",
+    re.I,
 )
 
 
@@ -96,29 +124,80 @@ def _track_title(track: dict[str, Any]) -> str:
     return str(track.get("title") or "").strip()
 
 
-def _date_key(value: str) -> tuple[int, int, int]:
-    parts = str(value).split("-")
-    result: list[int] = []
-    for index in range(3):
-        try:
-            result.append(int(parts[index]) if index < len(parts) else 1)
-        except ValueError:
-            result.append(1)
-    return result[0], result[1], result[2]
+def _is_live_track(track: dict[str, Any]) -> bool:
+    """Detect version-style live markers without treating song names such as 'Live Forever' as live."""
+    title = _track_title(track)
+    album = str(track.get("album") or "").strip()
+    return bool(
+        _LIVE_BRACKET_SUFFIX_RE.search(title)
+        or _LIVE_DASH_SUFFIX_RE.search(title)
+        or _LIVE_WORD_SUFFIX_RE.search(title)
+        or (album and _LIVE_ALBUM_RE.search(album))
+    )
 
 
-def _embedded_release_date(track: dict[str, Any]) -> str | None:
+def _strip_live_suffix(title: str) -> str:
+    """Return the underlying song title used to find the original release year."""
+    cleaned = str(title).strip()
+    for pattern in (
+        _LIVE_BRACKET_SUFFIX_RE,
+        _LIVE_DASH_SUFFIX_RE,
+        _LIVE_WORD_SUFFIX_RE,
+    ):
+        cleaned = pattern.sub("", cleaned).strip(" -–—")
+    return cleaned or str(title).strip()
+
+
+def _strip_remaster_suffix(title: str) -> str:
+    cleaned = str(title).strip()
+    for pattern in (_REMASTER_BRACKET_SUFFIX_RE, _REMASTER_DASH_SUFFIX_RE):
+        cleaned = pattern.sub("", cleaned).strip(" -–—")
+    return cleaned or str(title).strip()
+
+
+def _chronology_lookup_titles(track: dict[str, Any]) -> list[str]:
+    """Return conservative metadata lookup titles in preference order.
+
+    A live recording is deliberately resolved only through the underlying song title so its
+    concert/live-album year can never become the chronological year. For non-live tracks the
+    catalogue title remains primary, with a remaster suffix removed only as a fallback.
+    """
+    title = _track_title(track)
+    if not title:
+        return []
+    if _is_live_track(track):
+        return [_strip_live_suffix(title)]
+
+    variants = [title]
+    remasterless = _strip_remaster_suffix(title)
+    if remasterless and remasterless.casefold() != title.casefold():
+        variants.append(remasterless)
+    return variants
+
+
+def _release_year(metadata: TrackMetadata) -> int | None:
+    try:
+        if metadata.original_release_year is not None:
+            return int(metadata.original_release_year)
+        if metadata.original_release_date:
+            candidate = str(metadata.original_release_date)[:4]
+            return int(candidate) if candidate.isdigit() else None
+    except (TypeError, ValueError):
+        return None
+    return None
+
+
+def _metadata_has_reliable_year(metadata: TrackMetadata) -> bool:
+    return _release_year(metadata) is not None and metadata.match_score >= MIN_MATCH_SCORE
+
+
+def _embedded_release_year(track: dict[str, Any]) -> int | None:
+    # Embedded metadata for a live item may describe the live recording itself. Always resolve
+    # the underlying song again so chronology uses the song's original release year.
+    if _is_live_track(track):
+        return None
     metadata = track.get("metadata_validation")
     if not isinstance(metadata, dict):
-        return None
-    value = str(metadata.get("original_release_date") or "").strip()
-    if not value:
-        year = metadata.get("original_release_year")
-        try:
-            value = str(int(year)) if year is not None else ""
-        except (TypeError, ValueError):
-            value = ""
-    if not value:
         return None
     try:
         score = float(metadata.get("match_score", 0.0))
@@ -127,75 +206,100 @@ def _embedded_release_date(track: dict[str, Any]) -> str | None:
     confidence = str(metadata.get("confidence") or "").casefold()
     if score < MIN_MATCH_SCORE and confidence not in {"high", "medium"}:
         return None
-    return value
+    year = metadata.get("original_release_year")
+    if year is None:
+        date = str(metadata.get("original_release_date") or "").strip()
+        year = date[:4] if len(date) >= 4 else None
+    try:
+        parsed = int(year) if year is not None else None
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed and 1800 <= parsed <= time.gmtime().tm_year else None
+
+
+async def _lookup_original_release_year(
+    track: dict[str, Any],
+    *,
+    client: httpx.AsyncClient,
+) -> int | None:
+    """Resolve an original song year with a direct historical probe as a safe fallback."""
+    artist = _track_artist(track)
+    if not artist:
+        return None
+
+    broad_constraints = MetadataConstraints(
+        release_year_from=1800,
+        release_year_to=time.gmtime().tm_year,
+    )
+    for title in _chronology_lookup_titles(track):
+        metadata = await lookup_track_metadata(artist, title, client=client)
+        if _metadata_has_reliable_year(metadata):
+            return _release_year(metadata)
+
+        # A stale/negative cache entry or an initially weak MusicBrainz match must not make a
+        # well-known song unverifiable. validate_candidate triggers the existing direct
+        # historical MusicBrainz probe for this broad range and refreshes reliable metadata.
+        validation = await validate_candidate(
+            {"artist": artist, "title": title},
+            broad_constraints,
+            client=client,
+        )
+        if _metadata_has_reliable_year(validation.metadata):
+            return _release_year(validation.metadata)
+    return None
 
 
 async def order_tracks_by_release_date(
     tracks: list[dict[str, Any]],
     direction: ChronologicalOrder | None,
 ) -> list[dict[str, Any]]:
-    """Return tracks ordered by verified original release date.
+    """Return tracks ordered by verified original song release year.
 
-    The first-release date is used, never a YouTube upload, remaster or reissue date. If an
-    explicit chronological request cannot be fully verified, fail rather than silently return
-    an order that only looks chronological.
+    Chronology deliberately uses the first publication year of the underlying song. A live
+    version therefore inherits the original song's year, never the concert, live-album or
+    YouTube upload year. When only year precision is available, tracks from the same year keep
+    their current relative order.
     """
     if direction is None or len(tracks) < 2:
         return list(tracks)
 
-    dates: dict[str, str] = {}
-    pending: dict[str, tuple[str, str]] = {}
-    for track in tracks:
-        artist = _track_artist(track)
-        title = _track_title(track)
-        key = f"{normalize_identity(artist)}::{normalize_identity(title)}"
-        embedded = _embedded_release_date(track)
-        if embedded:
-            dates[key] = embedded
-        elif artist and title and key not in pending:
-            pending[key] = (artist, title)
+    years: list[int | None] = [_embedded_release_year(track) for track in tracks]
+    pending = [index for index, year in enumerate(years) if year is None]
 
     if pending:
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(8.0),
             headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
         ) as client:
-            async def lookup(key: str, artist: str, title: str) -> tuple[str, str | None]:
-                metadata = await lookup_track_metadata(artist, title, client=client)
-                if (
-                    metadata.original_release_date
-                    and metadata.match_score >= MIN_MATCH_SCORE
-                ):
-                    return key, metadata.original_release_date
-                return key, None
-
             results = await asyncio.gather(
-                *(lookup(key, artist, title) for key, (artist, title) in pending.items())
+                *(
+                    _lookup_original_release_year(tracks[index], client=client)
+                    for index in pending
+                )
             )
-        for key, release_date in results:
-            if release_date:
-                dates[key] = release_date
+        for index, year in zip(pending, results, strict=True):
+            years[index] = year
 
-    missing: list[str] = []
-    decorated: list[tuple[tuple[int, int, int], int, dict[str, Any]]] = []
-    for index, track in enumerate(tracks):
-        artist = _track_artist(track)
-        title = _track_title(track)
-        key = f"{normalize_identity(artist)}::{normalize_identity(title)}"
-        release_date = dates.get(key)
-        if not release_date:
-            missing.append(f"{artist} — {title}".strip(" —"))
-            continue
-        decorated.append((_date_key(release_date), index, track))
-
+    missing = [
+        f"{_track_artist(track)} — {_track_title(track)}".strip(" —")
+        for track, year in zip(tracks, years, strict=True)
+        if year is None
+    ]
     if missing:
         sample = "; ".join(missing[:4])
         suffix = "" if len(missing) <= 4 else f"; +{len(missing) - 4} more"
         raise ValueError(
-            "PlaylistMuse could not verify the original release date for every track required "
+            "PlaylistMuse could not verify the original release year for every track required "
             f"by the chronological ordering: {sample}{suffix}."
         )
 
-    reverse = direction == "newest_first"
-    decorated.sort(key=lambda item: item[0], reverse=reverse)
-    return [dict(item[2]) for item in decorated]
+    decorated = [
+        (int(year), dict(track))
+        for track, year in zip(tracks, years, strict=True)
+        if year is not None
+    ]
+    decorated.sort(
+        key=lambda item: item[0],
+        reverse=direction == "newest_first",
+    )
+    return [track for _, track in decorated]
