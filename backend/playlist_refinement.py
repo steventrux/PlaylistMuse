@@ -33,6 +33,15 @@ from backend.playlist_ordering import (
     order_tracks_by_release_date,
 )
 from backend.prompt_validation import assess_interpretation
+from backend.refinement_targets import (
+    ArtistAdditionTarget,
+    artist_addition_guidance,
+    artist_addition_mismatches,
+    explicit_reorder_requested,
+    extract_artist_addition_targets,
+    format_artist_addition_mismatches,
+    preserve_existing_positions,
+)
 from backend.text_normalization import normalize_identity
 from backend.youtube import track_identity_key
 
@@ -344,9 +353,6 @@ async def _interpret_refinement_constraints(
 
     assessment = assess_interpretation(payload)
     if assessment.status != "valid":
-        # Preview is non-destructive. Keep only locally provable removals and any independently
-        # trusted chronological direction when the generic hard-constraint interpretation is
-        # uncertain; the editing model still handles the rest of the prose.
         return local
 
     interpreted = _RefinementConstraints(
@@ -444,6 +450,7 @@ def _refinement_prompt(
     record: dict[str, Any],
     instruction: str,
     constraints: _RefinementConstraints,
+    addition_targets: list[ArtistAdditionTarget] | None = None,
     *,
     retry: bool = False,
 ) -> str:
@@ -459,10 +466,11 @@ def _refinement_prompt(
     previous_text = "\n".join(f"- {prompt}" for prompt in previous) or "- None"
     original_prompt = str(playlist.get("prompt") or record.get("prompt") or "").strip()
     count = len(tracks)
+    targets = addition_targets or []
     retry_note = (
         "\nThe previous refinement attempt did not produce a complete catalogue-resolvable "
-        "playlist satisfying every hard constraint. Use different replacement songs and "
-        "do not reintroduce any forbidden artist or track.\n"
+        "playlist satisfying every mandatory exclusion and quantitative addition target. Use "
+        "different replacement songs and satisfy every target exactly.\n"
         if retry
         else ""
     )
@@ -478,15 +486,21 @@ def _refinement_prompt(
         "The following explicit exclusions were extracted from the NEW refinement instruction. "
         "They are mandatory and override stylistic preferences when they conflict:\n"
         f"{_constraint_guidance(constraints)}\n\n"
+        "The following quantitative additions were extracted from the NEW refinement instruction. "
+        "They are mandatory incremental edits. New means absent from the current playlist, and "
+        "the total playlist size must remain unchanged by replacing other tracks:\n"
+        f"{artist_addition_guidance(targets)}\n\n"
         f"Current playlist ({count} tracks):\n{current}\n\n"
         f"Return exactly {count} tracks. Keep every current track that still fits the new "
-        "instruction; do not replace songs merely for novelty. Reorder existing tracks when "
-        "that is enough to satisfy the instruction. Replace every current track that violates "
-        "a hard constraint, and never return an excluded artist or excluded track. Replace only "
-        "the other tracks that genuinely need to change. Previously applied refinements remain "
-        "in force unless the new instruction explicitly supersedes them. The new instruction "
-        "may refine or supersede preferences from the original request when it explicitly says "
-        "so. Never duplicate a song. Use canonical released artist and track names."
+        "instruction; do not replace songs merely for novelty. Reorder existing tracks only "
+        "when the new instruction explicitly asks for ordering or sequencing. Otherwise keep "
+        "retained tracks in their current order. Replace every current track that violates a "
+        "hard constraint, and never return an excluded artist or excluded track. Replace only "
+        "the other tracks genuinely needed to satisfy the new instruction and any quantitative "
+        "addition targets. Previously applied refinements remain in force unless the new "
+        "instruction explicitly supersedes them. The new instruction may refine or supersede "
+        "preferences from the original request when it explicitly says so. Never duplicate a "
+        "song. Use canonical released artist and track names."
         f"{retry_note}"
     )
 
@@ -602,6 +616,14 @@ def _validate_direct_constraints(
         )
 
 
+def _addition_mismatches_or_error(
+    current_tracks: list[dict[str, Any]],
+    refined_tracks: list[dict[str, Any]],
+    targets: list[ArtistAdditionTarget],
+) -> list[tuple[ArtistAdditionTarget, int]]:
+    return artist_addition_mismatches(current_tracks, refined_tracks, targets)
+
+
 async def _build_preview(record: dict[str, Any], instruction: str) -> dict[str, Any]:
     playlist = record["playlist"]
     current_tracks = [
@@ -618,15 +640,28 @@ async def _build_preview(record: dict[str, Any], instruction: str) -> dict[str, 
         instruction,
         current_tracks,
     )
-    eligible_current = await _eligible_existing_tracks(current_tracks, constraints)
+    addition_targets = extract_artist_addition_targets(instruction)
     target_count = len(current_tracks)
+    if sum(target.count for target in addition_targets) > target_count:
+        raise ValueError(
+            "The requested number of new artist tracks exceeds the playlist size."
+        )
+
+    eligible_current = await _eligible_existing_tracks(current_tracks, constraints)
     unresolved: list[dict[str, Any]] = []
     refined_tracks: list[dict[str, Any]] = []
+    last_addition_mismatches: list[tuple[ArtistAdditionTarget, int]] = []
 
     for attempt in range(_MAX_REFINEMENT_ATTEMPTS):
         draft = await generate_playlist_draft(
             config,
-            _refinement_prompt(record, instruction, constraints, retry=attempt > 0),
+            _refinement_prompt(
+                record,
+                instruction,
+                constraints,
+                addition_targets,
+                retry=attempt > 0,
+            ),
             target_count,
         )
         generated_tracks = [
@@ -662,10 +697,21 @@ async def _build_preview(record: dict[str, Any], instruction: str) -> dict[str, 
             constraints,
             target_count=target_count,
         )
-        if len(refined_tracks) == target_count:
-            _validate_direct_constraints(refined_tracks, constraints)
-            break
+        if len(refined_tracks) != target_count:
+            continue
+
+        _validate_direct_constraints(refined_tracks, constraints)
+        last_addition_mismatches = _addition_mismatches_or_error(
+            current_tracks,
+            refined_tracks,
+            addition_targets,
+        )
+        if last_addition_mismatches:
+            continue
+        break
     else:
+        if last_addition_mismatches:
+            raise ValueError(format_artist_addition_mismatches(last_addition_mismatches))
         raise ValueError(
             "PlaylistMuse could not produce a complete refinement that satisfies every explicit "
             "constraint. Try a slightly broader refinement instruction."
@@ -676,6 +722,8 @@ async def _build_preview(record: dict[str, Any], instruction: str) -> dict[str, 
             refined_tracks,
             constraints.chronological_order,
         )
+    elif not explicit_reorder_requested(instruction):
+        refined_tracks = preserve_existing_positions(current_tracks, refined_tracks)
 
     preview = deepcopy(playlist)
     preview["tracks"] = refined_tracks
@@ -734,16 +782,28 @@ async def apply_playlist_refinement(
             request.instruction,
             source_tracks,
         )
+        addition_targets = extract_artist_addition_targets(request.instruction)
         preview_tracks = [
             dict(track) for track in playlist.get("tracks", []) if isinstance(track, dict)
         ]
         _validate_direct_constraints(preview_tracks, constraints)
+        addition_mismatches = _addition_mismatches_or_error(
+            source_tracks,
+            preview_tracks,
+            addition_targets,
+        )
+        if addition_mismatches:
+            raise ValueError(format_artist_addition_mismatches(addition_mismatches))
+
         if constraints.chronological_order is not None:
             preview_tracks = await order_tracks_by_release_date(
                 preview_tracks,
                 constraints.chronological_order,
             )
-            playlist["tracks"] = preview_tracks
+        elif not explicit_reorder_requested(request.instruction):
+            preview_tracks = preserve_existing_positions(source_tracks, preview_tracks)
+        playlist["tracks"] = preview_tracks
+
         expected_count = int(record.get("track_count") or len(source_tracks))
         if len(preview_tracks) != expected_count:
             raise ValueError("The refinement preview no longer has the expected number of tracks.")
