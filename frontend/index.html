@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="/static/layout.css?v=5">
   <link rel="stylesheet" href="/static/controls.css?v=8">
   <link rel="stylesheet" href="/static/prompt-complexity.css?v=3">
-  <link rel="stylesheet" href="/static/prompt-surprise.css?v=1">
+  <link rel="stylesheet" href="/static/prompt-surprise.css?v=2">
   <link rel="stylesheet" href="/static/generation.css?v=5">
   <link rel="stylesheet" href="/static/youtube.css?v=3">
   <link rel="stylesheet" href="/static/youtube-settings.css?v=1">
@@ -83,12 +83,14 @@
             title="Surprise me"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <rect x="4.5" y="4.5" width="15" height="15" rx="3.5" />
-              <circle class="prompt-surprise-dot" cx="9" cy="9" r="1" />
-              <circle class="prompt-surprise-dot" cx="15" cy="9" r="1" />
-              <circle class="prompt-surprise-dot" cx="12" cy="12" r="1" />
-              <circle class="prompt-surprise-dot" cx="9" cy="15" r="1" />
-              <circle class="prompt-surprise-dot" cx="15" cy="15" r="1" />
+              <path class="prompt-surprise-face" d="M12 2.8 20 7.3v9.4l-8 4.5-8-4.5V7.3Z" />
+              <path d="M4 7.3 12 11.8 20 7.3M12 11.8v9.4" />
+              <circle class="prompt-surprise-pip" cx="12" cy="7.25" r=".85" />
+              <circle class="prompt-surprise-pip" cx="7.1" cy="11.05" r=".72" />
+              <circle class="prompt-surprise-pip" cx="9.15" cy="16.8" r=".72" />
+              <circle class="prompt-surprise-pip" cx="16.9" cy="10.7" r=".68" />
+              <circle class="prompt-surprise-pip" cx="15.2" cy="14.55" r=".68" />
+              <circle class="prompt-surprise-pip" cx="17.15" cy="17.2" r=".68" />
             </svg>
           </button>
         </div>
@@ -281,7 +283,7 @@
   <script src="/static/youtube-account.js?v=5"></script>
   <script src="/static/home-status.js?v=14"></script>
   <script src="/static/generation-state.js?v=2"></script>
-  <script src="/static/prompt-surprise.js?v=1"></script>
+  <script src="/static/prompt-surprise.js?v=2"></script>
   <script src="/static/prompt-complexity.js?v=7"></script>
   <script src="/static/app.js?v=17"></script>
   <script src="/static/prompt-validation-guard.js?v=1"></script>
