@@ -86,8 +86,8 @@ def test_library_heading_is_compact_and_count_tracks_visible_results() -> None:
     assert "/static/library-heading.css?v=2" in html
     assert '<h2 id="library-heading">My playlists</h2>' in html
     assert 'id="library-count"' in html
-    assert "Playlist library" not in html
-    assert "Generated playlists are saved locally" not in html
+    assert '<p class="eyebrow">Playlist library</p>' not in html
+    assert "Generated playlists are saved locally and remain available across container restarts." not in html
     assert "function updateLibraryCount(count)" in script
     assert "updateLibraryCount(items.length);" in script
     assert "count === 1 ? 'playlist' : 'playlists'" in script
