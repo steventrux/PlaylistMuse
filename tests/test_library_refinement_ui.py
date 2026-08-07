@@ -11,7 +11,7 @@ def _text(name: str) -> str:
 def test_library_loads_refinement_assets_before_library_renderer() -> None:
     html = _text("library.html")
 
-    assert '/static/library-refine.css?v=2' in html
+    assert '/static/library-refine.css?v=3' in html
     refine = '<script src="/static/library-refine.js?v=2"></script>'
     library = '<script src="/static/library.js?v=6"></script>'
     assert refine in html
@@ -78,11 +78,25 @@ def test_refinement_textarea_leaves_room_for_focus_ring() -> None:
     assert "box-sizing: border-box;" in style
 
 
+def test_refinement_panel_is_visually_grouped_and_compact() -> None:
+    style = _text("library-refine.css")
+
+    assert ".library-refine-panel" in style
+    assert "padding: 14px;" in style
+    assert "border-radius: 14px;" in style
+    assert "background: rgba(8, 11, 27, .34);" in style
+    assert "min-height: 78px;" in style
+    assert ".library-refine-hint" in style
+    assert "border-left: 2px solid" in style
+    assert ".library-refine-actions" in style
+    assert "justify-content: flex-end;" in style
+
+
 def test_refinement_track_area_is_compact_and_scrollable() -> None:
     style = _text("library-refine.css")
 
     assert ".library-refine-panel" in style
     assert ".library-refine-track-area" in style
-    assert "max-height: 320px;" in style
+    assert "max-height: 300px;" in style
     assert "overflow: auto;" in style
     assert ".library-refine-actions" in style
