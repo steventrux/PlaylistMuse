@@ -28,6 +28,22 @@ def _published_remote_ids(records: list[dict[str, Any]]) -> list[str]:
     )
 
 
+def _send_playlist_status_request(
+    client: httpx.Client,
+    params: dict[str, str],
+    *,
+    force_refresh: bool = False,
+) -> httpx.Response:
+    return client.get(
+        f"{YOUTUBE_API_BASE}/playlists",
+        params=params,
+        headers={
+            "Authorization": f"Bearer {_access_token(force_refresh=force_refresh)}",
+            "Accept": "application/json",
+        },
+    )
+
+
 def _fetch_existing_youtube_playlist_ids(playlist_ids: list[str]) -> set[str]:
     """Return IDs that YouTube still reports as existing for the connected account."""
     existing: set[str] = set()
@@ -39,20 +55,13 @@ def _fetch_existing_youtube_playlist_ids(playlist_ids: list[str]) -> set[str]:
                 "id": ",".join(batch),
                 "maxResults": str(len(batch)),
             }
-
-            def send(token: str) -> httpx.Response:
-                return client.get(
-                    f"{YOUTUBE_API_BASE}/playlists",
-                    params=params,
-                    headers={
-                        "Authorization": f"Bearer {token}",
-                        "Accept": "application/json",
-                    },
-                )
-
-            response = send(_access_token())
+            response = _send_playlist_status_request(client, params)
             if response.status_code == 401:
-                response = send(_access_token(force_refresh=True))
+                response = _send_playlist_status_request(
+                    client,
+                    params,
+                    force_refresh=True,
+                )
             response.raise_for_status()
             payload = response.json()
             items = payload.get("items", []) if isinstance(payload, dict) else []
