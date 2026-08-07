@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="/static/playlist.css?v=5">
   <link rel="stylesheet" href="/static/playlist-cards.css?v=3">
   <link rel="stylesheet" href="/static/compact-cards.css?v=7">
-  <link rel="stylesheet" href="/static/playlist-header.css?v=5">
+  <link rel="stylesheet" href="/static/playlist-header.css?v=6">
   <link rel="stylesheet" href="/static/generation.css?v=3">
   <link rel="stylesheet" href="/static/youtube.css?v=5">
   <link rel="stylesheet" href="/static/youtube-settings.css?v=1">
@@ -35,12 +35,13 @@
 
   <main class="playlist-shell">
     <div class="playlist-toolbar">
-      <a class="back-link" href="/">← Create another playlist</a>
+      <a class="secondary new-playlist-link" href="/">
+        <span class="new-playlist-plus" aria-hidden="true">+</span>
+        <span>New playlist</span>
+      </a>
     </div>
 
     <section class="card playlist-card">
-      <p class="eyebrow">Your playlist</p>
-
       <div class="playlist-overview">
         <div
           class="playlist-cover"
@@ -110,7 +111,7 @@
         <button id="close-youtube-settings" type="button" class="icon" aria-label="Close">×</button>
       </div>
 
-      <section class="settings-block youtube-results-settings youtube-settings-panel">
+      <section class="settings-block youtube-results-settings youtube-settings-panel hidden">
         <div class="youtube-account-summary">
           <div class="youtube-account-summary-heading">
             <h3>YouTube Music account</h3>
