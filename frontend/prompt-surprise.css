@@ -1,10 +1,20 @@
-.prompt-input-shell {
+.prompt-input-shell,
+.seed-query-shell {
   position: relative;
 }
 
 .prompt-input-shell textarea {
   display: block;
   padding-bottom: 48px;
+}
+
+.seed-query-shell {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.seed-query-shell input {
+  padding-right: 48px;
 }
 
 .prompt-surprise {
@@ -65,6 +75,34 @@
   transform: translateY(0);
 }
 
+.prompt-surprise:disabled {
+  cursor: default;
+  opacity: .38;
+  transform: none;
+}
+
+.seed-surprise {
+  left: auto;
+  right: 8px;
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+}
+
+.seed-surprise:hover,
+.seed-surprise:focus-visible {
+  transform: translateY(calc(-50% - 1px));
+}
+
+.seed-surprise:active,
+.seed-surprise:disabled {
+  transform: translateY(-50%);
+}
+
+.seed-surprise[hidden] {
+  display: none;
+}
+
 @media (max-width: 650px) {
   .prompt-input-shell textarea {
     padding-bottom: 46px;
@@ -75,6 +113,13 @@
     bottom: 9px;
     width: 29px;
     height: 29px;
+  }
+
+  .seed-surprise {
+    left: auto;
+    right: 8px;
+    top: 50%;
+    bottom: auto;
   }
 }
 
