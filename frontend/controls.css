@@ -271,17 +271,43 @@ input::placeholder,
   box-shadow: none;
 }
 
-/* Selected seeds use the same restrained emphasis as expanded tracks. */
+/* Keep the selected seed on the same compact-card system as search results. */
 .selected-seed {
+  grid-template-columns: 54px minmax(0, 1fr) auto;
+  min-height: 0;
+  gap: 13px;
+  margin-top: 15px;
+  padding: 11px;
   border-color: rgba(183, 156, 255, .42);
-  background:
-    linear-gradient(
-      135deg,
-      rgba(139, 92, 246, .12),
-      rgba(236, 72, 153, .08) 52%,
-      rgba(56, 189, 248, .10)
-    );
-  box-shadow: 0 12px 30px rgba(2, 4, 18, .24);
+  border-radius: 15px;
+  background: rgba(21, 26, 51, .86);
+  box-shadow: none;
+}
+
+.selected-seed img {
+  width: 54px;
+  height: 54px;
+  border-radius: 11px;
+}
+
+.selected-seed > div {
+  gap: 3px;
+  align-self: center;
+}
+
+.selected-seed strong {
+  color: var(--text-primary);
+}
+
+.selected-seed span {
+  color: var(--text-secondary);
+}
+
+.selected-seed .compact-button {
+  align-self: center;
+  min-height: 34px;
+  padding: 7px 11px;
+  border-radius: 10px;
 }
 
 @media (max-width: 650px) {
@@ -303,5 +329,22 @@ input::placeholder,
 
   .seed-mode-buttons {
     grid-template-columns: 1fr;
+  }
+
+  .selected-seed {
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+    gap: 11px;
+    padding: 11px;
+  }
+
+  .selected-seed img {
+    width: 48px;
+    height: 48px;
+  }
+
+  .selected-seed .compact-button {
+    min-height: 32px;
+    padding: 6px 9px;
+    font-size: .76rem;
   }
 }
