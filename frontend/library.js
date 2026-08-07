@@ -95,6 +95,66 @@
     return block;
   }
 
+  function refinementPrompts(generationRequest) {
+    const entries = generationRequest?.refinements;
+    if (!Array.isArray(entries)) return [];
+    return entries
+      .map((entry) => {
+        if (typeof entry === 'string') return entry.trim();
+        if (!entry || typeof entry !== 'object') return '';
+        return String(entry.prompt || '').trim();
+      })
+      .filter(Boolean);
+  }
+
+  function renderRefinementHistory(block, prompts) {
+    block.querySelectorAll('.library-refinement-history-line').forEach((line) => line.remove());
+    if (!prompts.length) return;
+
+    const label = document.createElement('p');
+    label.className = 'library-refinement-history-line';
+    const strong = document.createElement('strong');
+    strong.textContent = 'Refinements';
+    label.append(strong);
+    block.append(label);
+
+    prompts.forEach((prompt, index) => {
+      const paragraph = document.createElement('p');
+      paragraph.className = 'library-refinement-history-line';
+      paragraph.textContent = `${index + 1}. ${prompt}`;
+      block.append(paragraph);
+    });
+  }
+
+  async function hydrateRefinementHistory(item, block) {
+    if (Array.isArray(item.refinement_prompts)) {
+      renderRefinementHistory(block, item.refinement_prompts);
+      return;
+    }
+    if (item.refinement_history_loading) return;
+    item.refinement_history_loading = true;
+    try {
+      const record = await readJson(await fetch(`${ENDPOINT}/${encodeURIComponent(item.id)}`, {
+        cache: 'no-store',
+      }));
+      item.refinement_prompts = refinementPrompts(record.generation_request);
+      renderRefinementHistory(block, item.refinement_prompts);
+    } catch {
+      // The initial request remains useful even if the optional refinement history cannot load.
+    } finally {
+      item.refinement_history_loading = false;
+    }
+  }
+
+  function requestDetailBlock(item) {
+    const block = detailBlock(
+      'Initial request',
+      item.prompt || 'No initial prompt saved.',
+    );
+    block.dataset.requestHistory = 'true';
+    return block;
+  }
+
   function closeOtherCards(currentCard) {
     document.querySelectorAll('.library-item.expanded').forEach((card) => {
       if (card === currentCard) return;
@@ -110,6 +170,8 @@
     card.setAttribute('aria-expanded', String(willExpand));
     expandedLibraryId = willExpand ? item.id : null;
     if (willExpand) {
+      const requestBlock = card.querySelector('[data-request-history="true"]');
+      if (requestBlock) void hydrateRefinementHistory(item, requestBlock);
       card.scrollIntoView({behavior: 'smooth', block: 'nearest'});
     }
   }
@@ -228,15 +290,13 @@
 
     const detailGrid = document.createElement('div');
     detailGrid.className = 'library-detail-grid';
+    const requestBlock = requestDetailBlock(item);
     detailGrid.append(
       detailBlock(
         'Description',
         item.description || 'No description saved.',
       ),
-      detailBlock(
-        'Original request',
-        item.prompt || 'No original prompt saved.',
-      ),
+      requestBlock,
       detailBlock('Playlist details', [
         `${trackLabel} · ${item.status === 'published' ? 'Published' : 'Draft'}`,
         `Created ${formatDate(item.created_at)}`,
@@ -307,6 +367,9 @@
     details.append(detailsInner);
 
     card.append(copy, expandIcon, details);
+    if (expandedLibraryId === item.id) {
+      void hydrateRefinementHistory(item, requestBlock);
+    }
     card.addEventListener('click', (event) => {
       if (event.target.closest('a, button')) return;
       toggleLibraryCard(card, item);
