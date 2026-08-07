@@ -22,6 +22,7 @@ def _record() -> dict:
         "description": "Original description",
         "prompt": "70s and 80s blues rock for a night drive",
         "status": "draft",
+        "track_count": 3,
         "playlist": {
             "name": "Night Drive",
             "description": "Original description",
@@ -49,9 +50,43 @@ def _record() -> dict:
     }
 
 
+def _valid_interpretation(**overrides) -> dict:
+    payload = {
+        "allowed_artists": [],
+        "excluded_artists": [],
+        "allowed_albums": [],
+        "excluded_albums": [],
+        "release_year": None,
+        "release_year_from": None,
+        "release_year_to": None,
+        "artist_country": None,
+        "excluded_tracks": [],
+        "contradictions": [],
+        "constraint_status": "valid",
+        "status_reasons": [],
+        "field_confidence": {
+            "allowed_artists": 0.0,
+            "excluded_artists": 0.0,
+            "allowed_albums": 0.0,
+            "excluded_albums": 0.0,
+            "release_year": 0.0,
+            "release_year_from": 0.0,
+            "release_year_to": 0.0,
+            "artist_country": 0.0,
+            "excluded_tracks": 0.0,
+        },
+        "confidence": "high",
+    }
+    payload.update(overrides)
+    return payload
+
+
 def test_refinement_preview_preserves_existing_resolved_tracks_and_resolves_only_new(monkeypatch) -> None:
     record = _record()
     captured: dict[str, object] = {}
+
+    async def fake_interpret(config, prompt: str) -> dict:
+        return _valid_interpretation()
 
     async def fake_generate(config, prompt: str, count: int) -> dict:
         captured["prompt"] = prompt
@@ -95,6 +130,7 @@ def test_refinement_preview_preserves_existing_resolved_tracks_and_resolves_only
         ], []
 
     monkeypatch.setattr(refinement, "load_config", lambda: object())
+    monkeypatch.setattr(refinement, "interpret_constraints", fake_interpret)
     monkeypatch.setattr(refinement, "generate_playlist_draft", fake_generate)
     monkeypatch.setattr(refinement, "resolve_candidates", fake_resolve)
 
@@ -145,6 +181,85 @@ def test_unresolved_refinement_candidates_fall_back_to_existing_draft_tracks() -
     assert len(assembled) == 3
     assert [track["title"] for track in assembled] == ["Alpha", "Gamma", "Beta"]
     assert all(track.get("video_id") for track in assembled)
+
+
+def test_explicit_artist_exclusion_is_hard_and_fallback_cannot_reinsert_it(monkeypatch) -> None:
+    record = _record()
+    calls = {"generate": 0}
+
+    async def fake_interpret(config, prompt: str) -> dict:
+        return _valid_interpretation(
+            excluded_artists=["Artist B"],
+            field_confidence={
+                "allowed_artists": 0.0,
+                "excluded_artists": 0.99,
+                "allowed_albums": 0.0,
+                "excluded_albums": 0.0,
+                "release_year": 0.0,
+                "release_year_from": 0.0,
+                "release_year_to": 0.0,
+                "artist_country": 0.0,
+                "excluded_tracks": 0.0,
+            },
+        )
+
+    async def fake_generate(config, prompt: str, count: int) -> dict:
+        calls["generate"] += 1
+        assert "Excluded artists: Artist B" in prompt
+        if calls["generate"] == 1:
+            tracks = [
+                {"artist": "Artist A", "title": "Alpha", "description": "A", "reason": "A"},
+                {"artist": "Artist B", "title": "Beta", "description": "B", "reason": "B"},
+                {"artist": "Artist C", "title": "Gamma", "description": "C", "reason": "C"},
+            ]
+        else:
+            tracks = [
+                {"artist": "Artist A", "title": "Alpha", "description": "A", "reason": "A"},
+                {"artist": "Artist D", "title": "Delta", "description": "D", "reason": "D"},
+                {"artist": "Artist C", "title": "Gamma", "description": "C", "reason": "C"},
+            ]
+        return {"title": "x", "description": "x", "tracks": tracks}
+
+    async def fake_resolve(candidates: list[dict], options: dict) -> tuple[list[dict], list[dict]]:
+        resolved = [
+            _track(item["title"], item["artist"], "d1")
+            for item in candidates
+            if item["artist"] == "Artist D"
+        ]
+        return resolved, []
+
+    monkeypatch.setattr(refinement, "load_config", lambda: object())
+    monkeypatch.setattr(refinement, "interpret_constraints", fake_interpret)
+    monkeypatch.setattr(refinement, "generate_playlist_draft", fake_generate)
+    monkeypatch.setattr(refinement, "resolve_candidates", fake_resolve)
+
+    result = asyncio.run(refinement._build_preview(record, "rimuovi le canzoni di Artist B"))
+
+    assert calls["generate"] == 2
+    assert [track["artists"] for track in result["playlist"]["tracks"]] == [
+        "Artist A",
+        "Artist D",
+        "Artist C",
+    ]
+    assert all(track["artists"] != "Artist B" for track in result["playlist"]["tracks"])
+
+
+def test_direct_exclusion_guard_rejects_forbidden_artist_and_track() -> None:
+    metadata = refinement.MetadataConstraints(excluded_artists=["Laura Pausini"])
+    constraints = refinement._RefinementConstraints(
+        metadata=metadata,
+        excluded_tracks=({"artist": "Elisa", "title": "Luce"},),
+    )
+
+    assert refinement._direct_constraint_violation(
+        _track("La solitudine", "Laura Pausini", "p1"), constraints
+    )
+    assert refinement._direct_constraint_violation(
+        _track("Luce", "Elisa", "e1"), constraints
+    )
+    assert refinement._direct_constraint_violation(
+        _track("Un'emozione per sempre", "Eros Ramazzotti", "r1"), constraints
+    ) is None
 
 
 def test_published_playlists_cannot_be_refined() -> None:
