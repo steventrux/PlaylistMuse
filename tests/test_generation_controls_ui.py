@@ -45,7 +45,7 @@ def test_prompt_and_seed_control_generation_visibility() -> None:
     script = (FRONTEND / "app.js").read_text(encoding="utf-8")
 
     assert '/static/generation-state.js?v=2' in html
-    assert '/static/app.js?v=17' in html
+    assert '/static/app.js?v=18' in html
     assert "const generationState = window.PlaylistMuseGenerationState" in script
     assert "function updateGenerationControls()" in script
     assert "generationState.isGenerationReady(" in script
@@ -55,6 +55,28 @@ def test_prompt_and_seed_control_generation_visibility() -> None:
     assert "function clearSelectedSeed(" in script
     assert script.count("updateGenerationControls();") >= 4
     assert "updateGenerationControls();\n  void showInitialSetupIfRequired();" in script
+
+
+def test_generation_locks_request_controls_until_completion_or_error() -> None:
+    script = (FRONTEND / "app.js").read_text(encoding="utf-8")
+
+    assert "generating: false" in script
+    assert "const GENERATION_LOCKED_CONTROL_IDS = [" in script
+    for control_id in (
+        "prompt",
+        "track-count",
+        "exclude-live",
+        "exclude-covers",
+        "exclude-remixes",
+        "prompt-surprise",
+    ):
+        assert f"'{control_id}'" in script
+    assert "function setGenerationInputsLocked(locked)" in script
+    assert "control.disabled = locked;" in script
+    assert "control.setAttribute('aria-disabled', String(locked));" in script
+    assert "if (button.disabled || state.generating) return;" in script
+    assert "setGenerationInputsLocked(true);" in script
+    assert "setGenerationInputsLocked(false);\n      resetGeneratingButton();" in script
 
 
 def test_seed_search_is_disabled_while_empty_or_searching() -> None:
