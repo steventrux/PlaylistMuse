@@ -37,6 +37,16 @@ _ARTIST_SEPARATOR_RE = re.compile(
     r"\s*(?:,|&|\band\b|\be\b|\bfeat\.?\b|\bfeaturing\b|\bwith\b)\s*",
     re.IGNORECASE,
 )
+_REMOVAL_INTENT_RE = re.compile(
+    r"\b(?:"
+    r"remove|delete|drop|exclude|without|"
+    r"rimuovi|rimuovere|elimina|eliminare|togli|togliere|escludi|escludere|senza|"
+    r"elimina|eliminar|quita|quitar|excluye|excluir|sin|"
+    r"retire|retirer|supprime|supprimer|exclus|exclure|sans|"
+    r"entferne|entfernen|loesche|losche|lösche|ausschliessen|ausschließen|ohne"
+    r")\b",
+    re.IGNORECASE,
+)
 _MIN_HARD_CONSTRAINT_CONFIDENCE = 0.85
 _MAX_REFINEMENT_ATTEMPTS = 2
 
@@ -144,11 +154,103 @@ def _artist_identity_keys(value: str) -> set[str]:
     return keys
 
 
+def _contains_identity(text: str, identity: str) -> bool:
+    """Match a normalized entity as whole tokens, not inside another word."""
+    if not text or not identity:
+        return False
+    return f" {identity} " in f" {text} "
+
+
+def _current_artist_names(tracks: list[dict[str, Any]]) -> list[str]:
+    """Return unique canonical artist names occurring in the current playlist."""
+    names: list[str] = []
+    seen: set[str] = set()
+    for track in tracks:
+        raw = str(track.get("artists") or track.get("artist") or "").strip()
+        for part in _ARTIST_SEPARATOR_RE.split(raw):
+            name = " ".join(part.split()).strip()
+            key = normalize_identity(name)
+            if name and key and key not in seen:
+                seen.add(key)
+                names.append(name)
+    return names
+
+
+def _local_explicit_removals(
+    instruction: str,
+    current_tracks: list[dict[str, Any]],
+) -> _RefinementConstraints:
+    """Resolve simple removals only against entities already present in the draft.
+
+    Without an explicit removal/exclusion verb this returns no hard constraints, and it never
+    invents an artist or track that is not already present in the current playlist.
+    """
+    if not _REMOVAL_INTENT_RE.search(instruction):
+        return _RefinementConstraints(MetadataConstraints())
+
+    normalized_instruction = normalize_identity(instruction)
+    artist_names = _current_artist_names(current_tracks)
+    artist_keys = {name: normalize_identity(name) for name in artist_names}
+
+    surname_owners: dict[str, list[str]] = {}
+    for name, key in artist_keys.items():
+        tokens = key.split()
+        if len(tokens) >= 2:
+            surname = tokens[-1]
+            if len(surname) >= 4:
+                surname_owners.setdefault(surname, []).append(name)
+
+    excluded_artists: list[str] = []
+    excluded_artist_keys: set[str] = set()
+    for name, key in artist_keys.items():
+        matched = _contains_identity(normalized_instruction, key)
+        if not matched:
+            tokens = key.split()
+            surname = tokens[-1] if len(tokens) >= 2 else ""
+            matched = bool(
+                surname
+                and len(surname_owners.get(surname, [])) == 1
+                and _contains_identity(normalized_instruction, surname)
+            )
+        if matched and key not in excluded_artist_keys:
+            excluded_artists.append(name)
+            excluded_artist_keys.add(key)
+
+    title_owners: dict[str, list[dict[str, Any]]] = {}
+    for track in current_tracks:
+        title_key = normalize_identity(str(track.get("title") or ""))
+        if len(title_key) >= 3:
+            title_owners.setdefault(title_key, []).append(track)
+
+    excluded_tracks: list[dict[str, str]] = []
+    for title_key, owners in title_owners.items():
+        if len(owners) != 1 or not _contains_identity(normalized_instruction, title_key):
+            continue
+        track = owners[0]
+        artist = str(track.get("artists") or track.get("artist") or "").strip()
+        if any(key in excluded_artist_keys for key in _artist_identity_keys(artist)):
+            continue
+        excluded_tracks.append(
+            {
+                "artist": artist[:180],
+                "title": str(track.get("title") or "").strip()[:220],
+            }
+        )
+
+    return _RefinementConstraints(
+        metadata=MetadataConstraints(excluded_artists=excluded_artists),
+        excluded_tracks=tuple(excluded_tracks[:20]),
+    )
+
+
 def _clean_excluded_tracks(payload: dict[str, Any]) -> tuple[dict[str, str], ...]:
     confidence = payload.get("field_confidence")
     if isinstance(confidence, dict):
         try:
-            trusted = float(confidence.get("excluded_tracks", 0.0)) >= _MIN_HARD_CONSTRAINT_CONFIDENCE
+            trusted = (
+                float(confidence.get("excluded_tracks", 0.0))
+                >= _MIN_HARD_CONSTRAINT_CONFIDENCE
+            )
         except (TypeError, ValueError):
             trusted = False
     else:
@@ -175,26 +277,69 @@ def _clean_excluded_tracks(payload: dict[str, Any]) -> tuple[dict[str, str], ...
     return tuple(cleaned[:20])
 
 
+def _merge_refinement_constraints(
+    interpreted: _RefinementConstraints,
+    local: _RefinementConstraints,
+) -> _RefinementConstraints:
+    """Merge trusted AI interpretation with deterministic current-playlist removals."""
+    ai = interpreted.metadata
+
+    excluded_artists: list[str] = []
+    seen_artists: set[str] = set()
+    for artist in [*ai.excluded_artists, *local.metadata.excluded_artists]:
+        key = normalize_identity(artist)
+        if key and key not in seen_artists:
+            seen_artists.add(key)
+            excluded_artists.append(artist)
+
+    excluded_tracks: list[dict[str, str]] = []
+    seen_tracks: set[str] = set()
+    for track in [*interpreted.excluded_tracks, *local.excluded_tracks]:
+        key = track_identity_key(track["title"], track["artist"])
+        if key and key not in seen_tracks:
+            seen_tracks.add(key)
+            excluded_tracks.append(track)
+
+    return _RefinementConstraints(
+        metadata=MetadataConstraints(
+            release_year=ai.release_year,
+            release_year_from=ai.release_year_from,
+            release_year_to=ai.release_year_to,
+            artist_country=ai.artist_country,
+            allowed_artists=list(ai.allowed_artists),
+            excluded_artists=excluded_artists,
+            allowed_albums=list(ai.allowed_albums),
+            excluded_albums=list(ai.excluded_albums),
+            exception_tracks=list(ai.exception_tracks),
+            contradictions=list(ai.contradictions),
+            field_confidence=dict(ai.field_confidence),
+        ),
+        excluded_tracks=tuple(excluded_tracks[:20]),
+    )
+
+
 async def _interpret_refinement_constraints(
     config: Any,
     instruction: str,
+    current_tracks: list[dict[str, Any]] | None = None,
 ) -> _RefinementConstraints:
+    """Extract hard constraints without making interpretation mandatory for refinement."""
+    local = _local_explicit_removals(instruction, current_tracks or [])
     payload = await interpret_constraints(config, instruction)
     if not isinstance(payload, dict):
-        raise ValueError(
-            "PlaylistMuse could not safely interpret the refinement instruction. Please try again."
-        )
+        return local
+
     assessment = assess_interpretation(payload)
-    if assessment.status == "impossible":
-        reason = " ".join(assessment.reasons)
-        raise ValueError(reason or "The refinement contains incompatible constraints.")
-    if assessment.status == "ambiguous":
-        reason = " ".join(assessment.reasons)
-        raise ValueError(reason or "The refinement needs clarification before it can be applied.")
-    return _RefinementConstraints(
+    if assessment.status != "valid":
+        # Preview is non-destructive. Keep only locally provable removals when the hard-
+        # constraint interpreter is uncertain, and let the refinement model handle the prose.
+        return local
+
+    interpreted = _RefinementConstraints(
         metadata=constraints_from_payload(payload),
         excluded_tracks=_clean_excluded_tracks(payload),
     )
+    return _merge_refinement_constraints(interpreted, local)
 
 
 def _direct_constraint_violation(
@@ -393,7 +538,6 @@ def _assemble_refined_tracks(
         if resolved is not None:
             append(_merge_track_metadata(resolved, generated))
 
-    # Fallback may preserve only tracks that already satisfy the NEW hard constraints.
     for existing in eligible_current_tracks:
         if len(selected) >= target:
             break
@@ -451,7 +595,11 @@ async def _build_preview(record: dict[str, Any], instruction: str) -> dict[str, 
         raise ValueError("Refinement currently supports playlists of up to 100 tracks.")
 
     config = load_config()
-    constraints = await _interpret_refinement_constraints(config, instruction)
+    constraints = await _interpret_refinement_constraints(
+        config,
+        instruction,
+        current_tracks,
+    )
     eligible_current = await _eligible_existing_tracks(current_tracks, constraints)
     target_count = len(current_tracks)
     unresolved: list[dict[str, Any]] = []
@@ -552,12 +700,22 @@ async def apply_playlist_refinement(
     playlist.pop("youtube_playlist", None)
 
     try:
-        constraints = await _interpret_refinement_constraints(load_config(), request.instruction)
+        source_tracks = [
+            dict(track)
+            for track in record["playlist"].get("tracks", [])
+            if isinstance(track, dict)
+        ]
+        constraints = await _interpret_refinement_constraints(
+            load_config(),
+            request.instruction,
+            source_tracks,
+        )
         preview_tracks = [
             dict(track) for track in playlist.get("tracks", []) if isinstance(track, dict)
         ]
         _validate_direct_constraints(preview_tracks, constraints)
-        if len(preview_tracks) != int(record.get("track_count") or len(record["playlist"].get("tracks", []))):
+        expected_count = int(record.get("track_count") or len(source_tracks))
+        if len(preview_tracks) != expected_count:
             raise ValueError("The refinement preview no longer has the expected number of tracks.")
     except ValueError as error:
         raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
