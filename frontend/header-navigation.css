@@ -50,7 +50,14 @@
   order: 2;
 }
 
-@media (max-width: 650px) {
+/*
+ * Keep the mobile header structure on phones even when rotating to landscape.
+ * Width alone is not a reliable mobile signal because modern phones exceed
+ * the 650px breakpoint in landscape; the coarse-pointer + low-height clause
+ * keeps tablets and desktop windows on the normal desktop layout.
+ */
+@media (max-width: 650px),
+  (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 650px) {
   .app-header {
     display: grid;
     grid-template-columns: 1fr auto auto 1fr;
