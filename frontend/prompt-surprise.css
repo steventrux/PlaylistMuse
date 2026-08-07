@@ -32,16 +32,22 @@
 }
 
 .prompt-surprise svg {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
+  overflow: visible;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.8;
+  stroke-width: 1.45;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
-.prompt-surprise .prompt-surprise-dot {
+.prompt-surprise .prompt-surprise-face {
+  fill: currentColor;
+  fill-opacity: .07;
+}
+
+.prompt-surprise .prompt-surprise-pip {
   fill: currentColor;
   stroke: none;
 }
