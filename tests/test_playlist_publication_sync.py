@@ -31,6 +31,12 @@ def test_deleted_youtube_playlist_is_demoted_to_draft(
     library = PlaylistLibrary(tmp_path / "playlists.db")
     deleted = library.create(sample_playlist("Deleted", "PL_DELETED"))
     existing = library.create(sample_playlist("Existing", "PL_EXISTING"))
+    original_updated_at = "2025-01-15T10:30:00+00:00"
+    with library._connect() as connection:
+        connection.execute(
+            "UPDATE playlists SET updated_at = ? WHERE id = ?",
+            (original_updated_at, deleted["id"]),
+        )
 
     monkeypatch.setattr(
         publication_sync,
@@ -46,6 +52,7 @@ def test_deleted_youtube_playlist_is_demoted_to_draft(
     assert deleted_record["status"] == "draft"
     assert deleted_record["youtube_playlist_id"] is None
     assert deleted_record["youtube_playlist_url"] is None
+    assert deleted_record["updated_at"] == original_updated_at
     assert "youtube_playlist" not in deleted_record["playlist"]
 
     existing_record = library.get(existing["id"])
