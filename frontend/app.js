@@ -6,6 +6,8 @@
     selectedSeed: null,
     seedMode: 'balanced',
     seedSearching: false,
+    seedSuggestionLoading: false,
+    lastFmConfigured: false,
     generating: false,
     setupMode: 'single',
     setupStep: 'ai',
@@ -42,6 +44,7 @@
     'exclude-covers',
     'exclude-remixes',
     'prompt-surprise',
+    'seed-surprise',
   ];
 
   function message(text = '', error = false) {
@@ -71,6 +74,20 @@
     return generationState.normalizePrompt($('prompt').value);
   }
 
+  function updateSeedSurpriseAvailability() {
+    const button = $('seed-surprise');
+    if (!button) return;
+    button.hidden = !state.lastFmConfigured;
+    const disabled = (
+      !state.lastFmConfigured
+      || state.seedSearching
+      || state.seedSuggestionLoading
+      || state.generating
+    );
+    button.disabled = disabled;
+    button.setAttribute('aria-disabled', String(disabled));
+  }
+
   function setGenerationInputsLocked(locked) {
     state.generating = locked;
     GENERATION_LOCKED_CONTROL_IDS.forEach((id) => {
@@ -79,6 +96,7 @@
       control.disabled = locked;
       control.setAttribute('aria-disabled', String(locked));
     });
+    updateSeedSurpriseAvailability();
   }
 
   function updateGenerationControls() {
@@ -105,6 +123,7 @@
     state.seedSearching = searching;
     $('seed-search').textContent = searching ? 'Searching…' : 'Search';
     updateSeedSearchAvailability();
+    updateSeedSurpriseAvailability();
   }
 
   function updateSeedModeControls() {
@@ -328,6 +347,39 @@
     container.classList.remove('hidden');
   }
 
+  async function suggestRandomSeed() {
+    if (
+      !state.lastFmConfigured
+      || state.seedSuggestionLoading
+      || state.seedSearching
+      || state.generating
+    ) return;
+
+    state.seedSuggestionLoading = true;
+    updateSeedSurpriseAvailability();
+    message('Finding a random seed on Last.fm…');
+
+    try {
+      const suggestion = await readJson(
+        await fetch('/api/lastfm/random-seed', {cache: 'no-store'}),
+      );
+      const query = String(suggestion.query || '').trim();
+      if (!query) throw new Error('Last.fm returned an empty suggestion.');
+
+      clearSelectedSeed();
+      $('seed-results').classList.add('hidden');
+      $('seed-query').value = query;
+      $('seed-query').dispatchEvent(new Event('input', {bubbles: true}));
+      setSeedGuidance('');
+      message('');
+    } catch (error) {
+      message(error.message || String(error), true);
+    } finally {
+      state.seedSuggestionLoading = false;
+      updateSeedSurpriseAvailability();
+    }
+  }
+
   async function searchSeed() {
     if (state.seedSearching) return;
 
@@ -431,12 +483,18 @@
   $('generate').addEventListener('click', generate);
   $('prompt').addEventListener('input', updateGenerationControls);
   $('seed-search').addEventListener('click', searchSeed);
+  $('seed-surprise').addEventListener('click', () => void suggestRandomSeed());
   $('seed-query').addEventListener('input', updateSeedSearchAvailability);
   $('seed-query').addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
       event.preventDefault();
       void searchSeed();
     }
+  });
+
+  window.addEventListener('playlistmuse-lastfm-status', (event) => {
+    state.lastFmConfigured = Boolean(event.detail?.configured);
+    updateSeedSurpriseAvailability();
   });
 
   document.querySelectorAll('.mode').forEach((button) => button.addEventListener('click', () => {
@@ -457,6 +515,7 @@
   });
 
   updateSeedSearchAvailability();
+  updateSeedSurpriseAvailability();
   updateGenerationControls();
   void showInitialSetupIfRequired();
 })();
