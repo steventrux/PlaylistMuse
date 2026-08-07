@@ -7,6 +7,8 @@
   const $ = (id) => document.getElementById(id);
   const {readJson, setLoadingButton} = window.PlaylistMuseCommon;
   let expandedLibraryId = null;
+  let libraryItems = [];
+  let activeStatusFilter = 'all';
 
   function readSessionJson(key) {
     try {
@@ -310,6 +312,50 @@
     return card;
   }
 
+  function normalizedSearch(value) {
+    return String(value || '').trim().toLocaleLowerCase();
+  }
+
+  function matchesSearch(item, query) {
+    if (!query) return true;
+    return [item.name, item.description, item.prompt]
+      .some((value) => normalizedSearch(value).includes(query));
+  }
+
+  function visibleLibraryItems() {
+    const query = normalizedSearch($('library-search').value);
+    return libraryItems.filter((item) => {
+      const matchesStatus = activeStatusFilter === 'all' || item.status === activeStatusFilter;
+      return matchesStatus && matchesSearch(item, query);
+    });
+  }
+
+  function renderLibrary() {
+    const items = visibleLibraryItems();
+    if (expandedLibraryId && !items.some((item) => item.id === expandedLibraryId)) {
+      expandedLibraryId = null;
+    }
+
+    $('library-list').replaceChildren(...items.map(createLibraryItem));
+
+    const empty = $('library-empty');
+    const hasSavedPlaylists = libraryItems.length > 0;
+    empty.textContent = hasSavedPlaylists
+      ? 'No playlists match the current search and filters.'
+      : 'No saved playlists yet. Create one and it will appear here automatically.';
+    empty.classList.toggle('hidden', items.length > 0);
+  }
+
+  function setStatusFilter(filter) {
+    activeStatusFilter = filter;
+    document.querySelectorAll('[data-status-filter]').forEach((button) => {
+      const active = button.dataset.statusFilter === filter;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+    });
+    renderLibrary();
+  }
+
   async function loadLibrary() {
     setStatus('Loading playlists…');
     $('library-empty').classList.add('hidden');
@@ -318,12 +364,13 @@
       const payload = await readJson(await fetch(`${ENDPOINT}?sort=${encodeURIComponent(sort)}`, {
         cache: 'no-store',
       }));
-      const items = Array.isArray(payload.items) ? payload.items : [];
-      $('library-list').replaceChildren(...items.map(createLibraryItem));
-      $('library-empty').classList.toggle('hidden', items.length > 0);
+      libraryItems = Array.isArray(payload.items) ? payload.items : [];
+      renderLibrary();
       setStatus('');
     } catch (error) {
+      libraryItems = [];
       $('library-list').replaceChildren();
+      $('library-empty').classList.add('hidden');
       setStatus(error.message || String(error), true);
     }
   }
@@ -339,6 +386,10 @@
     if (migrationError) setStatus(migrationError, true);
   }
 
+  $('library-search').addEventListener('input', renderLibrary);
+  document.querySelectorAll('[data-status-filter]').forEach((button) => {
+    button.addEventListener('click', () => setStatusFilter(button.dataset.statusFilter || 'all'));
+  });
   $('library-sort').addEventListener('change', () => {
     expandedLibraryId = null;
     void loadLibrary();
