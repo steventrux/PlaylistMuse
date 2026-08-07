@@ -17,6 +17,12 @@
     element.setAttribute('aria-label', tooltip);
   }
 
+  function publishAvailability(configured) {
+    window.dispatchEvent(new CustomEvent('playlistmuse-lastfm-status', {
+      detail: {configured: Boolean(configured)},
+    }));
+  }
+
   function createIndicator() {
     const existing = document.getElementById('header-lastfm-status');
     if (existing) return existing;
@@ -62,12 +68,14 @@
           ? 'Last.fm configured · recommendations active'
           : 'Last.fm not configured · click to add an API key',
       );
+      publishAvailability(configured);
     } catch {
       setState(
         indicator,
         'error',
         'Unable to check Last.fm configuration · click to open Last.fm Settings',
       );
+      publishAvailability(false);
     }
   }
 
