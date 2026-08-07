@@ -76,3 +76,20 @@ def test_library_searches_playlist_copy_and_filters_status_without_backend_queri
     assert "No playlists match the current search and filters." in script
     assert ".library-controls" in style
     assert ".library-filter.active" in style
+
+
+def test_library_heading_is_structured_and_count_tracks_visible_results() -> None:
+    html = _text("library.html")
+    script = _text("library.js")
+    style = _text("library-heading.css")
+
+    assert "/static/library-heading.css?v=1" in html
+    assert '<p class="eyebrow">Playlist library</p>' in html
+    assert 'id="library-count"' in html
+    assert "Generated playlists are saved locally" in html
+    assert "function updateLibraryCount(count)" in script
+    assert "updateLibraryCount(items.length);" in script
+    assert "count === 1 ? 'playlist' : 'playlists'" in script
+    assert ".library-title-line" in style
+    assert ".library-count" in style
+    assert "border-bottom: 1px solid" in style
