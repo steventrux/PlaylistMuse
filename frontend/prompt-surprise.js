@@ -7,189 +7,165 @@
 
   const MUSIC_FAMILIES = [
     {
-      core: ['classic rock', 'blues rock', 'hard rock', 'roots rock', 'heartland rock', 'garage rock'],
-      companions: ['southern rock', 'psychedelic rock', 'glam rock', 'alternative rock', 'folk rock', 'pub rock'],
-      eras: ['late 1960s and 1970s', '1970s and early 1980s', '1980s and 1990s', 'mixed eras from the 1960s to today', 'modern tracks with strong classic-rock roots'],
-      textures: ['warm electric guitars and live-sounding drums', 'crunchy riffs and melodic guitar leads', 'raw guitars, roomy drums and expressive vocals', 'big choruses balanced by deeper album cuts', 'organic production with prominent bass and guitar interplay', 'guitar-driven arrangements with a slightly vintage feel'],
+      core: ['classic rock', 'blues rock', 'hard rock', 'roots rock', 'heartland rock', 'garage rock', 'folk rock', 'southern rock'],
+      companions: ['psychedelic rock', 'glam rock', 'alternative rock', 'pub rock', 'country rock', 'power pop', 'boogie rock', 'indie rock'],
+      eras: ['the 1960s and 1970s', 'the 1970s', 'the 1980s and 1990s', 'classic and modern rock', 'the 1970s through today', 'mostly recent releases with classic-rock roots'],
+      textures: ['warm electric guitars and live drums', 'crunchy riffs and melodic leads', 'raw guitars and roomy drums', 'prominent bass and guitar interplay', 'big choruses and organic production', 'guitar-driven arrangements with a vintage edge', 'strong rhythm guitars and clear vocals', 'live-sounding drums and expressive guitars'],
     },
     {
-      core: ['soul', 'funk', 'neo-soul', 'R&B', 'disco-funk', 'boogie'],
-      companions: ['deep funk', 'quiet storm', 'modern soul', 'jazz-funk', 'dance-soul', 'gospel-inflected soul'],
-      eras: ['late 1960s and 1970s', '1970s and 1980s', '1990s through today', 'classic soul through contemporary neo-soul', 'a cross-era mix of vintage and modern productions'],
-      textures: ['elastic basslines, crisp drums and warm horns', 'deep grooves with expressive vocals and rich rhythm sections', 'syncopated bass, clavinet and bright brass accents', 'silky keys, pocket drumming and soulful vocal performances', 'danceable rhythm sections without losing musical detail', 'warm analog-style grooves mixed with cleaner modern production'],
+      core: ['soul', 'funk', 'neo-soul', 'R&B', 'disco-funk', 'boogie', 'modern soul', 'deep funk'],
+      companions: ['quiet storm', 'jazz-funk', 'dance-soul', 'gospel soul', 'disco', 'soul jazz', 'alt-R&B', 'funk rock'],
+      eras: ['the late 1960s and 1970s', 'the 1970s and 1980s', 'the 1990s through today', 'classic soul and modern neo-soul', 'vintage and contemporary soul', 'mostly recent soul and funk'],
+      textures: ['deep basslines and crisp drums', 'warm horns and tight rhythm sections', 'syncopated bass and bright brass', 'silky keys and pocket drumming', 'danceable grooves and expressive vocals', 'warm grooves with clean modern production', 'strong bass and rhythmic guitar', 'layered vocals over tight grooves'],
     },
     {
-      core: ['indie rock', 'alternative rock', 'dream pop', 'shoegaze', 'indie pop', 'post-punk revival'],
-      companions: ['art rock', 'jangle pop', 'noise pop', 'slowcore', 'garage revival', 'indietronica'],
-      eras: ['1980s and 1990s influences', '1990s and 2000s', '2000s and 2010s', 'mostly contemporary releases', 'mixed eras from college rock to current indie'],
-      textures: ['textured guitars and atmospheric production', 'jangly guitars, melodic bass and dry drums', 'hazy layers with strong melodic hooks', 'angular rhythms balanced by spacious passages', 'lo-fi character mixed with polished standout tracks', 'guitar ambience, synth accents and intimate vocals'],
+      core: ['indie rock', 'alternative rock', 'dream pop', 'shoegaze', 'indie pop', 'post-punk revival', 'jangle pop', 'art rock'],
+      companions: ['noise pop', 'slowcore', 'garage revival', 'indietronica', 'college rock', 'post-rock', 'alt-pop', 'new wave'],
+      eras: ['the 1980s and 1990s', 'the 1990s and 2000s', 'the 2000s and 2010s', 'mostly recent releases', 'college rock through current indie', 'the last two decades'],
+      textures: ['textured guitars and atmospheric production', 'jangly guitars and melodic bass', 'hazy guitars with clear hooks', 'angular rhythms and spacious passages', 'lo-fi character with polished highlights', 'guitar ambience and subtle synths', 'dry drums and layered guitars', 'melodic bass with restrained production'],
     },
     {
-      core: ['house', 'deep house', 'electro', 'synthwave', 'downtempo', 'electronica'],
-      companions: ['nu-disco', 'ambient techno', 'trip-hop', 'French touch', 'IDM', 'organic electronic'],
-      eras: ['1980s electronic influences through today', '1990s and 2000s club music', '2000s and 2010s', 'mostly contemporary electronic releases', 'a cross-era mix of foundational and modern electronic music'],
-      textures: ['layered synths, clean low end and detailed percussion', 'warm pads, pulsing bass and restrained electronic drums', 'bright arpeggios, analog-style synths and crisp beats', 'deep bass, spacious production and subtle rhythmic detail', 'hypnotic grooves with gradual textural changes', 'electronic production that feels immersive rather than overly maximal'],
+      core: ['house', 'deep house', 'electro', 'synthwave', 'downtempo', 'electronica', 'techno', 'nu-disco'],
+      companions: ['ambient techno', 'trip-hop', 'French touch', 'IDM', 'organic electronic', 'electro-pop', 'minimal house', 'chillwave'],
+      eras: ['the 1980s through today', 'the 1990s and 2000s', 'the 2000s and 2010s', 'mostly recent electronic music', 'classic club music and current releases', 'the last two decades'],
+      textures: ['layered synths and clean low end', 'warm pads and pulsing bass', 'bright arpeggios and crisp beats', 'deep bass and spacious production', 'hypnotic grooves and gradual texture changes', 'detailed percussion and restrained synths', 'analog-style synths and tight drums', 'minimal beats with rich synth layers'],
     },
     {
-      core: ['jazz', 'soul jazz', 'jazz fusion', 'cool jazz', 'hard bop', 'contemporary jazz'],
-      companions: ['modal jazz', 'spiritual jazz', 'jazz-funk', 'vocal jazz', 'Latin jazz', 'ECM-style jazz'],
-      eras: ['1950s and 1960s', '1960s and 1970s', '1970s fusion through modern jazz', 'classic recordings mixed with contemporary players', 'a cross-era journey from hard bop to current jazz'],
-      textures: ['acoustic ensembles with strong interplay and natural dynamics', 'brass and woodwinds over expressive rhythm sections', 'spacious arrangements with detailed instrumental conversations', 'rhythmic improvisation balanced by memorable themes', 'warm acoustic tones with occasional electric textures', 'performances that prioritize feel, phrasing and ensemble chemistry'],
+      core: ['jazz', 'soul jazz', 'jazz fusion', 'cool jazz', 'hard bop', 'contemporary jazz', 'modal jazz', 'vocal jazz'],
+      companions: ['spiritual jazz', 'jazz-funk', 'Latin jazz', 'post-bop', 'smooth jazz', 'avant-garde jazz', 'big band', 'nu jazz'],
+      eras: ['the 1950s and 1960s', 'the 1960s and 1970s', 'the 1970s through modern jazz', 'classic and contemporary jazz', 'mostly modern jazz', 'post-bop through today'],
+      textures: ['acoustic ensembles and natural dynamics', 'brass over expressive rhythm sections', 'spacious arrangements and strong interplay', 'rhythmic improvisation and memorable themes', 'warm acoustic tones with some electric color', 'detailed ensemble playing', 'prominent piano and horn interplay', 'natural drums and expressive soloing'],
     },
     {
-      core: ['Delta blues', 'electric blues', 'Chicago blues', 'blues rock', 'country blues', 'modern blues'],
-      companions: ['Texas blues', 'swamp blues', 'soul blues', 'boogie blues', 'roots rock', 'gospel blues'],
-      eras: ['1940s through 1960s', '1950s through 1970s', 'classic blues through the blues-rock era', 'traditional recordings mixed with modern revivalists', 'a cross-era blues journey from acoustic roots to current artists'],
-      textures: ['gritty guitar tones, expressive vocals and a strong live feel', 'slide guitar, harmonica and earthy rhythm sections', 'raw electric guitar balanced by acoustic roots', 'shuffle rhythms, bent notes and dynamic performances', 'minimal arrangements where phrasing matters more than polish', 'deep groove, warm amps and emotionally direct playing'],
+      core: ['Delta blues', 'electric blues', 'Chicago blues', 'blues rock', 'country blues', 'modern blues', 'Texas blues', 'soul blues'],
+      companions: ['swamp blues', 'boogie blues', 'roots rock', 'gospel blues', 'blues soul', 'hill country blues', 'British blues', 'acoustic blues'],
+      eras: ['the 1940s through 1960s', 'the 1950s through 1970s', 'classic blues and blues rock', 'traditional and modern blues', 'the 1960s through today', 'mostly modern blues with older roots'],
+      textures: ['gritty guitars and expressive vocals', 'slide guitar and harmonica', 'raw electric guitar and acoustic roots', 'shuffle rhythms and dynamic playing', 'minimal arrangements and strong phrasing', 'warm amps and deep groove', 'earthy rhythm sections and bent guitar lines', 'live-sounding guitars and harmonica'],
     },
     {
-      core: ['pop', 'synth-pop', 'dance-pop', 'art pop', 'power pop', 'electropop'],
-      companions: ['indie pop', 'sophisti-pop', 'pop rock', 'disco pop', 'alt-pop', 'new wave pop'],
-      eras: ['1980s and 1990s', '1990s and 2000s', '2000s and 2010s', 'mostly contemporary releases', 'a cross-era mix of enduring hooks and newer production'],
-      textures: ['strong melodies, polished rhythm sections and memorable hooks', 'bright synths, punchy drums and layered vocals', 'clean pop production with enough instrumental character', 'hook-heavy arrangements balanced by a few left-field choices', 'danceable low end with crisp, melodic production', 'vocal-forward songs with colorful synth and guitar details'],
+      core: ['pop', 'synth-pop', 'dance-pop', 'art pop', 'power pop', 'electropop', 'indie pop', 'pop rock'],
+      companions: ['sophisti-pop', 'disco pop', 'alt-pop', 'new wave pop', 'dream pop', 'dance-rock', 'bedroom pop', 'retro pop'],
+      eras: ['the 1980s and 1990s', 'the 1990s and 2000s', 'the 2000s and 2010s', 'mostly recent releases', 'classic pop and newer production', 'the last two decades'],
+      textures: ['strong melodies and polished rhythm sections', 'bright synths and punchy drums', 'clean production with guitar detail', 'hook-heavy arrangements and layered vocals', 'danceable bass and crisp production', 'vocal-forward songs with colorful synths', 'tight drums and memorable choruses', 'clean guitars with modern synth layers'],
     },
     {
-      core: ['heavy metal', 'hard rock', 'doom metal', 'progressive metal', 'stoner metal', 'alternative metal'],
-      companions: ['NWOBHM', 'groove metal', 'sludge metal', 'post-metal', 'heavy psych', 'classic metal'],
-      eras: ['1970s and 1980s foundations', '1980s and 1990s', '1990s and 2000s', 'classic metal mixed with modern heavy music', 'a cross-era mix from early heavy metal to current releases'],
-      textures: ['thick guitar riffs, powerful drums and clear dynamic shifts', 'heavy low end with memorable riffs rather than constant maximalism', 'dark guitar tones, weighty drums and dramatic builds', 'technical playing balanced by strong songs and hooks', 'fuzz-heavy guitars with spacious, slower passages', 'aggressive rhythm sections with enough contrast to keep the sequence moving'],
+      core: ['heavy metal', 'hard rock', 'doom metal', 'progressive metal', 'stoner metal', 'alternative metal', 'classic metal', 'groove metal'],
+      companions: ['NWOBHM', 'sludge metal', 'post-metal', 'heavy psych', 'thrash metal', 'progressive rock', 'desert rock', 'metalcore'],
+      eras: ['the 1970s and 1980s', 'the 1980s and 1990s', 'the 1990s and 2000s', 'classic and modern heavy music', 'the 1980s through today', 'mostly recent heavy music'],
+      textures: ['thick guitar riffs and powerful drums', 'heavy low end and memorable riffs', 'dark guitar tones and dramatic builds', 'technical playing with strong hooks', 'fuzz-heavy guitars and spacious breaks', 'aggressive drums with clear contrast', 'dense riffs and punchy production', 'heavy guitars with strong rhythmic drive'],
     },
     {
-      core: ['punk rock', 'post-punk', 'new wave', 'garage punk', 'power pop', 'punk-funk'],
-      companions: ['proto-punk', 'art punk', 'dance-punk', 'ska punk', 'college rock', 'gothic post-punk'],
-      eras: ['late 1970s and early 1980s', '1980s underground scenes', '1990s and 2000s revivals', 'classic punk mixed with modern descendants', 'a cross-era path from proto-punk to current post-punk'],
-      textures: ['tight drums, wiry guitars and direct vocal performances', 'angular guitar lines, driving bass and lean arrangements', 'raw energy balanced by sharp hooks', 'fast, concise songs with occasional moodier detours', 'dry production, prominent bass and rhythmic guitar interplay', 'urgent performances with enough stylistic variation to avoid repetition'],
+      core: ['punk rock', 'post-punk', 'new wave', 'garage punk', 'power pop', 'punk-funk', 'proto-punk', 'dance-punk'],
+      companions: ['art punk', 'ska punk', 'college rock', 'gothic post-punk', 'hardcore punk', 'garage rock', 'indie rock', 'cold wave'],
+      eras: ['the late 1970s and early 1980s', 'the 1980s', 'the 1990s and 2000s', 'classic punk and modern descendants', 'proto-punk through today', 'mostly recent post-punk'],
+      textures: ['tight drums and wiry guitars', 'driving bass and lean arrangements', 'raw energy and sharp hooks', 'fast songs with a few slower turns', 'dry production and prominent bass', 'urgent vocals and rhythmic guitars', 'stripped-down guitars and punchy drums', 'angular guitar lines and steady bass'],
     },
     {
-      core: ['folk', 'Americana', 'alt-country', 'country rock', 'singer-songwriter', 'roots music'],
-      companions: ['bluegrass', 'cosmic country', 'folk rock', 'Gothic Americana', 'outlaw country', 'indie folk'],
-      eras: ['1960s and 1970s', '1970s through 1990s', 'classic roots music mixed with modern Americana', 'mostly contemporary roots releases', 'a cross-era mix from traditional songwriting to current artists'],
-      textures: ['acoustic guitars, natural vocals and understated rhythm sections', 'fingerpicked guitars, pedal steel and warm harmonies', 'story-focused songs with organic arrangements', 'earthy production with acoustic and lightly amplified instruments', 'close vocal harmonies and spacious roots instrumentation', 'unpolished performances that preserve room sound and character'],
+      core: ['folk', 'Americana', 'alt-country', 'country rock', 'singer-songwriter', 'roots music', 'indie folk', 'outlaw country'],
+      companions: ['bluegrass', 'cosmic country', 'folk rock', 'Gothic Americana', 'traditional country', 'acoustic pop', 'roots rock', 'country soul'],
+      eras: ['the 1960s and 1970s', 'the 1970s through 1990s', 'classic and modern Americana', 'mostly recent roots music', 'traditional songwriting through today', 'the last two decades'],
+      textures: ['acoustic guitars and natural vocals', 'fingerpicked guitars and pedal steel', 'story-focused songs and organic arrangements', 'earthy production and acoustic instruments', 'close harmonies and spacious instrumentation', 'roomy performances with little polish', 'acoustic rhythm with subtle electric color', 'pedal steel and understated drums'],
     },
     {
-      core: ['hip-hop', 'boom bap', 'alternative hip-hop', 'jazz rap', 'conscious hip-hop', 'instrumental hip-hop'],
-      companions: ['neo-soul rap', 'abstract hip-hop', 'East Coast hip-hop', 'West Coast hip-hop', 'trip-hop', 'modern lyrical rap'],
-      eras: ['late 1980s and 1990s', '1990s and early 2000s', '2000s and 2010s', 'golden-era foundations mixed with contemporary releases', 'a cross-era mix of classic and current hip-hop'],
-      textures: ['sample-rich beats, defined drums and strong basslines', 'dusty drums, jazz samples and detailed production', 'minimal beats that leave space for delivery and lyricism', 'warm samples balanced by cleaner modern low end', 'rhythmic variety with distinctive production identities', 'head-nod grooves with occasional atmospheric or instrumental passages'],
+      core: ['hip-hop', 'boom bap', 'alternative hip-hop', 'jazz rap', 'conscious hip-hop', 'instrumental hip-hop', 'East Coast hip-hop', 'West Coast hip-hop'],
+      companions: ['neo-soul rap', 'abstract hip-hop', 'trip-hop', 'modern lyrical rap', 'lo-fi hip-hop', 'funk rap', 'underground hip-hop', 'experimental hip-hop'],
+      eras: ['the late 1980s and 1990s', 'the 1990s and early 2000s', 'the 2000s and 2010s', 'golden-era and current hip-hop', 'classic and contemporary hip-hop', 'mostly recent releases'],
+      textures: ['sample-rich beats and defined drums', 'dusty drums and jazz samples', 'minimal beats with space for vocals', 'warm samples and modern low end', 'distinctive beats with strong bass', 'head-nod grooves and atmospheric breaks', 'crisp drums and layered samples', 'deep bass with restrained production'],
     },
     {
-      core: ['reggae', 'dub', 'Afrobeat', 'highlife', 'cumbia', 'Latin funk'],
-      companions: ['rocksteady', 'roots reggae', 'Afro-funk', 'salsa dura', 'tropical psychedelia', 'global groove'],
-      eras: ['1960s and 1970s foundations', '1970s and 1980s', 'classic recordings mixed with modern revivalists', '1990s through contemporary global grooves', 'a cross-era selection linking traditional and modern scenes'],
-      textures: ['interlocking percussion, deep bass and bright guitar or horn accents', 'rhythm-first arrangements with spacious production', 'live percussion, syncopated guitars and warm horn sections', 'deep grooves with dubby space and organic instrumentation', 'polyrhythmic arrangements that stay danceable and melodic', 'bass-forward production with lively ensemble playing'],
+      core: ['reggae', 'dub', 'Afrobeat', 'highlife', 'cumbia', 'Latin funk', 'roots reggae', 'Afro-funk'],
+      companions: ['rocksteady', 'salsa', 'tropical psychedelia', 'global groove', 'Latin soul', 'reggae fusion', 'Caribbean funk', 'desert blues'],
+      eras: ['the 1960s and 1970s', 'the 1970s and 1980s', 'classic and modern global grooves', 'the 1990s through today', 'traditional and current scenes', 'mostly recent releases with older roots'],
+      textures: ['interlocking percussion and deep bass', 'spacious rhythms and bright guitar accents', 'live percussion and warm horns', 'dub space and organic instrumentation', 'polyrhythms with melodic hooks', 'bass-forward production and lively ensembles', 'syncopated guitars and layered percussion', 'strong bass with bright horn lines'],
     },
+    {
+      core: ['ambient', 'modern classical', 'neoclassical', 'minimalism', 'drone', 'post-classical', 'piano ambient', 'cinematic instrumental'],
+      companions: ['electro-acoustic', 'chamber music', 'dark ambient', 'field-recording ambient', 'minimal piano', 'modern composition', 'ambient electronic', 'instrumental post-rock'],
+      eras: ['the 1970s through today', 'the 1990s through today', 'mostly recent releases', 'modern classical and contemporary ambient', 'the last two decades', 'classic minimalism and current composers'],
+      textures: ['soft piano and spacious strings', 'slow synth layers and acoustic detail', 'minimal motifs and long decays', 'quiet electronics and natural ambience', 'restrained strings and subtle piano', 'wide spaces and slow harmonic movement', 'acoustic instruments with light electronic texture', 'gentle repetition and sparse arrangements'],
+    },
+    {
+      core: ['bossa nova', 'MPB', 'samba', 'Latin jazz', 'salsa', 'Latin rock', 'tropicalia', 'Brazilian soul'],
+      companions: ['bolero', 'son cubano', 'Latin funk', 'Afro-Cuban jazz', 'Latin pop', 'cumbia', 'mambo', 'Brazilian jazz'],
+      eras: ['the 1950s through 1970s', 'the 1960s and 1970s', 'the 1980s through today', 'classic and modern Latin music', 'mostly recent Latin releases', 'traditional recordings and contemporary artists'],
+      textures: ['acoustic guitar and light percussion', 'bright horns and syncopated rhythm sections', 'warm percussion and melodic bass', 'piano-led grooves and brass', 'organic percussion and expressive vocals', 'acoustic rhythm with colorful horn lines', 'danceable percussion and clean guitar', 'layered percussion with warm acoustic instruments'],
+    },
+  ];
+
+  const MOODS = [
+    'upbeat', 'relaxed', 'high-energy', 'laid-back', 'melancholic', 'bright', 'dark',
+    'driving', 'mellow', 'dreamy', 'gritty', 'smooth', 'celebratory', 'moody',
+    'intimate', 'playful', 'restless', 'calm',
   ];
 
   const CONTEXTS = [
-    {scene: 'a late-night drive', energy: ['low', 'medium', 'arc']},
-    {scene: 'a long road trip', energy: ['medium', 'arc', 'high']},
-    {scene: 'a slow Sunday morning', energy: ['low', 'medium']},
-    {scene: 'an evening cooking with friends', energy: ['medium', 'arc']},
-    {scene: 'a focused afternoon of work', energy: ['low', 'medium']},
-    {scene: 'a sunset drink outdoors', energy: ['low', 'medium', 'arc']},
-    {scene: 'a lively dinner party', energy: ['medium', 'high', 'arc']},
-    {scene: 'a gym session that needs momentum', energy: ['high', 'arc']},
-    {scene: 'a rainy evening indoors', energy: ['low', 'medium']},
-    {scene: 'a summer afternoon with the windows open', energy: ['medium', 'high']},
-    {scene: 'a train journey through changing landscapes', energy: ['low', 'medium', 'arc']},
-    {scene: 'a weekend morning in the city', energy: ['medium', 'arc']},
-    {scene: 'a small gathering that gradually gets louder', energy: ['arc', 'high']},
-    {scene: 'an introspective walk after dark', energy: ['low', 'arc']},
-    {scene: 'a relaxed afternoon by the water', energy: ['low', 'medium']},
-    {scene: 'a night of discovering unfamiliar music', energy: ['medium', 'arc']},
-    {scene: 'a creative session that should stay engaging', energy: ['medium', 'arc']},
-    {scene: 'a weekend drive with no fixed destination', energy: ['medium', 'arc', 'high']},
+    'a late-night drive', 'a long road trip', 'a slow Sunday morning',
+    'cooking with friends', 'a focused work session', 'a sunset outdoors',
+    'a lively dinner party', 'a gym session', 'a rainy evening',
+    'a summer afternoon', 'a train journey', 'a weekend morning in the city',
+    'a small gathering', 'an evening walk', 'an afternoon by the water',
+    'discovering new music', 'a creative session', 'a weekend drive',
+    'a quiet evening at home', 'a morning commute', 'a rooftop evening',
+    'a relaxed dinner',
   ];
 
-  const ENERGY_ARCS = {
-    low: [
-      'Keep the energy restrained and consistent, with smooth transitions and no abrupt peaks',
-      'Let the pace stay relaxed, allowing small dynamic changes without becoming sleepy',
-      'Favor a patient flow with breathing room between the more intense moments',
-      'Keep a gentle pulse throughout and use subtle changes in texture to create movement',
-    ],
-    medium: [
-      'Maintain a steady medium-energy flow, alternating denser songs with a little breathing room',
-      'Keep the momentum consistent without making every track feel equally intense',
-      'Aim for an easy forward motion, using groove and contrast rather than dramatic peaks',
-      'Let the sequence feel lively but controlled, with natural rises and releases',
-    ],
-    high: [
-      'Start with momentum and keep the energy high, using only short resets before the strongest peaks',
-      'Prioritize driving tracks and strong rhythmic continuity while still varying texture and tempo',
-      'Keep the sequence energetic and immediate, avoiding long low-energy stretches',
-      'Build around punchy, propulsive songs with a few strategic breathers to prevent fatigue',
-    ],
-    arc: [
-      'Begin relatively restrained, build gradually through the middle, and finish with a confident peak',
-      'Shape a clear arc: inviting opener, rising momentum, a brief reset, then a stronger final stretch',
-      'Let the first third establish the mood, increase intensity in the middle, and end on a memorable high',
-      'Use a slow-burn progression where each section feels slightly more energized than the one before it',
-      'Create waves of energy rather than a straight line, with each return landing a little stronger',
-    ],
+  const CREATIVE_DIRECTIONS = [
+    'Include a few lesser-known tracks alongside familiar choices.',
+    'Favor deeper album cuts over the most obvious hits.',
+    'Keep the energy steady from start to finish.',
+    'Let the energy build gradually.',
+    'Keep transitions smooth between tracks.',
+    'Use familiar tracks sparingly and leave room for discoveries.',
+    'Keep the sequence varied without sharp stylistic jumps.',
+    'Favor strong melodies over extreme stylistic detours.',
+  ];
+
+  const CLAUSE_BUILDERS = {
+    mood: (value) => pick([
+      `with a ${value} feel`,
+      `that feels ${value}`,
+      `with a ${value} mood`,
+    ]),
+    context: (value) => pick([
+      `for ${value}`,
+      `suited to ${value}`,
+      `for listening during ${value}`,
+    ]),
+    era: (value) => pick([
+      `mostly from ${value}`,
+      `focused on ${value}`,
+      `drawing mainly from ${value}`,
+    ]),
+    texture: (value) => pick([
+      `with ${value}`,
+      `favoring ${value}`,
+      `built around ${value}`,
+    ]),
   };
 
-  const MOODS = [
-    'warm', 'nocturnal', 'uplifting', 'moody', 'cinematic', 'restless', 'sun-drenched',
-    'intimate', 'confident', 'dreamy', 'raw', 'elegant', 'playful', 'reflective', 'gritty',
-    'hypnotic', 'romantic', 'adventurous', 'nostalgic without feeling retro-only', 'slightly mysterious',
+  const OPENERS = [
+    (genres) => `Create a ${genres} playlist`,
+    (genres) => `Make a ${genres} playlist`,
+    (genres) => `Build a playlist around ${genres}`,
+    (genres) => `Put together a ${genres} playlist`,
+    (genres) => `Curate a ${genres} playlist`,
+    (genres) => `I want a ${genres} playlist`,
   ];
 
-  const DISCOVERY = [
-    'Balance recognizable anchors with lesser-known tracks that genuinely fit the same musical world',
-    'Lean toward deep cuts and underplayed songs, but keep a few accessible reference points',
-    'Mix familiar classics with discoveries from adjacent artists instead of relying on obvious hits',
-    'Favor strong album tracks and cult favorites over a greatest-hits sequence',
-    'Keep the selection approachable while reserving roughly a third of the playlist for discoveries',
-    'Prefer less predictable choices when two songs fit equally well',
-    'Use well-known songs sparingly and let related artists carry most of the discovery value',
-    'Build around quality and flow rather than popularity, without becoming deliberately obscure',
-    'Include a handful of unexpected but musically defensible detours',
-    'Use recognizable tracks as signposts, then explore deeper material around them',
-    'Avoid stacking the most famous song from every artist; vary between hits, album cuts and discoveries',
-    'Keep artist repetition low enough that the playlist feels curated rather than like a discography shuffle',
-  ];
-
-  const VOCAL_DIRECTIONS = [
-    'Mix vocal tracks with occasional instrumental passages where they improve the flow',
-    'Keep vocals central but vary vocal tone, range and delivery across the sequence',
-    'Allow instrumental tracks only when they add a useful transition or change of texture',
-    'Favor expressive performances over technically perfect but emotionally flat vocals',
-    'Use a broad mix of vocal styles and avoid long runs of very similar singers',
-    'Let instrumentation lead the selection; vocals should support the mood rather than dominate every choice',
-    'Keep the vocal presence varied, with some intimate performances and some larger, more forceful ones',
-    'Avoid making vocal gender or style a hard constraint; prioritize musical continuity',
-  ];
-
-  const SEQUENCING = [
-    'Sequence by feel and musical continuity rather than chronology',
-    'Use tempo, key feel and production texture to make neighboring tracks sound intentional',
-    'Avoid placing several very similar tracks back-to-back; use contrast without breaking the mood',
-    'Treat the first three and last three tracks as deliberate mini-sequences with a clear purpose',
-    'Use occasional stylistic pivots as transitions, not as random interruptions',
-    'Keep artist repetition separated and avoid obvious clusters from the same album or era',
-    'Make transitions feel natural even when the playlist crosses subgenres or decades',
-    'Prioritize a satisfying listening journey over strict historical ordering',
-    'Use the middle of the playlist for the widest exploration, then tighten the focus near the end',
-    'Alternate familiar and less familiar material so discovery never feels like a separate block',
-    'Avoid a front-loaded playlist where all the strongest tracks appear in the first third',
-    'End with a track that feels conclusive rather than simply choosing the highest-energy song',
-  ];
-
-  const TEMPLATES = [
-    ({mood, scene, genres, era, texture, energy, discovery, sequencing, vocals}) =>
-      `Create a ${mood} playlist for ${scene}, rooted in ${genres}. Draw mainly from ${era}, with ${texture}. ${energy}. ${discovery}. ${sequencing}. ${vocals}.`,
-    ({mood, scene, genres, era, texture, energy, discovery, sequencing, vocals}) =>
-      `Build a playlist with a ${mood} feel for ${scene}. Center it on ${genres}, using ${era} as the main time frame. I want ${texture}. ${energy}. ${sequencing}. ${discovery}. ${vocals}.`,
-    ({mood, scene, genres, era, texture, energy, discovery, sequencing, vocals}) =>
-      `Make a ${genres} playlist for ${scene} that feels ${mood}. Focus on ${era} and favor ${texture}. ${energy}. ${discovery}. ${vocals}. ${sequencing}.`,
-    ({mood, scene, genres, era, texture, energy, discovery, sequencing, vocals}) =>
-      `Curate a journey through ${genres} for ${scene}. The mood should be ${mood}, drawing mostly from ${era}. Use ${texture} as the sonic thread. ${energy}. ${sequencing}. ${discovery}. ${vocals}.`,
-    ({mood, scene, genres, era, texture, energy, discovery, sequencing, vocals}) =>
-      `I want a ${mood} soundtrack for ${scene}: mostly ${genres}, centered on ${era}. Favor ${texture}. ${energy}. ${discovery}. ${sequencing}. ${vocals}.`,
-    ({mood, scene, genres, era, texture, energy, discovery, sequencing, vocals}) =>
-      `Put together a playlist around ${genres} with a ${mood} atmosphere, suited to ${scene}. Pull primarily from ${era} and look for ${texture}. ${energy}. ${vocals}. ${discovery}. ${sequencing}.`,
-  ];
+  const PROFILES = {
+    example: {
+      minWords: 10,
+      maxWords: 20,
+      extraDimensions: () => (Math.random() < 0.72 ? 1 : 2),
+      creativeChance: 0,
+    },
+    surprise: {
+      minWords: 18,
+      maxWords: 36,
+      extraDimensions: () => (Math.random() < 0.72 ? 2 : 3),
+      creativeChance: 0.28,
+    },
+  };
 
   let previousPrompt = '';
 
@@ -202,39 +178,71 @@
     return pick(alternatives.length ? alternatives : items);
   }
 
-  function buildPrompt() {
-    const family = pick(MUSIC_FAMILIES);
+  function shuffled(items) {
+    const copy = [...items];
+    for (let index = copy.length - 1; index > 0; index -= 1) {
+      const target = Math.floor(Math.random() * (index + 1));
+      [copy[index], copy[target]] = [copy[target], copy[index]];
+    }
+    return copy;
+  }
+
+  function wordCount(value) {
+    return String(value).trim().split(/\s+/).filter(Boolean).length;
+  }
+
+  function buildGenrePhrase(family) {
     const primary = pick(family.core);
-    const companionPool = [...family.core, ...family.companions];
-    const companion = pickDifferent(companionPool, primary);
-    const genres = Math.random() < 0.78 ? `${primary} and ${companion}` : primary;
+    if (Math.random() >= 0.64) return primary;
+    const companion = pickDifferent([...family.core, ...family.companions], primary);
+    return `${primary} and ${companion}`;
+  }
 
-    const firstMood = pick(MOODS);
-    const mood = Math.random() < 0.64
-      ? `${firstMood} and ${pickDifferent(MOODS, firstMood)}`
-      : firstMood;
+  function rawPrompt(profileName) {
+    const profile = PROFILES[profileName];
+    const family = pick(MUSIC_FAMILIES);
+    const genres = buildGenrePhrase(family);
+    const dimensions = shuffled([
+      ['mood', pick(MOODS)],
+      ['context', pick(CONTEXTS)],
+      ['era', pick(family.eras)],
+      ['texture', pick(family.textures)],
+    ]).slice(0, profile.extraDimensions());
 
-    const context = pick(CONTEXTS);
-    const energyGroup = pick(context.energy);
-    const values = {
-      mood,
-      scene: context.scene,
-      genres,
-      era: pick(family.eras),
-      texture: pick(family.textures),
-      energy: pick(ENERGY_ARCS[energyGroup]),
-      discovery: pick(DISCOVERY),
-      sequencing: pick(SEQUENCING),
-      vocals: pick(VOCAL_DIRECTIONS),
-    };
+    const clauses = dimensions.map(([kind, value]) => CLAUSE_BUILDERS[kind](value));
+    const sentence = `${pick(OPENERS)(genres)} ${clauses.join(', ')}.`;
 
-    return pick(TEMPLATES)(values);
+    if (Math.random() < profile.creativeChance) {
+      return `${sentence} ${pick(CREATIVE_DIRECTIONS)}`;
+    }
+    return sentence;
+  }
+
+  function buildPrompt(profileName = 'surprise') {
+    const profile = PROFILES[profileName] || PROFILES.surprise;
+    let closest = '';
+    let closestDistance = Number.POSITIVE_INFINITY;
+
+    for (let attempt = 0; attempt < 32; attempt += 1) {
+      const candidate = rawPrompt(profileName);
+      const words = wordCount(candidate);
+      if (words >= profile.minWords && words <= profile.maxWords) return candidate;
+
+      const distance = words < profile.minWords
+        ? profile.minWords - words
+        : words - profile.maxWords;
+      if (distance < closestDistance) {
+        closest = candidate;
+        closestDistance = distance;
+      }
+    }
+    return closest || rawPrompt(profileName);
   }
 
   function surpriseMe() {
-    let next = buildPrompt();
-    for (let attempt = 0; attempt < 6 && next === previousPrompt; attempt += 1) {
-      next = buildPrompt();
+    let next = buildPrompt('surprise');
+    for (let attempt = 0; attempt < 8 && next === previousPrompt; attempt += 1) {
+      next = buildPrompt('surprise');
     }
     previousPrompt = next;
 
@@ -244,7 +252,7 @@
     prompt.setSelectionRange(prompt.value.length, prompt.value.length);
   }
 
-  const example = buildPrompt();
+  const example = buildPrompt('example');
   prompt.placeholder = example;
   previousPrompt = example;
 
