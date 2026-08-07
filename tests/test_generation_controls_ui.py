@@ -69,6 +69,7 @@ def test_generation_locks_request_controls_until_completion_or_error() -> None:
         "exclude-covers",
         "exclude-remixes",
         "prompt-surprise",
+        "seed-surprise",
     ):
         assert f"'{control_id}'" in script
     assert "function setGenerationInputsLocked(locked)" in script
