@@ -41,6 +41,11 @@
   stroke-linejoin: round;
 }
 
+.prompt-surprise .prompt-surprise-dot {
+  fill: currentColor;
+  stroke: none;
+}
+
 .prompt-surprise:hover,
 .prompt-surprise:focus-visible {
   opacity: 1;
