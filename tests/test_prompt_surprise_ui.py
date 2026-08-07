@@ -13,7 +13,7 @@ def test_random_prompt_control_uses_shared_generator_with_concise_profiles() -> 
     script = _text("prompt-surprise.js")
     style = _text("prompt-surprise.css")
 
-    assert '/static/prompt-surprise.css?v=2' in html
+    assert '/static/prompt-surprise.css?v=3' in html
     assert '/static/prompt-surprise.js?v=2' in html
     assert 'id="prompt-surprise"' in html
     assert 'class="prompt-input-shell"' in html
@@ -52,14 +52,16 @@ def test_random_prompt_selects_subset_of_dimensions_instead_of_all_of_them() -> 
     assert "words >= profile.minWords && words <= profile.maxWords" in script
 
 
-def test_random_prompt_icon_is_compact_three_dimensional_die() -> None:
+def test_random_prompt_and_seed_icons_share_compact_three_dimensional_die() -> None:
     html = _text("index.html")
     style = _text("prompt-surprise.css")
 
-    assert 'class="prompt-surprise-face"' in html
-    assert 'd="M12 2.8 20 7.3v9.4l-8 4.5-8-4.5V7.3Z"' in html
-    assert 'd="M4 7.3 12 11.8 20 7.3M12 11.8v9.4"' in html
-    assert html.count('class="prompt-surprise-pip"') == 6
+    assert html.count('class="prompt-surprise-face"') == 2
+    assert html.count('d="M12 2.8 20 7.3v9.4l-8 4.5-8-4.5V7.3Z"') == 2
+    assert html.count('d="M4 7.3 12 11.8 20 7.3M12 11.8v9.4"') == 2
+    assert html.count('class="prompt-surprise-pip"') == 12
+    assert 'id="prompt-surprise"' in html
+    assert 'id="seed-surprise"' in html
     assert ".prompt-surprise .prompt-surprise-face" in style
     assert "fill-opacity: .07;" in style
     assert ".prompt-surprise .prompt-surprise-pip" in style
