@@ -1,3 +1,5 @@
+@import url('/static/header-navigation.css?v=1');
+
 .library-card {
   max-width: 920px;
   margin: 0 auto;
