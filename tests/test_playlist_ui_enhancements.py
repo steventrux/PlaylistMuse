@@ -38,7 +38,7 @@ def test_results_allow_manual_reordering_only_before_publication() -> None:
     assert ".track-result-card.drag-over" in style
 
 
-def test_library_cards_are_compact_and_expand_for_full_details() -> None:
+def test_library_cards_match_compact_result_card_proportions_and_expand() -> None:
     script = _text("library.js")
     style = _text("library.css")
 
@@ -50,7 +50,29 @@ def test_library_cards_are_compact_and_expand_for_full_details() -> None:
     assert "Playlist details" in script
     assert "Created ${formatDate(item.created_at)}" in script
     assert ".library-item.expanded" in style
-    assert "grid-template-columns: 58px minmax(0, 1fr) 28px;" in style
-    assert "width: 58px;" in style
+    assert "grid-template-columns: 54px minmax(0, 1fr) 28px;" in style
+    assert "grid-template-rows: 54px;" in style
+    assert "width: 54px;" in style
+    assert "grid-template-columns: 48px minmax(0, 1fr) 24px;" in style
     assert "width: 138px;" in style
-    assert "grid-template-rows: 0fr;" in style
+    assert "width: 96px;" in style
+
+
+def test_library_searches_playlist_copy_and_filters_status_without_backend_queries() -> None:
+    html = _text("library.html")
+    script = _text("library.js")
+    style = _text("library.css")
+
+    assert 'id="library-search"' in html
+    assert 'data-status-filter="all"' in html
+    assert 'data-status-filter="draft"' in html
+    assert 'data-status-filter="published"' in html
+    assert "let activeStatusFilter = 'all';" in script
+    assert "function matchesSearch(item, query)" in script
+    assert "[item.name, item.description, item.prompt]" in script
+    assert "function visibleLibraryItems()" in script
+    assert "item.status === activeStatusFilter" in script
+    assert "$('library-search').addEventListener('input', renderLibrary);" in script
+    assert "No playlists match the current search and filters." in script
+    assert ".library-controls" in style
+    assert ".library-filter.active" in style
