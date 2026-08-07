@@ -1,0 +1,84 @@
+/* Manual track ordering for unpublished playlists. */
+
+.track-result-card.reorderable {
+  grid-template-columns: 58px minmax(0, 1fr) 28px 28px;
+}
+
+.track-result-card.reorderable.expanded {
+  grid-template-columns: 138px minmax(0, 1fr) 28px 28px;
+}
+
+.track-reorder-handle {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  align-self: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: grab;
+  touch-action: none;
+  transition: color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.track-reorder-handle:active {
+  cursor: grabbing;
+}
+
+.track-reorder-handle svg {
+  width: 17px;
+  height: 17px;
+  fill: currentColor;
+}
+
+.track-result-card.reorderable:hover .track-reorder-handle,
+.track-reorder-handle:focus-visible {
+  color: var(--cyan-light);
+  background: rgba(56, 189, 248, .1);
+}
+
+.track-result-card.reorderable.expanded .track-reorder-handle {
+  align-self: start;
+}
+
+.track-result-card.dragging {
+  opacity: .55;
+}
+
+.track-result-card.drag-over {
+  border-color: rgba(56, 189, 248, .72);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, .12);
+}
+
+.track-move-button:disabled {
+  opacity: .35;
+}
+
+@media (max-width: 650px) {
+  .track-result-card.reorderable {
+    grid-template-columns: 50px minmax(0, 1fr) 24px 24px;
+  }
+
+  .track-result-card.reorderable.expanded {
+    grid-template-columns: 96px minmax(0, 1fr) 24px 24px;
+  }
+
+  .track-reorder-handle {
+    width: 24px;
+    height: 24px;
+  }
+
+  .track-reorder-handle svg {
+    width: 16px;
+    height: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .track-reorder-handle {
+    transition: none;
+  }
+}

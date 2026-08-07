@@ -7,6 +7,7 @@
   const $ = (id) => document.getElementById(id);
   const {readJson, setLoadingButton} = window.PlaylistMuseCommon;
   let expandedIndex = null;
+  let draggedIndex = null;
   let persistenceTimer = null;
   let createRecordPromise = null;
   let localRevision = 0;
@@ -128,17 +129,6 @@
     }
   }
 
-  function ensureLibraryLink() {
-    const toolbar = document.querySelector('.playlist-toolbar');
-    if (!toolbar || toolbar.querySelector('[data-library-link]')) return;
-    const link = document.createElement('a');
-    link.href = '/static/library.html';
-    link.className = 'back-link';
-    link.dataset.libraryLink = 'true';
-    link.textContent = 'My playlists';
-    toolbar.append(link);
-  }
-
   function isPublished() {
     return Boolean(data.youtube_playlist?.url);
   }
@@ -237,6 +227,35 @@
     }
   }
 
+  function clearDragState() {
+    draggedIndex = null;
+    document.querySelectorAll('.track-result-card.dragging, .track-result-card.drag-over')
+      .forEach((item) => item.classList.remove('dragging', 'drag-over'));
+  }
+
+  function moveTrack(fromIndex, toIndex) {
+    if (
+      isPublished()
+      || fromIndex === toIndex
+      || fromIndex < 0
+      || toIndex < 0
+      || fromIndex >= data.tracks.length
+      || toIndex >= data.tracks.length
+    ) {
+      return;
+    }
+
+    const [track] = data.tracks.splice(fromIndex, 1);
+    data.tracks.splice(toIndex, 0, track);
+    data.resolved_count = data.tracks.length;
+    expandedIndex = expandedIndex === fromIndex ? toIndex : null;
+    savePlaylist({immediate: true});
+    renderPlaylist();
+
+    const moved = document.querySelector(`[data-track-index="${toIndex}"]`);
+    moved?.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+  }
+
   function replacementOptions() {
     return generationRequest?.options || {
       exclude_live: true,
@@ -294,14 +313,60 @@
     }
   }
 
+  function createMoveButton(label, index, targetIndex, disabled) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'secondary track-action track-move-button';
+    button.textContent = label;
+    button.disabled = disabled;
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      moveTrack(index, targetIndex);
+    });
+    return button;
+  }
+
+  function createReorderHandle(item, track, index) {
+    const handle = document.createElement('button');
+    handle.type = 'button';
+    handle.className = 'track-reorder-handle';
+    handle.draggable = true;
+    handle.title = 'Drag to reorder';
+    handle.setAttribute('aria-label', `Drag ${track.title || 'this track'} to reorder`);
+    handle.innerHTML = `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <circle cx="8" cy="6" r="1.5"/><circle cx="16" cy="6" r="1.5"/>
+        <circle cx="8" cy="12" r="1.5"/><circle cx="16" cy="12" r="1.5"/>
+        <circle cx="8" cy="18" r="1.5"/><circle cx="16" cy="18" r="1.5"/>
+      </svg>
+    `;
+
+    handle.addEventListener('click', (event) => event.stopPropagation());
+    handle.addEventListener('dragstart', (event) => {
+      event.stopPropagation();
+      draggedIndex = index;
+      item.classList.add('dragging');
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', String(index));
+      }
+    });
+    handle.addEventListener('dragend', clearDragState);
+    return handle;
+  }
+
   function renderTrack(track, index) {
     const item = document.createElement('li');
     item.className = 'track track-result-card';
+    item.dataset.trackIndex = String(index);
     item.tabIndex = 0;
     item.setAttribute('role', 'button');
     item.setAttribute('aria-expanded', String(expandedIndex === index));
     item.setAttribute('aria-label', `Show details for ${track.title || 'this track'}`);
     if (expandedIndex === index) item.classList.add('expanded');
+
+    const canReorder = !isPublished();
+    if (canReorder) item.classList.add('reorderable');
 
     const artwork = document.createElement('img');
     artwork.className = 'track-artwork';
@@ -386,13 +451,37 @@
         replaceTrack(index, replace, replaceStatus);
       });
 
-      actions.append(replace);
+      actions.append(
+        replace,
+        createMoveButton('Move up', index, index - 1, index === 0),
+        createMoveButton('Move down', index, index + 1, index === data.tracks.length - 1),
+      );
       detailsInner.append(replaceStatus);
     }
 
     details.append(detailsInner);
 
-    item.append(artwork, copy, expandIcon, details);
+    item.append(artwork, copy);
+    if (canReorder) item.append(createReorderHandle(item, track, index));
+    item.append(expandIcon, details);
+
+    if (canReorder) {
+      item.addEventListener('dragover', (event) => {
+        if (draggedIndex === null || draggedIndex === index) return;
+        event.preventDefault();
+        item.classList.add('drag-over');
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+      });
+      item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
+      item.addEventListener('drop', (event) => {
+        if (draggedIndex === null) return;
+        event.preventDefault();
+        const fromIndex = draggedIndex;
+        clearDragState();
+        moveTrack(fromIndex, index);
+      });
+    }
+
     item.addEventListener('click', (event) => {
       if (event.target.closest('a, button')) return;
       toggleTrack(item, index);
@@ -412,8 +501,6 @@
     $('track-list').replaceChildren(...data.tracks.map(renderTrack));
     renderPlaylistCover();
   }
-
-  ensureLibraryLink();
 
   if (requestedLibraryId && data?.library_id !== requestedLibraryId) {
     $('playlist-summary').textContent = 'Loading playlist…';
@@ -448,6 +535,7 @@
     if (!result?.url) return;
     data.youtube_playlist = result;
     expandedIndex = null;
+    clearDragState();
     savePlaylist({immediate: true});
     renderPlaylist();
   });

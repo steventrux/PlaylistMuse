@@ -6,6 +6,7 @@
   const ENDPOINT = '/api/library/playlists';
   const $ = (id) => document.getElementById(id);
   const {readJson, setLoadingButton} = window.PlaylistMuseCommon;
+  let expandedLibraryId = null;
 
   function readSessionJson(key) {
     try {
@@ -75,6 +76,42 @@
     return cover;
   }
 
+  function detailBlock(title, lines) {
+    const block = document.createElement('section');
+    block.className = 'library-detail-block';
+
+    const heading = document.createElement('h3');
+    heading.textContent = title;
+    block.append(heading);
+
+    const values = Array.isArray(lines) ? lines : [lines];
+    values.filter(Boolean).forEach((text) => {
+      const paragraph = document.createElement('p');
+      paragraph.textContent = text;
+      block.append(paragraph);
+    });
+    return block;
+  }
+
+  function closeOtherCards(currentCard) {
+    document.querySelectorAll('.library-item.expanded').forEach((card) => {
+      if (card === currentCard) return;
+      card.classList.remove('expanded');
+      card.setAttribute('aria-expanded', 'false');
+    });
+  }
+
+  function toggleLibraryCard(card, item) {
+    const willExpand = !card.classList.contains('expanded');
+    closeOtherCards(card);
+    card.classList.toggle('expanded', willExpand);
+    card.setAttribute('aria-expanded', String(willExpand));
+    expandedLibraryId = willExpand ? item.id : null;
+    if (willExpand) {
+      card.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+    }
+  }
+
   async function openPlaylist(item, link) {
     const previousText = link.textContent;
     link.textContent = 'Opening…';
@@ -108,6 +145,7 @@
       await readJson(await fetch(`${ENDPOINT}/${encodeURIComponent(item.id)}/duplicate`, {
         method: 'POST',
       }));
+      expandedLibraryId = null;
       await loadLibrary();
     } catch (error) {
       reset();
@@ -134,6 +172,7 @@
         sessionStorage.removeItem(STORAGE_KEY);
         sessionStorage.removeItem(REQUEST_KEY);
       }
+      if (expandedLibraryId === item.id) expandedLibraryId = null;
       await loadLibrary();
     } catch (error) {
       reset();
@@ -144,6 +183,12 @@
   function createLibraryItem(item) {
     const card = document.createElement('article');
     card.className = 'library-item';
+    card.tabIndex = 0;
+    card.setAttribute('role', 'button');
+    card.setAttribute('aria-expanded', String(expandedLibraryId === item.id));
+    card.setAttribute('aria-label', `Show details for ${item.name || 'this playlist'}`);
+    if (expandedLibraryId === item.id) card.classList.add('expanded');
+
     card.append(createCover(item.thumbnail_urls));
 
     const copy = document.createElement('div');
@@ -160,16 +205,49 @@
     badge.textContent = item.status === 'published' ? 'Published' : 'Draft';
     titleRow.append(title, badge);
 
-    const description = document.createElement('p');
-    description.className = 'library-description';
-    description.textContent = item.description || item.prompt || 'No description saved.';
-
     const meta = document.createElement('p');
     meta.className = 'library-meta';
     const trackLabel = `${item.track_count} ${item.track_count === 1 ? 'track' : 'tracks'}`;
-    meta.textContent = [trackLabel, `Updated ${formatDate(item.updated_at)}`].filter(Boolean).join(' · ');
+    meta.textContent = [trackLabel, `Updated ${formatDate(item.updated_at)}`]
+      .filter(Boolean)
+      .join(' · ');
 
-    copy.append(titleRow, description, meta);
+    copy.append(titleRow, meta);
+
+    const expandIcon = document.createElement('span');
+    expandIcon.className = 'library-expand-icon';
+    expandIcon.setAttribute('aria-hidden', 'true');
+    expandIcon.innerHTML = '<svg viewBox="0 0 24 24" focusable="false"><path d="m7 10 5 5 5-5"/></svg>';
+
+    const details = document.createElement('div');
+    details.className = 'library-details';
+    const detailsInner = document.createElement('div');
+    detailsInner.className = 'library-details-inner';
+
+    const detailGrid = document.createElement('div');
+    detailGrid.className = 'library-detail-grid';
+    detailGrid.append(
+      detailBlock(
+        'Description',
+        item.description || 'No description saved.',
+      ),
+      detailBlock(
+        'Original request',
+        item.prompt || 'No original prompt saved.',
+      ),
+      detailBlock('Playlist details', [
+        `${trackLabel} · ${item.status === 'published' ? 'Published' : 'Draft'}`,
+        `Created ${formatDate(item.created_at)}`,
+        `Updated ${formatDate(item.updated_at)}`,
+      ]),
+    );
+
+    if (item.youtube_playlist_id || item.youtube_playlist_url) {
+      detailGrid.append(detailBlock('YouTube Music', [
+        item.youtube_playlist_id ? `Playlist ID: ${item.youtube_playlist_id}` : '',
+        item.youtube_playlist_url ? 'Published playlist link available below.' : '',
+      ]));
+    }
 
     const actions = document.createElement('div');
     actions.className = 'library-actions';
@@ -180,6 +258,7 @@
     open.textContent = 'Open';
     open.addEventListener('click', (event) => {
       event.preventDefault();
+      event.stopPropagation();
       void openPlaylist(item, open);
     });
 
@@ -187,13 +266,19 @@
     duplicate.type = 'button';
     duplicate.className = 'secondary';
     duplicate.textContent = 'Duplicate';
-    duplicate.addEventListener('click', () => void duplicatePlaylist(item, duplicate));
+    duplicate.addEventListener('click', (event) => {
+      event.stopPropagation();
+      void duplicatePlaylist(item, duplicate);
+    });
 
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.className = 'secondary library-delete';
     remove.textContent = 'Delete';
-    remove.addEventListener('click', () => void deletePlaylist(item, remove));
+    remove.addEventListener('click', (event) => {
+      event.stopPropagation();
+      void deletePlaylist(item, remove);
+    });
 
     actions.append(open, duplicate, remove);
 
@@ -204,10 +289,24 @@
       youtube.rel = 'noopener noreferrer';
       youtube.className = 'secondary';
       youtube.textContent = 'YouTube Music';
+      youtube.addEventListener('click', (event) => event.stopPropagation());
       actions.insertBefore(youtube, duplicate);
     }
 
-    card.append(copy, actions);
+    detailsInner.append(detailGrid, actions);
+    details.append(detailsInner);
+
+    card.append(copy, expandIcon, details);
+    card.addEventListener('click', (event) => {
+      if (event.target.closest('a, button')) return;
+      toggleLibraryCard(card, item);
+    });
+    card.addEventListener('keydown', (event) => {
+      if (event.target !== card || !['Enter', ' '].includes(event.key)) return;
+      event.preventDefault();
+      toggleLibraryCard(card, item);
+    });
+
     return card;
   }
 
@@ -240,6 +339,9 @@
     if (migrationError) setStatus(migrationError, true);
   }
 
-  $('library-sort').addEventListener('change', () => void loadLibrary());
+  $('library-sort').addEventListener('change', () => {
+    expandedLibraryId = null;
+    void loadLibrary();
+  });
   void initializeLibrary();
 })();
