@@ -46,7 +46,7 @@ def test_random_prompt_selects_subset_of_dimensions_instead_of_all_of_them() -> 
 
     assert "extraDimensions: () => (Math.random() < 0.72 ? 1 : 2)" in script
     assert "extraDimensions: () => (Math.random() < 0.72 ? 2 : 3)" in script
-    assert "].slice(0, profile.extraDimensions());" in script
+    assert ".slice(0, profile.extraDimensions());" in script
     assert "Math.random() < profile.creativeChance" in script
     assert "for (let attempt = 0; attempt < 32; attempt += 1)" in script
     assert "words >= profile.minWords && words <= profile.maxWords" in script
