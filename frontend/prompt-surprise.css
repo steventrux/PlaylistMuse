@@ -1,0 +1,74 @@
+.prompt-input-shell {
+  position: relative;
+}
+
+.prompt-input-shell textarea {
+  display: block;
+  padding-bottom: 48px;
+}
+
+.prompt-surprise {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgba(183, 156, 255, .18);
+  border-radius: 9px;
+  background: rgba(20, 24, 48, .52);
+  color: rgba(216, 205, 255, .62);
+  box-shadow: none;
+  backdrop-filter: blur(8px);
+  opacity: .78;
+  transition:
+    opacity 160ms ease,
+    color 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.prompt-surprise svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.prompt-surprise:hover,
+.prompt-surprise:focus-visible {
+  opacity: 1;
+  color: var(--violet-light);
+  border-color: rgba(183, 156, 255, .42);
+  background: rgba(37, 43, 80, .78);
+  transform: translateY(-1px);
+}
+
+.prompt-surprise:active {
+  transform: translateY(0);
+}
+
+@media (max-width: 650px) {
+  .prompt-input-shell textarea {
+    padding-bottom: 46px;
+  }
+
+  .prompt-surprise {
+    left: 9px;
+    bottom: 9px;
+    width: 29px;
+    height: 29px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prompt-surprise {
+    transition: none;
+  }
+}
