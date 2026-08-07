@@ -12,12 +12,13 @@
   <link rel="stylesheet" href="/static/layout.css?v=5">
   <link rel="stylesheet" href="/static/controls.css?v=8">
   <link rel="stylesheet" href="/static/prompt-complexity.css?v=3">
+  <link rel="stylesheet" href="/static/prompt-surprise.css?v=1">
   <link rel="stylesheet" href="/static/generation.css?v=5">
   <link rel="stylesheet" href="/static/youtube.css?v=3">
   <link rel="stylesheet" href="/static/youtube-settings.css?v=1">
   <link rel="stylesheet" href="/static/onboarding.css?v=2">
   <link rel="stylesheet" href="/static/ai-settings.css?v=3">
-  <link rel="stylesheet" href="/static/header-navigation.css?v=4">
+  <link rel="stylesheet" href="/static/header-navigation.css?v=5">
 </head>
 <body>
   <header class="app-header">
@@ -25,7 +26,7 @@
       <p class="eyebrow">AI playlist studio</p>
       <h1>PlaylistMuse</h1>
     </div>
-    <a class="secondary library-header-link" href="/static/library.html">My playlists</a>
+    <a class="secondary library-header-link" href="/static/library.html" aria-label="My playlists" title="My playlists">My playlists</a>
   </header>
 
   <main>
@@ -72,7 +73,25 @@
             </div>
           </div>
         </div>
-        <textarea id="prompt" maxlength="1950" rows="5" placeholder="A slow-burning road-trip playlist with blues rock, warm guitars and a steady night-drive mood..."></textarea>
+        <div class="prompt-input-shell">
+          <textarea id="prompt" maxlength="1950" rows="5"></textarea>
+          <button
+            id="prompt-surprise"
+            class="prompt-surprise"
+            type="button"
+            aria-label="Generate a random playlist prompt"
+            title="Surprise me"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <rect x="4.5" y="4.5" width="15" height="15" rx="3.5" />
+              <circle class="prompt-surprise-dot" cx="9" cy="9" r="1" />
+              <circle class="prompt-surprise-dot" cx="15" cy="9" r="1" />
+              <circle class="prompt-surprise-dot" cx="12" cy="12" r="1" />
+              <circle class="prompt-surprise-dot" cx="9" cy="15" r="1" />
+              <circle class="prompt-surprise-dot" cx="15" cy="15" r="1" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       <div id="seed-panel" class="hidden">
@@ -262,6 +281,7 @@
   <script src="/static/youtube-account.js?v=5"></script>
   <script src="/static/home-status.js?v=14"></script>
   <script src="/static/generation-state.js?v=2"></script>
+  <script src="/static/prompt-surprise.js?v=1"></script>
   <script src="/static/prompt-complexity.js?v=7"></script>
   <script src="/static/app.js?v=17"></script>
   <script src="/static/prompt-validation-guard.js?v=1"></script>
