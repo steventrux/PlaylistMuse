@@ -1,10 +1,49 @@
 .library-header-link {
-  margin-left: auto;
-  margin-right: 12px;
-  display: inline-flex;
-  align-items: center;
+  order: 3;
+  position: relative;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  margin: 0 0 0 7px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgba(169, 155, 255, .22);
+  border-radius: 10px;
+  background-color: rgba(10, 13, 30, .82);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 19px 19px;
+  color: transparent;
+  box-shadow: none;
+  font-size: 0;
+  line-height: 0;
   text-decoration: none;
-  white-space: nowrap;
+  backdrop-filter: blur(12px);
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease,
+    transform 180ms ease;
+}
+
+.library-header-link[href="/static/library.html"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238088a8' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='5' cy='7' r='1' fill='%238088a8' stroke='none'/%3E%3Cpath d='M9 7h10'/%3E%3Ccircle cx='5' cy='12' r='1' fill='%238088a8' stroke='none'/%3E%3Cpath d='M9 12h10'/%3E%3Ccircle cx='5' cy='17' r='1' fill='%238088a8' stroke='none'/%3E%3Cpath d='M9 17h10'/%3E%3C/svg%3E");
+}
+
+.library-header-link[href="/"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238088a8' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 10.5 12 4l8 6.5'/%3E%3Cpath d='M6.5 9.5V20h11V9.5'/%3E%3Cpath d='M10 20v-6h4v6'/%3E%3C/svg%3E");
+}
+
+.library-header-link:hover,
+.library-header-link:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(183, 156, 255, .42);
+  background-color: rgba(21, 26, 51, .9);
+}
+
+.header-service-status {
+  order: 2;
 }
 
 .library-card {
@@ -177,5 +216,33 @@
     grid-column: 1 / -1;
     justify-content: flex-start;
     max-width: none;
+  }
+}
+
+@media (max-width: 650px) {
+  .app-header {
+    display: grid;
+    grid-template-columns: 1fr auto auto 1fr;
+    align-items: center;
+  }
+
+  .brand-lockup {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    justify-self: center;
+  }
+
+  .header-service-status {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: end;
+    margin-top: 10px;
+  }
+
+  .library-header-link {
+    grid-column: 3;
+    grid-row: 2;
+    justify-self: start;
+    margin: 10px 0 0 7px;
   }
 }
