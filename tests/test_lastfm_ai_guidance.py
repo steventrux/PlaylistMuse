@@ -40,6 +40,24 @@ def _resolved(candidate: dict[str, str], index: int) -> dict:
     return track
 
 
+def _isolate_generation_dependencies(monkeypatch) -> None:
+    """Keep these tests focused on Last.fm guidance, not prompt-order interpretation."""
+    monkeypatch.setattr(
+        main_module,
+        "load_config",
+        lambda: SimpleNamespace(configured=True),
+    )
+
+    async def no_ordering_interpretation(config, prompt):
+        return None
+
+    monkeypatch.setattr(
+        main_module,
+        "interpret_constraints",
+        no_ordering_interpretation,
+    )
+
+
 def test_prompt_generation_uses_lastfm_as_ai_context_without_fixed_quota(monkeypatch) -> None:
     prompts: list[str] = []
     first_draft = _draft(
@@ -77,11 +95,7 @@ def test_prompt_generation_uses_lastfm_as_ai_context_without_fixed_quota(monkeyp
         },
     ]
 
-    monkeypatch.setattr(
-        main_module,
-        "load_config",
-        lambda: SimpleNamespace(configured=True),
-    )
+    _isolate_generation_dependencies(monkeypatch)
 
     async def fake_generate(config, prompt, count):
         prompts.append(prompt)
@@ -177,11 +191,7 @@ def test_ai_can_ignore_all_lastfm_suggestions(monkeypatch) -> None:
         }
     ]
 
-    monkeypatch.setattr(
-        main_module,
-        "load_config",
-        lambda: SimpleNamespace(configured=True),
-    )
+    _isolate_generation_dependencies(monkeypatch)
 
     async def fake_generate(config, prompt, count):
         nonlocal calls
@@ -235,11 +245,7 @@ def test_similar_artist_signal_reports_artist_representation(monkeypatch) -> Non
         "lastfm_match": "0.82",
     }
 
-    monkeypatch.setattr(
-        main_module,
-        "load_config",
-        lambda: SimpleNamespace(configured=True),
-    )
+    _isolate_generation_dependencies(monkeypatch)
 
     async def fake_generate(config, prompt, count):
         nonlocal calls
@@ -320,11 +326,7 @@ def test_seed_context_skips_prompt_anchor_discovery(monkeypatch) -> None:
     ]
     calls = 0
 
-    monkeypatch.setattr(
-        main_module,
-        "load_config",
-        lambda: SimpleNamespace(configured=True),
-    )
+    _isolate_generation_dependencies(monkeypatch)
 
     async def fake_generate(config, prompt, count):
         nonlocal calls
