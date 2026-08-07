@@ -6,18 +6,21 @@ ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
 
 
-def test_prompt_placeholder_is_updated_without_music_note() -> None:
+def test_prompt_placeholder_is_generated_from_random_prompt_engine() -> None:
     html = (FRONTEND / "index.html").read_text(encoding="utf-8")
+    surprise = (FRONTEND / "prompt-surprise.js").read_text(encoding="utf-8")
 
-    placeholder = (
+    old_placeholder = (
         "A slow-burning road-trip playlist with blues rock, warm guitars and "
         "a steady night-drive mood..."
     )
-    assert f'placeholder="{placeholder}"' in html
-    assert "A nocturnal blues-rock drive through the Alps" not in html
-    assert "♪" not in placeholder
-    assert "♫" not in placeholder
-    assert "♬" not in placeholder
+    assert old_placeholder not in html
+    assert '<textarea id="prompt" maxlength="1950" rows="5"></textarea>' in html
+    assert "const example = buildPrompt();" in surprise
+    assert "prompt.placeholder = example;" in surprise
+    assert "♪" not in surprise
+    assert "♫" not in surprise
+    assert "♬" not in surprise
 
 
 def test_generation_controls_start_hidden_and_keep_status_outside() -> None:
