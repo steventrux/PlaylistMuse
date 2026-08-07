@@ -6,21 +6,54 @@
   const REQUEST_KEY = 'playlistmuse-generation-request';
   const {readJson, setLoadingButton} = window.PlaylistMuseCommon;
 
-  function trackLabel(track, index) {
+  function trackText(track) {
     const title = String(track?.title || 'Unknown track').trim();
     const artists = String(track?.artists || track?.artist || 'Unknown artist').trim();
-    return `${index + 1}. ${title} — ${artists}`;
+    return `${title} — ${artists}`;
   }
 
-  function createPreviewList(playlist) {
+  function normalized(value) {
+    return String(value || '').trim().toLocaleLowerCase().replace(/\s+/g, ' ');
+  }
+
+  function trackKey(track) {
+    const videoId = String(track?.video_id || '').trim();
+    if (videoId) return `video:${videoId}`;
+    return `text:${normalized(track?.title)}|${normalized(track?.artists || track?.artist)}`;
+  }
+
+  function createTrackList(playlist, {addedKeys = new Set()} = {}) {
     const list = document.createElement('ol');
     list.className = 'library-refine-preview-list';
-    (playlist?.tracks || []).forEach((track, index) => {
+    (playlist?.tracks || []).forEach((track) => {
       const item = document.createElement('li');
-      item.textContent = trackLabel(track, index).replace(/^\d+\.\s*/, '');
+      item.textContent = trackText(track);
+      if (addedKeys.has(trackKey(track))) {
+        item.classList.add('library-refine-track-added');
+      }
       list.append(item);
     });
     return list;
+  }
+
+  function createChangeGroup(title, tracks, className) {
+    const group = document.createElement('section');
+    group.className = 'library-refine-change-group';
+
+    const heading = document.createElement('h5');
+    heading.textContent = title;
+
+    const list = document.createElement('ul');
+    list.className = 'library-refine-change-list';
+    tracks.forEach((track) => {
+      const item = document.createElement('li');
+      item.className = className;
+      item.textContent = trackText(track);
+      list.append(item);
+    });
+
+    group.append(heading, list);
+    return group;
   }
 
   function summaryText(summary = {}) {
@@ -82,8 +115,16 @@
     status.className = 'library-refine-status hidden';
     status.setAttribute('aria-live', 'polite');
 
-    const preview = document.createElement('div');
-    preview.className = 'library-refine-preview hidden';
+    const trackArea = document.createElement('section');
+    trackArea.className = 'library-refine-track-area';
+
+    const trackHeading = document.createElement('h4');
+    trackHeading.className = 'library-refine-track-heading';
+    trackHeading.textContent = 'Current playlist';
+
+    const trackBody = document.createElement('div');
+    trackBody.className = 'library-refine-track-body';
+    trackArea.append(trackHeading, trackBody);
 
     const controls = document.createElement('div');
     controls.className = 'library-refine-actions';
@@ -92,6 +133,7 @@
     previewButton.type = 'button';
     previewButton.className = 'primary';
     previewButton.textContent = 'Preview';
+    previewButton.disabled = true;
 
     const applyButton = document.createElement('button');
     applyButton.type = 'button';
@@ -104,12 +146,14 @@
     cancelButton.textContent = 'Cancel';
 
     controls.append(previewButton, applyButton, cancelButton);
-    panel.append(label, hint, status, preview, controls);
+    panel.append(label, hint, status, trackArea, controls);
     detailsInner.append(panel);
     actions.insertBefore(refine, actions.children[1] || null);
 
+    let currentPlaylist = null;
     let previewPlaylist = null;
     let previewInstruction = '';
+    let loadingCurrent = false;
 
     function setStatus(text = '', error = false) {
       status.textContent = text;
@@ -117,13 +161,79 @@
       status.classList.toggle('error', error);
     }
 
+    function renderCurrentPlaylist() {
+      trackHeading.textContent = 'Current playlist';
+      trackBody.replaceChildren(createTrackList(currentPlaylist));
+    }
+
+    function renderComparison(proposed) {
+      const currentTracks = Array.isArray(currentPlaylist?.tracks) ? currentPlaylist.tracks : [];
+      const proposedTracks = Array.isArray(proposed?.tracks) ? proposed.tracks : [];
+      const currentKeys = new Set(currentTracks.map(trackKey));
+      const proposedKeys = new Set(proposedTracks.map(trackKey));
+      const removed = currentTracks.filter((track) => !proposedKeys.has(trackKey(track)));
+      const added = proposedTracks.filter((track) => !currentKeys.has(trackKey(track)));
+      const addedKeys = new Set(added.map(trackKey));
+
+      trackHeading.textContent = 'Refinement preview';
+      const content = document.createDocumentFragment();
+
+      if (removed.length || added.length) {
+        const changes = document.createElement('div');
+        changes.className = 'library-refine-change-grid';
+        if (removed.length) {
+          changes.append(createChangeGroup('Removed', removed, 'library-refine-track-removed'));
+        }
+        if (added.length) {
+          changes.append(createChangeGroup('Added', added, 'library-refine-track-added'));
+        }
+        content.append(changes);
+      } else {
+        const unchanged = document.createElement('p');
+        unchanged.className = 'library-refine-no-substitutions';
+        unchanged.textContent = 'No track substitutions in this preview.';
+        content.append(unchanged);
+      }
+
+      const proposedHeading = document.createElement('h5');
+      proposedHeading.className = 'library-refine-proposed-heading';
+      proposedHeading.textContent = 'Proposed playlist';
+      content.append(proposedHeading, createTrackList(proposed, {addedKeys}));
+      trackBody.replaceChildren(content);
+    }
+
+    async function loadCurrentPlaylist() {
+      if (currentPlaylist || loadingCurrent) return;
+      loadingCurrent = true;
+      previewButton.disabled = true;
+      trackHeading.textContent = 'Current playlist';
+      const loading = document.createElement('p');
+      loading.className = 'library-refine-loading';
+      loading.textContent = 'Loading tracks…';
+      trackBody.replaceChildren(loading);
+
+      try {
+        const record = await readJson(await fetch(
+          `${ENDPOINT}/${encodeURIComponent(item.id)}`,
+          {cache: 'no-store'},
+        ));
+        currentPlaylist = record.playlist;
+        renderCurrentPlaylist();
+        previewButton.disabled = false;
+      } catch (error) {
+        setStatus(error.message || String(error), true);
+        trackBody.replaceChildren();
+      } finally {
+        loadingCurrent = false;
+      }
+    }
+
     function resetPreview() {
       previewPlaylist = null;
       previewInstruction = '';
-      preview.replaceChildren();
-      preview.classList.add('hidden');
       applyButton.classList.add('hidden');
       previewButton.classList.remove('hidden');
+      if (currentPlaylist) renderCurrentPlaylist();
       setStatus('');
     }
 
@@ -140,8 +250,12 @@
       const opening = panel.classList.contains('hidden');
       panel.classList.toggle('hidden', !opening);
       refine.setAttribute('aria-expanded', String(opening));
-      if (opening) textarea.focus();
-      else closePanel();
+      if (opening) {
+        textarea.focus();
+        void loadCurrentPlaylist();
+      } else {
+        closePanel();
+      }
     });
 
     panel.addEventListener('click', (event) => event.stopPropagation());
@@ -155,6 +269,10 @@
       if (instruction.length < 3) {
         setStatus('Add a short refinement instruction first.', true);
         textarea.focus();
+        return;
+      }
+      if (!currentPlaylist) {
+        setStatus('The current playlist is still loading.', true);
         return;
       }
 
@@ -177,8 +295,7 @@
         ));
         previewPlaylist = payload.playlist;
         previewInstruction = instruction;
-        preview.replaceChildren(createPreviewList(previewPlaylist));
-        preview.classList.remove('hidden');
+        renderComparison(previewPlaylist);
         previewButton.classList.add('hidden');
         applyButton.classList.remove('hidden');
         setStatus(summaryText(payload.summary));
