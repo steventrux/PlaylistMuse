@@ -330,6 +330,10 @@
     });
   }
 
+  function updateLibraryCount(count) {
+    $('library-count').textContent = `${count} ${count === 1 ? 'playlist' : 'playlists'}`;
+  }
+
   function renderLibrary() {
     const items = visibleLibraryItems();
     if (expandedLibraryId && !items.some((item) => item.id === expandedLibraryId)) {
@@ -337,6 +341,7 @@
     }
 
     $('library-list').replaceChildren(...items.map(createLibraryItem));
+    updateLibraryCount(items.length);
 
     const empty = $('library-empty');
     const hasSavedPlaylists = libraryItems.length > 0;
@@ -371,6 +376,7 @@
       libraryItems = [];
       $('library-list').replaceChildren();
       $('library-empty').classList.add('hidden');
+      updateLibraryCount(0);
       setStatus(error.message || String(error), true);
     }
   }
