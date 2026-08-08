@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
+from backend import config, llm
 from backend import refinement_targets as targets
 from backend import youtube
 from backend.metadata_validation import MetadataConstraints
@@ -14,8 +15,8 @@ from backend.refinement_targets import (
 )
 
 
-def _track(title: str, artist: str, video_id: str) -> dict:
-    return {"title": title, "artists": artist, "video_id": video_id}
+def _track(title: str, artist: str, video_id: str, **extra) -> dict:
+    return {"title": title, "artists": artist, "video_id": video_id, **extra}
 
 
 def test_extracts_quantitative_additions_in_supported_languages() -> None:
@@ -76,15 +77,101 @@ def test_addition_count_only_includes_new_tracks() -> None:
     assert artist_addition_counts(current, refined, requested) == {"Bryan Adams": 2}
 
 
-def test_catalogue_fallback_repairs_missing_target(monkeypatch) -> None:
+def test_ai_guided_fallback_uses_replacement_role_before_catalogue(monkeypatch) -> None:
+    current = [
+        _track("A", "Artist A", "a"),
+        _track("B", "Artist B", "b"),
+        _track(
+            "C",
+            "Artist C",
+            "c",
+            reason="A restrained power ballad that closes the set warmly.",
+        ),
+    ]
+    requested = [ArtistAdditionTarget("Bryan Adams", 1)]
+    calls = {"ai": 0, "resolve": 0, "search": 0}
+
+    async def fake_generate(config_value, prompt: str, count: int) -> dict:
+        calls["ai"] += 1
+        assert count >= 6
+        assert "position 3" in prompt
+        assert "previous=Artist B — B" in prompt
+        assert "current role=A restrained power ballad" in prompt
+        assert "Do not choose merely by popularity" in prompt
+        return {
+            "title": "Fallback candidates",
+            "description": "Contextual replacements",
+            "tracks": [
+                {
+                    "artist": "Bryan Adams",
+                    "title": "Heaven",
+                    "description": "A slow-burning melodic rock ballad.",
+                    "reason": "Matches the warm closing role and ballad pacing.",
+                }
+            ],
+        }
+
+    async def fake_resolve(candidates: list[dict], exclusions: dict) -> tuple[list[dict], list[dict]]:
+        calls["resolve"] += 1
+        assert exclusions["exclude_covers"] is True
+        assert candidates[0]["source"] == "refinement_ai_guided_fallback"
+        resolved = _track(
+            "Heaven",
+            "Bryan Adams",
+            "resolved-ba",
+            source=candidates[0]["source"],
+            reason=candidates[0]["reason"],
+        )
+        return [resolved], []
+
+    async def fake_search(query: str, limit: int = 8) -> list[dict]:
+        calls["search"] += 1
+        raise AssertionError("direct catalogue fallback should not run after guided success")
+
+    monkeypatch.setattr(config, "load_config", lambda: object())
+    monkeypatch.setattr(llm, "generate_playlist_draft", fake_generate)
+    monkeypatch.setattr(youtube, "resolve_candidates", fake_resolve)
+    monkeypatch.setattr(youtube, "search_songs", fake_search)
+
+    repaired, unresolved = asyncio.run(
+        targets.repair_artist_addition_targets(
+            current,
+            current,
+            current,
+            requested,
+            exclusions={
+                "exclude_live": True,
+                "exclude_covers": True,
+                "exclude_remixes": True,
+            },
+            metadata_constraints=MetadataConstraints(),
+        )
+    )
+
+    assert calls == {"ai": 1, "resolve": 1, "search": 0}
+    assert unresolved == []
+    assert artist_addition_counts(current, repaired, requested) == {"Bryan Adams": 1}
+    stable = preserve_existing_positions(current, repaired)
+    assert [track["title"] for track in stable] == ["A", "B", "Heaven"]
+    assert stable[-1]["source"] == "refinement_ai_guided_fallback"
+    assert "warm closing role" in stable[-1]["reason"]
+
+
+def test_catalogue_is_last_resort_when_guided_ai_fails(monkeypatch) -> None:
     current = [
         _track("A", "Artist A", "a"),
         _track("B", "Artist B", "b"),
         _track("C", "Artist C", "c"),
     ]
     requested = [ArtistAdditionTarget("Bryan Adams", 1)]
+    calls = {"ai": 0, "search": 0}
+
+    async def fake_generate(config_value, prompt: str, count: int) -> dict:
+        calls["ai"] += 1
+        raise ValueError("provider unavailable")
 
     async def fake_search(query: str, limit: int = 8) -> list[dict]:
+        calls["search"] += 1
         assert query == "Bryan Adams"
         assert limit >= 16
         return [
@@ -97,8 +184,17 @@ def test_catalogue_fallback_repairs_missing_target(monkeypatch) -> None:
         assert [(item["artist"], item["title"]) for item in candidates] == [
             ("Bryan Adams", "Heaven")
         ]
-        return [_track("Heaven", "Bryan Adams", "resolved-ba")], []
+        return [
+            _track(
+                "Heaven",
+                "Bryan Adams",
+                "resolved-ba",
+                source="refinement_catalogue_fallback",
+            )
+        ], []
 
+    monkeypatch.setattr(config, "load_config", lambda: object())
+    monkeypatch.setattr(llm, "generate_playlist_draft", fake_generate)
     monkeypatch.setattr(youtube, "search_songs", fake_search)
     monkeypatch.setattr(youtube, "resolve_candidates", fake_resolve)
 
@@ -117,14 +213,13 @@ def test_catalogue_fallback_repairs_missing_target(monkeypatch) -> None:
         )
     )
 
+    assert calls == {"ai": 1, "search": 1}
     assert unresolved == []
     assert len(repaired) == 3
     assert artist_addition_counts(current, repaired, requested) == {"Bryan Adams": 1}
-    assert [track["title"] for track in preserve_existing_positions(current, repaired)] == [
-        "A",
-        "B",
-        "Heaven",
-    ]
+    stable = preserve_existing_positions(current, repaired)
+    assert [track["title"] for track in stable] == ["A", "B", "Heaven"]
+    assert stable[-1]["source"] == "refinement_catalogue_fallback"
 
 
 def test_existing_tracks_keep_their_original_slots_without_reorder_request() -> None:
