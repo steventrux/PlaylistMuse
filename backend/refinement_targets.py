@@ -11,8 +11,8 @@ from backend.artist_quota_detection import artist_matches
 from backend.youtube import track_identity_key
 
 _TRACK_WORDS = (
-    r"(?:songs?|tracks?|canzoni|brani|tracce|pezzi|canciones?|temas?|"
-    r"chansons?|titres?|lieder|titel)"
+    r"(?:songs?|tracks?|canzon[ei]|bran[oi]|tracci[ae]|pezz[oi]|"
+    r"canci(?:ón|on|ones)|temas?|chansons?|titres?|lied(?:er)?|titel)"
 )
 _ADD_VERBS = (
     r"(?:add|include|insert|aggiungi|aggiungere|inserisci|inserire|includi|includere|"
@@ -92,13 +92,12 @@ _COUNT_WORD_VALUES = {
     "dieciocho": 18,
     "diecinueve": 19,
     "veinte": 20,
-    # French
+    # French. "six" is shared with English and already defined above.
     "une": 1,
     "deux": 2,
     "trois": 3,
     "quatre": 4,
     "cinq": 5,
-    "six": 6,
     "sept": 7,
     "huit": 8,
     "neuf": 9,
