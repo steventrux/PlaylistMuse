@@ -1,3 +1,10 @@
+from __future__ import annotations
+
+import asyncio
+
+from backend import refinement_targets as targets
+from backend import youtube
+from backend.metadata_validation import MetadataConstraints
 from backend.refinement_targets import (
     ArtistAdditionTarget,
     artist_addition_counts,
@@ -64,9 +71,60 @@ def test_addition_count_only_includes_new_tracks() -> None:
         _track("Heaven", "Bryan Adams", "new-ba-1"),
         _track("Run to You", "Bryan Adams", "new-ba-2"),
     ]
-    targets = [ArtistAdditionTarget("Bryan Adams", 2)]
+    requested = [ArtistAdditionTarget("Bryan Adams", 2)]
 
-    assert artist_addition_counts(current, refined, targets) == {"Bryan Adams": 2}
+    assert artist_addition_counts(current, refined, requested) == {"Bryan Adams": 2}
+
+
+def test_catalogue_fallback_repairs_missing_target(monkeypatch) -> None:
+    current = [
+        _track("A", "Artist A", "a"),
+        _track("B", "Artist B", "b"),
+        _track("C", "Artist C", "c"),
+    ]
+    requested = [ArtistAdditionTarget("Bryan Adams", 1)]
+
+    async def fake_search(query: str, limit: int = 8) -> list[dict]:
+        assert query == "Bryan Adams"
+        assert limit >= 16
+        return [
+            _track("Heaven", "Bryan Adams", "catalogue-ba"),
+            _track("Unrelated", "Other Artist", "other"),
+        ]
+
+    async def fake_resolve(candidates: list[dict], exclusions: dict) -> tuple[list[dict], list[dict]]:
+        assert exclusions["exclude_covers"] is True
+        assert [(item["artist"], item["title"]) for item in candidates] == [
+            ("Bryan Adams", "Heaven")
+        ]
+        return [_track("Heaven", "Bryan Adams", "resolved-ba")], []
+
+    monkeypatch.setattr(youtube, "search_songs", fake_search)
+    monkeypatch.setattr(youtube, "resolve_candidates", fake_resolve)
+
+    repaired, unresolved = asyncio.run(
+        targets.repair_artist_addition_targets(
+            current,
+            current,
+            current,
+            requested,
+            exclusions={
+                "exclude_live": True,
+                "exclude_covers": True,
+                "exclude_remixes": True,
+            },
+            metadata_constraints=MetadataConstraints(),
+        )
+    )
+
+    assert unresolved == []
+    assert len(repaired) == 3
+    assert artist_addition_counts(current, repaired, requested) == {"Bryan Adams": 1}
+    assert [track["title"] for track in preserve_existing_positions(current, repaired)] == [
+        "A",
+        "B",
+        "Heaven",
+    ]
 
 
 def test_existing_tracks_keep_their_original_slots_without_reorder_request() -> None:
