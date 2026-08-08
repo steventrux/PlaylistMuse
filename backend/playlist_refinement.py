@@ -41,6 +41,7 @@ from backend.refinement_targets import (
     extract_artist_addition_targets,
     format_artist_addition_mismatches,
     preserve_existing_positions,
+    repair_artist_addition_targets,
 )
 from backend.text_normalization import normalize_identity
 from backend.youtube import track_identity_key
@@ -651,6 +652,7 @@ async def _build_preview(record: dict[str, Any], instruction: str) -> dict[str, 
     unresolved: list[dict[str, Any]] = []
     refined_tracks: list[dict[str, Any]] = []
     last_addition_mismatches: list[tuple[ArtistAdditionTarget, int]] = []
+    generation_options = _generation_options(record).model_dump()
 
     for attempt in range(_MAX_REFINEMENT_ATTEMPTS):
         draft = await generate_playlist_draft(
@@ -680,7 +682,7 @@ async def _build_preview(record: dict[str, Any], instruction: str) -> dict[str, 
         try:
             resolved_new, unresolved = await resolve_candidates(
                 new_candidates,
-                _generation_options(record).model_dump(),
+                generation_options,
             )
         finally:
             activate_constraints(previous_constraints)
@@ -706,6 +708,22 @@ async def _build_preview(record: dict[str, Any], instruction: str) -> dict[str, 
             refined_tracks,
             addition_targets,
         )
+        if last_addition_mismatches and attempt == _MAX_REFINEMENT_ATTEMPTS - 1:
+            refined_tracks, fallback_unresolved = await repair_artist_addition_targets(
+                current_tracks,
+                refined_tracks,
+                generated_tracks,
+                addition_targets,
+                exclusions=generation_options,
+                metadata_constraints=constraints.metadata,
+            )
+            unresolved.extend(fallback_unresolved)
+            _validate_direct_constraints(refined_tracks, constraints)
+            last_addition_mismatches = _addition_mismatches_or_error(
+                current_tracks,
+                refined_tracks,
+                addition_targets,
+            )
         if last_addition_mismatches:
             continue
         break
