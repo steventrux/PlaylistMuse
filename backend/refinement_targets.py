@@ -11,8 +11,8 @@ from backend.artist_quota_detection import artist_matches
 from backend.youtube import track_identity_key
 
 _TRACK_WORDS = (
-    r"(?:songs?|tracks?|canzon[ei]|bran[oi]|tracci[ae]|pezz[oi]|"
-    r"canci(?:ón|on|ones)|temas?|chansons?|titres?|lied(?:er)?|titel)"
+    r"(?:songs?|tracks?|canzone|canzoni|brani|tracce|pezzi|canción|cancion|canciones|temas?|"
+    r"chansons?|titres?|lied|lieder|titel)"
 )
 _ADD_VERBS = (
     r"(?:add|include|insert|aggiungi|aggiungere|inserisci|inserire|includi|includere|"
@@ -92,7 +92,7 @@ _COUNT_WORD_VALUES = {
     "dieciocho": 18,
     "diecinueve": 19,
     "veinte": 20,
-    # French. "six" is shared with English and already defined above.
+    # French
     "une": 1,
     "deux": 2,
     "trois": 3,
@@ -242,7 +242,10 @@ def artist_addition_guidance(targets: list[ArtistAdditionTarget]) -> str:
         return "- None"
     return "\n".join(
         f"- Add exactly {target.count} NEW distinct tracks by {target.artist}. Existing tracks "
-        "by that artist do not count toward this addition target."
+        "by that artist do not count toward this addition target. This requirement has higher "
+        f"priority than preserving {target.count} existing track slots: replace exactly "
+        f"{target.count} existing tracks as needed so the final playlist contains these NEW "
+        "artist tracks."
         for target in targets
     )
 
@@ -252,6 +255,10 @@ def _track_key(track: dict[str, Any]) -> str:
         str(track.get("title") or ""),
         str(track.get("artists") or track.get("artist") or ""),
     )
+
+
+def _track_artist(track: dict[str, Any]) -> str:
+    return str(track.get("artists") or track.get("artist") or "").strip()
 
 
 def artist_addition_counts(
@@ -266,7 +273,7 @@ def artist_addition_counts(
         key = _track_key(track)
         if not key or key in current_keys:
             continue
-        artist = str(track.get("artists") or track.get("artist") or "").strip()
+        artist = _track_artist(track)
         for target in targets:
             if artist_matches(artist, target.artist):
                 counts[target.artist] += 1
@@ -296,6 +303,133 @@ def format_artist_addition_mismatches(
     return "The refinement could not satisfy the explicit addition target: " + details + "."
 
 
+async def repair_artist_addition_targets(
+    current_tracks: list[dict[str, Any]],
+    refined_tracks: list[dict[str, Any]],
+    generated_tracks: list[dict[str, Any]],
+    targets: list[ArtistAdditionTarget],
+    *,
+    exclusions: dict[str, bool],
+    metadata_constraints: Any,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Fill unresolved explicit artist additions from the real YouTube Music catalogue.
+
+    The normal AI refinement remains the primary path. This fallback runs only for a verified
+    numeric deficit, searches the requested artist directly, re-validates each catalogue result
+    through the normal resolver/exclusion pipeline, and replaces only retained current tracks.
+    """
+    from backend import youtube
+    from backend.metadata_validation import activate_constraints, active_constraints
+
+    repaired = [dict(track) for track in refined_tracks]
+    unresolved: list[dict[str, Any]] = []
+    current_keys = {_track_key(track) for track in current_tracks if _track_key(track)}
+    generated_keys = {_track_key(track) for track in generated_tracks if _track_key(track)}
+
+    for target in targets:
+        actual = artist_addition_counts(current_tracks, repaired, [target])[target.artist]
+        missing = target.count - actual
+        if missing <= 0:
+            continue
+
+        repaired_keys = {_track_key(track) for track in repaired if _track_key(track)}
+        search_limit = min(50, max(16, missing * 12))
+        catalogue = await youtube.search_songs(target.artist, limit=search_limit)
+        candidates: list[dict[str, str]] = []
+        seen_candidate_keys: set[str] = set()
+        for song in catalogue:
+            artist = _track_artist(song)
+            title = str(song.get("title") or "").strip()
+            key = track_identity_key(title, artist)
+            if (
+                not artist
+                or not title
+                or not key
+                or key in current_keys
+                or key in repaired_keys
+                or key in seen_candidate_keys
+                or not artist_matches(artist, target.artist)
+            ):
+                continue
+            seen_candidate_keys.add(key)
+            candidates.append(
+                {
+                    "artist": artist,
+                    "title": title,
+                    "description": "",
+                    "reason": f"Added to satisfy the refinement request for {target.artist}.",
+                    "source": "refinement_catalogue_fallback",
+                }
+            )
+
+        if not candidates:
+            continue
+
+        previous_constraints = active_constraints()
+        activate_constraints(metadata_constraints)
+        try:
+            resolved, rejected = await youtube.resolve_candidates(candidates, exclusions)
+        finally:
+            activate_constraints(previous_constraints)
+        unresolved.extend(rejected)
+
+        additions: list[dict[str, Any]] = []
+        addition_keys: set[str] = set()
+        for track in resolved:
+            key = _track_key(track)
+            if (
+                not key
+                or key in current_keys
+                or key in repaired_keys
+                or key in addition_keys
+                or not artist_matches(_track_artist(track), target.artist)
+            ):
+                continue
+            addition_keys.add(key)
+            additions.append(track)
+            if len(additions) >= missing:
+                break
+
+        if not additions:
+            continue
+
+        repaired_keys = {_track_key(track) for track in repaired if _track_key(track)}
+        victims: list[str] = []
+        victim_keys: set[str] = set()
+
+        def consider_victim(track: dict[str, Any]) -> None:
+            if len(victims) >= len(additions):
+                return
+            key = _track_key(track)
+            if (
+                not key
+                or key not in repaired_keys
+                or key in victim_keys
+                or artist_matches(_track_artist(track), target.artist)
+            ):
+                return
+            victim_keys.add(key)
+            victims.append(key)
+
+        # Prefer slots the AI itself omitted before the generic fallback reinserted them.
+        for track in current_tracks:
+            key = _track_key(track)
+            if key and key not in generated_keys:
+                consider_victim(track)
+
+        # If the AI kept everything, replace as few retained tracks as possible from the tail.
+        for track in reversed(current_tracks):
+            consider_victim(track)
+
+        if len(victims) < len(additions):
+            continue
+
+        repaired = [track for track in repaired if _track_key(track) not in victim_keys]
+        repaired.extend(additions)
+
+    return repaired[: len(refined_tracks)], unresolved
+
+
 def explicit_reorder_requested(instruction: str) -> bool:
     """Return whether the user explicitly requested ordering/rearrangement."""
     return bool(_REORDER_INTENT_RE.search(instruction))
@@ -312,9 +446,7 @@ def preserve_existing_positions(
         for track in refined_tracks
         if _track_key(track) in current_keys
     }
-    additions = [
-        track for track in refined_tracks if _track_key(track) not in current_keys
-    ]
+    additions = [track for track in refined_tracks if _track_key(track) not in current_keys]
     addition_index = 0
     stable: list[dict[str, Any]] = []
 
