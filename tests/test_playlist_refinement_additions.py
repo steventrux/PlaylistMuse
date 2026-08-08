@@ -126,3 +126,65 @@ def test_quantitative_addition_retries_and_preserves_existing_positions(monkeypa
         "changed": 2,
         "reordered": 0,
     }
+
+
+def test_final_attempt_repairs_unresolved_addition_from_catalogue(monkeypatch) -> None:
+    record = _record()
+    calls = {"generate": 0, "repair": 0}
+
+    async def fake_interpret(config, prompt: str) -> dict:
+        return _valid_interpretation()
+
+    async def fake_generate(config, prompt: str, count: int) -> dict:
+        calls["generate"] += 1
+        return {
+            "title": "x",
+            "description": "x",
+            "tracks": [
+                {"artist": "Artist A", "title": "A"},
+                {"artist": "Artist B", "title": "B"},
+                {"artist": "Artist C", "title": "C"},
+                {"artist": "Artist D", "title": "D"},
+                {"artist": "Artist E", "title": "E"},
+            ],
+        }
+
+    async def fake_resolve(candidates: list[dict], options: dict) -> tuple[list[dict], list[dict]]:
+        return [], list(candidates)
+
+    async def fake_repair(
+        current_tracks: list[dict],
+        refined_tracks: list[dict],
+        generated_tracks: list[dict],
+        targets: list,
+        *,
+        exclusions: dict,
+        metadata_constraints,
+    ) -> tuple[list[dict], list[dict]]:
+        calls["repair"] += 1
+        assert calls["generate"] == 3
+        assert len(targets) == 1
+        assert targets[0].artist == "Bryan Adams"
+        assert targets[0].count == 1
+        assert exclusions["exclude_covers"] is True
+        repaired = [dict(track) for track in refined_tracks[:-1]]
+        repaired.append(_track("Heaven", "Bryan Adams", "fallback-ba"))
+        return repaired, []
+
+    monkeypatch.setattr(refinement, "load_config", lambda: object())
+    monkeypatch.setattr(refinement, "interpret_constraints", fake_interpret)
+    monkeypatch.setattr(refinement, "generate_playlist_draft", fake_generate)
+    monkeypatch.setattr(refinement, "resolve_candidates", fake_resolve)
+    monkeypatch.setattr(refinement, "repair_artist_addition_targets", fake_repair)
+
+    result = asyncio.run(refinement._build_preview(record, "Add one Bryan Adams song"))
+
+    assert calls == {"generate": 3, "repair": 1}
+    tracks = result["playlist"]["tracks"]
+    assert [track["title"] for track in tracks] == ["A", "B", "C", "D", "Heaven"]
+    assert result["summary"] == {
+        "tracks": 5,
+        "kept": 4,
+        "changed": 1,
+        "reordered": 0,
+    }
