@@ -18,11 +18,11 @@ from typing import Any
 
 import httpx
 
-from backend.storage import read_json_object, write_secure_json
+from backend.storage import read_json_object
 from backend.youtube_account import (
     YOUTUBE_TOKEN_PATH,
     YouTubeAccountError,
-    _oauth_credentials,
+    _refresh_access_token_sync as _refresh_youtube_access_token_sync,
 )
 
 LOGGER = logging.getLogger("playlistmuse.youtube.publish")
@@ -72,32 +72,7 @@ def _token_is_current(token: dict[str, Any]) -> bool:
 
 
 def _refresh_access_token() -> str:
-    token = read_json_object(YOUTUBE_TOKEN_PATH)
-    refresh_token = str(token.get("refresh_token", "")).strip()
-    if not refresh_token:
-        raise YouTubeAccountError("Reconnect the YouTube Music account before publishing.")
-
-    try:
-        fresh = _oauth_credentials().refresh_token(refresh_token)
-    except Exception as error:
-        raise YouTubeAccountError(
-            "The Google authorization expired. Disconnect and reconnect the account."
-        ) from error
-
-    access_token = str(fresh.get("access_token", "")).strip()
-    if not access_token:
-        raise YouTubeAccountError("Google did not return a valid access token.")
-
-    access_expires_in = max(1, int(fresh.get("expires_in", 3600)))
-    token["access_token"] = access_token
-    token["expires_at"] = int(time.time()) + access_expires_in
-    token["token_type"] = (
-        str(fresh.get("token_type", token.get("token_type", "Bearer"))) or "Bearer"
-    )
-    if fresh.get("scope"):
-        token["scope"] = fresh["scope"]
-    write_secure_json(YOUTUBE_TOKEN_PATH, token)
-    return access_token
+    return _refresh_youtube_access_token_sync()
 
 
 def _access_token(force_refresh: bool = False) -> str:
