@@ -261,6 +261,14 @@ def _track_artist(track: dict[str, Any]) -> str:
     return str(track.get("artists") or track.get("artist") or "").strip()
 
 
+def _track_label(track: dict[str, Any] | None) -> str:
+    if not track:
+        return "none"
+    artist = _track_artist(track) or "Unknown artist"
+    title = str(track.get("title") or "Unknown track").strip()
+    return f"{artist} — {title}"
+
+
 def artist_addition_counts(
     current_tracks: list[dict[str, Any]],
     refined_tracks: list[dict[str, Any]],
@@ -348,6 +356,168 @@ def _replacement_victim_keys(
     return victim_keys
 
 
+def _replacement_context(
+    current_tracks: list[dict[str, Any]],
+    victim_keys: set[str],
+) -> str:
+    """Describe the exact sequence slots the fallback additions are expected to fill."""
+    lines: list[str] = []
+    for index, track in enumerate(current_tracks):
+        key = _track_key(track)
+        if key not in victim_keys:
+            continue
+        previous = current_tracks[index - 1] if index > 0 else None
+        following = current_tracks[index + 1] if index + 1 < len(current_tracks) else None
+        detail = str(track.get("reason") or track.get("description") or "").strip()
+        lines.append(
+            f"- position {index + 1}: replace {_track_label(track)}; "
+            f"previous={_track_label(previous)}; next={_track_label(following)}"
+            + (f"; current role={detail[:220]}" if detail else "")
+        )
+    return "\n".join(lines) or "- No specific slot context available."
+
+
+def _playlist_context(tracks: list[dict[str, Any]]) -> str:
+    return "\n".join(
+        f"{index}. {_track_label(track)}"
+        for index, track in enumerate(tracks, start=1)
+    )
+
+
+async def _ai_guided_candidates(
+    current_tracks: list[dict[str, Any]],
+    repaired_tracks: list[dict[str, Any]],
+    generated_tracks: list[dict[str, Any]],
+    target: ArtistAdditionTarget,
+    missing: int,
+    exclusions: dict[str, bool],
+) -> tuple[list[dict[str, str]], set[str]]:
+    """Ask the configured AI for artist-specific candidates that fit the replacement slots."""
+    from backend.config import load_config
+    from backend.llm import generate_playlist_draft
+
+    victim_keys = _replacement_victim_keys(
+        current_tracks,
+        repaired_tracks,
+        generated_tracks,
+        target,
+        missing,
+    )
+    if len(victim_keys) < missing:
+        return [], victim_keys
+
+    candidate_count = min(20, max(6, missing * 6))
+    present = ", ".join(_track_label(track) for track in current_tracks)
+    version_rules = ", ".join(
+        label
+        for enabled, label in (
+            (exclusions.get("exclude_live", True), "no live versions"),
+            (exclusions.get("exclude_covers", True), "no covers"),
+            (exclusions.get("exclude_remixes", True), "no remixes"),
+        )
+        if enabled
+    ) or "no additional version restrictions"
+    prompt = (
+        "Suggest fallback replacement candidates for an EXISTING playlist. Do not redesign or "
+        "reorder the playlist. The catalogue resolver rejected the previous suggestions, so "
+        f"return exactly {candidate_count} distinct, real released songs by {target.artist}, "
+        "ranked from best musical fit to weakest acceptable fit.\n\n"
+        f"We still need {missing} NEW track(s) by {target.artist}. A new track must not already "
+        "be present in the playlist. Choose songs that preserve the musical role of the exact "
+        "replacement slots: consider era, energy, mood, tempo, texture and the transition from "
+        "the previous song to the next song. Do not choose merely by popularity.\n\n"
+        f"Replacement slots:\n{_replacement_context(current_tracks, victim_keys)}\n\n"
+        f"Current playlist:\n{_playlist_context(current_tracks)}\n\n"
+        f"Already present songs (never suggest these): {present}\n"
+        f"Version restrictions: {version_rules}.\n\n"
+        "Use canonical released artist and song titles. Every returned track must be by the "
+        f"requested artist {target.artist}."
+    )
+
+    try:
+        draft = await generate_playlist_draft(load_config(), prompt, candidate_count)
+    except Exception:
+        return [], victim_keys
+
+    candidates: list[dict[str, str]] = []
+    seen: set[str] = set()
+    current_keys = {_track_key(track) for track in current_tracks if _track_key(track)}
+    repaired_keys = {_track_key(track) for track in repaired_tracks if _track_key(track)}
+    for track in draft.get("tracks", []):
+        if not isinstance(track, dict):
+            continue
+        artist = str(track.get("artist") or track.get("artists") or "").strip()
+        title = str(track.get("title") or "").strip()
+        key = track_identity_key(title, artist)
+        if (
+            not artist
+            or not title
+            or not key
+            or key in current_keys
+            or key in repaired_keys
+            or key in seen
+            or not artist_matches(artist, target.artist)
+        ):
+            continue
+        seen.add(key)
+        candidates.append(
+            {
+                "artist": artist,
+                "title": title,
+                "description": str(track.get("description") or "").strip(),
+                "reason": str(track.get("reason") or "").strip(),
+                "source": "refinement_ai_guided_fallback",
+            }
+        )
+    return candidates, victim_keys
+
+
+async def _resolve_target_candidates(
+    candidates: list[dict[str, str]],
+    *,
+    exclusions: dict[str, bool],
+    metadata_constraints: Any,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    from backend import youtube
+    from backend.metadata_validation import activate_constraints, active_constraints
+
+    if not candidates:
+        return [], []
+    previous_constraints = active_constraints()
+    activate_constraints(metadata_constraints)
+    try:
+        return await youtube.resolve_candidates(candidates, exclusions)
+    finally:
+        activate_constraints(previous_constraints)
+
+
+def _usable_target_additions(
+    resolved: list[dict[str, Any]],
+    *,
+    target: ArtistAdditionTarget,
+    current_keys: set[str],
+    repaired_keys: set[str],
+    already_selected: set[str],
+    limit: int,
+) -> list[dict[str, Any]]:
+    additions: list[dict[str, Any]] = []
+    for track in resolved:
+        key = _track_key(track)
+        if (
+            not key
+            or key in current_keys
+            or key in repaired_keys
+            or key in already_selected
+            or not artist_matches(_track_artist(track), target.artist)
+        ):
+            continue
+        already_selected.add(key)
+        additions.append(track)
+        if len(additions) >= limit:
+            break
+    return additions
+
+
 async def repair_artist_addition_targets(
     current_tracks: list[dict[str, Any]],
     refined_tracks: list[dict[str, Any]],
@@ -357,14 +527,15 @@ async def repair_artist_addition_targets(
     exclusions: dict[str, bool],
     metadata_constraints: Any,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Fill unresolved explicit artist additions from the real YouTube Music catalogue.
+    """Repair unresolved additions using AI-guided candidates before raw catalogue fallback.
 
-    The normal AI refinement remains the primary path. This fallback runs only for a verified
-    numeric deficit, searches the requested artist directly, re-validates each catalogue result
-    through the normal resolver/exclusion pipeline, and replaces only retained current tracks.
+    The normal full-playlist refinement remains the primary path. For a verified numeric deficit,
+    this repair first asks the configured AI for several artist-specific songs that fit the exact
+    replacement slots and their neighbours, then resolves those titles through YouTube Music and
+    the normal metadata/version filters. Direct artist catalogue search is used only for any
+    remaining deficit, preserving availability as a last resort rather than a curation strategy.
     """
     from backend import youtube
-    from backend.metadata_validation import activate_constraints, active_constraints
 
     repaired = [dict(track) for track in refined_tracks]
     unresolved: list[dict[str, Any]] = []
@@ -377,73 +548,96 @@ async def repair_artist_addition_targets(
             continue
 
         repaired_keys = {_track_key(track) for track in repaired if _track_key(track)}
-        search_limit = min(50, max(16, missing * 12))
-        catalogue = await youtube.search_songs(target.artist, limit=search_limit)
-        candidates: list[dict[str, str]] = []
-        seen_candidate_keys: set[str] = set()
-        for song in catalogue:
-            artist = _track_artist(song)
-            title = str(song.get("title") or "").strip()
-            key = track_identity_key(title, artist)
-            if (
-                not artist
-                or not title
-                or not key
-                or key in current_keys
-                or key in repaired_keys
-                or key in seen_candidate_keys
-                or not artist_matches(artist, target.artist)
-            ):
-                continue
-            seen_candidate_keys.add(key)
-            candidates.append(
-                {
-                    "artist": artist,
-                    "title": title,
-                    "description": "",
-                    "reason": f"Added to satisfy the refinement request for {target.artist}.",
-                    "source": "refinement_catalogue_fallback",
-                }
-            )
-
-        if not candidates:
-            continue
-
-        previous_constraints = active_constraints()
-        activate_constraints(metadata_constraints)
-        try:
-            resolved, rejected = await youtube.resolve_candidates(candidates, exclusions)
-        finally:
-            activate_constraints(previous_constraints)
-        unresolved.extend(rejected)
-
         additions: list[dict[str, Any]] = []
         addition_keys: set[str] = set()
-        for track in resolved:
-            key = _track_key(track)
-            if (
-                not key
-                or key in current_keys
-                or key in repaired_keys
-                or key in addition_keys
-                or not artist_matches(_track_artist(track), target.artist)
-            ):
-                continue
-            addition_keys.add(key)
-            additions.append(track)
-            if len(additions) >= missing:
-                break
 
-        if not additions:
-            continue
-
-        victim_keys = _replacement_victim_keys(
+        guided_candidates, victim_keys = await _ai_guided_candidates(
             current_tracks,
             repaired,
             generated_tracks,
             target,
-            len(additions),
+            missing,
+            exclusions,
         )
+        guided_resolved, guided_rejected = await _resolve_target_candidates(
+            guided_candidates,
+            exclusions=exclusions,
+            metadata_constraints=metadata_constraints,
+        )
+        unresolved.extend(guided_rejected)
+        additions.extend(
+            _usable_target_additions(
+                guided_resolved,
+                target=target,
+                current_keys=current_keys,
+                repaired_keys=repaired_keys,
+                already_selected=addition_keys,
+                limit=missing,
+            )
+        )
+
+        remaining = missing - len(additions)
+        if remaining > 0:
+            search_limit = min(50, max(16, remaining * 12))
+            catalogue = await youtube.search_songs(target.artist, limit=search_limit)
+            candidates: list[dict[str, str]] = []
+            seen_candidate_keys: set[str] = set()
+            for song in catalogue:
+                artist = _track_artist(song)
+                title = str(song.get("title") or "").strip()
+                key = track_identity_key(title, artist)
+                if (
+                    not artist
+                    or not title
+                    or not key
+                    or key in current_keys
+                    or key in repaired_keys
+                    or key in addition_keys
+                    or key in seen_candidate_keys
+                    or not artist_matches(artist, target.artist)
+                ):
+                    continue
+                seen_candidate_keys.add(key)
+                candidates.append(
+                    {
+                        "artist": artist,
+                        "title": title,
+                        "description": "",
+                        "reason": (
+                            f"Added as the final catalogue fallback for {target.artist}."
+                        ),
+                        "source": "refinement_catalogue_fallback",
+                    }
+                )
+
+            catalogue_resolved, catalogue_rejected = await _resolve_target_candidates(
+                candidates,
+                exclusions=exclusions,
+                metadata_constraints=metadata_constraints,
+            )
+            unresolved.extend(catalogue_rejected)
+            additions.extend(
+                _usable_target_additions(
+                    catalogue_resolved,
+                    target=target,
+                    current_keys=current_keys,
+                    repaired_keys=repaired_keys,
+                    already_selected=addition_keys,
+                    limit=remaining,
+                )
+            )
+
+        if not additions:
+            continue
+
+        if len(victim_keys) < len(additions):
+            victim_keys = _replacement_victim_keys(
+                current_tracks,
+                repaired,
+                generated_tracks,
+                target,
+                len(additions),
+            )
         if len(victim_keys) < len(additions):
             continue
 
