@@ -303,6 +303,51 @@ def format_artist_addition_mismatches(
     return "The refinement could not satisfy the explicit addition target: " + details + "."
 
 
+def _replacement_victim_keys(
+    current_tracks: list[dict[str, Any]],
+    repaired_tracks: list[dict[str, Any]],
+    generated_tracks: list[dict[str, Any]],
+    target: ArtistAdditionTarget,
+    count: int,
+) -> set[str]:
+    repaired_keys = {_track_key(track) for track in repaired_tracks if _track_key(track)}
+    generated_keys = {_track_key(track) for track in generated_tracks if _track_key(track)}
+    victims: list[str] = []
+    victim_keys: set[str] = set()
+
+    def eligible(track: dict[str, Any]) -> str | None:
+        key = _track_key(track)
+        if (
+            not key
+            or key not in repaired_keys
+            or key in victim_keys
+            or artist_matches(_track_artist(track), target.artist)
+        ):
+            return None
+        return key
+
+    # Prefer slots the AI itself omitted before the generic fallback reinserted them.
+    for track in current_tracks:
+        key = eligible(track)
+        if key and key not in generated_keys:
+            victim_keys.add(key)
+            victims.append(key)
+            if len(victims) >= count:
+                return victim_keys
+
+    # If the AI kept everything, replace as few retained tracks as possible from the tail.
+    for track in reversed(current_tracks):
+        key = eligible(track)
+        if not key:
+            continue
+        victim_keys.add(key)
+        victims.append(key)
+        if len(victims) >= count:
+            break
+
+    return victim_keys
+
+
 async def repair_artist_addition_targets(
     current_tracks: list[dict[str, Any]],
     refined_tracks: list[dict[str, Any]],
@@ -324,7 +369,6 @@ async def repair_artist_addition_targets(
     repaired = [dict(track) for track in refined_tracks]
     unresolved: list[dict[str, Any]] = []
     current_keys = {_track_key(track) for track in current_tracks if _track_key(track)}
-    generated_keys = {_track_key(track) for track in generated_tracks if _track_key(track)}
 
     for target in targets:
         actual = artist_addition_counts(current_tracks, repaired, [target])[target.artist]
@@ -393,35 +437,14 @@ async def repair_artist_addition_targets(
         if not additions:
             continue
 
-        repaired_keys = {_track_key(track) for track in repaired if _track_key(track)}
-        victims: list[str] = []
-        victim_keys: set[str] = set()
-
-        def consider_victim(track: dict[str, Any]) -> None:
-            if len(victims) >= len(additions):
-                return
-            key = _track_key(track)
-            if (
-                not key
-                or key not in repaired_keys
-                or key in victim_keys
-                or artist_matches(_track_artist(track), target.artist)
-            ):
-                return
-            victim_keys.add(key)
-            victims.append(key)
-
-        # Prefer slots the AI itself omitted before the generic fallback reinserted them.
-        for track in current_tracks:
-            key = _track_key(track)
-            if key and key not in generated_keys:
-                consider_victim(track)
-
-        # If the AI kept everything, replace as few retained tracks as possible from the tail.
-        for track in reversed(current_tracks):
-            consider_victim(track)
-
-        if len(victims) < len(additions):
+        victim_keys = _replacement_victim_keys(
+            current_tracks,
+            repaired,
+            generated_tracks,
+            target,
+            len(additions),
+        )
+        if len(victim_keys) < len(additions):
             continue
 
         repaired = [track for track in repaired if _track_key(track) not in victim_keys]
