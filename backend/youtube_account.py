@@ -28,6 +28,7 @@ YOUTUBE_TOKEN_PATH = DATA_DIR / "youtube-oauth.json"
 YOUTUBE_PENDING_PATH = DATA_DIR / "youtube-oauth-pending.json"
 YOUTUBE_SCOPE = "https://www.googleapis.com/auth/youtube"
 GOOGLE_REVOKE_URL = "https://oauth2.googleapis.com/revoke"
+_FATAL_REFRESH_ERRORS = {"invalid_grant", "invalid_token"}
 
 
 class YouTubeAccountError(ValueError):
@@ -130,6 +131,104 @@ def _saved_token_is_usable() -> bool:
     return all(token.get(field) not in (None, "") for field in required)
 
 
+def _access_token_is_current(token: dict[str, Any]) -> bool:
+    return bool(
+        str(token.get("access_token", "")).strip()
+        and int(token.get("expires_at", 0) or 0) > int(time.time()) + 60
+    )
+
+
+def _refresh_token_has_expired(token: dict[str, Any]) -> bool:
+    expires_at = int(token.get("refresh_expires_at", 0) or 0)
+    return bool(expires_at and expires_at <= int(time.time()) + 60)
+
+
+def _refresh_failure_requires_reconnect(value: Any) -> bool:
+    text = str(value).casefold()
+    return any(
+        marker in text
+        for marker in (
+            "invalid_grant",
+            "invalid token",
+            "invalid_token",
+            "token has been expired",
+            "token has been revoked",
+            "expired or revoked",
+        )
+    )
+
+
+def _expired_authorization_error() -> YouTubeAccountError:
+    return YouTubeAccountError(
+        "The Google authorization expired or was revoked. "
+        "Reconnect the YouTube Music account."
+    )
+
+
+def _refresh_access_token_sync() -> str:
+    """Refresh and persist the access token, invalidating unusable account tokens."""
+
+    token = read_json_object(YOUTUBE_TOKEN_PATH)
+    refresh_token = str(token.get("refresh_token", "")).strip()
+    if not refresh_token:
+        delete_file(YOUTUBE_TOKEN_PATH)
+        raise _expired_authorization_error()
+    if _refresh_token_has_expired(token):
+        delete_file(YOUTUBE_TOKEN_PATH)
+        raise _expired_authorization_error()
+
+    try:
+        fresh = _oauth_credentials().refresh_token(refresh_token)
+    except Exception as error:
+        if _refresh_failure_requires_reconnect(error):
+            delete_file(YOUTUBE_TOKEN_PATH)
+            raise _expired_authorization_error() from error
+        raise YouTubeAccountError(
+            "Google could not refresh the authorization. Verify the OAuth client settings "
+            "and try again."
+        ) from error
+
+    if not isinstance(fresh, dict):
+        raise YouTubeAccountError("Google returned an invalid token refresh response.")
+
+    refresh_error = str(fresh.get("error", "")).strip()
+    if refresh_error:
+        description = str(fresh.get("error_description", "")).strip()
+        if refresh_error.casefold() in _FATAL_REFRESH_ERRORS or _refresh_failure_requires_reconnect(
+            f"{refresh_error} {description}"
+        ):
+            delete_file(YOUTUBE_TOKEN_PATH)
+            raise _expired_authorization_error()
+        raise YouTubeAccountError(description or "Google could not refresh the authorization.")
+
+    access_token = str(fresh.get("access_token", "")).strip()
+    if not access_token:
+        delete_file(YOUTUBE_TOKEN_PATH)
+        raise _expired_authorization_error()
+
+    now = int(time.time())
+    access_expires_in = max(1, int(fresh.get("expires_in", 3600)))
+    token["access_token"] = access_token
+    token["expires_at"] = now + access_expires_in
+    token["token_type"] = (
+        str(fresh.get("token_type", token.get("token_type", "Bearer"))) or "Bearer"
+    )
+    if fresh.get("scope"):
+        token["scope"] = fresh["scope"]
+    if fresh.get("refresh_token"):
+        token["refresh_token"] = str(fresh["refresh_token"]).strip()
+
+    raw_refresh_expires_in = fresh.get("refresh_token_expires_in")
+    if raw_refresh_expires_in not in (None, ""):
+        refresh_expires_in = int(raw_refresh_expires_in)
+        if refresh_expires_in > 0:
+            token["refresh_expires_at"] = now + refresh_expires_in
+            token["expires_in"] = max(access_expires_in, refresh_expires_in)
+
+    write_secure_json(YOUTUBE_TOKEN_PATH, token)
+    return access_token
+
+
 def _optional_account_profile_sync(client: Any | None = None) -> dict[str, Any]:
     """Retrieve account presentation data without deciding connection validity.
 
@@ -158,6 +257,7 @@ async def youtube_status() -> dict[str, Any]:
         "catalog_available": True,
         "credentials_configured": settings["configured"],
         "account_connected": False,
+        "reconnect_required": False,
         "account_name": None,
         "channel_handle": None,
         "account_photo_url": None,
@@ -170,6 +270,21 @@ async def youtube_status() -> dict[str, Any]:
     if not _saved_token_is_usable():
         response["message"] = "Google OAuth client configured · account not connected"
         return response
+
+    token = read_json_object(YOUTUBE_TOKEN_PATH)
+    if _refresh_token_has_expired(token):
+        delete_file(YOUTUBE_TOKEN_PATH)
+        response["reconnect_required"] = True
+        response["message"] = str(_expired_authorization_error())
+        return response
+
+    if not _access_token_is_current(token):
+        try:
+            await asyncio.to_thread(_refresh_access_token_sync)
+        except YouTubeAccountError as error:
+            response["reconnect_required"] = not YOUTUBE_TOKEN_PATH.exists()
+            response["message"] = str(error)
+            return response
 
     account = await asyncio.to_thread(_optional_account_profile_sync)
     response.update(_account_payload(account))
@@ -231,19 +346,24 @@ def _token_payload(raw_token: dict[str, Any]) -> dict[str, Any]:
     if not access_token or not refresh_token:
         raise YouTubeAccountError("Google did not return a refreshable account token.")
 
+    now = int(time.time())
     access_expires_in = max(1, int(raw_token.get("expires_in", 3600)))
-    refresh_expires_in = max(
-        access_expires_in,
-        int(raw_token.get("refresh_token_expires_in", access_expires_in)),
-    )
-    return {
+    refresh_expires_in = access_expires_in
+    raw_refresh_expires_in = raw_token.get("refresh_token_expires_in")
+    if raw_refresh_expires_in not in (None, ""):
+        refresh_expires_in = max(access_expires_in, int(raw_refresh_expires_in))
+
+    payload: dict[str, Any] = {
         "scope": str(raw_token.get("scope", YOUTUBE_SCOPE)) or YOUTUBE_SCOPE,
         "token_type": str(raw_token.get("token_type", "Bearer")) or "Bearer",
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "expires_at": int(time.time()) + access_expires_in,
+        "expires_at": now + access_expires_in,
         "expires_in": refresh_expires_in,
     }
+    if raw_refresh_expires_in not in (None, "") and int(raw_refresh_expires_in) > 0:
+        payload["refresh_expires_at"] = now + int(raw_refresh_expires_in)
+    return payload
 
 
 def _poll_authorization_sync() -> dict[str, Any]:
