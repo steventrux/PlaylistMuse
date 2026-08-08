@@ -48,3 +48,13 @@ def test_settings_dialogs_share_the_same_visual_system() -> None:
     assert "Last.fm API connected." in lastfm_script
     assert "setStatus('Configured', 'ok')" in lastfm_script
     assert "setStatus('Not configured')" in lastfm_script
+
+
+def test_playlist_youtube_settings_panel_is_not_hidden() -> None:
+    playlist_html = (FRONTEND / "playlist.html").read_text(encoding="utf-8")
+
+    assert 'class="settings-block youtube-results-settings youtube-settings-panel">' in playlist_html
+    assert (
+        'class="settings-block youtube-results-settings youtube-settings-panel hidden">'
+        not in playlist_html
+    )
