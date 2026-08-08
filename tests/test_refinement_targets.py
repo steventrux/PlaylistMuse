@@ -24,10 +24,33 @@ def test_extracts_quantitative_additions_in_supported_languages() -> None:
         assert extract_artist_addition_targets(instruction) == [expected]
 
 
+def test_extracts_word_counts_in_supported_languages() -> None:
+    cases = {
+        "Add one Bryan Adams song": ArtistAdditionTarget("Bryan Adams", 1),
+        "Add a Bryan Adams song": ArtistAdditionTarget("Bryan Adams", 1),
+        "Include twelve David Bowie tracks": ArtistAdditionTarget("David Bowie", 12),
+        "aggiungi una canzone di Bryan Adams": ArtistAdditionTarget("Bryan Adams", 1),
+        "aggiungi tre canzoni di Bryan Adams": ArtistAdditionTarget("Bryan Adams", 3),
+        "añade una canción de Bryan Adams": ArtistAdditionTarget("Bryan Adams", 1),
+        "añade cinco canciones de Bryan Adams": ArtistAdditionTarget("Bryan Adams", 5),
+        "ajoute une chanson de Bryan Adams": ArtistAdditionTarget("Bryan Adams", 1),
+        "ajoute dix chansons de Bryan Adams": ArtistAdditionTarget("Bryan Adams", 10),
+        "füge ein Lied von Bryan Adams hinzu": ArtistAdditionTarget("Bryan Adams", 1),
+        "füge fünf Lieder von Bryan Adams hinzu": ArtistAdditionTarget("Bryan Adams", 5),
+    }
+
+    for instruction, expected in cases.items():
+        assert extract_artist_addition_targets(instruction) == [expected]
+
+
 def test_english_artist_before_track_word_is_supported() -> None:
     assert extract_artist_addition_targets("Include 2 David Bowie tracks") == [
         ArtistAdditionTarget("David Bowie", 2)
     ]
+
+
+def test_unknown_word_is_not_interpreted_as_a_count() -> None:
+    assert extract_artist_addition_targets("Add several Bryan Adams songs") == []
 
 
 def test_addition_count_only_includes_new_tracks() -> None:
