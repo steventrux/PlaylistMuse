@@ -1,5 +1,9 @@
 <div align="center">
-  <img alt="PlaylistMuse — AI-assisted playlist creation for YouTube Music" src=".github/assets/playlistmuse-logo-lockup.svg" width="100%">
+  <img alt="PlaylistMuse" src="frontend/playlistmuse-banner.svg" width="100%">
+
+  <p>
+    Built for people who would rather describe a sound than manually assemble a queue.
+  </p>
 
   <br>
 
