@@ -1,0 +1,46 @@
+name: Cleanup favicon test
+
+on:
+  push:
+    branches:
+      - dev
+    paths:
+      - .github/workflows/cleanup-favicon-test.yml
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+
+      - name: Consolidate favicon test
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('tests/test_static_assets.py')
+          text = path.read_text(encoding='utf-8')
+          marker = '\ndef test_favicon_uses_exact_uploaded_png() -> None:'
+          if marker not in text:
+              raise SystemExit('old favicon test marker not found')
+          prefix = text.split(marker, 1)[0].rstrip()
+          replacement = '''\n\n\ndef test_favicon_uses_exact_current_logo_and_cache_busting() -> None:\n    expected_link = (\n        '<link rel="icon" type="image/png" href="/static/favicon.png?v=2">'\n    )\n    for html_name in ("index.html", "playlist.html", "library.html"):\n        assert expected_link in _html(html_name)\n\n    favicon = (FRONTEND / "favicon.png").read_bytes()\n    assert sha256(favicon).hexdigest() == (\n        "2afccaf81bc677f9dcc49b7e5bedb5462c5685c1530cbfa1ae829af50b07a918"\n    )\n'''
+          path.write_text(prefix + replacement, encoding='utf-8')
+          Path('.github/workflows/cleanup-favicon-test.yml').unlink()
+          PY
+
+      - name: Commit favicon test cleanup
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/test_static_assets.py .github/workflows/cleanup-favicon-test.yml
+          git commit -m "Consolidate favicon asset test"
+          git push origin HEAD:dev
