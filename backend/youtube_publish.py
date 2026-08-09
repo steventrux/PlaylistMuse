@@ -310,8 +310,7 @@ def _create_playlist_sync(
                         error.status_code,
                         _safe_log_text(error.message),
                     )
-                    if not added:
-                        _delete_quietly(client, playlist_id)
+                    _delete_quietly(client, playlist_id)
                     raise _public_error(error, diagnostic) from error
 
             if not added:
