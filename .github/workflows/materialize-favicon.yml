@@ -44,7 +44,7 @@ jobs:
       - name: Commit favicon asset
         shell: bash
         run: |
-          if git diff --quiet -- frontend/favicon.png; then
+          if [ -z "$(git status --porcelain -- frontend/favicon.png)" ]; then
             echo "favicon.png already matches"
             exit 0
           fi
