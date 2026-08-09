@@ -414,3 +414,16 @@ def test_favicon_uses_exact_uploaded_png() -> None:
     favicon_link = '<link rel="icon" type="image/png" href="/static/favicon.png">'
     for html_name in ("index.html", "playlist.html", "library.html"):
         assert favicon_link in _html(html_name)
+
+
+def test_favicon_uses_exact_current_logo_and_cache_busting() -> None:
+    expected_link = (
+        '<link rel="icon" type="image/png" href="/static/favicon.png?v=2">'
+    )
+    for html_name in ("index.html", "playlist.html", "library.html"):
+        assert expected_link in _html(html_name)
+
+    favicon = (FRONTEND / "favicon.png").read_bytes()
+    assert sha256(favicon).hexdigest() == (
+        "2afccaf81bc677f9dcc49b7e5bedb5462c5685c1530cbfa1ae829af50b07a918"
+    )
