@@ -469,7 +469,7 @@
     currentPage = nextPage;
     expandedLibraryId = null;
     renderLibrary();
-    $('library-list').scrollIntoView({block: 'start'});
+    window.scrollTo({top: 0, left: 0});
   }
 
   function resetPageAndRenderLibrary() {
