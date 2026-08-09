@@ -1,4 +1,4 @@
-"""Structured genre, mood and period metadata for saved playlists."""
+"""Structured genre, mood, period and personal metadata for saved playlists."""
 
 from __future__ import annotations
 
@@ -10,7 +10,10 @@ import httpx
 from backend.config import AppConfig
 from backend.constraint_interpreter import request_structured_json
 
-TAG_LIMITS = {"genre": 3, "mood": 2, "period": 1}
+AI_TAG_LIMITS = {"genre": 3, "mood": 2, "period": 1}
+CUSTOM_TAG_LIMIT = 20
+TAG_LIMITS = {**AI_TAG_LIMITS, "custom": CUSTOM_TAG_LIMIT}
+AI_TAG_KEYS = tuple(AI_TAG_LIMITS)
 TAG_KEYS = tuple(TAG_LIMITS)
 MAX_TAG_LENGTH = 48
 MAX_TAGGING_TRACKS = 60
@@ -81,7 +84,7 @@ def parse_playlist_tags(text: str) -> dict[str, list[str]]:
     payload = json.loads(cleaned[start : end + 1])
     if not isinstance(payload, dict):
         raise ValueError("Playlist tags are not an object.")
-    return normalize_playlist_tags(payload)
+    return normalize_playlist_tags({key: payload.get(key) for key in AI_TAG_KEYS})
 
 
 def _classification_request(playlist: dict[str, Any]) -> str:
@@ -130,7 +133,9 @@ async def suggest_playlist_tags(
                 max_tokens=500,
                 model=model,
             )
-            return parse_playlist_tags(text)
+            tags = parse_playlist_tags(text)
+            tags["custom"] = normalize_playlist_tags(playlist.get("tags"))["custom"]
+            return tags
         except (httpx.HTTPError, TypeError, ValueError, json.JSONDecodeError) as error:
             errors.append(error)
 
