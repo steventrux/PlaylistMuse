@@ -26,6 +26,23 @@ def test_sidebar_replaces_header_shortcuts_and_keeps_provider_status_dynamic() -
     assert "Configuration error" in style
 
 
+def test_primary_pages_become_tabs_inside_main_cards() -> None:
+    script = _text("common.js")
+    style = _text("primary-navigation.css")
+
+    assert "function primaryNavigationTarget()" in script
+    assert "function installPrimaryNavigationTabs()" in script
+    assert "/static/primary-navigation.css?v=1" in script
+    assert 'aria-labelledby="sidebar-pages-label"' in script
+    assert "pageGroup.remove();" in script
+    assert "target.prepend(tabs);" in script
+    assert "installPrimaryNavigationTabs();" in script
+    assert ".primary-page-tabs" in style
+    assert ".primary-page-tab.active" in style
+    assert "calc(-1 * var(--primary-navigation-card-padding))" in style
+    assert 'primary-page-tab[aria-current="page"]' in style
+
+
 def test_results_allow_manual_reordering_only_before_publication() -> None:
     html = _text("playlist.html")
     script = _text("playlist.js")
