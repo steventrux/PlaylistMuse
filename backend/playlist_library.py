@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from contextlib import suppress
 from copy import deepcopy
@@ -14,11 +15,13 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from backend.config import DATA_DIR
+from backend.config import DATA_DIR, load_config
+from backend.playlist_tags import normalize_playlist_tags, suggest_playlist_tags
 
 DATABASE_PATH = DATA_DIR / "playlists.db"
 SCHEMA_VERSION = 1
 SortOrder = Literal["updated_desc", "created_desc", "title_asc", "title_desc"]
+LOGGER = logging.getLogger("playlistmuse.library")
 
 router = APIRouter(prefix="/library/playlists", tags=["playlist-library"])
 
@@ -49,6 +52,8 @@ class PlaylistWriteRequest(BaseModel):
         )
         playlist["description"] = str(playlist.get("description", "")).strip()[:2000]
         playlist["prompt"] = str(playlist.get("prompt", "")).strip()[:1950]
+        if "tags" in playlist:
+            playlist["tags"] = normalize_playlist_tags(playlist.get("tags"))
         return playlist
 
 
@@ -157,6 +162,10 @@ class PlaylistLibrary:
 
     def _record(self, row: sqlite3.Row, *, include_document: bool) -> dict[str, Any]:
         playlist = self._decode(row["playlist_json"], {})
+        if not isinstance(playlist, dict):
+            playlist = {}
+        tags = normalize_playlist_tags(playlist.get("tags"))
+        playlist["tags"] = tags
         record = {
             "id": row["id"],
             "name": row["name"],
@@ -165,6 +174,7 @@ class PlaylistLibrary:
             "status": row["status"],
             "track_count": row["track_count"],
             "thumbnail_urls": self._thumbnails(playlist),
+            "tags": tags,
             "youtube_playlist_id": row["youtube_playlist_id"],
             "youtube_playlist_url": row["youtube_playlist_url"],
             "created_at": row["created_at"],
@@ -234,9 +244,23 @@ class PlaylistLibrary:
         playlist: dict[str, Any],
         generation_request: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        publication, remote_id, remote_url = self._publication(playlist)
+        updated_playlist = dict(playlist)
         with self._connect() as connection:
-            cursor = connection.execute(
+            existing_row = connection.execute(
+                "SELECT playlist_json FROM playlists WHERE id = ?", (playlist_id,)
+            ).fetchone()
+            if existing_row is None:
+                raise PlaylistNotFoundError(playlist_id)
+
+            if "tags" not in updated_playlist:
+                existing_playlist = self._decode(existing_row["playlist_json"], {})
+                if isinstance(existing_playlist, dict) and "tags" in existing_playlist:
+                    updated_playlist["tags"] = normalize_playlist_tags(
+                        existing_playlist.get("tags")
+                    )
+
+            publication, remote_id, remote_url = self._publication(updated_playlist)
+            connection.execute(
                 """
                 UPDATE playlists
                 SET name = ?, description = ?, prompt = ?, status = ?, track_count = ?,
@@ -245,21 +269,19 @@ class PlaylistLibrary:
                 WHERE id = ?
                 """,
                 (
-                    playlist["name"],
-                    playlist.get("description", ""),
-                    playlist.get("prompt", ""),
+                    updated_playlist["name"],
+                    updated_playlist.get("description", ""),
+                    updated_playlist.get("prompt", ""),
                     publication,
-                    len(playlist["tracks"]),
+                    len(updated_playlist["tracks"]),
                     remote_id,
                     remote_url,
-                    self._json(playlist),
+                    self._json(updated_playlist),
                     self._json(generation_request),
                     self._now(),
                     playlist_id,
                 ),
             )
-        if cursor.rowcount == 0:
-            raise PlaylistNotFoundError(playlist_id)
         return self.get(playlist_id)
 
     def duplicate(self, playlist_id: str) -> dict[str, Any]:
@@ -307,7 +329,24 @@ async def list_playlists(
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_playlist(request: PlaylistWriteRequest) -> dict[str, Any]:
-    return get_library().create(request.playlist, request.generation_request)
+    library = get_library()
+    created = library.create(request.playlist, request.generation_request)
+    if "tags" in request.playlist:
+        return created
+
+    try:
+        tags = await suggest_playlist_tags(load_config(), created["playlist"])
+    except Exception as error:
+        LOGGER.warning(
+            "Automatic playlist tagging skipped id=%s error=%s",
+            created["id"],
+            type(error).__name__,
+        )
+        return created
+
+    playlist = deepcopy(created["playlist"])
+    playlist["tags"] = tags
+    return library.update(created["id"], playlist, created["generation_request"])
 
 
 @router.get("/{playlist_id}")
@@ -329,6 +368,32 @@ async def update_playlist(
         )
     except PlaylistNotFoundError as error:
         raise _not_found(playlist_id) from error
+
+
+@router.post("/{playlist_id}/tags/suggest")
+async def suggest_tags(playlist_id: str) -> dict[str, Any]:
+    try:
+        record = get_library().get(playlist_id)
+    except PlaylistNotFoundError as error:
+        raise _not_found(playlist_id) from error
+
+    try:
+        tags = await suggest_playlist_tags(load_config(), record["playlist"])
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=502,
+            detail="Playlist tags could not be generated. Please try again.",
+        ) from error
+
+    playlist = deepcopy(record["playlist"])
+    playlist["tags"] = tags
+    return get_library().update(
+        playlist_id,
+        playlist,
+        record["generation_request"],
+    )
 
 
 @router.post("/{playlist_id}/duplicate", status_code=status.HTTP_201_CREATED)
