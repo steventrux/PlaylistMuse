@@ -403,3 +403,14 @@ def test_published_playlist_hides_track_replacement_controls() -> None:
     assert "playlistmuse-playlist-published" in playlist_script
     assert "playlistmuse-playlist-published" in youtube_publish
     assert "new CustomEvent" in youtube_publish
+
+
+def test_favicon_uses_exact_uploaded_png() -> None:
+    favicon = (FRONTEND / "favicon.png").read_bytes()
+
+    assert sha256(favicon).hexdigest() == (
+        "2afccaf81bc677f9dcc49b7e5bedb5462c5685c1530cbfa1ae829af50b07a918"
+    )
+    favicon_link = '<link rel="icon" type="image/png" href="/static/favicon.png">'
+    for html_name in ("index.html", "playlist.html", "library.html"):
+        assert favicon_link in _html(html_name)
