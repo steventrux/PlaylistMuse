@@ -6,6 +6,7 @@
   const ENDPOINT = '/api/library/playlists';
   const $ = (id) => document.getElementById(id);
   const {readJson, setLoadingButton} = window.PlaylistMuseCommon;
+  const tagTools = window.PlaylistMuseLibraryTags;
   let expandedLibraryId = null;
   let libraryItems = [];
   let activeStatusFilter = 'all';
@@ -34,6 +35,7 @@
       }),
     }));
     playlist.library_id = record.id;
+    if (record.playlist?.tags) playlist.tags = record.playlist.tags;
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(playlist));
   }
 
@@ -277,6 +279,8 @@
       .join(' · ');
 
     copy.append(titleRow, meta);
+    const tagSummary = tagTools?.summary(item);
+    if (tagSummary) copy.append(tagSummary);
 
     const expandIcon = document.createElement('span');
     expandIcon.className = 'library-expand-icon';
@@ -303,6 +307,15 @@
         `Updated ${formatDate(item.updated_at)}`,
       ]),
     );
+
+    tagTools?.install({
+      item,
+      detailGrid,
+      reload: loadLibrary,
+      setStatus,
+      readJson,
+      endpoint: ENDPOINT,
+    });
 
     if (item.youtube_playlist_id || item.youtube_playlist_url) {
       detailGrid.append(detailBlock('YouTube Music', [
@@ -371,7 +384,7 @@
       void hydrateRefinementHistory(item, requestBlock);
     }
     card.addEventListener('click', (event) => {
-      if (event.target.closest('a, button')) return;
+      if (event.target.closest('a, button, input, select, label, form')) return;
       toggleLibraryCard(card, item);
     });
     card.addEventListener('keydown', (event) => {
@@ -389,15 +402,20 @@
 
   function matchesSearch(item, query) {
     if (!query) return true;
-    return [item.name, item.description, item.prompt]
-      .some((value) => normalizedSearch(value).includes(query));
+    return [
+      item.name,
+      item.description,
+      item.prompt,
+      ...(tagTools?.searchValues(item) || []),
+    ].some((value) => normalizedSearch(value).includes(query));
   }
 
   function visibleLibraryItems() {
     const query = normalizedSearch($('library-search').value);
     return libraryItems.filter((item) => {
       const matchesStatus = activeStatusFilter === 'all' || item.status === activeStatusFilter;
-      return matchesStatus && matchesSearch(item, query);
+      const matchesTags = tagTools?.matchesFilters(item) ?? true;
+      return matchesStatus && matchesTags && matchesSearch(item, query);
     });
   }
 
@@ -441,6 +459,7 @@
         cache: 'no-store',
       }));
       libraryItems = Array.isArray(payload.items) ? payload.items : [];
+      tagTools?.refreshFilters(libraryItems);
       renderLibrary();
       setStatus('');
     } catch (error) {
@@ -464,6 +483,7 @@
   }
 
   $('library-search').addEventListener('input', renderLibrary);
+  tagTools?.bindFilters(renderLibrary);
   document.querySelectorAll('[data-status-filter]').forEach((button) => {
     button.addEventListener('click', () => setStatusFilter(button.dataset.statusFilter || 'all'));
   });
