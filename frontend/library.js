@@ -7,9 +7,12 @@
   const $ = (id) => document.getElementById(id);
   const {readJson, setLoadingButton} = window.PlaylistMuseCommon;
   const tagTools = window.PlaylistMuseLibraryTags;
+  const paginationTools = window.PlaylistMuseLibraryPagination;
+  const PAGE_SIZE = paginationTools.DEFAULT_PAGE_SIZE;
   let expandedLibraryId = null;
   let libraryItems = [];
   let activeStatusFilter = 'all';
+  let currentPage = 1;
 
   function readSessionJson(key) {
     try {
@@ -423,14 +426,69 @@
     $('library-count').textContent = `${count} ${count === 1 ? 'playlist' : 'playlists'}`;
   }
 
+  function createPageButton(pageNumber) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'library-page-number';
+    button.textContent = String(pageNumber);
+    button.setAttribute('aria-label', `Go to page ${pageNumber}`);
+    const active = pageNumber === currentPage;
+    button.classList.toggle('active', active);
+    if (active) button.setAttribute('aria-current', 'page');
+    button.addEventListener('click', () => setLibraryPage(pageNumber));
+    return button;
+  }
+
+  function renderPagination(pageState) {
+    const pagination = $('library-pagination');
+    const numbers = $('library-page-numbers');
+    const showPagination = pageState.totalPages > 1;
+    pagination.classList.toggle('hidden', !showPagination);
+    if (!showPagination) {
+      numbers.replaceChildren();
+      return;
+    }
+
+    $('library-page-previous').disabled = currentPage <= 1;
+    $('library-page-next').disabled = currentPage >= pageState.totalPages;
+    const controls = paginationTools.pageTokens(currentPage, pageState.totalPages).map((token) => {
+      if (token !== 'ellipsis') return createPageButton(token);
+      const ellipsis = document.createElement('span');
+      ellipsis.className = 'library-page-ellipsis';
+      ellipsis.textContent = '…';
+      ellipsis.setAttribute('aria-hidden', 'true');
+      return ellipsis;
+    });
+    numbers.replaceChildren(...controls);
+  }
+
+  function setLibraryPage(pageNumber) {
+    const totalItems = visibleLibraryItems().length;
+    const nextPage = paginationTools.clampPage(pageNumber, totalItems, PAGE_SIZE);
+    if (nextPage === currentPage) return;
+    currentPage = nextPage;
+    expandedLibraryId = null;
+    renderLibrary();
+    $('library-list').scrollIntoView({block: 'start'});
+  }
+
+  function resetPageAndRenderLibrary() {
+    currentPage = 1;
+    expandedLibraryId = null;
+    renderLibrary();
+  }
+
   function renderLibrary() {
     const items = visibleLibraryItems();
-    if (expandedLibraryId && !items.some((item) => item.id === expandedLibraryId)) {
+    const pageState = paginationTools.paginate(items, currentPage, PAGE_SIZE);
+    currentPage = pageState.currentPage;
+    if (expandedLibraryId && !pageState.items.some((item) => item.id === expandedLibraryId)) {
       expandedLibraryId = null;
     }
 
-    $('library-list').replaceChildren(...items.map(createLibraryItem));
+    $('library-list').replaceChildren(...pageState.items.map(createLibraryItem));
     updateLibraryCount(items.length);
+    renderPagination(pageState);
 
     const empty = $('library-empty');
     const hasSavedPlaylists = libraryItems.length > 0;
@@ -439,9 +497,10 @@
       : 'No saved playlists yet. Create one and it will appear here automatically.';
     empty.classList.toggle('hidden', items.length > 0);
   }
-
   function setStatusFilter(filter) {
     activeStatusFilter = filter;
+    currentPage = 1;
+    expandedLibraryId = null;
     document.querySelectorAll('[data-status-filter]').forEach((button) => {
       const active = button.dataset.statusFilter === filter;
       button.classList.toggle('active', active);
@@ -482,12 +541,15 @@
     if (migrationError) setStatus(migrationError, true);
   }
 
-  $('library-search').addEventListener('input', renderLibrary);
-  tagTools?.bindFilters(renderLibrary);
+  $('library-search').addEventListener('input', resetPageAndRenderLibrary);
+  tagTools?.bindFilters(resetPageAndRenderLibrary);
   document.querySelectorAll('[data-status-filter]').forEach((button) => {
     button.addEventListener('click', () => setStatusFilter(button.dataset.statusFilter || 'all'));
   });
+  $('library-page-previous').addEventListener('click', () => setLibraryPage(currentPage - 1));
+  $('library-page-next').addEventListener('click', () => setLibraryPage(currentPage + 1));
   $('library-sort').addEventListener('change', () => {
+    currentPage = 1;
     expandedLibraryId = null;
     void loadLibrary();
   });
