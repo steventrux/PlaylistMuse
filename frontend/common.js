@@ -127,6 +127,63 @@
     }
   }
 
+  function primaryNavigationTarget() {
+    const path = window.location.pathname;
+    if (path.endsWith('/library.html')) {
+      return document.querySelector('.library-card');
+    }
+    if (path === '/' || path.endsWith('/index.html')) {
+      return document.querySelector('.hero.card');
+    }
+    return null;
+  }
+
+  function ensurePrimaryNavigationStyles() {
+    if (document.querySelector('link[href^="/static/primary-navigation.css"]')) return;
+    const stylesheet = document.createElement('link');
+    stylesheet.rel = 'stylesheet';
+    stylesheet.href = '/static/primary-navigation.css?v=1';
+    document.head.append(stylesheet);
+  }
+
+  function installPrimaryNavigationTabs() {
+    const target = primaryNavigationTarget();
+    if (!target || target.querySelector('.primary-page-tabs')) return;
+
+    const pageGroup = document.querySelector(
+      '.playlistmuse-sidebar .sidebar-group[aria-labelledby="sidebar-pages-label"]',
+    );
+    if (!pageGroup) return;
+
+    const links = Array.from(pageGroup.querySelectorAll('.sidebar-link'));
+    if (!links.length) return;
+
+    ensurePrimaryNavigationStyles();
+
+    const tabs = document.createElement('nav');
+    tabs.className = 'primary-page-tabs';
+    tabs.setAttribute('aria-label', 'Primary playlist navigation');
+
+    links.forEach((link) => {
+      const label = link.querySelector('span')?.textContent?.trim()
+        || link.textContent.trim();
+      const active = link.getAttribute('aria-current') === 'page';
+
+      link.className = 'primary-page-tab';
+      link.classList.toggle('active', active);
+      link.replaceChildren(label);
+      tabs.append(link);
+    });
+
+    const sidebar = pageGroup.closest('.playlistmuse-sidebar');
+    const sidebarNav = pageGroup.closest('.sidebar-nav');
+    pageGroup.remove();
+    if (sidebar) sidebar.setAttribute('aria-label', 'PlaylistMuse integrations');
+    if (sidebarNav) sidebarNav.setAttribute('aria-label', 'Integrations');
+
+    target.prepend(tabs);
+  }
+
   function installPromptAssessmentStyles() {
     if (document.getElementById('prompt-assessment-styles')) return;
     const style = document.createElement('style');
@@ -289,6 +346,7 @@
   }
 
   function initializeEnhancements() {
+    installPrimaryNavigationTabs();
     installPromptPreflight();
     void loadLastFmEnhancements();
   }
