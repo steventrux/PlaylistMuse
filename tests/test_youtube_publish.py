@@ -82,3 +82,83 @@ def test_add_track_stops_after_retry_limit(monkeypatch: pytest.MonkeyPatch) -> N
 
     assert calls == youtube_publish.TRACK_INSERT_MAX_ATTEMPTS
     assert sleeps == [youtube_publish.TRACK_INSERT_RETRY_DELAY_SECONDS]
+
+
+def _patch_publish_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    class DummyClient:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(youtube_publish.httpx, "Client", lambda *args, **kwargs: DummyClient())
+    monkeypatch.setattr(
+        youtube_publish,
+        "_create_empty_playlist",
+        lambda client, title, description: "PL123",
+    )
+
+
+def test_fatal_insert_rolls_back_partially_created_playlist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_publish_client(monkeypatch)
+    inserted: list[str] = []
+    deleted: list[str] = []
+
+    def fake_add_track(client, playlist_id: str, video_id: str) -> None:
+        if video_id == "fatal-video":
+            raise youtube_publish._GoogleApiError(500, "backendError", "fatal insert")
+        inserted.append(video_id)
+
+    monkeypatch.setattr(youtube_publish, "_add_track", fake_add_track)
+    monkeypatch.setattr(
+        youtube_publish,
+        "_delete_quietly",
+        lambda client, playlist_id: deleted.append(playlist_id),
+    )
+
+    with pytest.raises(youtube_publish.YouTubeAccountError):
+        youtube_publish._create_playlist_sync(
+            "Night drive",
+            "Test playlist",
+            "PRIVATE",
+            ["first-video", "fatal-video"],
+        )
+
+    assert inserted == ["first-video"]
+    assert deleted == ["PL123"]
+
+
+def test_skippable_insert_error_keeps_valid_playlist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_publish_client(monkeypatch)
+    inserted: list[str] = []
+    deleted: list[str] = []
+
+    def fake_add_track(client, playlist_id: str, video_id: str) -> None:
+        if video_id == "missing-video":
+            raise youtube_publish._GoogleApiError(404, "videoNotFound", "missing")
+        inserted.append(video_id)
+
+    monkeypatch.setattr(youtube_publish, "_add_track", fake_add_track)
+    monkeypatch.setattr(
+        youtube_publish,
+        "_delete_quietly",
+        lambda client, playlist_id: deleted.append(playlist_id),
+    )
+
+    result = youtube_publish._create_playlist_sync(
+        "Night drive",
+        "Test playlist",
+        "PRIVATE",
+        ["valid-video", "missing-video"],
+    )
+
+    assert inserted == ["valid-video"]
+    assert deleted == []
+    assert result["track_count"] == 1
+    assert result["skipped_count"] == 1
+    assert result["playlist_id"] == "PL123"
