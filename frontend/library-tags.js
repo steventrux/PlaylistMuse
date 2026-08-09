@@ -1,15 +1,21 @@
 (() => {
   'use strict';
 
-  const LIMITS = {genre: 3, mood: 2, period: 1};
-  const FILTER_IDS = {
-    genre: 'library-genre-filter',
-    mood: 'library-mood-filter',
-    period: 'library-period-filter',
-  };
+  const LIMITS = {genre: 3, mood: 2, period: 1, custom: 20};
+  const AI_CATEGORIES = ['genre', 'mood', 'period'];
+  const activeTagFilters = new Set();
+  let renderLibrary = null;
+  let reloadLibrary = null;
+  let setLibraryStatus = null;
+  let readJson = null;
+  let endpoint = '';
 
   function clean(value) {
     return String(value || '').trim().replace(/\s+/g, ' ');
+  }
+
+  function keyFor(value) {
+    return clean(value).toLocaleLowerCase();
   }
 
   function valuesFor(tags, category) {
@@ -18,7 +24,7 @@
     return values
       .map(clean)
       .filter((value) => {
-        const key = value.toLocaleLowerCase();
+        const key = keyFor(value);
         if (!value || seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -31,208 +37,247 @@
       genre: valuesFor(tags, 'genre'),
       mood: valuesFor(tags, 'mood'),
       period: valuesFor(tags, 'period'),
+      custom: valuesFor(tags, 'custom'),
     };
-  }
-
-  function hasTags(tags) {
-    return Object.values(normalize(tags)).some((values) => values.length);
   }
 
   function searchValues(item) {
     const tags = normalize(item?.tags);
-    return [...tags.genre, ...tags.mood, ...tags.period];
-  }
-
-  function chip(label, value) {
-    const element = document.createElement('span');
-    element.className = 'library-tag-chip';
-    element.textContent = `${label}: ${value}`;
-    return element;
-  }
-
-  function summary(item) {
-    const tags = normalize(item?.tags);
-    if (!hasTags(tags)) return null;
-
-    const container = document.createElement('div');
-    container.className = 'library-tags';
-    tags.genre.forEach((value) => container.append(chip('Genre', value)));
-    tags.mood.forEach((value) => container.append(chip('Mood', value)));
-    tags.period.forEach((value) => container.append(chip('Period', value)));
-    return container;
-  }
-
-  function filterValue(category) {
-    return clean(document.getElementById(FILTER_IDS[category])?.value).toLocaleLowerCase();
+    return [...tags.genre, ...tags.mood, ...tags.period, ...tags.custom];
   }
 
   function matchesFilters(item) {
-    const tags = normalize(item?.tags);
-    return Object.keys(FILTER_IDS).every((category) => {
-      const selected = filterValue(category);
-      if (!selected) return true;
-      return tags[category].some((value) => value.toLocaleLowerCase() === selected);
-    });
-  }
-
-  function categoryOptions(items, category) {
-    const values = new Map();
-    items.forEach((item) => {
-      valuesFor(item?.tags, category).forEach((value) => {
-        const key = value.toLocaleLowerCase();
-        if (!values.has(key)) values.set(key, value);
-      });
-    });
-    return [...values.values()].sort((left, right) => left.localeCompare(right));
-  }
-
-  function refreshSelect(select, values) {
-    if (!select) return;
-    const previous = select.value;
-    const first = select.options[0]?.cloneNode(true);
-    select.replaceChildren();
-    if (first) select.append(first);
-    values.forEach((value) => {
-      const option = document.createElement('option');
-      option.value = value;
-      option.textContent = value;
-      select.append(option);
-    });
-    if ([...select.options].some((option) => option.value === previous)) {
-      select.value = previous;
-    }
+    if (!activeTagFilters.size) return true;
+    const itemTags = new Set(searchValues(item).map(keyFor));
+    return [...activeTagFilters].every((tag) => itemTags.has(tag));
   }
 
   function refreshFilters(items) {
-    Object.entries(FILTER_IDS).forEach(([category, id]) => {
-      refreshSelect(document.getElementById(id), categoryOptions(items, category));
+    const available = new Set(
+      items.flatMap((item) => searchValues(item)).map(keyFor),
+    );
+    [...activeTagFilters].forEach((tag) => {
+      if (!available.has(tag)) activeTagFilters.delete(tag);
     });
   }
 
   function bindFilters(render) {
-    Object.values(FILTER_IDS).forEach((id) => {
-      document.getElementById(id)?.addEventListener('change', render);
-    });
+    renderLibrary = render;
   }
 
-  function parseList(value, category) {
-    const values = [];
-    const seen = new Set();
-    String(value || '').split(',').forEach((part) => {
-      const tag = clean(part);
-      const key = tag.toLocaleLowerCase();
-      if (!tag || seen.has(key)) return;
-      if (tag.length > 48) throw new Error('Tags must be 48 characters or fewer.');
-      seen.add(key);
-      values.push(tag);
-    });
-    if (values.length > LIMITS[category]) {
-      throw new Error(
-        `${category[0].toUpperCase()}${category.slice(1)} supports at most ${LIMITS[category]} ${LIMITS[category] === 1 ? 'tag' : 'tags'}.`,
-      );
+  function toggleFilter(value) {
+    const key = keyFor(value);
+    if (!key) return;
+    if (activeTagFilters.has(key)) {
+      activeTagFilters.delete(key);
+    } else {
+      activeTagFilters.add(key);
     }
-    return values;
+    renderLibrary?.();
   }
 
-  function field(labelText, value, {placeholder = '', single = false} = {}) {
-    const label = document.createElement('label');
-    label.className = 'library-tag-field';
-    const text = document.createElement('span');
-    text.textContent = labelText;
+  function filterChip(value, {category = '', personal = false} = {}) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `library-tag-chip${personal ? ' library-tag-personal-value' : ''}`;
+    button.textContent = value;
+    button.dataset.tagValue = value;
+    if (category) button.dataset.tagCategory = category;
+    const active = activeTagFilters.has(keyFor(value));
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+    button.title = category
+      ? `${category[0].toUpperCase()}${category.slice(1)}: ${value}`
+      : `Personal tag: ${value}`;
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      toggleFilter(value);
+    });
+    return button;
+  }
+
+  function plusIcon() {
+    return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg>';
+  }
+
+  function checkIcon() {
+    return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"/></svg>';
+  }
+
+  function trashIcon() {
+    return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5"/></svg>';
+  }
+
+  async function updatePersonalTags(item, update, statusText) {
+    if (!readJson || !endpoint || !reloadLibrary) {
+      throw new Error('Playlist tag controls are not ready yet.');
+    }
+    setLibraryStatus?.(statusText);
+    const record = await readJson(await fetch(
+      `${endpoint}/${encodeURIComponent(item.id)}`,
+      {cache: 'no-store'},
+    ));
+    const tags = normalize(record.playlist?.tags);
+    update(tags);
+    record.playlist.tags = tags;
+    await readJson(await fetch(`${endpoint}/${encodeURIComponent(item.id)}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        playlist: record.playlist,
+        generation_request: record.generation_request || null,
+      }),
+    }));
+    await reloadLibrary();
+    setLibraryStatus?.('');
+  }
+
+  async function addPersonalTag(item, value) {
+    const label = clean(value);
+    if (!label) throw new Error('Enter a tag first.');
+    if (label.length > 48) throw new Error('Tags must be 48 characters or fewer.');
+
+    await updatePersonalTags(item, (tags) => {
+      const existing = new Set(
+        [...tags.genre, ...tags.mood, ...tags.period, ...tags.custom].map(keyFor),
+      );
+      if (existing.has(keyFor(label))) throw new Error('This tag already exists.');
+      if (tags.custom.length >= LIMITS.custom) {
+        throw new Error(`A playlist can have at most ${LIMITS.custom} personal tags.`);
+      }
+      tags.custom.push(label);
+    }, 'Adding personal tag…');
+  }
+
+  async function removePersonalTag(item, value) {
+    const key = keyFor(value);
+    await updatePersonalTags(item, (tags) => {
+      tags.custom = tags.custom.filter((tag) => keyFor(tag) !== key);
+    }, 'Removing personal tag…');
+  }
+
+  function personalChip(item, value) {
+    const wrapper = document.createElement('span');
+    wrapper.className = 'library-personal-tag';
+    wrapper.append(filterChip(value, {personal: true}));
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'library-tag-delete';
+    remove.innerHTML = trashIcon();
+    remove.setAttribute('aria-label', `Delete personal tag ${value}`);
+    remove.title = 'Delete personal tag';
+    remove.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      remove.disabled = true;
+      try {
+        await removePersonalTag(item, value);
+      } catch (error) {
+        remove.disabled = false;
+        setLibraryStatus?.(error.message || String(error), true);
+      }
+    });
+    wrapper.append(remove);
+    return wrapper;
+  }
+
+  function openAddForm(container, item, addButton) {
+    const existing = container.querySelector('.library-tag-add-form');
+    if (existing) {
+      existing.querySelector('input')?.focus();
+      return;
+    }
+
+    const form = document.createElement('form');
+    form.className = 'library-tag-add-form';
     const input = document.createElement('input');
     input.type = 'text';
-    input.value = value;
-    input.placeholder = placeholder;
+    input.maxLength = 48;
     input.autocomplete = 'off';
-    if (single) input.dataset.singleTag = 'true';
-    label.append(text, input);
-    return {label, input};
+    input.placeholder = 'Personal tag';
+    input.setAttribute('aria-label', 'New personal tag');
+
+    const confirm = document.createElement('button');
+    confirm.type = 'submit';
+    confirm.className = 'library-tag-confirm';
+    confirm.innerHTML = checkIcon();
+    confirm.setAttribute('aria-label', 'Add personal tag');
+    confirm.title = 'Add tag';
+
+    function close() {
+      form.remove();
+      addButton.hidden = false;
+    }
+
+    input.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      close();
+      addButton.focus();
+    });
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      input.disabled = true;
+      confirm.disabled = true;
+      try {
+        await addPersonalTag(item, input.value);
+      } catch (error) {
+        input.disabled = false;
+        confirm.disabled = false;
+        setLibraryStatus?.(error.message || String(error), true);
+        input.focus();
+      }
+    });
+
+    form.addEventListener('click', (event) => event.stopPropagation());
+    form.append(input, confirm);
+    addButton.hidden = true;
+    addButton.insertAdjacentElement('afterend', form);
+    input.focus();
   }
 
-  function install({item, detailGrid, reload, setStatus, readJson, endpoint}) {
+  function addButton(container, item) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'library-tag-add';
+    button.innerHTML = plusIcon();
+    button.setAttribute('aria-label', 'Add a personal tag');
+    button.title = 'Add personal tag';
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      openAddForm(container, item, button);
+    });
+    return button;
+  }
+
+  function summary(item) {
     const tags = normalize(item?.tags);
-    const block = document.createElement('section');
-    block.className = 'library-detail-block library-tags-editor';
+    const container = document.createElement('div');
+    container.className = 'library-tags';
 
-    const heading = document.createElement('h3');
-    heading.textContent = 'Tags';
-    const hint = document.createElement('p');
-    hint.className = 'library-tag-hint';
-    hint.textContent = 'Genre up to 3 · Mood up to 2 · Period 1';
-
-    const fields = document.createElement('div');
-    fields.className = 'library-tag-fields';
-    const genre = field('Genre', tags.genre.join(', '), {placeholder: 'Rock, Blues Rock'});
-    const mood = field('Mood', tags.mood.join(', '), {placeholder: 'Energetic, Atmospheric'});
-    const period = field('Period', tags.period[0] || '', {placeholder: '1970s–1980s', single: true});
-    fields.append(genre.label, mood.label, period.label);
-
-    const actions = document.createElement('div');
-    actions.className = 'library-tag-actions';
-    const save = document.createElement('button');
-    save.type = 'button';
-    save.className = 'secondary';
-    save.textContent = 'Save tags';
-    const suggest = document.createElement('button');
-    suggest.type = 'button';
-    suggest.className = 'secondary';
-    suggest.textContent = hasTags(tags) ? 'Suggest again' : 'Suggest with AI';
-    actions.append(save, suggest);
-
-    save.addEventListener('click', async (event) => {
-      event.stopPropagation();
-      try {
-        const nextTags = {
-          genre: parseList(genre.input.value, 'genre'),
-          mood: parseList(mood.input.value, 'mood'),
-          period: parseList(period.input.value, 'period'),
-        };
-        save.disabled = true;
-        suggest.disabled = true;
-        setStatus('Saving playlist tags…');
-        const record = await readJson(await fetch(
-          `${endpoint}/${encodeURIComponent(item.id)}`,
-          {cache: 'no-store'},
-        ));
-        record.playlist.tags = nextTags;
-        await readJson(await fetch(`${endpoint}/${encodeURIComponent(item.id)}`, {
-          method: 'PUT',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({
-            playlist: record.playlist,
-            generation_request: record.generation_request || null,
-          }),
-        }));
-        await reload();
-        setStatus('');
-      } catch (error) {
-        save.disabled = false;
-        suggest.disabled = false;
-        setStatus(error.message || String(error), true);
-      }
+    const aiGroup = document.createElement('span');
+    aiGroup.className = 'library-tag-ai-group';
+    AI_CATEGORIES.forEach((category) => {
+      tags[category].forEach((value) => {
+        aiGroup.append(filterChip(value, {category}));
+      });
     });
 
-    suggest.addEventListener('click', async (event) => {
-      event.stopPropagation();
-      save.disabled = true;
-      suggest.disabled = true;
-      setStatus('Classifying playlist tags…');
-      try {
-        await readJson(await fetch(
-          `${endpoint}/${encodeURIComponent(item.id)}/tags/suggest`,
-          {method: 'POST'},
-        ));
-        await reload();
-        setStatus('');
-      } catch (error) {
-        save.disabled = false;
-        suggest.disabled = false;
-        setStatus(error.message || String(error), true);
-      }
-    });
+    const personalGroup = document.createElement('span');
+    personalGroup.className = 'library-tag-personal-group';
+    tags.custom.forEach((value) => personalGroup.append(personalChip(item, value)));
 
-    block.append(heading, hint, fields, actions);
-    detailGrid.append(block);
+    container.append(aiGroup, addButton(container, item), personalGroup);
+    return container;
+  }
+
+  function install({reload, setStatus, readJson: jsonReader, endpoint: apiEndpoint}) {
+    reloadLibrary = reload;
+    setLibraryStatus = setStatus;
+    readJson = jsonReader;
+    endpoint = apiEndpoint;
   }
 
   window.PlaylistMuseLibraryTags = {
