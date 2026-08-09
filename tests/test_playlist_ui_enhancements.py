@@ -8,15 +8,22 @@ def _text(name: str) -> str:
     return (FRONTEND / name).read_text(encoding="utf-8")
 
 
-def test_header_navigation_precedes_service_indicators_and_uses_distinct_active_accent() -> None:
+def test_sidebar_replaces_header_shortcuts_and_keeps_provider_status_dynamic() -> None:
     style = _text("header-navigation.css")
+    script = _text("home-status.js")
 
-    assert "order: 1;" in style
-    assert ".header-service-status {\n  order: 2;" in style
-    assert "rgba(251, 191, 36" in style
-    assert "%23fde68a" in style
-    assert "grid-column: 2;" in style
-    assert "grid-column: 3;" in style
+    assert ".library-header-link {\n  display: none !important;" in style
+    assert ".playlistmuse-sidebar" in style
+    assert ".sidebar-menu-toggle" in style
+    assert "sidebar-menu-toggle" in script
+    assert "header-service-status" in script
+    assert "header-lastfm-status" in script
+    assert "element.dataset.provider = provider || '';" in script
+    assert "providerIcons[provider] || brainIcon" in script
+    assert '#header-ai-status.on[data-provider="openai"]::after' in style
+    assert '#header-ai-status.on[data-provider="gemini"]::after' in style
+    assert "Not configured" in style
+    assert "Configuration error" in style
 
 
 def test_results_allow_manual_reordering_only_before_publication() -> None:
