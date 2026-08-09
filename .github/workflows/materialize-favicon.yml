@@ -19,7 +19,7 @@ jobs:
         with:
           ref: dev
 
-      - name: Extract exact approved PNG
+      - name: Apply exact favicon
         shell: bash
         run: |
           python - <<'PY'
@@ -29,6 +29,8 @@ jobs:
           from pathlib import Path
 
           expected = "2afccaf81bc677f9dcc49b7e5bedb5462c5685c1530cbfa1ae829af50b07a918"
+          link = '  <link rel="icon" type="image/png" href="/static/favicon.png">\n'
+
           svg = Path("frontend/playlistmuse-banner.svg").read_text(encoding="utf-8")
           match = re.search(r'data:image/png;base64,([^\"]+)', svg)
           if not match:
@@ -38,18 +40,36 @@ jobs:
           if digest != expected:
               raise SystemExit(f"Favicon checksum mismatch: {digest}")
           Path("frontend/favicon.png").write_bytes(raw)
+
+          for name in ("index.html", "playlist.html", "library.html"):
+              path = Path("frontend") / name
+              text = path.read_text(encoding="utf-8")
+              if '/static/favicon.png' in text:
+                  continue
+              marker = '  <meta name="theme-color" content="#070916">\n'
+              if marker not in text:
+                  raise SystemExit(f"Theme-color marker missing in {name}")
+              path.write_text(text.replace(marker, marker + link, 1), encoding="utf-8")
+
+          test_path = Path("tests/test_static_assets.py")
+          test_text = test_path.read_text(encoding="utf-8")
+          test_name = "test_favicon_uses_exact_uploaded_png"
+          if test_name not in test_text:
+              test_text += f'''\n\ndef {test_name}() -> None:\n    favicon = (FRONTEND / "favicon.png").read_bytes()\n\n    assert sha256(favicon).hexdigest() == (\n        "{expected}"\n    )\n    favicon_link = '<link rel="icon" type="image/png" href="/static/favicon.png">'\n    for html_name in ("index.html", "playlist.html", "library.html"):\n        assert favicon_link in _html(html_name)\n'''
+              test_path.write_text(test_text, encoding="utf-8")
+
           print(f"Verified exact favicon: {len(raw)} bytes, sha256={digest}")
           PY
 
-      - name: Commit favicon asset
+      - name: Commit favicon integration
         shell: bash
         run: |
-          if [ -z "$(git status --porcelain -- frontend/favicon.png)" ]; then
-            echo "favicon.png already matches"
+          if [ -z "$(git status --porcelain -- frontend/favicon.png frontend/index.html frontend/playlist.html frontend/library.html tests/test_static_assets.py)" ]; then
+            echo "Favicon integration already matches"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add frontend/favicon.png
-          git commit -m "Add exact favicon asset"
+          git add frontend/favicon.png frontend/index.html frontend/playlist.html frontend/library.html tests/test_static_assets.py
+          git commit -m "Use exact PlaylistMuse favicon"
           git push origin HEAD:dev
