@@ -57,6 +57,8 @@
     custom: 'Custom AI endpoint',
   };
 
+  let closeNavigation = () => {};
+
   const brainIcon = `
     <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
       <path class="brain-outline" d="M13.2 6.1a4.2 4.2 0 0 0-7.3 3 4.7 4.7 0 0 0-2.6 7.7 4.4 4.4 0 0 0 3.4 7.1 4.2 4.2 0 0 0 6.5 2.1" />
@@ -108,48 +110,201 @@
     `,
   };
 
-  function ensureStatusStyles() {
-    if (document.querySelector('link[href^="/static/layout.css"]')) return;
+  const youtubeIcon = `
+    <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+      <rect class="youtube-body" x="3.5" y="8" width="25" height="16" rx="5.5" />
+      <path class="youtube-play" d="m13.4 12.4 7.2 3.6-7.2 3.6v-7.2Z" />
+    </svg>
+  `;
+
+  const lastFmIcon = `
+    <svg class="lastfm-mark" viewBox="0 0 512 512" aria-hidden="true" focusable="false">
+      <path d="M225.8 367.1l-18.8-51s-30.5 34-76.2 34c-40.5 0-69.2-35.2-69.2-91.5 0-72.1 36.4-97.9 72.1-97.9 66.5 0 74.8 53.3 100.9 134.9 18.8 56.9 54 102.6 155.4 102.6 72.7 0 122-22.3 122-80.9 0-72.9-62.7-80.6-115-92.1-25.8-5.9-33.4-16.4-33.4-34 0-19.9 15.8-31.7 41.6-31.7 28.2 0 43.4 10.6 45.7 35.8l58.6-7c-4.7-52.8-41.1-74.5-100.9-74.5-52.8 0-104.4 19.9-104.4 83.9 0 39.9 19.4 65.1 68 76.8 44.9 10.6 79.8 13.8 79.8 45.7 0 21.7-21.1 30.5-61 30.5-59.2 0-83.9-31.1-97.9-73.9-32-96.8-43.6-163-161.3-163C45.7 113.8 0 168.3 0 261c0 89.1 45.7 137.2 127.9 137.2 66.2 0 97.9-31.1 97.9-31.1z" />
+    </svg>
+  `;
+
+  function ensureStylesheet(prefix, href) {
+    const existing = document.querySelector(`link[href^="${prefix}"]`);
+    if (existing) {
+      if (existing.getAttribute('href') !== href) existing.setAttribute('href', href);
+      return existing;
+    }
     const link = document.createElement('link');
     link.rel = 'stylesheet';
-    link.href = '/static/layout.css?v=5';
+    link.href = href;
     document.head.append(link);
+    return link;
   }
 
-  function createHeaderStatus() {
-    ensureStatusStyles();
+  function ensureStatusStyles() {
+    ensureStylesheet('/static/layout.css', '/static/layout.css?v=5');
+    ensureStylesheet('/static/header-navigation.css', '/static/header-navigation.css?v=6');
+    ensureStylesheet('/static/settings-dialog.css', '/static/settings-dialog.css?v=5');
+  }
 
-    const existing = document.querySelector('.header-service-status');
+  function currentPage() {
+    const path = window.location.pathname;
+    if (path.endsWith('/library.html')) return 'library';
+    if (path === '/' || path.endsWith('/index.html') || path.endsWith('/playlist.html')) return 'create';
+    return '';
+  }
+
+  function createNavigationShell() {
+    const existing = document.querySelector('.playlistmuse-sidebar');
     if (existing) return existing;
 
     const header = document.querySelector('.app-header');
     if (!header) return null;
 
-    const controls = document.createElement('div');
-    controls.className = 'header-actions header-service-status';
-    controls.setAttribute('aria-label', 'Service configuration status');
-    controls.innerHTML = `
-      <button
-        id="header-ai-status"
-        class="header-indicator ai pending"
-        type="button"
-        data-tooltip="Checking AI provider configuration"
-        aria-label="Checking AI provider configuration"
-      >${brainIcon}</button>
-      <button
-        id="header-youtube-status"
-        class="header-indicator youtube pending"
-        type="button"
-        data-tooltip="Checking YouTube Music configuration"
-        aria-label="Checking YouTube Music configuration"
-      >
-        <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-          <rect class="youtube-body" x="3.5" y="8" width="25" height="16" rx="5.5" />
-          <path class="youtube-play" d="m13.4 12.4 7.2 3.6-7.2 3.6v-7.2Z" />
-        </svg>
-      </button>
+    const toggle = document.createElement('button');
+    toggle.id = 'sidebar-menu-toggle';
+    toggle.className = 'sidebar-menu-toggle';
+    toggle.type = 'button';
+    toggle.setAttribute('aria-controls', 'playlistmuse-sidebar');
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-label', 'Open navigation menu');
+    toggle.title = 'Menu';
+    toggle.innerHTML = `
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M5 7h14M5 12h14M5 17h14" />
+      </svg>
     `;
-    header.append(controls);
+    header.append(toggle);
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'sidebar-backdrop';
+    backdrop.setAttribute('aria-hidden', 'true');
+
+    const sidebar = document.createElement('aside');
+    sidebar.id = 'playlistmuse-sidebar';
+    sidebar.className = 'playlistmuse-sidebar';
+    sidebar.setAttribute('aria-label', 'PlaylistMuse navigation');
+    sidebar.setAttribute('aria-hidden', 'true');
+    sidebar.innerHTML = `
+      <div class="sidebar-head">
+        <p class="sidebar-brand">PlaylistMuse</p>
+        <button class="sidebar-close" type="button" aria-label="Close navigation menu">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="m6 6 12 12M18 6 6 18" />
+          </svg>
+        </button>
+      </div>
+      <nav class="sidebar-nav" aria-label="Main navigation">
+        <section class="sidebar-group" aria-labelledby="sidebar-pages-label">
+          <p id="sidebar-pages-label" class="sidebar-group-label">Pages</p>
+          <a class="sidebar-link" data-page="create" href="/">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M9 18V6l10-2v12" />
+              <circle cx="6.5" cy="18" r="2.5" />
+              <circle cx="16.5" cy="16" r="2.5" />
+            </svg>
+            <span>Create playlist</span>
+          </a>
+          <a class="sidebar-link" data-page="library" href="/static/library.html">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <circle cx="5" cy="7" r="1" fill="currentColor" stroke="none" />
+              <path d="M9 7h10" />
+              <circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" />
+              <path d="M9 12h10" />
+              <circle cx="5" cy="17" r="1" fill="currentColor" stroke="none" />
+              <path d="M9 17h10" />
+            </svg>
+            <span>My playlists</span>
+          </a>
+        </section>
+        <section class="sidebar-group" aria-labelledby="sidebar-integrations-label">
+          <p id="sidebar-integrations-label" class="sidebar-group-label">Integrations</p>
+          <div class="header-actions header-service-status" aria-label="Service configuration status"></div>
+        </section>
+      </nav>
+      <div class="sidebar-footer">Select an integration to open its configuration.</div>
+    `;
+
+    document.body.append(backdrop, sidebar);
+
+    const activePage = currentPage();
+    sidebar.querySelectorAll('.sidebar-link').forEach((link) => {
+      const active = link.dataset.page === activePage;
+      link.classList.toggle('active', active);
+      if (active) link.setAttribute('aria-current', 'page');
+    });
+
+    const closeButton = sidebar.querySelector('.sidebar-close');
+    const open = () => {
+      document.body.classList.add('sidebar-open');
+      sidebar.setAttribute('aria-hidden', 'false');
+      toggle.setAttribute('aria-expanded', 'true');
+      toggle.setAttribute('aria-label', 'Close navigation menu');
+      closeButton?.focus();
+    };
+    const close = ({restoreFocus = true} = {}) => {
+      document.body.classList.remove('sidebar-open');
+      sidebar.setAttribute('aria-hidden', 'true');
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.setAttribute('aria-label', 'Open navigation menu');
+      if (restoreFocus) toggle.focus();
+    };
+    closeNavigation = close;
+
+    toggle.addEventListener('click', () => {
+      if (document.body.classList.contains('sidebar-open')) close();
+      else open();
+    });
+    closeButton?.addEventListener('click', () => close());
+    backdrop.addEventListener('click', () => close());
+    sidebar.querySelectorAll('.sidebar-link').forEach((link) => {
+      link.addEventListener('click', () => close({restoreFocus: false}));
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && document.body.classList.contains('sidebar-open')) {
+        close();
+      }
+    });
+
+    return sidebar;
+  }
+
+  function createHeaderStatus() {
+    ensureStatusStyles();
+    const sidebar = createNavigationShell();
+    if (!sidebar) return null;
+
+    const controls = sidebar.querySelector('.header-service-status');
+    if (!controls) return null;
+
+    if (!$('header-ai-status')) {
+      const ai = document.createElement('button');
+      ai.id = 'header-ai-status';
+      ai.className = 'header-indicator ai pending';
+      ai.type = 'button';
+      ai.dataset.tooltip = 'Checking AI provider configuration';
+      ai.setAttribute('aria-label', 'Checking AI provider configuration');
+      ai.innerHTML = brainIcon;
+      controls.append(ai);
+    }
+
+    if (!$('header-youtube-status')) {
+      const youtube = document.createElement('button');
+      youtube.id = 'header-youtube-status';
+      youtube.className = 'header-indicator youtube pending';
+      youtube.type = 'button';
+      youtube.dataset.tooltip = 'Checking YouTube Music configuration';
+      youtube.setAttribute('aria-label', 'Checking YouTube Music configuration');
+      youtube.innerHTML = youtubeIcon;
+      controls.append(youtube);
+    }
+
+    if (!$('header-lastfm-status')) {
+      const lastfm = document.createElement('button');
+      lastfm.id = 'header-lastfm-status';
+      lastfm.className = 'header-indicator lastfm pending';
+      lastfm.type = 'button';
+      lastfm.dataset.tooltip = 'Checking Last.fm configuration';
+      lastfm.setAttribute('aria-label', 'Checking Last.fm configuration');
+      lastfm.innerHTML = lastFmIcon;
+      controls.append(lastfm);
+    }
+
     return controls;
   }
 
@@ -244,7 +399,45 @@
     }
   }
 
+  async function refreshLastFmStatus(indicator) {
+    try {
+      const response = await fetch('/api/lastfm/status', {cache: 'no-store'});
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const status = await response.json();
+      const configured = Boolean(status.configured);
+      setIndicatorState(
+        indicator,
+        configured ? 'on' : 'off',
+        configured
+          ? 'Last.fm configured · recommendations active'
+          : 'Last.fm not configured · click to add an API key',
+      );
+      window.dispatchEvent(new CustomEvent('playlistmuse-lastfm-status', {
+        detail: {configured},
+      }));
+    } catch {
+      setIndicatorState(
+        indicator,
+        'error',
+        'Unable to check Last.fm configuration · click to open Last.fm Settings',
+      );
+      window.dispatchEvent(new CustomEvent('playlistmuse-lastfm-status', {
+        detail: {configured: false},
+      }));
+    }
+  }
+
   function openSettings(section) {
+    if (section === 'lastfm') {
+      if (typeof window.PlaylistMuseOpenLastFmSettings === 'function') {
+        window.PlaylistMuseOpenLastFmSettings();
+        return;
+      }
+      sessionStorage.setItem(SETTINGS_REQUEST_KEY, 'lastfm');
+      window.location.assign('/');
+      return;
+    }
+
     const homeAiSettings = $('ai-open-settings');
     if (homeAiSettings) {
       homeAiSettings.click();
@@ -264,8 +457,18 @@
   }
 
   function bindIndicatorActions() {
-    $('header-ai-status')?.addEventListener('click', () => openSettings('ai'));
-    $('header-youtube-status')?.addEventListener('click', () => openSettings('youtube'));
+    $('header-ai-status')?.addEventListener('click', () => {
+      closeNavigation({restoreFocus: false});
+      openSettings('ai');
+    });
+    $('header-youtube-status')?.addEventListener('click', () => {
+      closeNavigation({restoreFocus: false});
+      openSettings('youtube');
+    });
+    $('header-lastfm-status')?.addEventListener('click', () => {
+      closeNavigation({restoreFocus: false});
+      openSettings('lastfm');
+    });
   }
 
   function restoreRequestedSettings() {
@@ -279,16 +482,25 @@
     createHeaderStatus();
     const aiIndicator = $('header-ai-status');
     const youtubeIndicator = $('header-youtube-status');
+    const lastFmIndicator = $('header-lastfm-status');
 
     setAiProviderIcon(aiIndicator, '');
     setIndicatorState(aiIndicator, 'pending', 'Checking AI provider configuration');
     setIndicatorState(youtubeIndicator, 'pending', 'Checking YouTube Music configuration');
+    setIndicatorState(lastFmIndicator, 'pending', 'Checking Last.fm configuration');
     setGenerationAvailability('pending');
 
-    await Promise.all([
+    const checks = [
       refreshAiStatus(aiIndicator),
       refreshYouTubeStatus(youtubeIndicator),
-    ]);
+    ];
+
+    /* On the home page the dedicated Last.fm module owns its status refresh
+     * and availability event. Other pages use the same endpoint here so the
+     * sidebar remains complete and consistent everywhere. */
+    if (!$('setup-dialog')) checks.push(refreshLastFmStatus(lastFmIndicator));
+
+    await Promise.all(checks);
   }
 
   ensureBrandStyles();
