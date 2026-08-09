@@ -13,7 +13,7 @@ def test_library_loads_refinement_assets_before_library_renderer() -> None:
 
     assert '/static/library-refine.css?v=3' in html
     refine = '<script src="/static/library-refine.js?v=2"></script>'
-    library = '<script src="/static/library.js?v=7"></script>'
+    library = '<script src="/static/library.js?v=8"></script>'
     assert refine in html
     assert library in html
     assert html.index(refine) < html.index(library)
