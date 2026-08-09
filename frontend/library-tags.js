@@ -76,24 +76,27 @@
     renderLibrary?.();
   }
 
-  function filterChip(value, {category = '', personal = false} = {}) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = `library-tag-chip${personal ? ' library-tag-personal-value' : ''}`;
-    button.textContent = value;
-    button.dataset.tagValue = value;
-    if (category) button.dataset.tagCategory = category;
-    const active = activeTagFilters.has(keyFor(value));
-    button.classList.toggle('active', active);
-    button.setAttribute('aria-pressed', String(active));
-    button.title = category
+  function tagChip(value, {category = '', personal = false, filterable = true} = {}) {
+    const element = document.createElement(filterable ? 'button' : 'span');
+    if (filterable) element.type = 'button';
+    element.className = `library-tag-chip${personal ? ' library-tag-personal-value' : ''}`;
+    element.textContent = value;
+    element.dataset.tagValue = value;
+    if (category) element.dataset.tagCategory = category;
+    element.title = category
       ? `${category[0].toUpperCase()}${category.slice(1)}: ${value}`
       : `Personal tag: ${value}`;
-    button.addEventListener('click', (event) => {
-      event.stopPropagation();
-      toggleFilter(value);
-    });
-    return button;
+
+    if (filterable) {
+      const active = activeTagFilters.has(keyFor(value));
+      element.classList.toggle('active', active);
+      element.setAttribute('aria-pressed', String(active));
+      element.addEventListener('click', (event) => {
+        event.stopPropagation();
+        toggleFilter(value);
+      });
+    }
+    return element;
   }
 
   function plusIcon() {
@@ -108,7 +111,31 @@
     return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5"/></svg>';
   }
 
-  async function updatePersonalTags(item, update, statusText) {
+  function addPersonal(tags, value) {
+    const next = normalize(tags);
+    const label = clean(value);
+    if (!label) throw new Error('Enter a tag first.');
+    if (label.length > 48) throw new Error('Tags must be 48 characters or fewer.');
+
+    const existing = new Set(
+      [...next.genre, ...next.mood, ...next.period, ...next.custom].map(keyFor),
+    );
+    if (existing.has(keyFor(label))) throw new Error('This tag already exists.');
+    if (next.custom.length >= LIMITS.custom) {
+      throw new Error(`A playlist can have at most ${LIMITS.custom} personal tags.`);
+    }
+    next.custom.push(label);
+    return next;
+  }
+
+  function removePersonal(tags, value) {
+    const next = normalize(tags);
+    const key = keyFor(value);
+    next.custom = next.custom.filter((tag) => keyFor(tag) !== key);
+    return next;
+  }
+
+  async function updatePersonalTags(item, transform, statusText) {
     if (!readJson || !endpoint || !reloadLibrary) {
       throw new Error('Playlist tag controls are not ready yet.');
     }
@@ -117,9 +144,7 @@
       `${endpoint}/${encodeURIComponent(item.id)}`,
       {cache: 'no-store'},
     ));
-    const tags = normalize(record.playlist?.tags);
-    update(tags);
-    record.playlist.tags = tags;
+    record.playlist.tags = transform(record.playlist?.tags);
     await readJson(await fetch(`${endpoint}/${encodeURIComponent(item.id)}`, {
       method: 'PUT',
       headers: {'Content-Type': 'application/json'},
@@ -133,33 +158,25 @@
   }
 
   async function addPersonalTag(item, value) {
-    const label = clean(value);
-    if (!label) throw new Error('Enter a tag first.');
-    if (label.length > 48) throw new Error('Tags must be 48 characters or fewer.');
-
-    await updatePersonalTags(item, (tags) => {
-      const existing = new Set(
-        [...tags.genre, ...tags.mood, ...tags.period, ...tags.custom].map(keyFor),
-      );
-      if (existing.has(keyFor(label))) throw new Error('This tag already exists.');
-      if (tags.custom.length >= LIMITS.custom) {
-        throw new Error(`A playlist can have at most ${LIMITS.custom} personal tags.`);
-      }
-      tags.custom.push(label);
-    }, 'Adding personal tag…');
+    await updatePersonalTags(
+      item,
+      (tags) => addPersonal(tags, value),
+      'Adding personal tag…',
+    );
   }
 
   async function removePersonalTag(item, value) {
-    const key = keyFor(value);
-    await updatePersonalTags(item, (tags) => {
-      tags.custom = tags.custom.filter((tag) => keyFor(tag) !== key);
-    }, 'Removing personal tag…');
+    await updatePersonalTags(
+      item,
+      (tags) => removePersonal(tags, value),
+      'Removing personal tag…',
+    );
   }
 
-  function personalChip(item, value) {
+  function personalChip(value, {filterable, onRemove, onError}) {
     const wrapper = document.createElement('span');
     wrapper.className = 'library-personal-tag';
-    wrapper.append(filterChip(value, {personal: true}));
+    wrapper.append(tagChip(value, {personal: true, filterable}));
 
     const remove = document.createElement('button');
     remove.type = 'button';
@@ -171,17 +188,17 @@
       event.stopPropagation();
       remove.disabled = true;
       try {
-        await removePersonalTag(item, value);
+        await onRemove(value);
       } catch (error) {
         remove.disabled = false;
-        setLibraryStatus?.(error.message || String(error), true);
+        onError?.(error);
       }
     });
     wrapper.append(remove);
     return wrapper;
   }
 
-  function openAddForm(container, item, addButton) {
+  function openAddForm(container, addButtonElement, onAdd, onError) {
     const existing = container.querySelector('.library-tag-add-form');
     if (existing) {
       existing.querySelector('input')?.focus();
@@ -206,39 +223,52 @@
 
     function close() {
       form.remove();
-      addButton.hidden = false;
+      addButtonElement.hidden = false;
     }
 
     input.addEventListener('keydown', (event) => {
       if (event.key !== 'Escape') return;
       event.preventDefault();
       close();
-      addButton.focus();
+      addButtonElement.focus();
+    });
+
+    form.addEventListener('focusout', () => {
+      window.setTimeout(() => {
+        if (!form.isConnected || form.contains(document.activeElement)) return;
+        if (!clean(input.value)) close();
+      }, 0);
     });
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       event.stopPropagation();
+      const label = clean(input.value);
+      if (!label) {
+        close();
+        return;
+      }
       input.disabled = true;
       confirm.disabled = true;
       try {
-        await addPersonalTag(item, input.value);
+        await onAdd(label);
+        close();
       } catch (error) {
         input.disabled = false;
         confirm.disabled = false;
-        setLibraryStatus?.(error.message || String(error), true);
+        onError?.(error);
         input.focus();
       }
     });
 
     form.addEventListener('click', (event) => event.stopPropagation());
     form.append(input, confirm);
-    addButton.hidden = true;
-    addButton.insertAdjacentElement('afterend', form);
+    addButtonElement.hidden = true;
+    addButtonElement.insertAdjacentElement('afterend', form);
     input.focus();
   }
 
-  function addButton(container, item) {
+  function addButton(container, onAdd, onError) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'library-tag-add';
@@ -247,13 +277,18 @@
     button.title = 'Add personal tag';
     button.addEventListener('click', (event) => {
       event.stopPropagation();
-      openAddForm(container, item, button);
+      openAddForm(container, button, onAdd, onError);
     });
     return button;
   }
 
-  function summary(item) {
-    const tags = normalize(item?.tags);
+  function renderTags(tagsValue, {
+    filterable = true,
+    onAddPersonal,
+    onRemovePersonal,
+    onError,
+  } = {}) {
+    const tags = normalize(tagsValue);
     const container = document.createElement('div');
     container.className = 'library-tags';
 
@@ -261,16 +296,45 @@
     aiGroup.className = 'library-tag-ai-group';
     AI_CATEGORIES.forEach((category) => {
       tags[category].forEach((value) => {
-        aiGroup.append(filterChip(value, {category}));
+        aiGroup.append(tagChip(value, {category, filterable}));
       });
     });
 
     const personalGroup = document.createElement('span');
     personalGroup.className = 'library-tag-personal-group';
-    tags.custom.forEach((value) => personalGroup.append(personalChip(item, value)));
+    if (onRemovePersonal) {
+      tags.custom.forEach((value) => personalGroup.append(personalChip(value, {
+        filterable,
+        onRemove: onRemovePersonal,
+        onError,
+      })));
+    } else {
+      tags.custom.forEach((value) => personalGroup.append(tagChip(value, {
+        personal: true,
+        filterable,
+      })));
+    }
 
-    container.append(aiGroup, addButton(container, item), personalGroup);
+    container.append(aiGroup);
+    if (onAddPersonal) container.append(addButton(container, onAddPersonal, onError));
+    container.append(personalGroup);
     return container;
+  }
+
+  function summary(item) {
+    return renderTags(item?.tags, {
+      filterable: true,
+      onAddPersonal: (value) => addPersonalTag(item, value),
+      onRemovePersonal: (value) => removePersonalTag(item, value),
+      onError: (error) => setLibraryStatus?.(error.message || String(error), true),
+    });
+  }
+
+  function editableSummary(tags, options = {}) {
+    return renderTags(tags, {
+      ...options,
+      filterable: false,
+    });
   }
 
   function install({reload, setStatus, readJson: jsonReader, endpoint: apiEndpoint}) {
@@ -280,13 +344,18 @@
     endpoint = apiEndpoint;
   }
 
-  window.PlaylistMuseLibraryTags = {
+  const api = {
+    addPersonal,
     bindFilters,
+    editableSummary,
     install,
     matchesFilters,
     normalize,
     refreshFilters,
+    removePersonal,
     searchValues,
     summary,
   };
+  window.PlaylistMuseTags = api;
+  window.PlaylistMuseLibraryTags = api;
 })();
