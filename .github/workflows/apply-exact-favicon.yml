@@ -1,0 +1,65 @@
+name: Apply exact favicon asset
+
+on:
+  push:
+    paths:
+      - '.github/workflows/apply-exact-favicon.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Replace favicon asset and references
+        shell: bash
+        run: |
+          python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+
+          source = Path('frontend/playlistmuse-favicon.png')
+          expected = '2afccaf81bc677f9dcc49b7e5bedb5462c5685c1530cbfa1ae829af50b07a918'
+          if not source.is_file():
+              raise SystemExit('Current favicon source is missing')
+          actual = sha256(source.read_bytes()).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Unexpected source favicon checksum: {actual}')
+
+          target = Path('frontend/playlistmuse-favicon-v2.png')
+          target.write_bytes(source.read_bytes())
+
+          old_ref = '/static/playlistmuse-favicon.png'
+          new_ref = '/static/playlistmuse-favicon-v2.png'
+          for name in ('index.html', 'playlist.html', 'library.html'):
+              path = Path('frontend') / name
+              text = path.read_text(encoding='utf-8')
+              if old_ref not in text:
+                  raise SystemExit(f'Expected favicon reference missing in {name}')
+              path.write_text(text.replace(old_ref, new_ref), encoding='utf-8')
+
+          for stale in (
+              Path('frontend/favicon.png'),
+              Path('frontend/playlistmuse-favicon.png'),
+              Path('frontend/playlistmuse-favicon.svg'),
+          ):
+              if stale.exists():
+                  stale.unlink()
+
+          if sha256(target.read_bytes()).hexdigest() != expected:
+              raise SystemExit('Target favicon checksum changed unexpectedly')
+          PY
+
+      - name: Commit exact favicon
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A frontend
+          git commit -m 'Use exact uploaded favicon asset'
+          git push
