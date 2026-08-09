@@ -497,6 +497,7 @@
       : 'No saved playlists yet. Create one and it will appear here automatically.';
     empty.classList.toggle('hidden', items.length > 0);
   }
+
   function setStatusFilter(filter) {
     activeStatusFilter = filter;
     currentPage = 1;
@@ -526,6 +527,7 @@
       $('library-list').replaceChildren();
       $('library-empty').classList.add('hidden');
       updateLibraryCount(0);
+      renderPagination({totalPages: 0});
       setStatus(error.message || String(error), true);
     }
   }
