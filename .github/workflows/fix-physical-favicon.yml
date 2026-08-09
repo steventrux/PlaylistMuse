@@ -1,0 +1,87 @@
+name: Fix physical favicon
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-physical-favicon.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+
+      - name: Apply physical favicon fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp frontend/favicon.png frontend/playlistmuse-favicon.png
+          python - <<'PY'
+          from pathlib import Path
+
+          old_link = '<link rel="icon" type="image/png" href="/static/favicon.png?v=2">'
+          new_link = '<link rel="icon" type="image/png" href="/static/playlistmuse-favicon.png">'
+          for name in ('index.html', 'playlist.html', 'library.html'):
+              path = Path('frontend') / name
+              text = path.read_text(encoding='utf-8')
+              if old_link not in text:
+                  raise SystemExit(f'missing old favicon link in {name}')
+              path.write_text(text.replace(old_link, new_link, 1), encoding='utf-8')
+
+          main_path = Path('backend/main.py')
+          main_text = main_path.read_text(encoding='utf-8')
+          marker = '@app.get("/", include_in_schema=False)\n'
+          if '@app.get("/favicon.ico", include_in_schema=False)' not in main_text:
+              route = '''@app.get("/favicon.ico", include_in_schema=False)\nasync def favicon() -> FileResponse:\n    return FileResponse(\n        FRONTEND / "playlistmuse-favicon.png",\n        media_type="image/png",\n        headers={"Cache-Control": "no-store"},\n    )\n\n\n'''
+              if marker not in main_text:
+                  raise SystemExit('root route marker not found')
+              main_path.write_text(main_text.replace(marker, route + marker, 1), encoding='utf-8')
+
+          static_test = Path('tests/test_static_assets.py')
+          static_text = static_test.read_text(encoding='utf-8')
+          old_expected = '<link rel="icon" type="image/png" href="/static/favicon.png?v=2">'
+          new_expected = '<link rel="icon" type="image/png" href="/static/playlistmuse-favicon.png">'
+          if old_expected not in static_text:
+              raise SystemExit('old favicon expectation not found')
+          static_text = static_text.replace(old_expected, new_expected)
+          static_text = static_text.replace('FRONTEND / "favicon.png"', 'FRONTEND / "playlistmuse-favicon.png"')
+          static_text = static_text.replace(
+              '    for html_name in ("index.html", "playlist.html", "library.html"):\n        assert expected_link in _html(html_name)\n\n    favicon =',
+              '    for html_name in ("index.html", "playlist.html", "library.html"):\n        html = _html(html_name)\n        assert expected_link in html\n        assert "/static/favicon.png" not in html\n\n    favicon =',
+          )
+          static_test.write_text(static_text, encoding='utf-8')
+
+          main_test = Path('tests/test_main.py')
+          main_test_text = main_test.read_text(encoding='utf-8')
+          health_block = '''def test_health() -> None:\n    client = TestClient(main_module.app)\n    response = client.get("/api/health")\n    assert response.status_code == 200\n    assert response.json() == {"status": "healthy", "application": "PlaylistMuse"}\n\n\n'''
+          favicon_test = '''def test_favicon_route_uses_current_logo() -> None:\n    client = TestClient(main_module.app)\n    response = client.get("/favicon.ico")\n    assert response.status_code == 200\n    assert response.headers.get("cache-control") == "no-store"\n    assert response.headers.get("content-type", "").startswith("image/png")\n    assert response.content == (main_module.FRONTEND / "playlistmuse-favicon.png").read_bytes()\n\n\n'''
+          if favicon_test not in main_test_text:
+              if health_block not in main_test_text:
+                  raise SystemExit('health test marker not found')
+              main_test.write_text(main_test_text.replace(health_block, health_block + favicon_test, 1), encoding='utf-8')
+          PY
+
+      - name: Verify exact image preserved
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(sha256sum frontend/favicon.png | awk '{print $1}')" = "2afccaf81bc677f9dcc49b7e5bedb5462c5685c1530cbfa1ae829af50b07a918"
+          test "$(sha256sum frontend/playlistmuse-favicon.png | awk '{print $1}')" = "2afccaf81bc677f9dcc49b7e5bedb5462c5685c1530cbfa1ae829af50b07a918"
+
+      - name: Commit favicon fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/playlistmuse-favicon.png frontend/index.html frontend/playlist.html frontend/library.html backend/main.py tests/test_static_assets.py tests/test_main.py
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Use physical current favicon asset"
+          git push origin HEAD:dev
