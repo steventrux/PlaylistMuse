@@ -26,7 +26,7 @@ def test_sidebar_replaces_header_shortcuts_and_keeps_provider_status_dynamic() -
     assert "Configuration error" in style
 
 
-def test_primary_pages_become_tabs_inside_main_cards() -> None:
+def test_primary_pages_use_compact_tabs_above_main_cards() -> None:
     script = _text("common.js")
     style = _text("primary-navigation.css")
 
@@ -39,7 +39,11 @@ def test_primary_pages_become_tabs_inside_main_cards() -> None:
     assert "installPrimaryNavigationTabs();" in script
     assert ".primary-page-tabs" in style
     assert ".primary-page-tab.active" in style
-    assert "calc(-1 * var(--primary-navigation-card-padding))" in style
+    assert "--primary-navigation-tab-height: 32px;" in style
+    assert "overflow: visible;" in style
+    assert "top: calc(-1 * (var(--primary-navigation-tab-height) + var(--primary-navigation-tab-gap)));" in style
+    assert "border-radius: 16px;" in style
+    assert "font-size: .78rem;" in style
     assert 'primary-page-tab[aria-current="page"]' in style
 
 
