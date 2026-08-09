@@ -43,7 +43,7 @@ def test_library_cards_match_compact_result_card_proportions_and_expand() -> Non
     script = _text("library.js")
     style = _text("library.css")
 
-    assert "/static/library.js?v=6" in html
+    assert "/static/library.js?v=7" in html
     assert "let expandedLibraryId = null;" in script
     assert "function toggleLibraryCard(card, item)" in script
     assert "library-expand-icon" in script
@@ -76,7 +76,10 @@ def test_library_searches_playlist_copy_and_filters_status_without_backend_queri
     assert 'data-status-filter="published"' in html
     assert "let activeStatusFilter = 'all';" in script
     assert "function matchesSearch(item, query)" in script
-    assert "[item.name, item.description, item.prompt]" in script
+    assert "item.name," in script
+    assert "item.description," in script
+    assert "item.prompt," in script
+    assert "tagTools?.searchValues(item)" in script
     assert "function visibleLibraryItems()" in script
     assert "item.status === activeStatusFilter" in script
     assert "$('library-search').addEventListener('input', renderLibrary);" in script
