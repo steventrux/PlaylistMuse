@@ -1,0 +1,87 @@
+/* Primary page navigation integrated into the main content card. */
+
+.hero.card,
+.library-card {
+  --primary-navigation-card-padding: clamp(22px, 4vw, 38px);
+}
+
+.primary-page-tabs {
+  display: flex;
+  min-height: 56px;
+  align-items: flex-end;
+  gap: 4px;
+  margin:
+    calc(-1 * var(--primary-navigation-card-padding))
+    calc(-1 * var(--primary-navigation-card-padding))
+    28px;
+  padding: 8px var(--primary-navigation-card-padding) 0;
+  border-bottom: 1px solid var(--border);
+  background: rgba(7, 10, 24, .42);
+}
+
+.primary-page-tab {
+  position: relative;
+  display: inline-flex;
+  min-height: 47px;
+  padding: 0 18px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 11px 11px 0 0;
+  color: var(--text-muted);
+  font-size: .9rem;
+  font-weight: 760;
+  text-decoration: none;
+  transition:
+    color 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.primary-page-tab:hover,
+.primary-page-tab:focus-visible {
+  color: var(--text-primary);
+  background: rgba(139, 92, 246, .08);
+}
+
+.primary-page-tab.active,
+.primary-page-tab[aria-current="page"] {
+  border-color: var(--border-strong);
+  background: rgba(24, 29, 57, .94);
+  color: var(--text-primary);
+  box-shadow: inset 0 2px 0 rgba(183, 156, 255, .9);
+}
+
+.primary-page-tab.active::after,
+.primary-page-tab[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: rgba(24, 29, 57, .98);
+}
+
+@media (max-width: 600px) {
+  .primary-page-tabs {
+    gap: 2px;
+    margin-bottom: 24px;
+    padding-top: 6px;
+  }
+
+  .primary-page-tab {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 44px;
+    padding: 0 10px;
+    font-size: .82rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .primary-page-tab {
+    transition: none;
+  }
+}
