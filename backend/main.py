@@ -1049,7 +1049,7 @@ async def replace_track(request: ReplaceTrackRequest) -> dict:
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon() -> FileResponse:
     return FileResponse(
-        FRONTEND / "playlistmuse-favicon.png",
+        FRONTEND / "playlistmuse-favicon-v2.png",
         media_type="image/png",
         headers={"Cache-Control": "no-store"},
     )
