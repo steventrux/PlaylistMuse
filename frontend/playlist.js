@@ -6,6 +6,7 @@
   const LIBRARY_ENDPOINT = '/api/library/playlists';
   const $ = (id) => document.getElementById(id);
   const {readJson, setLoadingButton} = window.PlaylistMuseCommon;
+  const tagTools = window.PlaylistMuseTags || window.PlaylistMuseLibraryTags;
   let expandedIndex = null;
   let draggedIndex = null;
   let persistenceTimer = null;
@@ -92,7 +93,9 @@
         body: libraryRequestBody(),
       }));
       data.library_id = record.id;
+      if (record.playlist?.tags) data.tags = record.playlist.tags;
       writeSessionPlaylist();
+      renderPlaylistTags();
       document.body.dataset.librarySaveState = 'saved';
       await persistLibraryRecord(localRevision);
       return record.id;
@@ -158,6 +161,83 @@
     const durationText = formatPlaylistDuration(totalSeconds);
     const trackLabel = `${data.tracks.length} ${data.tracks.length === 1 ? 'track' : 'tracks'}`;
     $('playlist-summary').textContent = durationText ? `${trackLabel} · ${durationText}` : trackLabel;
+  }
+
+  function setPlaylistTagStatus(text = '', error = false) {
+    const status = $('playlist-tags-status');
+    if (!status) return;
+    status.textContent = text;
+    status.classList.toggle('hidden', !text);
+    status.classList.toggle('error', error);
+  }
+
+  async function persistPlaylistTags(nextTags) {
+    const libraryId = await ensureLibraryRecord();
+    if (!libraryId) throw new Error('Playlist tags could not be saved.');
+
+    const record = await readJson(await fetch(
+      `${LIBRARY_ENDPOINT}/${encodeURIComponent(libraryId)}`,
+      {cache: 'no-store'},
+    ));
+    const latestTags = tagTools.normalize(record.playlist?.tags);
+    const requestedTags = tagTools.normalize(nextTags);
+    latestTags.custom = requestedTags.custom;
+    record.playlist.tags = latestTags;
+
+    const updated = await readJson(await fetch(
+      `${LIBRARY_ENDPOINT}/${encodeURIComponent(libraryId)}`,
+      {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          playlist: record.playlist,
+          generation_request: record.generation_request || null,
+        }),
+      },
+    ));
+    data.tags = updated.playlist?.tags || latestTags;
+    writeSessionPlaylist();
+    renderPlaylistTags();
+  }
+
+  function renderPlaylistTags() {
+    const container = $('playlist-tags');
+    if (!container || !tagTools) return;
+    container.replaceChildren(tagTools.editableSummary(data?.tags, {
+      onAddPersonal: async (value) => {
+        setPlaylistTagStatus('Adding personal tag…');
+        const nextTags = tagTools.addPersonal(data?.tags, value);
+        await persistPlaylistTags(nextTags);
+        setPlaylistTagStatus('');
+      },
+      onRemovePersonal: async (value) => {
+        setPlaylistTagStatus('Removing personal tag…');
+        const nextTags = tagTools.removePersonal(data?.tags, value);
+        await persistPlaylistTags(nextTags);
+        setPlaylistTagStatus('');
+      },
+      onError: (error) => setPlaylistTagStatus(error.message || String(error), true),
+    }));
+  }
+
+  async function refreshPlaylistTagsFromLibrary() {
+    if (!data?.library_id) {
+      await ensureLibraryRecord();
+      return;
+    }
+    try {
+      const record = await readJson(await fetch(
+        `${LIBRARY_ENDPOINT}/${encodeURIComponent(data.library_id)}`,
+        {cache: 'no-store'},
+      ));
+      if (record.playlist?.tags) {
+        data.tags = record.playlist.tags;
+        writeSessionPlaylist();
+        renderPlaylistTags();
+      }
+    } catch (error) {
+      console.warn('Playlist tags could not be refreshed:', error);
+    }
   }
 
   function coverPlaceholder() {
@@ -498,6 +578,7 @@
   function renderPlaylist() {
     updateSummary();
     $('playlist-description').textContent = data.description || data.prompt || '';
+    renderPlaylistTags();
     $('track-list').replaceChildren(...data.tracks.map(renderTrack));
     renderPlaylistCover();
   }
@@ -547,5 +628,5 @@
   });
 
   renderPlaylist();
-  void ensureLibraryRecord();
+  void refreshPlaylistTagsFromLibrary();
 })();
