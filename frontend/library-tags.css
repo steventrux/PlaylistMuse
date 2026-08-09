@@ -1,0 +1,95 @@
+.library-tag-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: -6px 0 20px;
+}
+
+.library-tag-filter,
+.library-tag-field {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: .82rem;
+  font-weight: 650;
+}
+
+.library-tag-filter select,
+.library-tag-field input {
+  width: 100%;
+  min-height: 42px;
+}
+
+.library-item:not(.expanded) .library-tags {
+  display: none;
+}
+
+.library-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.library-tag-chip {
+  max-width: 100%;
+  padding: 3px 7px;
+  overflow: hidden;
+  border: 1px solid rgba(183, 156, 255, .22);
+  border-radius: 999px;
+  background: rgba(139, 92, 246, .08);
+  color: var(--text-secondary);
+  font-size: .68rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-item.expanded .library-tags {
+  grid-column: 2 / 4;
+  grid-row: 2;
+  align-self: end;
+  margin-top: 62px;
+}
+
+.library-tags-editor {
+  grid-column: 1 / -1;
+}
+
+.library-tag-hint {
+  color: var(--text-muted) !important;
+  font-size: .76rem !important;
+}
+
+.library-tag-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.library-tag-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.library-tag-actions .secondary {
+  padding: 8px 10px;
+  font-size: .78rem;
+}
+
+@media (max-width: 760px) {
+  .library-tag-filters,
+  .library-tag-fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 650px) {
+  .library-item.expanded .library-tags {
+    margin-top: 66px;
+  }
+}
