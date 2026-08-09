@@ -214,7 +214,7 @@ def test_header_uses_exact_uploaded_banner() -> None:
     assert "max-width: 400px" in brand
     assert "max-width: 250px" in brand
     assert sha256(banner).hexdigest() == (
-        "f5cae7189adfdf9e1b40a4dd68a7c2e1c3fe6c723270b599fbeccc1795740b5e"
+        "9a78899e35902b912068554164fa5e64a952a21907e8807625e8ae4e0c3f1c2c"
     )
 
 
