@@ -1,0 +1,55 @@
+name: Materialize exact favicon
+
+on:
+  push:
+    branches:
+      - dev
+    paths:
+      - .github/workflows/materialize-favicon.yml
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+
+      - name: Extract exact approved PNG
+        shell: bash
+        run: |
+          python - <<'PY'
+          import base64
+          import hashlib
+          import re
+          from pathlib import Path
+
+          expected = "2afccaf81bc677f9dcc49b7e5bedb5462c5685c1530cbfa1ae829af50b07a918"
+          svg = Path("frontend/playlistmuse-banner.svg").read_text(encoding="utf-8")
+          match = re.search(r'data:image/png;base64,([^\"]+)', svg)
+          if not match:
+              raise SystemExit("Embedded PNG not found in approved banner")
+          raw = base64.b64decode(match.group(1), validate=True)
+          digest = hashlib.sha256(raw).hexdigest()
+          if digest != expected:
+              raise SystemExit(f"Favicon checksum mismatch: {digest}")
+          Path("frontend/favicon.png").write_bytes(raw)
+          print(f"Verified exact favicon: {len(raw)} bytes, sha256={digest}")
+          PY
+
+      - name: Commit favicon asset
+        shell: bash
+        run: |
+          if git diff --quiet -- frontend/favicon.png; then
+            echo "favicon.png already matches"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/favicon.png
+          git commit -m "Add exact favicon asset"
+          git push origin HEAD:dev
