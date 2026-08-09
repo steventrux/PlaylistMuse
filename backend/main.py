@@ -1046,6 +1046,15 @@ async def replace_track(request: ReplaceTrackRequest) -> dict:
         ) from error
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> FileResponse:
+    return FileResponse(
+        FRONTEND / "playlistmuse-favicon.png",
+        media_type="image/png",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @app.get("/", include_in_schema=False)
 async def index() -> FileResponse:
     return FileResponse(FRONTEND / "index.html", headers={"Cache-Control": "no-cache"})
