@@ -144,12 +144,12 @@ def test_library_tag_ui_uses_general_search_click_filters_and_personal_tags() ->
     assert 'id="library-genre-filter"' not in page
     assert 'id="library-mood-filter"' not in page
     assert 'id="library-period-filter"' not in page
-    assert "/static/library-tags.css?v=2" in page
-    assert "/static/library-tags.js?v=2" in page
+    assert "/static/library-tags.css?v=3" in page
+    assert "/static/library-tags.js?v=3" in page
     assert "tagTools?.searchValues(item)" in library_script
     assert "tagTools?.matchesFilters(item)" in library_script
     assert "const activeTagFilters = new Set();" in tags_script
-    assert "button.setAttribute('aria-pressed', String(active));" in tags_script
+    assert "element.setAttribute('aria-pressed', String(active));" in tags_script
     assert "library-tag-add" in tags_script
     assert "library-tag-delete" in tags_script
     assert "custom: valuesFor(tags, 'custom')" in tags_script
@@ -160,3 +160,35 @@ def test_library_tag_ui_uses_general_search_click_filters_and_personal_tags() ->
     assert "Genre up to 3" not in tags_script
     assert ".library-tag-chip.active" in tags_style
     assert ".library-personal-tag" in tags_style
+
+
+def test_playlist_page_shows_ai_and_personal_tags_with_shared_controls() -> None:
+    page = (FRONTEND / "playlist.html").read_text(encoding="utf-8")
+    script = (FRONTEND / "playlist.js").read_text(encoding="utf-8")
+    tags_script = (FRONTEND / "library-tags.js").read_text(encoding="utf-8")
+
+    assert 'id="playlist-tags"' in page
+    assert 'id="playlist-tags-status"' in page
+    assert "/static/library-tags.css?v=3" in page
+    assert "/static/library-tags.js?v=3" in page
+    assert "/static/playlist.js?v=20" in page
+    assert "const tagTools = window.PlaylistMuseTags" in script
+    assert "function renderPlaylistTags()" in script
+    assert "tagTools.editableSummary(data?.tags" in script
+    assert "tagTools.addPersonal(data?.tags, value)" in script
+    assert "tagTools.removePersonal(data?.tags, value)" in script
+    assert "data.tags = record.playlist.tags;" in script
+    assert "void refreshPlaylistTagsFromLibrary();" in script
+    assert "window.PlaylistMuseTags = api;" in tags_script
+
+
+def test_tag_add_control_matches_chip_height_and_empty_submit_closes_silently() -> None:
+    tags_script = (FRONTEND / "library-tags.js").read_text(encoding="utf-8")
+    tags_style = (FRONTEND / "library-tags.css").read_text(encoding="utf-8")
+
+    assert "--playlist-tag-height: 22px;" in tags_style
+    assert "height: var(--playlist-tag-height);" in tags_style
+    assert "width: var(--playlist-tag-height);" in tags_style
+    assert "const label = clean(input.value);" in tags_script
+    assert "if (!label) {\n        close();\n        return;\n      }" in tags_script
+    assert "form.addEventListener('focusout'" in tags_script
