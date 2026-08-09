@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="/static/style.css?v=10">
   <link rel="stylesheet" href="/static/layout.css?v=5">
   <link rel="stylesheet" href="/static/controls.css?v=7">
-  <link rel="stylesheet" href="/static/library.css?v=8">
+  <link rel="stylesheet" href="/static/library.css?v=9">
   <link rel="stylesheet" href="/static/library-tags.css?v=3">
   <link rel="stylesheet" href="/static/library-refinement-history.css?v=1">
   <link rel="stylesheet" href="/static/library-refine.css?v=3">
@@ -74,13 +74,19 @@
       <div id="library-empty" class="empty-state hidden">
         No saved playlists yet. Create one and it will appear here automatically.
       </div>
+      <nav id="library-pagination" class="library-pagination hidden" aria-label="Playlist pages">
+        <button id="library-page-previous" class="secondary library-page-nav" type="button">Previous</button>
+        <div id="library-page-numbers" class="library-page-numbers"></div>
+        <button id="library-page-next" class="secondary library-page-nav" type="button">Next</button>
+      </nav>
     </section>
   </main>
 
   <script src="/static/common.js?v=1"></script>
   <script src="/static/library-refine.js?v=2"></script>
   <script src="/static/library-tags.js?v=3"></script>
-  <script src="/static/library.js?v=7"></script>
+  <script src="/static/library-pagination.js?v=1"></script>
+  <script src="/static/library.js?v=8"></script>
   <script src="/static/home-status.js?v=14"></script>
 </body>
 </html>
