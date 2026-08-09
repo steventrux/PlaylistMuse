@@ -12,6 +12,7 @@
 }
 
 .library-tags {
+  --playlist-tag-height: 22px;
   min-width: 0;
   margin-top: 7px;
 }
@@ -23,6 +24,7 @@
   display: inline-grid;
   place-items: center;
   min-width: 0;
+  box-sizing: border-box;
   border: 1px solid rgba(183, 156, 255, .24);
   background: rgba(139, 92, 246, .08);
   color: var(--text-secondary);
@@ -35,11 +37,12 @@
 
 .library-tag-chip {
   max-width: 190px;
-  padding: 4px 8px;
+  height: var(--playlist-tag-height);
+  padding: 0 8px;
   border-radius: 999px;
   font-size: .68rem;
   font-weight: 720;
-  line-height: 1.1;
+  line-height: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -66,18 +69,18 @@
 
 .library-tag-add,
 .library-tag-confirm {
-  width: 25px;
-  height: 25px;
+  width: var(--playlist-tag-height);
+  height: var(--playlist-tag-height);
   padding: 0;
-  border-radius: 8px;
+  border-radius: 7px;
   color: var(--violet-light);
 }
 
 .library-tag-add svg,
 .library-tag-confirm svg,
 .library-tag-delete svg {
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
   fill: none;
   stroke: currentColor;
   stroke-width: 2;
@@ -88,6 +91,7 @@
 .library-personal-tag {
   display: inline-flex;
   align-items: stretch;
+  height: var(--playlist-tag-height);
   overflow: hidden;
   border: 1px solid rgba(56, 189, 248, .28);
   border-radius: 999px;
@@ -95,6 +99,7 @@
 }
 
 .library-personal-tag .library-tag-chip {
+  height: 100%;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -106,8 +111,9 @@
 }
 
 .library-tag-delete {
-  width: 25px;
-  padding: 0 7px 0 5px;
+  width: var(--playlist-tag-height);
+  height: 100%;
+  padding: 0;
   border: 0;
   border-left: 1px solid rgba(56, 189, 248, .2);
   border-radius: 0;
@@ -129,7 +135,7 @@
 
 .library-tag-add-form input {
   width: 132px;
-  min-height: 27px;
+  min-height: 26px;
   box-sizing: border-box;
   padding: 4px 8px;
   border-radius: 8px;
@@ -141,6 +147,22 @@
   grid-row: 2;
   align-self: end;
   margin-top: 62px;
+}
+
+.playlist-tags {
+  min-height: var(--playlist-tag-height, 22px);
+  margin-top: 10px;
+}
+
+.playlist-tags .library-tags {
+  margin-top: 0;
+}
+
+.playlist-tag-status {
+  margin: 6px 0 0;
+  color: #fda4af;
+  font-size: .74rem;
+  line-height: 1.35;
 }
 
 @media (max-width: 650px) {
