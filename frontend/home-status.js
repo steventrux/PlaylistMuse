@@ -139,6 +139,7 @@
     ensureStylesheet('/static/layout.css', '/static/layout.css?v=5');
     ensureStylesheet('/static/header-navigation.css', '/static/header-navigation.css?v=6');
     ensureStylesheet('/static/settings-dialog.css', '/static/settings-dialog.css?v=5');
+    ensureStylesheet('/static/settings-overlay.css', '/static/settings-overlay.css?v=1');
   }
 
   function currentPage() {
@@ -426,16 +427,8 @@
     }
   }
 
-  function settingsPageUrl(section) {
-    const target = new URL('/static/settings.html', window.location.origin);
-    target.searchParams.set('section', section);
-    const returnTarget = `${window.location.pathname}${window.location.search}${window.location.hash}` || '/';
-    target.searchParams.set('return', returnTarget);
-    return `${target.pathname}${target.search}`;
-  }
-
   function openSettings(section) {
-    window.location.assign(settingsPageUrl(section));
+    window.PlaylistMuseSettingsOverlay?.open(section);
   }
 
   function bindIndicatorActions() {
