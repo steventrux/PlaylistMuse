@@ -30,38 +30,6 @@
   height: auto;
 }
 
-.settings-close-button {
-  display: grid;
-  width: 38px;
-  height: 38px;
-  padding: 0;
-  place-items: center;
-  flex: 0 0 auto;
-  border: 1px solid rgba(183, 156, 255, .4);
-  border-radius: 11px;
-  background: rgba(10, 13, 30, .82);
-  color: var(--text-secondary);
-  box-shadow: 0 10px 28px rgba(1, 3, 15, .2);
-  backdrop-filter: blur(14px);
-  transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
-}
-
-.settings-close-button:hover,
-.settings-close-button:focus-visible {
-  border-color: rgba(125, 220, 255, .7);
-  background: rgba(22, 28, 57, .94);
-  color: var(--text-primary);
-}
-
-.settings-close-button svg {
-  width: 20px;
-  height: 20px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-}
-
 .settings-page-main {
   padding-bottom: 48px;
 }
@@ -256,7 +224,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .settings-close-button,
   .settings-section-link {
     transition: none;
   }
