@@ -25,7 +25,7 @@ def test_abbreviated_range_after_cutoff_is_impossible():
 
 def test_prompt_validation_guard_is_loaded_after_app_listener_registration():
     html = (FRONTEND / "index.html").read_text(encoding="utf-8")
-    app = '<script src="/static/app.js?v=18"></script>'
+    app = '<script src="/static/app.js?v=19"></script>'
     guard = '<script src="/static/prompt-validation-guard.js?v=1"></script>'
 
     assert app in html
