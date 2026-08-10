@@ -11,7 +11,7 @@
   function loadFooterStatus() {
     if (document.querySelector('script[data-playlistmuse-footer-status]')) return;
     const script = document.createElement('script');
-    script.src = '/static/home-status.js?v=12';
+    script.src = '/static/home-status.js?v=14';
     script.dataset.playlistmuseFooterStatus = 'true';
     document.body.append(script);
   }
@@ -100,14 +100,13 @@
   }
 
   function openYouTubeSettings() {
-    const dialog = $('youtube-settings-dialog');
-    if (!dialog.open) dialog.showModal();
-    window.dispatchEvent(new Event('playlistmuse-youtube-settings-opened'));
-  }
-
-  function closeYouTubeSettings() {
-    const dialog = $('youtube-settings-dialog');
-    if (dialog.open) dialog.close();
+    const target = new URL('/static/settings.html', window.location.origin);
+    target.searchParams.set('section', 'youtube');
+    target.searchParams.set(
+      'return',
+      `${window.location.pathname}${window.location.search}${window.location.hash}` || '/',
+    );
+    window.location.assign(`${target.pathname}${target.search}`);
   }
 
   function renderPublishedResult(result) {
@@ -252,7 +251,6 @@
     button.addEventListener('click', () => selectPrivacy(button));
   });
   $('youtube-open-settings').addEventListener('click', openYouTubeSettings);
-  $('close-youtube-settings').addEventListener('click', closeYouTubeSettings);
   $('create-youtube-playlist').addEventListener('click', publishPlaylist);
   window.addEventListener('playlistmuse-status-changed', refreshStatus);
   loadFooterStatus();
