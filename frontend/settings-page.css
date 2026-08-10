@@ -160,6 +160,36 @@
   padding: 0;
 }
 
+html.settings-embedded,
+html.settings-embedded body {
+  min-height: 100%;
+  background: transparent;
+}
+
+html.settings-embedded body::before {
+  display: none;
+}
+
+html.settings-embedded .settings-page-header {
+  display: none;
+}
+
+html.settings-embedded .settings-page-main {
+  width: 100%;
+  min-height: 100vh;
+  padding: 0;
+}
+
+html.settings-embedded .settings-page-shell {
+  min-height: 100vh;
+  border-radius: 22px;
+  box-shadow: none;
+}
+
+html.settings-embedded .settings-page-content-heading {
+  padding-right: 56px;
+}
+
 @media (max-width: 760px) {
   .settings-page-header,
   .settings-page-main {
@@ -220,6 +250,18 @@
 
   .settings-page-content {
     padding: 24px 20px 28px;
+  }
+
+  html.settings-embedded .settings-page-main {
+    width: 100%;
+  }
+
+  html.settings-embedded .settings-page-shell {
+    border-radius: 18px;
+  }
+
+  html.settings-embedded .settings-page-content-heading {
+    padding-right: 48px;
   }
 }
 
