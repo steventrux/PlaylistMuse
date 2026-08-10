@@ -107,9 +107,14 @@ def test_library_cards_match_compact_result_card_proportions_and_expand() -> Non
     script = _text("library.js")
     style = _text("library.css")
 
-    assert "/static/library.js?v=8" in html
+    assert "/static/library.js?v=9" in html
+    assert "/static/library.css?v=10" in html
     assert "let expandedLibraryId = null;" in script
     assert "function toggleLibraryCard(card, item)" in script
+    assert "function setLibraryCardExpanded(card, expanded)" in script
+    assert "const expandIcon = document.createElement('button');" in script
+    assert "expandIcon.addEventListener('click'" in script
+    assert "if (card.classList.contains('expanded')) return;" in script
     assert "library-expand-icon" in script
     assert "library-details" in script
     assert "Initial request" in script
@@ -121,6 +126,8 @@ def test_library_cards_match_compact_result_card_proportions_and_expand() -> Non
     assert "Playlist details" in script
     assert "Created ${formatDate(item.created_at)}" in script
     assert ".library-item.expanded" in style
+    assert "cursor: default;" in style
+    assert ".library-expand-icon:hover" in style
     assert "grid-template-columns: 54px minmax(0, 1fr) 28px;" in style
     assert "grid-template-rows: 54px;" in style
     assert "width: 54px;" in style
