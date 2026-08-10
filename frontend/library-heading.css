@@ -1,24 +1,7 @@
-.library-heading-row {
-  margin-bottom: 20px;
-  padding-bottom: 18px;
-  border-bottom: 1px solid rgba(183, 156, 255, .16);
-}
-
-.library-heading-copy {
-  min-width: 0;
-}
-
-.library-title-line {
+.library-count-row {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.library-heading-row h2 {
-  margin: 0;
-  font-size: clamp(1.55rem, 3vw, 2rem);
-  letter-spacing: -.03em;
+  justify-content: flex-end;
+  margin-bottom: 16px;
 }
 
 .library-count {
@@ -39,13 +22,8 @@
 }
 
 @media (max-width: 650px) {
-  .library-heading-row {
-    margin-bottom: 18px;
-    padding-bottom: 16px;
-  }
-
-  .library-title-line {
-    gap: 8px;
+  .library-count-row {
+    margin-bottom: 14px;
   }
 
   .library-count {
