@@ -29,6 +29,19 @@ def test_lastfm_header_indicator_matches_existing_status_behavior() -> None:
     assert ".header-indicator.lastfm.on" in stylesheet
 
 
+def test_lastfm_restored_settings_wait_for_async_module_without_redirect_loop() -> None:
+    status = (FRONTEND / "lastfm-status.js").read_text(encoding="utf-8")
+    settings = (FRONTEND / "lastfm-settings.js").read_text(encoding="utf-8")
+
+    assert "function openSettingsWhenReady()" in status
+    assert "if (!document.getElementById('setup-dialog')) return false;" in status
+    assert "if (openSettingsWhenReady()) return;" in status
+    assert "playlistmuse-lastfm-settings-ready" in status
+    assert "sessionStorage.removeItem(SETTINGS_REQUEST_KEY);\n    openSettings();" in status
+    assert "setTimeout(openSettings, 0)" not in status
+    assert "window.dispatchEvent(new Event('playlistmuse-lastfm-settings-ready'));" in settings
+
+
 def test_lastfm_indicator_uses_the_official_brand_mark_and_red() -> None:
     script = (FRONTEND / "lastfm-status.js").read_text(encoding="utf-8")
     stylesheet = (FRONTEND / "lastfm.css").read_text(encoding="utf-8")
