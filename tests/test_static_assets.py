@@ -38,7 +38,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     settings_overlay = '<script src="/static/settings-overlay.js?v=1"></script>'
     home_status = '<script src="/static/home-status.js?v=16"></script>'
     generation_state = '<script src="/static/generation-state.js?v=2"></script>'
-    app = '<script src="/static/app.js?v=18"></script>'
+    app = '<script src="/static/app.js?v=19"></script>'
 
     assert index.index(common) < index.index(
         '<script src="/static/ai-settings.js?v=12"></script>'
@@ -136,7 +136,7 @@ def test_generation_requires_configured_ai_provider() -> None:
     assert "button.disabled = !configured" in home_status
     assert "button.classList.toggle('hidden', !configured)" in home_status
     assert "if (button.disabled) return;" in app
-    assert "openSetup('ai', 'single')" in app
+    assert "window.PlaylistMuseSettingsOverlay?.open('ai')" in app
 
 
 def test_first_run_setup_is_persistent_and_two_step() -> None:
@@ -297,7 +297,7 @@ def test_ai_settings_separate_active_and_selected_provider_states() -> None:
     assert '/static/ai-settings.css?v=3' in index
     assert '/static/ai-settings.css?v=3' in settings
     assert '/static/ai-settings.css' not in playlist
-    assert '/static/app.js?v=18' in index
+    assert '/static/app.js?v=19' in index
     assert 'id="ai-active-status"' in index
     assert 'id="ai-active-status"' in settings
     assert "Choose or configure a provider" in index
