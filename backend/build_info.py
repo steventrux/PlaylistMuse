@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import os
 from dataclasses import asdict, dataclass
+from pathlib import Path
 
 from fastapi import APIRouter
 
+from backend.source_revision import git_revision
+
 REPOSITORY_URL = "https://github.com/steventrux/PlaylistMuse"
 _VALID_CHANNELS = {"stable", "beta", "dev"}
+_INVALID_COMMITS = {"", "unknown", "none", "local"}
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_DEFAULT_SOURCE_GIT_DIR = _PROJECT_ROOT / ".git"
 
 router = APIRouter()
 
@@ -43,19 +49,34 @@ def _infer_channel(version: str) -> str:
     return "stable"
 
 
+def _source_commit() -> str:
+    configured = _clean(os.getenv("PLAYLISTMUSE_SOURCE_GIT_DIR"))
+    git_dir = Path(configured) if configured else _DEFAULT_SOURCE_GIT_DIR
+    return git_revision(git_dir)
+
+
+def _running_commit() -> str:
+    commit = _clean(os.getenv("PLAYLISTMUSE_GIT_SHA"))
+    if commit.lower() in _INVALID_COMMITS:
+        commit = ""
+    if not commit:
+        commit = _source_commit()
+    return commit[:7] if commit else ""
+
+
 def current_build_info() -> BuildInfo:
-    """Return metadata baked into the running build through environment variables."""
+    """Return metadata for the exact build currently serving the application."""
     version = _clean(os.getenv("PLAYLISTMUSE_VERSION")) or "dev"
     requested_channel = _clean(os.getenv("PLAYLISTMUSE_CHANNEL")).lower()
     channel = requested_channel if requested_channel in _VALID_CHANNELS else _infer_channel(version)
-    commit = _clean(os.getenv("PLAYLISTMUSE_GIT_SHA"))
-    if commit.lower() in {"unknown", "none"}:
-        commit = ""
-    short_commit = commit[:7] if commit else ""
+    short_commit = _running_commit()
 
     label = _version_label(version)
-    suffix = short_commit if channel == "dev" and short_commit else channel
-    display = label if label == suffix else f"{label} · {suffix}"
+    display = (
+        f"{label} · {short_commit}"
+        if channel == "dev" and short_commit
+        else label
+    )
 
     return BuildInfo(
         version=version,
