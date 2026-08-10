@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 import backend.playlist_library as playlist_library_module
@@ -76,6 +77,52 @@ def test_playlist_tagger_uses_multilingual_library_only_categories(monkeypatch) 
     assert "Night drive" in captured["prompt"]
 
 
+def test_playlist_tagger_retries_fallback_after_empty_classification(monkeypatch) -> None:
+    models: list[str] = []
+
+    async def fake_request(config, prompt, *, system_prompt, max_tokens, model):
+        models.append(model)
+        if model == "model-a":
+            return '{"genre":[],"mood":[],"period":[]}'
+        return (
+            '{"genre":["Electronic Pop"],'
+            '"mood":["Energetic"],'
+            '"period":["2020s"]}'
+        )
+
+    monkeypatch.setattr(playlist_tags_module, "request_structured_json", fake_request)
+    config = SimpleNamespace(
+        configured=True,
+        model_chain=("model-a", "model-b"),
+    )
+
+    tags = asyncio.run(suggest_playlist_tags(config, sample_playlist()))
+
+    assert models == ["model-a", "model-b"]
+    assert tags == {
+        "genre": ["Electronic Pop"],
+        "mood": ["Energetic"],
+        "period": ["2020s"],
+        "custom": [],
+    }
+
+
+def test_playlist_tagger_rejects_empty_classification_from_all_models(
+    monkeypatch,
+) -> None:
+    async def fake_request(config, prompt, *, system_prompt, max_tokens, model):
+        return '{"genre":[],"mood":[],"period":[]}'
+
+    monkeypatch.setattr(playlist_tags_module, "request_structured_json", fake_request)
+    config = SimpleNamespace(
+        configured=True,
+        model_chain=("model-a", "model-b"),
+    )
+
+    with pytest.raises(ValueError, match="no valid playlist tags"):
+        asyncio.run(suggest_playlist_tags(config, sample_playlist()))
+
+
 def test_library_preserves_existing_tags_when_legacy_update_omits_them(tmp_path: Path) -> None:
     library = PlaylistLibrary(tmp_path / "playlists.db")
     playlist = sample_playlist()
@@ -94,11 +141,16 @@ def test_library_preserves_existing_tags_when_legacy_update_omits_them(tmp_path:
     assert library.list()[0]["tags"] == playlist["tags"]
 
 
-def test_library_api_auto_tags_new_playlist_without_changing_generation(monkeypatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize("mode", ["prompt", "seed"])
+def test_library_api_auto_tags_new_playlist_without_changing_generation(
+    monkeypatch,
+    tmp_path: Path,
+    mode: str,
+) -> None:
     monkeypatch.setattr(
         playlist_library_module,
         "_library",
-        PlaylistLibrary(tmp_path / "api-playlists.db"),
+        PlaylistLibrary(tmp_path / f"api-playlists-{mode}.db"),
     )
 
     async def fake_suggest(config, playlist):
@@ -114,7 +166,7 @@ def test_library_api_auto_tags_new_playlist_without_changing_generation(monkeypa
 
     created = client.post(
         "/api/library/playlists",
-        json={"playlist": sample_playlist(), "generation_request": {"mode": "prompt"}},
+        json={"playlist": sample_playlist(), "generation_request": {"mode": mode}},
     )
 
     assert created.status_code == 201
@@ -129,7 +181,7 @@ def test_library_api_auto_tags_new_playlist_without_changing_generation(monkeypa
     legacy_playlist = sample_playlist()
     updated = client.put(
         f"/api/library/playlists/{payload['id']}",
-        json={"playlist": legacy_playlist, "generation_request": {"mode": "prompt"}},
+        json={"playlist": legacy_playlist, "generation_request": {"mode": mode}},
     )
     assert updated.status_code == 200
     assert updated.json()["playlist"]["tags"] == payload["playlist"]["tags"]
