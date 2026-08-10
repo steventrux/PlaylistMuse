@@ -127,13 +127,10 @@
     }
   }
 
-  function primaryNavigationTarget() {
+  function primaryNavigationHost() {
     const path = window.location.pathname;
-    if (path.endsWith('/library.html')) {
-      return document.querySelector('.library-card');
-    }
-    if (path === '/' || path.endsWith('/index.html')) {
-      return document.querySelector('.hero.card');
+    if (path.endsWith('/library.html') || path === '/' || path.endsWith('/index.html')) {
+      return document.querySelector('.app-header');
     }
     return null;
   }
@@ -142,13 +139,13 @@
     if (document.querySelector('link[href^="/static/primary-navigation.css"]')) return;
     const stylesheet = document.createElement('link');
     stylesheet.rel = 'stylesheet';
-    stylesheet.href = '/static/primary-navigation.css?v=1';
+    stylesheet.href = '/static/primary-navigation.css?v=2';
     document.head.append(stylesheet);
   }
 
-  function installPrimaryNavigationTabs() {
-    const target = primaryNavigationTarget();
-    if (!target || target.querySelector('.primary-page-tabs')) return;
+  function installPrimaryNavigation() {
+    const host = primaryNavigationHost();
+    if (!host || host.querySelector('.primary-page-navigation')) return;
 
     const pageGroup = document.querySelector(
       '.playlistmuse-sidebar .sidebar-group[aria-labelledby="sidebar-pages-label"]',
@@ -160,19 +157,19 @@
 
     ensurePrimaryNavigationStyles();
 
-    const tabs = document.createElement('nav');
-    tabs.className = 'primary-page-tabs';
-    tabs.setAttribute('aria-label', 'Primary playlist navigation');
+    const navigation = document.createElement('nav');
+    navigation.className = 'primary-page-navigation';
+    navigation.setAttribute('aria-label', 'Primary playlist navigation');
 
     links.forEach((link) => {
       const label = link.querySelector('span')?.textContent?.trim()
         || link.textContent.trim();
       const active = link.getAttribute('aria-current') === 'page';
 
-      link.className = 'primary-page-tab';
+      link.className = 'primary-page-link';
       link.classList.toggle('active', active);
       link.replaceChildren(label);
-      tabs.append(link);
+      navigation.append(link);
     });
 
     const sidebar = pageGroup.closest('.playlistmuse-sidebar');
@@ -181,7 +178,8 @@
     if (sidebar) sidebar.setAttribute('aria-label', 'PlaylistMuse integrations');
     if (sidebarNav) sidebarNav.setAttribute('aria-label', 'Integrations');
 
-    target.prepend(tabs);
+    host.classList.add('has-primary-page-navigation');
+    host.append(navigation);
   }
 
   function installPromptAssessmentStyles() {
@@ -346,7 +344,7 @@
   }
 
   function initializeEnhancements() {
-    installPrimaryNavigationTabs();
+    installPrimaryNavigation();
     installPromptPreflight();
     void loadLastFmEnhancements();
   }
