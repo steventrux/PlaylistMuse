@@ -129,7 +129,12 @@
 
   function primaryNavigationHost() {
     const path = window.location.pathname;
-    if (path.endsWith('/library.html') || path === '/' || path.endsWith('/index.html')) {
+    if (
+      path.endsWith('/library.html')
+      || path.endsWith('/playlist.html')
+      || path === '/'
+      || path.endsWith('/index.html')
+    ) {
       return document.querySelector('.app-header');
     }
     return null;
