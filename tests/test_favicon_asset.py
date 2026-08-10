@@ -7,8 +7,9 @@ FRONTEND = ROOT / "frontend"
 
 def test_runtime_favicon_asset_exists() -> None:
     status = (FRONTEND / "home-status.js").read_text(encoding="utf-8")
-    favicon = FRONTEND / "playlistmuse-favicon.svg"
+    favicon = FRONTEND / "playlistmuse-favicon.png"
 
-    assert "const FAVICON_URL = '/static/playlistmuse-favicon.svg?v=1';" in status
+    assert "const FAVICON_URL = '/static/playlistmuse-favicon.png?v=1';" in status
+    assert "favicon.type = 'image/png';" in status
     assert favicon.is_file()
-    assert '<svg xmlns="http://www.w3.org/2000/svg"' in favicon.read_text(encoding="utf-8")
+    assert favicon.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
