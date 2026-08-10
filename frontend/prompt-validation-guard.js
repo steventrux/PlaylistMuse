@@ -17,7 +17,9 @@
       node.className = 'generation-feedback hidden';
       node.setAttribute('role', 'alert');
       node.setAttribute('aria-live', 'assertive');
-      document.getElementById('prompt')?.insertAdjacentElement('afterend', node);
+      const prompt = document.getElementById('prompt');
+      const shell = prompt?.closest('.prompt-input-shell');
+      (shell || prompt)?.insertAdjacentElement('afterend', node);
     }
     return node;
   }
