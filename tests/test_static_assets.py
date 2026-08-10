@@ -35,6 +35,8 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     playlist = _html("playlist.html")
     settings = _html("settings.html")
     common = '<script src="/static/common.js?v=1"></script>'
+    settings_overlay = '<script src="/static/settings-overlay.js?v=1"></script>'
+    home_status = '<script src="/static/home-status.js?v=16"></script>'
     generation_state = '<script src="/static/generation-state.js?v=2"></script>'
     app = '<script src="/static/app.js?v=18"></script>'
 
@@ -44,27 +46,27 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     assert index.index(common) < index.index(
         '<script src="/static/youtube-account.js?v=5"></script>'
     )
-    assert index.index(common) < index.index(
-        '<script src="/static/home-status.js?v=15"></script>'
-    )
+    assert settings_overlay in index
+    assert index.index(settings_overlay) < index.index(home_status)
+    assert index.index(common) < index.index(home_status)
     assert generation_state in index
     assert index.index(generation_state) < index.index(app)
     assert index.index(common) < index.index(app)
     assert '<script src="/static/prompt-complexity.js?v=7"></script>' in index
-    assert index.index('<script src="/static/home-status.js?v=15"></script>') < (
-        index.index(app)
-    )
+    assert index.index(home_status) < index.index(app)
 
     playlist_home_status = (
         '<script data-playlistmuse-footer-status '
-        'src="/static/home-status.js?v=15"></script>'
+        'src="/static/home-status.js?v=16"></script>'
     )
     assert playlist.index(common) < playlist.index(
         '<script src="/static/playlist.js?v=20"></script>'
     )
+    assert settings_overlay in playlist
+    assert playlist.index(settings_overlay) < playlist.index(playlist_home_status)
     assert playlist.index(common) < playlist.index(playlist_home_status)
     assert playlist.index(playlist_home_status) < playlist.index(
-        '<script src="/static/youtube-publish.js?v=14"></script>'
+        '<script src="/static/youtube-publish.js?v=15"></script>'
     )
     assert '/static/ai-results-settings.js' not in playlist
     assert '/static/ai-settings.js' not in playlist
@@ -213,8 +215,8 @@ def test_header_uses_exact_uploaded_banner() -> None:
     brand = _style("brand.css")
     banner = (FRONTEND / "playlistmuse-banner.svg").read_bytes()
 
-    assert '/static/home-status.js?v=15' in index
-    assert '/static/home-status.js?v=15' in playlist
+    assert '/static/home-status.js?v=16' in index
+    assert '/static/home-status.js?v=16' in playlist
     assert "const HEADER_BANNER_URL = '/static/playlistmuse-banner.svg?v=1';" in status
     assert "function installBrandBanner()" in status
     assert "header.querySelector('.brand-banner')" in status
@@ -231,6 +233,7 @@ def test_header_uses_exact_uploaded_banner() -> None:
 def test_header_indicators_show_active_provider_without_neon() -> None:
     index = _html("index.html")
     status = _script("home-status.js")
+    overlay = _script("settings-overlay.js")
     layout = _style("layout.css")
 
     assert 'id="home-ai-status"' not in index
@@ -251,10 +254,10 @@ def test_header_indicators_show_active_provider_without_neon() -> None:
     assert "providerIcons[provider] || brainIcon" in status
     assert "youtube-body" in status
     assert "element.dataset.tooltip = tooltip" in status
-    assert "function settingsPageUrl(section)" in status
-    assert "new URL('/static/settings.html', window.location.origin)" in status
-    assert "target.searchParams.set('return', returnTarget);" in status
-    assert "window.location.assign(settingsPageUrl(section));" in status
+    assert "window.PlaylistMuseSettingsOverlay?.open(section);" in status
+    assert "function settingsPageUrl(section)" not in status
+    assert "window.location.assign(settingsPageUrl(section));" not in status
+    assert "target.searchParams.set('embedded', '1');" in overlay
     assert ".header-indicator.ai.on" in layout
     assert ".header-indicator.youtube.on" in layout
     assert "width: 32px" in layout
@@ -323,28 +326,28 @@ def test_ai_settings_separate_active_and_selected_provider_states() -> None:
     assert ":has(#setup-progress.hidden) .dialog-head" in shared_style
 
 
-def test_results_page_routes_ai_settings_without_local_dialog() -> None:
+def test_results_page_opens_ai_settings_without_local_dialog_or_navigation() -> None:
     playlist = _html("playlist.html")
     status = _script("home-status.js")
 
     assert 'id="youtube-settings-dialog"' not in playlist
     assert '/static/ai-results-settings.js' not in playlist
     assert '/static/ai-settings.js' not in playlist
-    assert '/static/home-status.js?v=15' in playlist
-    assert "target.searchParams.set('section', section);" in status
-    assert "target.searchParams.set('return', returnTarget);" in status
-    assert "window.location.assign(settingsPageUrl(section));" in status
+    assert '/static/settings-overlay.js?v=1' in playlist
+    assert '/static/home-status.js?v=16' in playlist
+    assert "window.PlaylistMuseSettingsOverlay?.open(section);" in status
+    assert "window.location.assign(settingsPageUrl(section));" not in status
 
 
-def test_results_page_routes_youtube_settings_and_preserves_origin() -> None:
+def test_results_page_opens_youtube_settings_without_navigation() -> None:
     playlist = _html("playlist.html")
     youtube_publish = _script("youtube-publish.js")
 
     assert 'id="youtube-settings-dialog"' not in playlist
-    assert "new URL('/static/settings.html', window.location.origin)" in youtube_publish
-    assert "target.searchParams.set('section', 'youtube');" in youtube_publish
-    assert "window.location.pathname" in youtube_publish
-    assert "target.searchParams.set(\n      'return'," in youtube_publish
+    assert '/static/settings-overlay.js?v=1' in playlist
+    assert "window.PlaylistMuseSettingsOverlay?.open('youtube');" in youtube_publish
+    assert "new URL('/static/settings.html', window.location.origin)" not in youtube_publish
+    assert "window.location.assign" not in youtube_publish
 
 
 def test_youtube_settings_show_account_and_relevant_actions() -> None:
@@ -386,7 +389,7 @@ def test_youtube_publish_progress_is_compact_and_not_redundant() -> None:
     youtube_results = _style("youtube-results.css")
 
     assert '/static/youtube-results.css?v=4' in playlist
-    assert '/static/youtube-publish.js?v=14' in playlist
+    assert '/static/youtube-publish.js?v=15' in playlist
     assert (
         'id="youtube-publish-status" class="youtube-publish-status hidden"'
         in playlist
@@ -409,7 +412,7 @@ def test_published_playlist_hides_track_replacement_controls() -> None:
     youtube_publish = _script("youtube-publish.js")
 
     assert '/static/playlist.js?v=20' in playlist
-    assert '/static/youtube-publish.js?v=14' in playlist
+    assert '/static/youtube-publish.js?v=15' in playlist
     assert 'id="youtube-publish-account"' not in playlist
     assert "YouTube Music account connected" not in playlist
     assert "function isPublished()" in playlist_script
