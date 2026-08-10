@@ -501,7 +501,9 @@
     setMode(button.dataset.mode, button);
   }));
 
-  $('ai-open-settings').addEventListener('click', () => openSetup('ai', 'single'));
+  $('ai-open-settings').addEventListener('click', () => {
+    window.PlaylistMuseSettingsOverlay?.open('ai');
+  });
   $('close-setup').addEventListener('click', closeSetup);
   $('setup-skip').addEventListener('click', closeSetup);
   $('setup-finish').addEventListener('click', closeSetup);
