@@ -8,13 +8,16 @@
     const existing = $('setup-lastfm-step');
     if (existing) return existing;
 
+    const pageHost = $('settings-lastfm-host');
     const navigation = $('setup-navigation');
     const form = $('setup-dialog')?.querySelector('form');
-    if (!form) return null;
+    if (!pageHost && !form) return null;
 
     const panel = document.createElement('section');
     panel.id = 'setup-lastfm-step';
-    panel.className = 'settings-block setup-step lastfm-settings-panel hidden';
+    panel.className = pageHost
+      ? 'settings-block setup-step lastfm-settings-panel'
+      : 'settings-block setup-step lastfm-settings-panel hidden';
     panel.innerHTML = `
       <div class="settings-summary">
         <div class="settings-summary-heading">
@@ -43,12 +46,15 @@
         </div>
       </div>
     `;
-    if (navigation) form.insertBefore(panel, navigation);
+
+    if (pageHost) pageHost.append(panel);
+    else if (navigation) form.insertBefore(panel, navigation);
     else form.append(panel);
     return panel;
   }
 
   function hidePanel() {
+    if ($('settings-lastfm-host')) return;
     $('setup-lastfm-step')?.classList.add('hidden');
   }
 
@@ -68,6 +74,11 @@
   }
 
   function openSettings() {
+    if ($('settings-lastfm-host')) {
+      window.PlaylistMuseSettingsSelect?.('lastfm');
+      return true;
+    }
+
     const dialog = $('setup-dialog');
     const lastFmPanel = ensurePanel();
     if (!dialog || !lastFmPanel) return false;
