@@ -4,19 +4,19 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+import backend.build_info as build_info
 from backend.application import app
 from backend.build_info import current_build_info
 from backend.source_revision import git_revision
 
+ROOT = Path(__file__).resolve().parents[1]
 
-def test_build_info_defaults_to_dev_without_claiming_a_revision(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
+
+def test_build_info_defaults_to_dev_without_claiming_a_revision(monkeypatch) -> None:
     monkeypatch.delenv("PLAYLISTMUSE_VERSION", raising=False)
     monkeypatch.delenv("PLAYLISTMUSE_CHANNEL", raising=False)
     monkeypatch.delenv("PLAYLISTMUSE_GIT_SHA", raising=False)
-    monkeypatch.setenv("PLAYLISTMUSE_SOURCE_GIT_DIR", str(tmp_path / "missing-git"))
+    monkeypatch.setattr(build_info, "_STARTUP_SOURCE_COMMIT", "")
 
     info = current_build_info()
 
@@ -26,17 +26,15 @@ def test_build_info_defaults_to_dev_without_claiming_a_revision(
     assert info.display == "dev"
 
 
-def test_dev_build_falls_back_to_checkout_revision(monkeypatch, tmp_path: Path) -> None:
-    git_dir = tmp_path / ".git"
-    ref = git_dir / "refs" / "heads" / "dev"
-    ref.parent.mkdir(parents=True)
-    (git_dir / "HEAD").write_text("ref: refs/heads/dev\n", encoding="utf-8")
-    ref.write_text("608c2a458283c69b2196eb9ecc0e3676f505ed98\n", encoding="utf-8")
-
+def test_dev_build_falls_back_to_startup_checkout_revision(monkeypatch) -> None:
     monkeypatch.setenv("PLAYLISTMUSE_VERSION", "dev")
     monkeypatch.setenv("PLAYLISTMUSE_CHANNEL", "dev")
     monkeypatch.setenv("PLAYLISTMUSE_GIT_SHA", "local")
-    monkeypatch.setenv("PLAYLISTMUSE_SOURCE_GIT_DIR", str(git_dir))
+    monkeypatch.setattr(
+        build_info,
+        "_STARTUP_SOURCE_COMMIT",
+        "608c2a458283c69b2196eb9ecc0e3676f505ed98",
+    )
 
     info = current_build_info()
 
@@ -44,14 +42,12 @@ def test_dev_build_falls_back_to_checkout_revision(monkeypatch, tmp_path: Path) 
     assert info.display == "dev · 608c2a4"
 
 
-def test_explicit_build_revision_takes_precedence(monkeypatch, tmp_path: Path) -> None:
-    git_dir = tmp_path / ".git"
-    git_dir.mkdir()
-    (git_dir / "HEAD").write_text(
-        "1111111111111111111111111111111111111111\n",
-        encoding="utf-8",
+def test_explicit_build_revision_takes_precedence(monkeypatch) -> None:
+    monkeypatch.setattr(
+        build_info,
+        "_STARTUP_SOURCE_COMMIT",
+        "1111111111111111111111111111111111111111",
     )
-    monkeypatch.setenv("PLAYLISTMUSE_SOURCE_GIT_DIR", str(git_dir))
     monkeypatch.setenv("PLAYLISTMUSE_VERSION", "dev")
     monkeypatch.setenv("PLAYLISTMUSE_CHANNEL", "dev")
     monkeypatch.setenv(
@@ -83,17 +79,35 @@ def test_build_info_keeps_stable_and_beta_labels_version_only(monkeypatch) -> No
     assert info.display == "v0.2.0-dev · 472c481"
 
 
-def test_git_revision_supports_packed_refs(tmp_path: Path) -> None:
-    git_dir = tmp_path / ".git"
-    git_dir.mkdir()
-    (git_dir / "HEAD").write_text("ref: refs/heads/dev\n", encoding="utf-8")
-    (git_dir / "packed-refs").write_text(
+def test_git_revision_supports_loose_and_packed_refs(tmp_path: Path) -> None:
+    loose_git = tmp_path / "loose" / ".git"
+    loose_ref = loose_git / "refs" / "heads" / "dev"
+    loose_ref.parent.mkdir(parents=True)
+    (loose_git / "HEAD").write_text("ref: refs/heads/dev\n", encoding="utf-8")
+    loose_ref.write_text(
+        "608c2a458283c69b2196eb9ecc0e3676f505ed98\n",
+        encoding="utf-8",
+    )
+    assert git_revision(loose_git) == "608c2a458283c69b2196eb9ecc0e3676f505ed98"
+
+    packed_git = tmp_path / "packed" / ".git"
+    packed_git.mkdir(parents=True)
+    (packed_git / "HEAD").write_text("ref: refs/heads/dev\n", encoding="utf-8")
+    (packed_git / "packed-refs").write_text(
         "# pack-refs with: peeled fully-peeled sorted\n"
         "1234567890abcdef1234567890abcdef12345678 refs/heads/dev\n",
         encoding="utf-8",
     )
+    assert git_revision(packed_git) == "1234567890abcdef1234567890abcdef12345678"
 
-    assert git_revision(git_dir) == "1234567890abcdef1234567890abcdef12345678"
+
+def test_compose_exposes_only_checkout_head_and_refs_for_revision() -> None:
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert "PLAYLISTMUSE_SOURCE_GIT_DIR: /run/playlistmuse-source-git" in compose
+    assert "./.git/HEAD:/run/playlistmuse-source-git/HEAD:ro" in compose
+    assert "./.git/refs:/run/playlistmuse-source-git/refs:ro" in compose
+    assert "./.git:/run/playlistmuse-source-git" not in compose
 
 
 def test_version_endpoint_reports_running_build_metadata(monkeypatch) -> None:
