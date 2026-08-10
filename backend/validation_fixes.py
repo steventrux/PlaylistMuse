@@ -24,6 +24,22 @@ _TEMPORAL_RANGE_RE = re.compile(
     rf"(?:(?:il|lo|la|the|le|el)\s+)?({_YEAR_TOKEN})\b",
     re.IGNORECASE,
 )
+_DECADE_RANGE_LEAD_RE = re.compile(
+    r"\b(?:between|from|dal|dall['’]?|dai|dagli|tra|entre|desde|de|von)\s*"
+    r"(?:(?:the|i|gli|le|les|los|las|den|die)\s*)?$",
+    re.IGNORECASE,
+)
+_DECADE_RANGE_STRONG_SEPARATOR_RE = re.compile(
+    r"^\s*(?:-|–|—|to|through|until|al|agli|allo|alla|a|"
+    r"fino\s+(?:al|a)|à|au|aux|hasta|bis)\s*"
+    r"(?:(?:the|i|gli|le|les|los|las|den|die)\s*)?$",
+    re.IGNORECASE,
+)
+_DECADE_RANGE_AMBIGUOUS_SEPARATOR_RE = re.compile(
+    r"^\s*(?:and|e|et|y|und)\s*"
+    r"(?:(?:the|i|gli|le|les|los|las|den|die)\s*)?$",
+    re.IGNORECASE,
+)
 
 
 def _expand_year(value: str) -> int:
@@ -64,12 +80,50 @@ def _temporal_failure(
     return module.PromptAssessment(status="impossible", reasons=(reason,))
 
 
+def _is_decade_range_pair(prompt: str, left: Any, right: Any) -> bool:
+    """Return whether adjacent decade expressions describe one continuous range."""
+    separator = prompt[left.end() : right.start()]
+    if _DECADE_RANGE_STRONG_SEPARATOR_RE.fullmatch(separator):
+        return True
+    if not _DECADE_RANGE_AMBIGUOUS_SEPARATOR_RE.fullmatch(separator):
+        return False
+    prefix = prompt[max(0, left.start() - 48) : left.start()]
+    return bool(_DECADE_RANGE_LEAD_RE.search(prefix))
+
+
 def _bounded_periods(module: Any, prompt: str) -> list[tuple[int, int, int, int]]:
     periods: list[tuple[int, int, int, int]] = []
-    for match in module._DECADE_RE.finditer(prompt):
+    decade_matches = list(module._DECADE_RE.finditer(prompt))
+    consumed: set[int] = set()
+
+    for index in range(len(decade_matches) - 1):
+        if index in consumed:
+            continue
+        left = decade_matches[index]
+        right = decade_matches[index + 1]
+        if not _is_decade_range_pair(prompt, left, right):
+            continue
+        left_value = left.group(1) or left.group(2)
+        right_value = right.group(1) or right.group(2)
+        left_lower, left_upper = module._decade_bounds(left_value)
+        right_lower, right_upper = module._decade_bounds(right_value)
+        periods.append(
+            (
+                left.start(),
+                right.end(),
+                min(left_lower, right_lower),
+                max(left_upper, right_upper),
+            )
+        )
+        consumed.update((index, index + 1))
+
+    for index, match in enumerate(decade_matches):
+        if index in consumed:
+            continue
         value = match.group(1) or match.group(2)
         lower, upper = module._decade_bounds(value)
         periods.append((match.start(), match.end(), lower, upper))
+
     for match in _TEMPORAL_RANGE_RE.finditer(prompt):
         lower, upper = sorted(
             (_expand_year(match.group(1)), _expand_year(match.group(2)))
