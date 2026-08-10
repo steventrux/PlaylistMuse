@@ -160,19 +160,32 @@
     return block;
   }
 
+  function setLibraryCardExpanded(card, expanded) {
+    const playlistName = card.dataset.playlistName || 'this playlist';
+    card.classList.toggle('expanded', expanded);
+    card.setAttribute('aria-expanded', String(expanded));
+
+    const toggle = card.querySelector('.library-expand-icon');
+    if (toggle) {
+      toggle.setAttribute('aria-expanded', String(expanded));
+      toggle.setAttribute(
+        'aria-label',
+        `${expanded ? 'Collapse' : 'Expand'} details for ${playlistName}`,
+      );
+    }
+  }
+
   function closeOtherCards(currentCard) {
     document.querySelectorAll('.library-item.expanded').forEach((card) => {
       if (card === currentCard) return;
-      card.classList.remove('expanded');
-      card.setAttribute('aria-expanded', 'false');
+      setLibraryCardExpanded(card, false);
     });
   }
 
   function toggleLibraryCard(card, item) {
     const willExpand = !card.classList.contains('expanded');
-    closeOtherCards(card);
-    card.classList.toggle('expanded', willExpand);
-    card.setAttribute('aria-expanded', String(willExpand));
+    if (willExpand) closeOtherCards(card);
+    setLibraryCardExpanded(card, willExpand);
     expandedLibraryId = willExpand ? item.id : null;
     if (willExpand) {
       const requestBlock = card.querySelector('[data-request-history="true"]');
@@ -252,11 +265,11 @@
   function createLibraryItem(item) {
     const card = document.createElement('article');
     card.className = 'library-item';
+    card.dataset.playlistName = item.name || 'this playlist';
     card.tabIndex = 0;
     card.setAttribute('role', 'button');
     card.setAttribute('aria-expanded', String(expandedLibraryId === item.id));
     card.setAttribute('aria-label', `Show details for ${item.name || 'this playlist'}`);
-    if (expandedLibraryId === item.id) card.classList.add('expanded');
 
     card.append(createCover(item.thumbnail_urls));
 
@@ -285,10 +298,14 @@
     const tagSummary = tagTools?.summary(item);
     if (tagSummary) copy.append(tagSummary);
 
-    const expandIcon = document.createElement('span');
+    const expandIcon = document.createElement('button');
+    expandIcon.type = 'button';
     expandIcon.className = 'library-expand-icon';
-    expandIcon.setAttribute('aria-hidden', 'true');
-    expandIcon.innerHTML = '<svg viewBox="0 0 24 24" focusable="false"><path d="m7 10 5 5 5-5"/></svg>';
+    expandIcon.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m7 10 5 5 5-5"/></svg>';
+    expandIcon.addEventListener('click', (event) => {
+      event.stopPropagation();
+      toggleLibraryCard(card, item);
+    });
 
     const details = document.createElement('div');
     details.className = 'library-details';
@@ -383,14 +400,17 @@
     details.append(detailsInner);
 
     card.append(copy, expandIcon, details);
+    setLibraryCardExpanded(card, expandedLibraryId === item.id);
     if (expandedLibraryId === item.id) {
       void hydrateRefinementHistory(item, requestBlock);
     }
     card.addEventListener('click', (event) => {
+      if (card.classList.contains('expanded')) return;
       if (event.target.closest('a, button, input, select, label, form')) return;
       toggleLibraryCard(card, item);
     });
     card.addEventListener('keydown', (event) => {
+      if (card.classList.contains('expanded')) return;
       if (event.target !== card || !['Enter', ' '].includes(event.key)) return;
       event.preventDefault();
       toggleLibraryCard(card, item);
