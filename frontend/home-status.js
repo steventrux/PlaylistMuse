@@ -2,7 +2,7 @@
   'use strict';
 
   const HEADER_BANNER_URL = '/static/playlistmuse-banner.svg?v=1';
-  const FAVICON_URL = '/static/playlistmuse-favicon.svg?v=1';
+  const FAVICON_URL = '/static/playlistmuse-favicon.png?v=1';
   const REPOSITORY_URL = 'https://github.com/steventrux/PlaylistMuse';
 
   function ensureBrandStyles() {
@@ -20,7 +20,7 @@
       favicon.rel = 'icon';
       document.head.append(favicon);
     }
-    favicon.type = 'image/svg+xml';
+    favicon.type = 'image/png';
     favicon.href = FAVICON_URL;
   }
 
