@@ -442,8 +442,12 @@
     });
   }
 
-  function updateLibraryCount(count) {
-    $('library-count').textContent = `${count} ${count === 1 ? 'playlist' : 'playlists'}`;
+  function updateLibraryCount(visibleCount) {
+    const totalCount = libraryItems.length;
+    const totalLabel = `${totalCount} ${totalCount === 1 ? 'playlist' : 'playlists'}`;
+    $('library-count').textContent = visibleCount === totalCount
+      ? totalLabel
+      : `${visibleCount} of ${totalLabel}`;
   }
 
   function createPageButton(pageNumber) {
