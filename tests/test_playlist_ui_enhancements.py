@@ -107,7 +107,7 @@ def test_library_cards_match_compact_result_card_proportions_and_expand() -> Non
     script = _text("library.js")
     style = _text("library.css")
 
-    assert "/static/library.js?v=9" in html
+    assert "/static/library.js?v=10" in html
     assert "/static/library.css?v=10" in html
     assert "let expandedLibraryId = null;" in script
     assert "function toggleLibraryCard(card, item)" in script
@@ -134,6 +134,20 @@ def test_library_cards_match_compact_result_card_proportions_and_expand() -> Non
     assert "grid-template-columns: 48px minmax(0, 1fr) 24px;" in style
     assert "width: 138px;" in style
     assert "width: 96px;" in style
+
+
+def test_library_tag_filter_keeps_expanded_card_open_and_selected() -> None:
+    script = _text("library.js")
+    tags = _text("library-tags.js")
+
+    assert "function renderLibraryAfterTagFilter()" in script
+    assert "items.findIndex((item) => item.id === expandedLibraryId)" in script
+    assert "currentPage = Math.floor(expandedIndex / PAGE_SIZE) + 1;" in script
+    assert "tagTools?.bindFilters(renderLibraryAfterTagFilter);" in script
+    assert "element.classList.toggle('active', active);" in tags
+    assert "element.setAttribute('aria-pressed', String(active));" in tags
+    assert "toggleFilter(value);" in tags
+    assert "renderLibrary?.();" in tags
 
 
 def test_library_searches_playlist_copy_and_filters_status_without_backend_queries() -> None:
