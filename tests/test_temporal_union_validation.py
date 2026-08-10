@@ -1,5 +1,29 @@
+import pytest
+
 from backend.metadata_validation import extract_metadata_constraints
 from backend.prompt_validation import _local_temporal_assessment
+from backend.validation_fixes import effective_temporal_range
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "classic rock from the 1960s to the 1990s",
+        "rock dagli anni '60 agli anni '90",
+        "rock des années 1960 aux années 1990",
+        "rock de los años 1960 a los años 1990",
+    ],
+)
+def test_decade_to_decade_ranges_are_continuous_intervals(prompt: str) -> None:
+    assert _local_temporal_assessment(prompt) is None
+    assert effective_temporal_range(prompt) == (1960, 1999)
+
+
+def test_between_decades_with_and_is_a_range_not_an_intersection() -> None:
+    prompt = "classic rock between the 1960s and the 1990s"
+
+    assert _local_temporal_assessment(prompt) is None
+    assert effective_temporal_range(prompt) == (1960, 1999)
 
 
 def test_union_of_decades_remains_valid_without_additional_limits() -> None:
