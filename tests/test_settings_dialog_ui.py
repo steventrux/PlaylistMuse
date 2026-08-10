@@ -57,3 +57,13 @@ def test_youtube_settings_panel_lives_on_dedicated_settings_page() -> None:
     assert 'id="setup-youtube-step"' in settings_html
     assert 'data-settings-section="youtube"' in settings_html
     assert 'id="youtube-settings-dialog"' not in playlist_html
+
+
+def test_settings_page_reuses_shared_button_components() -> None:
+    settings_html = (FRONTEND / "settings.html").read_text(encoding="utf-8")
+    settings_styles = (FRONTEND / "settings-page.css").read_text(encoding="utf-8")
+
+    assert '<link rel="stylesheet" href="/static/controls.css?v=8">' in settings_html
+    assert 'id="settings-close" class="secondary settings-icon-btn"' in settings_html
+    assert "settings-close-button" not in settings_html
+    assert ".settings-close-button" not in settings_styles
