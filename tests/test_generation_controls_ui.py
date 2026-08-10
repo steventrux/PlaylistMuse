@@ -40,11 +40,19 @@ def test_generation_controls_start_hidden_and_keep_status_outside() -> None:
     assert 'id="status"' not in controls
 
 
+def test_generation_feedback_stays_outside_prompt_shell() -> None:
+    script = (FRONTEND / "generation-state.js").read_text(encoding="utf-8")
+
+    assert "const promptShell = prompt?.closest('.prompt-input-shell');" in script
+    assert "(promptShell || prompt).insertAdjacentElement('afterend', status);" in script
+    assert "prompt.insertAdjacentElement('afterend', status);" not in script
+
+
 def test_prompt_and_seed_control_generation_visibility() -> None:
     html = (FRONTEND / "index.html").read_text(encoding="utf-8")
     script = (FRONTEND / "app.js").read_text(encoding="utf-8")
 
-    assert '/static/generation-state.js?v=2' in html
+    assert '/static/generation-state.js?v=3' in html
     assert '/static/app.js?v=19' in html
     assert "const generationState = window.PlaylistMuseGenerationState" in script
     assert "function updateGenerationControls()" in script
