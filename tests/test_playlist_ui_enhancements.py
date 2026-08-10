@@ -107,7 +107,7 @@ def test_library_cards_match_compact_result_card_proportions_and_expand() -> Non
     script = _text("library.js")
     style = _text("library.css")
 
-    assert "/static/library.js?v=10" in html
+    assert "/static/library.js?v=11" in html
     assert "/static/library.css?v=10" in html
     assert "let expandedLibraryId = null;" in script
     assert "function toggleLibraryCard(card, item)" in script
@@ -175,24 +175,26 @@ def test_library_searches_playlist_copy_and_filters_status_without_backend_queri
     assert ".library-filter.active" in style
 
 
-def test_library_count_tracks_visible_results_without_redundant_heading() -> None:
+def test_library_count_sits_below_filters_and_reports_filtered_total() -> None:
     html = _text("library.html")
     script = _text("library.js")
     style = _text("library-heading.css")
 
-    assert "/static/library-heading.css?v=2" in html
+    assert "/static/library-heading.css?v=3" in html
     assert '<h2 id="library-heading">My playlists</h2>' not in html
     assert 'class="library-count-row"' in html
     assert 'id="library-count"' in html
-    assert '<p class="eyebrow">Playlist library</p>' not in html
-    assert "Generated playlists are saved locally and remain available across container restarts." not in html
-    assert "function updateLibraryCount(count)" in script
+    assert html.index('class="library-controls"') < html.index('class="library-count-row"')
+    assert "function updateLibraryCount(visibleCount)" in script
+    assert "const totalCount = libraryItems.length;" in script
+    assert "visibleCount === totalCount" in script
+    assert "`${visibleCount} of ${totalLabel}`" in script
     assert "updateLibraryCount(items.length);" in script
-    assert "count === 1 ? 'playlist' : 'playlists'" in script
     assert ".library-count-row" in style
     assert ".library-count" in style
-    assert ".library-title-line" not in style
-    assert ".library-intro" not in style
+    assert "border:" not in style
+    assert "background:" not in style
+    assert "color: var(--text-muted);" in style
 
 
 def test_selected_seed_matches_compact_card_layout_and_restrained_palette() -> None:
