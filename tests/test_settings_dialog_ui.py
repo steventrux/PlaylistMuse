@@ -50,11 +50,10 @@ def test_settings_dialogs_share_the_same_visual_system() -> None:
     assert "setStatus('Not configured')" in lastfm_script
 
 
-def test_playlist_youtube_settings_panel_is_not_hidden() -> None:
+def test_youtube_settings_panel_lives_on_dedicated_settings_page() -> None:
+    settings_html = (FRONTEND / "settings.html").read_text(encoding="utf-8")
     playlist_html = (FRONTEND / "playlist.html").read_text(encoding="utf-8")
 
-    assert 'class="settings-block youtube-results-settings youtube-settings-panel">' in playlist_html
-    assert (
-        'class="settings-block youtube-results-settings youtube-settings-panel hidden">'
-        not in playlist_html
-    )
+    assert 'id="setup-youtube-step"' in settings_html
+    assert 'data-settings-section="youtube"' in settings_html
+    assert 'id="youtube-settings-dialog"' not in playlist_html
