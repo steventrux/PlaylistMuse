@@ -148,6 +148,7 @@
       rgba(56, 189, 248, .10)
     );
   box-shadow: 0 12px 30px rgba(2, 4, 18, .24);
+  cursor: default;
 }
 
 .library-cover {
@@ -234,10 +235,14 @@
   display: grid;
   width: 28px;
   height: 28px;
+  padding: 0;
   place-items: center;
   align-self: center;
+  border: 0;
   border-radius: 8px;
+  background: transparent;
   color: var(--text-muted);
+  cursor: pointer;
   transition: transform 180ms ease, color 160ms ease, background 160ms ease;
 }
 
@@ -251,7 +256,9 @@
   stroke-linejoin: round;
 }
 
-.library-item:hover .library-expand-icon {
+.library-item:not(.expanded):hover .library-expand-icon,
+.library-expand-icon:hover,
+.library-expand-icon:focus-visible {
   color: var(--violet-light);
   background: rgba(139, 92, 246, .1);
 }
