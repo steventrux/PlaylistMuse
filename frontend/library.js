@@ -498,6 +498,24 @@
     renderLibrary();
   }
 
+  function renderLibraryAfterTagFilter() {
+    const items = visibleLibraryItems();
+    if (!expandedLibraryId) {
+      currentPage = 1;
+      renderLibrary();
+      return;
+    }
+
+    const expandedIndex = items.findIndex((item) => item.id === expandedLibraryId);
+    if (expandedIndex < 0) {
+      expandedLibraryId = null;
+      currentPage = 1;
+    } else {
+      currentPage = Math.floor(expandedIndex / PAGE_SIZE) + 1;
+    }
+    renderLibrary();
+  }
+
   function renderLibrary() {
     const items = visibleLibraryItems();
     const pageState = paginationTools.paginate(items, currentPage, PAGE_SIZE);
@@ -564,7 +582,7 @@
   }
 
   $('library-search').addEventListener('input', resetPageAndRenderLibrary);
-  tagTools?.bindFilters(resetPageAndRenderLibrary);
+  tagTools?.bindFilters(renderLibraryAfterTagFilter);
   document.querySelectorAll('[data-status-filter]').forEach((button) => {
     button.addEventListener('click', () => setStatusFilter(button.dataset.statusFilter || 'all'));
   });
