@@ -49,10 +49,14 @@ def _infer_channel(version: str) -> str:
     return "stable"
 
 
-def _source_commit() -> str:
+def _source_git_dir() -> Path:
     configured = _clean(os.getenv("PLAYLISTMUSE_SOURCE_GIT_DIR"))
-    git_dir = Path(configured) if configured else _DEFAULT_SOURCE_GIT_DIR
-    return git_revision(git_dir)
+    return Path(configured) if configured else _DEFAULT_SOURCE_GIT_DIR
+
+
+# Snapshot the checkout revision when the backend starts. A later git pull on the
+# host must not make a still-running container claim to be serving newer code.
+_STARTUP_SOURCE_COMMIT = git_revision(_source_git_dir())
 
 
 def _running_commit() -> str:
@@ -60,7 +64,7 @@ def _running_commit() -> str:
     if commit.lower() in _INVALID_COMMITS:
         commit = ""
     if not commit:
-        commit = _source_commit()
+        commit = _STARTUP_SOURCE_COMMIT
     return commit[:7] if commit else ""
 
 
