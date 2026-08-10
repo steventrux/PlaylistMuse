@@ -37,7 +37,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     common = '<script src="/static/common.js?v=1"></script>'
     settings_overlay = '<script src="/static/settings-overlay.js?v=1"></script>'
     home_status = '<script src="/static/home-status.js?v=18"></script>'
-    generation_state = '<script src="/static/generation-state.js?v=2"></script>'
+    generation_state = '<script src="/static/generation-state.js?v=3"></script>'
     app = '<script src="/static/app.js?v=19"></script>'
 
     assert index.index(common) < index.index(
