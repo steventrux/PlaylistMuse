@@ -1,6 +1,11 @@
 services:
   playlistmuse:
-    build: .
+    build:
+      context: .
+      args:
+        PLAYLISTMUSE_VERSION: ${PLAYLISTMUSE_VERSION:-dev}
+        PLAYLISTMUSE_CHANNEL: ${PLAYLISTMUSE_CHANNEL:-dev}
+        PLAYLISTMUSE_GIT_SHA: ${PLAYLISTMUSE_GIT_SHA:-local}
     container_name: playlistmuse
     ports:
       - "5780:5780"
