@@ -242,10 +242,12 @@ body.sidebar-open .playlistmuse-sidebar {
 .playlistmuse-sidebar .header-indicator::before {
   grid-column: 2;
   min-width: 0;
+  justify-self: start;
   color: var(--text-primary);
   font-size: .88rem;
   font-weight: 760;
   line-height: 1.2;
+  text-align: left;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
