@@ -90,23 +90,35 @@ jobs:
           docker compose -f docker-compose.yml config --quiet
 
       - name: Build image
-        run: docker build --tag playlistmuse:ci .
+        run: |
+          docker build \
+            --build-arg PLAYLISTMUSE_VERSION=dev \
+            --build-arg PLAYLISTMUSE_CHANNEL=dev \
+            --build-arg PLAYLISTMUSE_GIT_SHA=${GITHUB_SHA} \
+            --tag playlistmuse:ci .
 
       - name: Start container
         run: docker run --detach --name playlistmuse-ci --publish 5780:5780 playlistmuse:ci
 
-      - name: Verify application health
+      - name: Verify application health and build metadata
         shell: bash
         run: |
           for attempt in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:5780/api/health > health.json; then
+              curl --fail --silent http://127.0.0.1:5780/api/version > version.json
               python - <<'PY'
           import json
+          import os
           from pathlib import Path
 
-          payload = json.loads(Path("health.json").read_text(encoding="utf-8"))
-          assert payload["status"] == "healthy"
-          print(payload)
+          health = json.loads(Path("health.json").read_text(encoding="utf-8"))
+          version = json.loads(Path("version.json").read_text(encoding="utf-8"))
+          assert health["status"] == "healthy"
+          assert version["channel"] == "dev"
+          assert version["commit"] == os.environ["GITHUB_SHA"][:7]
+          assert version["repository_url"] == "https://github.com/steventrux/PlaylistMuse"
+          print(health)
+          print(version)
           PY
               exit 0
             fi
