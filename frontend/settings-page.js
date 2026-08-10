@@ -9,20 +9,23 @@
   };
 
   const $ = (id) => document.getElementById(id);
+  const query = new URLSearchParams(window.location.search);
+  const embedded = query.get('embedded') === '1' && window.parent !== window;
 
   function safeReturnTarget() {
-    const raw = new URLSearchParams(window.location.search).get('return') || '/';
+    const raw = query.get('return') || '/';
     if (!raw.startsWith('/') || raw.startsWith('//')) return '/';
     if (raw.startsWith('/static/settings.html')) return '/';
     return raw;
   }
 
   function requestedSection() {
-    const value = new URLSearchParams(window.location.search).get('section') || 'ai';
+    const value = query.get('section') || 'ai';
     return SECTIONS.has(value) ? value : 'ai';
   }
 
   function updateLocation(section) {
+    if (embedded) return;
     const url = new URL(window.location.href);
     url.searchParams.set('section', section);
     if (!url.searchParams.has('return')) url.searchParams.set('return', safeReturnTarget());
@@ -68,6 +71,10 @@
   }
 
   function closeSettings() {
+    if (embedded) {
+      window.parent.postMessage({type: 'playlistmuse-settings-close'}, window.location.origin);
+      return;
+    }
     window.location.assign(safeReturnTarget());
   }
 
