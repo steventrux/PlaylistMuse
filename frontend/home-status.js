@@ -46,7 +46,6 @@
 
   const $ = (id) => document.getElementById(id);
   const INDICATOR_STATES = ['pending', 'on', 'off', 'error'];
-  const SETTINGS_REQUEST_KEY = 'playlistmuse-open-settings';
   const providerLabels = {
     gemini: 'Google Gemini',
     openai: 'OpenAI',
@@ -427,33 +426,16 @@
     }
   }
 
+  function settingsPageUrl(section) {
+    const target = new URL('/static/settings.html', window.location.origin);
+    target.searchParams.set('section', section);
+    const returnTarget = `${window.location.pathname}${window.location.search}${window.location.hash}` || '/';
+    target.searchParams.set('return', returnTarget);
+    return `${target.pathname}${target.search}`;
+  }
+
   function openSettings(section) {
-    if (section === 'lastfm') {
-      if (typeof window.PlaylistMuseOpenLastFmSettings === 'function') {
-        window.PlaylistMuseOpenLastFmSettings();
-        return;
-      }
-      sessionStorage.setItem(SETTINGS_REQUEST_KEY, 'lastfm');
-      window.location.assign('/');
-      return;
-    }
-
-    const homeAiSettings = $('ai-open-settings');
-    if (homeAiSettings) {
-      homeAiSettings.click();
-      if (section === 'youtube') {
-        setTimeout(() => $('setup-next')?.click(), 0);
-      }
-      return;
-    }
-
-    if (section === 'youtube' && $('youtube-open-settings')) {
-      $('youtube-open-settings').click();
-      return;
-    }
-
-    sessionStorage.setItem(SETTINGS_REQUEST_KEY, section);
-    window.location.assign('/');
+    window.location.assign(settingsPageUrl(section));
   }
 
   function bindIndicatorActions() {
@@ -469,13 +451,6 @@
       closeNavigation({restoreFocus: false});
       openSettings('lastfm');
     });
-  }
-
-  function restoreRequestedSettings() {
-    const requested = sessionStorage.getItem(SETTINGS_REQUEST_KEY);
-    if (!['ai', 'youtube'].includes(requested)) return;
-    sessionStorage.removeItem(SETTINGS_REQUEST_KEY);
-    setTimeout(() => openSettings(requested), 0);
   }
 
   async function refreshStatus() {
@@ -508,7 +483,6 @@
   installBrandBanner();
   createHeaderStatus();
   bindIndicatorActions();
-  restoreRequestedSettings();
   window.addEventListener('playlistmuse-status-changed', refreshStatus);
   void refreshStatus();
 })();
