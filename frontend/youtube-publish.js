@@ -11,7 +11,7 @@
   function loadFooterStatus() {
     if (document.querySelector('script[data-playlistmuse-footer-status]')) return;
     const script = document.createElement('script');
-    script.src = '/static/home-status.js?v=14';
+    script.src = '/static/home-status.js?v=16';
     script.dataset.playlistmuseFooterStatus = 'true';
     document.body.append(script);
   }
@@ -100,13 +100,7 @@
   }
 
   function openYouTubeSettings() {
-    const target = new URL('/static/settings.html', window.location.origin);
-    target.searchParams.set('section', 'youtube');
-    target.searchParams.set(
-      'return',
-      `${window.location.pathname}${window.location.search}${window.location.hash}` || '/',
-    );
-    window.location.assign(`${target.pathname}${target.search}`);
+    window.PlaylistMuseSettingsOverlay?.open('youtube');
   }
 
   function renderPublishedResult(result) {
