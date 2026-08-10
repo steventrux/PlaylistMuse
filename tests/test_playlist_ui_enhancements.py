@@ -26,25 +26,24 @@ def test_sidebar_replaces_header_shortcuts_and_keeps_provider_status_dynamic() -
     assert "Configuration error" in style
 
 
-def test_primary_pages_use_compact_tabs_above_main_cards() -> None:
+def test_primary_pages_use_minimal_navigation_beneath_brand() -> None:
     script = _text("common.js")
     style = _text("primary-navigation.css")
 
-    assert "function primaryNavigationTarget()" in script
-    assert "function installPrimaryNavigationTabs()" in script
-    assert "/static/primary-navigation.css?v=1" in script
+    assert "function primaryNavigationHost()" in script
+    assert "function installPrimaryNavigation()" in script
+    assert "/static/primary-navigation.css?v=2" in script
     assert 'aria-labelledby="sidebar-pages-label"' in script
     assert "pageGroup.remove();" in script
-    assert "target.prepend(tabs);" in script
-    assert "installPrimaryNavigationTabs();" in script
-    assert ".primary-page-tabs" in style
-    assert ".primary-page-tab.active" in style
-    assert "--primary-navigation-tab-height: 32px;" in style
-    assert "overflow: visible;" in style
-    assert "top: calc(-1 * (var(--primary-navigation-tab-height) + var(--primary-navigation-tab-gap)));" in style
-    assert "border-radius: 16px;" in style
-    assert "font-size: .78rem;" in style
-    assert 'primary-page-tab[aria-current="page"]' in style
+    assert "host.classList.add('has-primary-page-navigation');" in script
+    assert "host.append(navigation);" in script
+    assert "installPrimaryNavigation();" in script
+    assert ".primary-page-navigation" in style
+    assert ".primary-page-link.active" in style
+    assert ".app-header.has-primary-page-navigation" in style
+    assert "background: var(--brand-gradient);" in style
+    assert "font-size: .8rem;" in style
+    assert 'primary-page-link[aria-current="page"]' in style
 
 
 def test_results_allow_manual_reordering_only_before_publication() -> None:
