@@ -62,6 +62,40 @@ def test_library_persists_and_updates_playlists(tmp_path: Path) -> None:
     assert library.list("title_asc")[0]["name"] == "Night drive revised"
 
 
+def test_library_cover_uses_representative_tracks_and_refreshes_on_update(
+    tmp_path: Path,
+) -> None:
+    library = PlaylistLibrary(tmp_path / "playlists.db")
+    playlist = sample_playlist("Representative cover")
+    playlist["tracks"] = [
+        {
+            "video_id": f"track-{index}",
+            "title": f"Track {index}",
+            "artists": f"Artist {index}",
+            "thumbnail_url": f"https://example.test/{index}.jpg",
+        }
+        for index in range(15)
+    ]
+
+    created = library.create(playlist)
+    assert created["thumbnail_urls"] == [
+        "https://example.test/0.jpg",
+        "https://example.test/5.jpg",
+        "https://example.test/9.jpg",
+        "https://example.test/14.jpg",
+    ]
+
+    playlist["tracks"][5]["thumbnail_url"] = "https://example.test/replacement.jpg"
+    library.update(created["id"], playlist)
+
+    assert library.list()[0]["thumbnail_urls"] == [
+        "https://example.test/0.jpg",
+        "https://example.test/replacement.jpg",
+        "https://example.test/9.jpg",
+        "https://example.test/14.jpg",
+    ]
+
+
 def test_duplicate_is_an_independent_draft(tmp_path: Path) -> None:
     library = PlaylistLibrary(tmp_path / "playlists.db")
     published = sample_playlist("Published playlist")
