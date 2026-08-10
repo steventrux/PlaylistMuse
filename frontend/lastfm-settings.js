@@ -183,6 +183,7 @@
     }
   });
   window.PlaylistMuseOpenLastFmSettings = openSettings;
+  window.dispatchEvent(new Event('playlistmuse-lastfm-settings-ready'));
   window.addEventListener('playlistmuse-lastfm-settings-opened', () => void loadSettings());
   window.addEventListener('playlistmuse-ai-settings-opened', hidePanel);
   window.addEventListener('playlistmuse-youtube-settings-opened', hidePanel);
