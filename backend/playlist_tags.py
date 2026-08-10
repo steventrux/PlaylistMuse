@@ -134,6 +134,8 @@ async def suggest_playlist_tags(
                 model=model,
             )
             tags = parse_playlist_tags(text)
+            if not has_playlist_tags(tags):
+                raise ValueError("The AI model returned an empty playlist classification.")
             tags["custom"] = normalize_playlist_tags(playlist.get("tags"))["custom"]
             return tags
         except (httpx.HTTPError, TypeError, ValueError, json.JSONDecodeError) as error:
