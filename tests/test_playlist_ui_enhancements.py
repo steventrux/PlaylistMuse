@@ -15,6 +15,8 @@ def test_sidebar_replaces_header_shortcuts_and_keeps_provider_status_dynamic() -
     assert ".library-header-link {\n  display: none !important;" in style
     assert ".playlistmuse-sidebar" in style
     assert ".sidebar-menu-toggle" in style
+    assert "right: clamp(22px, 4vw, 38px);" in style
+    assert "left: -54px;" not in style
     assert "sidebar-menu-toggle" in script
     assert "header-service-status" in script
     assert "header-lastfm-status" in script
@@ -43,7 +45,19 @@ def test_primary_pages_use_minimal_navigation_beneath_brand() -> None:
     assert ".app-header.has-primary-page-navigation" in style
     assert "background: var(--brand-gradient);" in style
     assert "font-size: .8rem;" in style
+    assert "left: 50px;" not in style
+    assert "left: 44px;" not in style
     assert 'primary-page-link[aria-current="page"]' in style
+
+
+def test_primary_card_titles_are_not_duplicated_in_content() -> None:
+    home = _text("index.html")
+    library = _text("library.html")
+
+    assert '<h2>Create a playlist</h2>' not in home
+    assert 'class="hero card" aria-label="Create playlist"' in home
+    assert '<h2 id="library-heading">My playlists</h2>' not in library
+    assert 'class="card library-card" aria-label="My playlists"' in library
 
 
 def test_results_allow_manual_reordering_only_before_publication() -> None:
@@ -117,24 +131,24 @@ def test_library_searches_playlist_copy_and_filters_status_without_backend_queri
     assert ".library-filter.active" in style
 
 
-def test_library_heading_is_compact_and_count_tracks_visible_results() -> None:
+def test_library_count_tracks_visible_results_without_redundant_heading() -> None:
     html = _text("library.html")
     script = _text("library.js")
     style = _text("library-heading.css")
 
     assert "/static/library-heading.css?v=2" in html
-    assert '<h2 id="library-heading">My playlists</h2>' in html
+    assert '<h2 id="library-heading">My playlists</h2>' not in html
+    assert 'class="library-count-row"' in html
     assert 'id="library-count"' in html
     assert '<p class="eyebrow">Playlist library</p>' not in html
     assert "Generated playlists are saved locally and remain available across container restarts." not in html
     assert "function updateLibraryCount(count)" in script
     assert "updateLibraryCount(items.length);" in script
     assert "count === 1 ? 'playlist' : 'playlists'" in script
-    assert ".library-title-line" in style
+    assert ".library-count-row" in style
     assert ".library-count" in style
-    assert "border-bottom: 1px solid" in style
+    assert ".library-title-line" not in style
     assert ".library-intro" not in style
-    assert ".library-heading-row .eyebrow" not in style
 
 
 def test_selected_seed_matches_compact_card_layout_and_restrained_palette() -> None:
