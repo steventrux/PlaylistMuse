@@ -1,34 +1,20 @@
 .library-count-row {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 16px;
+  margin: -6px 0 10px;
 }
 
 .library-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 26px;
-  padding: 4px 9px;
-  border: 1px solid rgba(56, 189, 248, .26);
-  border-radius: 999px;
-  background: rgba(56, 189, 248, .07);
-  color: #9ae6ff;
-  font-size: .72rem;
-  font-weight: 800;
-  letter-spacing: .01em;
-  line-height: 1;
-  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: .76rem;
+  font-weight: 650;
+  line-height: 1.35;
 }
 
 @media (max-width: 650px) {
   .library-count-row {
-    margin-bottom: 14px;
+    margin: -4px 0 9px;
   }
 
   .library-count {
-    min-height: 24px;
-    padding: 3px 8px;
-    font-size: .68rem;
+    font-size: .74rem;
   }
 }
