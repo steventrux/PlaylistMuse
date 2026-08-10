@@ -1,113 +1,88 @@
-/* Compact primary page navigation emerging from the main content card. */
+/* Minimal primary page navigation beneath the PlaylistMuse wordmark. */
 
-.hero.card,
-.library-card {
-  --primary-navigation-tab-height: 32px;
-  --primary-navigation-tab-gap: 0px;
-  overflow: visible;
-  margin-top: calc(var(--primary-navigation-tab-height) + var(--primary-navigation-tab-gap));
+.app-header.has-primary-page-navigation {
+  margin-bottom: 48px;
 }
 
-.primary-page-tabs {
+.primary-page-navigation {
   position: absolute;
-  top: calc(-1 * (var(--primary-navigation-tab-height) + var(--primary-navigation-tab-gap)));
-  left: clamp(14px, 3vw, 24px);
+  left: 0;
+  bottom: -28px;
   z-index: 2;
   display: flex;
-  min-height: var(--primary-navigation-tab-height);
   align-items: center;
-  gap: 6px;
+  gap: 24px;
   margin: 0;
   padding: 0;
-  border: 0;
-  background: transparent;
 }
 
-.primary-page-tab {
-  --primary-navigation-tab-background:
-    linear-gradient(145deg, rgba(17, 21, 43, .94), rgba(10, 13, 30, .95));
-
+.primary-page-link {
   position: relative;
   display: inline-flex;
-  min-height: var(--primary-navigation-tab-height);
-  padding: 0 14px;
+  min-height: 26px;
+  padding: 0 0 7px;
   align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(169, 155, 255, .2);
-  border-bottom-color: transparent;
-  border-radius: 16px;
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
-  background: var(--primary-navigation-tab-background);
+  border: 0;
+  background: transparent;
   color: var(--text-muted);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .025);
-  backdrop-filter: blur(12px);
-  font-size: .78rem;
-  font-weight: 740;
+  font-size: .8rem;
+  font-weight: 680;
+  letter-spacing: -.01em;
   line-height: 1;
   text-decoration: none;
-  transition:
-    color 160ms ease,
-    border-color 160ms ease,
-    background 160ms ease,
-    box-shadow 160ms ease;
+  transition: color 160ms ease;
 }
 
-.primary-page-tab::after {
+.primary-page-link:hover,
+.primary-page-link:focus-visible {
+  color: var(--text-secondary);
+}
+
+.primary-page-link.active,
+.primary-page-link[aria-current="page"] {
+  color: var(--text-primary);
+}
+
+.primary-page-link.active::after,
+.primary-page-link[aria-current="page"]::after {
   content: "";
   position: absolute;
-  left: -1px;
-  right: -1px;
-  bottom: -2px;
-  height: 3px;
-  background: var(--primary-navigation-tab-background);
-  pointer-events: none;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--brand-gradient);
+  box-shadow: 0 0 12px rgba(139, 92, 246, .22);
 }
 
-.primary-page-tab:hover,
-.primary-page-tab:focus-visible {
-  --primary-navigation-tab-background:
-    linear-gradient(145deg, rgba(27, 32, 62, .96), rgba(15, 18, 39, .96));
-
-  border-color: rgba(183, 156, 255, .4);
-  color: var(--text-primary);
+@media (max-width: 980px) {
+  .primary-page-navigation {
+    left: 50px;
+  }
 }
 
-.primary-page-tab.active,
-.primary-page-tab[aria-current="page"] {
-  --primary-navigation-tab-background:
-    linear-gradient(145deg, rgba(24, 29, 57, .96), rgba(15, 19, 40, .96));
-
-  border-color: rgba(183, 156, 255, .58);
-  border-bottom-color: transparent;
-  color: var(--text-primary);
-  box-shadow: inset 0 1px 0 rgba(183, 156, 255, .34);
-}
-
-@media (max-width: 600px) {
-  .hero.card,
-  .library-card {
-    --primary-navigation-tab-height: 30px;
-    --primary-navigation-tab-gap: 0px;
+@media (max-width: 650px),
+  (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 650px) {
+  .app-header.has-primary-page-navigation {
+    margin-bottom: 46px;
   }
 
-  .primary-page-tabs {
-    left: 12px;
-    gap: 5px;
+  .primary-page-navigation {
+    left: 44px;
+    bottom: -27px;
+    gap: 20px;
   }
 
-  .primary-page-tab {
-    min-height: var(--primary-navigation-tab-height);
-    padding: 0 11px;
-    border-radius: 15px;
-    border-bottom-left-radius: 0;
-    border-bottom-right-radius: 0;
-    font-size: .74rem;
+  .primary-page-link {
+    min-height: 25px;
+    padding-bottom: 7px;
+    font-size: .76rem;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .primary-page-tab {
+  .primary-page-link {
     transition: none;
   }
 }
