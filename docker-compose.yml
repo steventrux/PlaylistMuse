@@ -11,6 +11,10 @@ services:
       - "5780:5780"
     env_file:
       - .env
+    environment:
+      PLAYLISTMUSE_SOURCE_GIT_DIR: /run/playlistmuse-source-git
     volumes:
       - ./data:/app/data
+      - ./.git/HEAD:/run/playlistmuse-source-git/HEAD:ro
+      - ./.git/refs:/run/playlistmuse-source-git/refs:ro
     restart: unless-stopped
