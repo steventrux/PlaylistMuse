@@ -28,7 +28,7 @@ def test_favicon_route_uses_current_logo() -> None:
     assert response.status_code == 200
     assert response.headers.get("cache-control") == "no-store"
     assert response.headers.get("content-type", "").startswith("image/png")
-    assert response.content == (main_module.FRONTEND / "playlistmuse-favicon-v2.png").read_bytes()
+    assert response.content == (main_module.FRONTEND / "playlistmuse-favicon.png").read_bytes()
 
 
 def test_prompt_analysis_scores_general_semantic_result(monkeypatch) -> None:
