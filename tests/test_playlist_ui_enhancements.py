@@ -37,6 +37,7 @@ def test_primary_pages_use_minimal_navigation_beneath_brand() -> None:
     style = _text("primary-navigation.css")
 
     assert "function primaryNavigationHost()" in script
+    assert "path.endsWith('/playlist.html')" in script
     assert "function installPrimaryNavigation()" in script
     assert "/static/primary-navigation.css?v=2" in script
     assert 'aria-labelledby="sidebar-pages-label"' in script
@@ -62,6 +63,24 @@ def test_primary_card_titles_are_not_duplicated_in_content() -> None:
     assert 'class="hero card" aria-label="Create playlist"' in home
     assert '<h2 id="library-heading">My playlists</h2>' not in library
     assert 'class="card library-card" aria-label="My playlists"' in library
+
+
+def test_results_page_reuses_shared_navigation_controls_and_card_palette() -> None:
+    html = _text("playlist.html")
+    card_style = _text("playlist-cards.css")
+    header_style = _text("playlist-header.css")
+
+    assert '/static/style.css?v=10' in html
+    assert '/static/controls.css?v=8' in html
+    assert '/static/header-navigation.css?v=6' in html
+    assert '/static/playlist-cards.css?v=4' in html
+    assert '/static/playlist-header.css?v=7' in html
+    assert 'class="playlist-toolbar"' not in html
+    assert 'class="secondary new-playlist-link"' not in html
+    assert ".new-playlist-link" not in header_style
+    assert "background: rgba(21, 26, 51, .86);" in card_style
+    assert "box-shadow: none;" in card_style
+    assert "linear-gradient(" not in card_style
 
 
 def test_results_allow_manual_reordering_only_before_publication() -> None:
