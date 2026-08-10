@@ -15,8 +15,12 @@ def test_sidebar_replaces_header_shortcuts_and_keeps_provider_status_dynamic() -
     assert ".library-header-link {\n  display: none !important;" in style
     assert ".playlistmuse-sidebar" in style
     assert ".sidebar-menu-toggle" in style
-    assert "right: clamp(22px, 4vw, 38px);" in style
+    assert "right: 0;" in style
     assert "left: -54px;" not in style
+    assert "inset: 0 0 0 auto;" in style
+    assert "border-left: 1px solid" in style
+    assert "transform: translateX(102%);" in style
+    assert "box-shadow: -28px 0 70px" in style
     assert "sidebar-menu-toggle" in script
     assert "header-service-status" in script
     assert "header-lastfm-status" in script
