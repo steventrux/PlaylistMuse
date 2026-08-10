@@ -36,7 +36,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     settings = _html("settings.html")
     common = '<script src="/static/common.js?v=1"></script>'
     settings_overlay = '<script src="/static/settings-overlay.js?v=1"></script>'
-    home_status = '<script src="/static/home-status.js?v=17"></script>'
+    home_status = '<script src="/static/home-status.js?v=18"></script>'
     generation_state = '<script src="/static/generation-state.js?v=2"></script>'
     app = '<script src="/static/app.js?v=19"></script>'
 
@@ -57,7 +57,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
 
     playlist_home_status = (
         '<script data-playlistmuse-footer-status '
-        'src="/static/home-status.js?v=17"></script>'
+        'src="/static/home-status.js?v=18"></script>'
     )
     assert playlist.index(common) < playlist.index(
         '<script src="/static/playlist.js?v=20"></script>'
@@ -215,8 +215,8 @@ def test_header_uses_exact_uploaded_banner() -> None:
     brand = _style("brand.css")
     banner = (FRONTEND / "playlistmuse-banner.svg").read_bytes()
 
-    assert '/static/home-status.js?v=17' in index
-    assert '/static/home-status.js?v=17' in playlist
+    assert '/static/home-status.js?v=18' in index
+    assert '/static/home-status.js?v=18' in playlist
     assert "const HEADER_BANNER_URL = '/static/playlistmuse-banner.svg?v=1';" in status
     assert "function installBrandBanner()" in status
     assert "header.querySelector('.brand-banner')" in status
@@ -334,7 +334,7 @@ def test_results_page_opens_ai_settings_without_local_dialog_or_navigation() -> 
     assert '/static/ai-results-settings.js' not in playlist
     assert '/static/ai-settings.js' not in playlist
     assert '/static/settings-overlay.js?v=1' in playlist
-    assert '/static/home-status.js?v=17' in playlist
+    assert '/static/home-status.js?v=18' in playlist
     assert "window.PlaylistMuseSettingsOverlay?.open(section);" in status
     assert "window.location.assign(settingsPageUrl(section));" not in status
 
@@ -423,16 +423,22 @@ def test_published_playlist_hides_track_replacement_controls() -> None:
     assert "new CustomEvent" in youtube_publish
 
 
-def test_favicon_uses_exact_current_logo_and_cache_busting() -> None:
-    expected_link = (
-        '<link rel="icon" type="image/png" href="/static/playlistmuse-favicon-v2.png">'
-    )
+def test_favicon_uses_single_canonical_png() -> None:
+    expected_url = "/static/playlistmuse-favicon.png?v=1"
+    expected_link = f'<link rel="icon" type="image/png" href="{expected_url}">'
     for html_name in ("index.html", "playlist.html", "library.html", "settings.html"):
         html = _html(html_name)
         assert expected_link in html
-        assert "/static/favicon.png" not in html
+        assert "playlistmuse-favicon-v2.png" not in html
+        assert "playlistmuse-favicon.svg" not in html
 
-    favicon = (FRONTEND / "playlistmuse-favicon-v2.png").read_bytes()
+    home_status = _script("home-status.js")
+    assert f"const FAVICON_URL = '{expected_url}';" in home_status
+    assert "favicon.type = 'image/png';" in home_status
+    assert "playlistmuse-favicon-v2.png" not in home_status
+    assert "playlistmuse-favicon.svg" not in home_status
+
+    favicon = (FRONTEND / "playlistmuse-favicon.png").read_bytes()
     assert sha256(favicon).hexdigest() == (
         "2afccaf81bc677f9dcc49b7e5bedb5462c5685c1530cbfa1ae829af50b07a918"
     )
