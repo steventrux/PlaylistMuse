@@ -56,12 +56,6 @@
   box-shadow: 0 0 12px rgba(139, 92, 246, .22);
 }
 
-@media (max-width: 980px) {
-  .primary-page-navigation {
-    left: 50px;
-  }
-}
-
 @media (max-width: 650px),
   (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 650px) {
   .app-header.has-primary-page-navigation {
@@ -69,7 +63,6 @@
   }
 
   .primary-page-navigation {
-    left: 44px;
     bottom: -27px;
     gap: 20px;
   }
