@@ -3,6 +3,7 @@
 
   const HEADER_BANNER_URL = '/static/playlistmuse-banner.svg?v=1';
   const FAVICON_URL = '/static/playlistmuse-favicon.svg?v=1';
+  const REPOSITORY_URL = 'https://github.com/steventrux/PlaylistMuse';
 
   function ensureBrandStyles() {
     if (document.querySelector('link[href^="/static/brand.css"]')) return;
@@ -122,6 +123,12 @@
     </svg>
   `;
 
+  const githubIcon = `
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path fill="currentColor" d="M12 .7a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2.24c-3.22.7-3.9-1.37-3.9-1.37-.52-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.71.08-.71 1.16.08 1.77 1.2 1.77 1.2 1.04 1.77 2.72 1.26 3.38.96.1-.75.4-1.26.73-1.55-2.57-.29-5.27-1.29-5.27-5.69 0-1.26.45-2.29 1.19-3.09-.12-.29-.52-1.47.11-3.05 0 0 .97-.31 3.16 1.18a10.93 10.93 0 0 1 5.76 0c2.2-1.49 3.16-1.18 3.16-1.18.63 1.58.23 2.76.11 3.05.74.8 1.19 1.83 1.19 3.09 0 4.41-2.71 5.4-5.29 5.69.42.36.79 1.07.79 2.16v3.2c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .7Z" />
+    </svg>
+  `;
+
   function ensureStylesheet(prefix, href) {
     const existing = document.querySelector(`link[href^="${prefix}"]`);
     if (existing) {
@@ -137,7 +144,7 @@
 
   function ensureStatusStyles() {
     ensureStylesheet('/static/layout.css', '/static/layout.css?v=5');
-    ensureStylesheet('/static/header-navigation.css', '/static/header-navigation.css?v=6');
+    ensureStylesheet('/static/header-navigation.css', '/static/header-navigation.css?v=7');
     ensureStylesheet('/static/settings-dialog.css', '/static/settings-dialog.css?v=5');
     ensureStylesheet('/static/settings-overlay.css', '/static/settings-overlay.css?v=1');
   }
@@ -147,6 +154,22 @@
     if (path.endsWith('/library.html')) return 'library';
     if (path === '/' || path.endsWith('/index.html') || path.endsWith('/playlist.html')) return 'create';
     return '';
+  }
+
+  async function refreshBuildInfo(sidebar) {
+    const version = sidebar?.querySelector('#sidebar-build-version');
+    const repository = sidebar?.querySelector('.sidebar-repo-link');
+    if (!version || !repository) return;
+
+    try {
+      const response = await fetch('/api/version', {cache: 'no-store'});
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const info = await response.json();
+      version.textContent = info.display || info.version || 'Version unavailable';
+      if (info.repository_url) repository.href = info.repository_url;
+    } catch {
+      version.textContent = 'Version unavailable';
+    }
   }
 
   function createNavigationShell() {
@@ -182,7 +205,7 @@
     sidebar.setAttribute('aria-hidden', 'true');
     sidebar.innerHTML = `
       <div class="sidebar-head">
-        <p class="sidebar-brand">PlaylistMuse</p>
+        <img class="sidebar-brand-banner" src="${HEADER_BANNER_URL}" alt="PlaylistMuse">
         <button class="sidebar-close" type="button" aria-label="Close navigation menu">
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <path d="m6 6 12 12M18 6 6 18" />
@@ -217,10 +240,17 @@
           <div class="header-actions header-service-status" aria-label="Service configuration status"></div>
         </section>
       </nav>
-      <div class="sidebar-footer">Select an integration to open its configuration.</div>
+      <div class="sidebar-footer">
+        <span id="sidebar-build-version" class="sidebar-build-version">Checking version…</span>
+        <a class="sidebar-repo-link" href="${REPOSITORY_URL}" target="_blank" rel="noopener noreferrer" aria-label="PlaylistMuse repository on GitHub">
+          ${githubIcon}
+          <span>GitHub</span>
+        </a>
+      </div>
     `;
 
     document.body.append(backdrop, sidebar);
+    void refreshBuildInfo(sidebar);
 
     const activePage = currentPage();
     sidebar.querySelectorAll('.sidebar-link').forEach((link) => {
