@@ -23,7 +23,7 @@ def _style(name: str) -> str:
 
 
 def test_html_static_references_exist() -> None:
-    for html_name in ("index.html", "playlist.html"):
+    for html_name in ("index.html", "playlist.html", "settings.html"):
         for relative_path in STATIC_REFERENCE_RE.findall(_html(html_name)):
             assert (FRONTEND / relative_path).is_file(), (
                 f"{html_name} references missing static asset {relative_path}"
@@ -241,10 +241,10 @@ def test_header_indicators_show_active_provider_without_neon() -> None:
     assert "providerIcons[provider] || brainIcon" in status
     assert "youtube-body" in status
     assert "element.dataset.tooltip = tooltip" in status
-    assert "homeAiSettings.click()" in status
-    assert "$('setup-next')?.click()" in status
-    assert "$('youtube-open-settings').click()" in status
-    assert "window.location.assign('/')" in status
+    assert "function settingsPageUrl(section)" in status
+    assert "new URL('/static/settings.html', window.location.origin)" in status
+    assert "target.searchParams.set('return', returnTarget);" in status
+    assert "window.location.assign(settingsPageUrl(section));" in status
     assert ".header-indicator.ai.on" in layout
     assert ".header-indicator.youtube.on" in layout
     assert "width: 32px" in layout
