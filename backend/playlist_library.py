@@ -150,8 +150,26 @@ class PlaylistLibrary:
 
     @staticmethod
     def _thumbnails(playlist: dict[str, Any]) -> list[str]:
+        tracks = playlist.get("tracks", [])
+        if not isinstance(tracks, list) or not tracks:
+            return []
+
+        last = len(tracks) - 1
+        representative_indexes = list(
+            dict.fromkeys(
+                (
+                    0,
+                    int((last / 3) + 0.5),
+                    int(((last * 2) / 3) + 0.5),
+                    last,
+                )
+            )
+        )
+        ordered_tracks = [tracks[index] for index in representative_indexes]
+        ordered_tracks.extend(tracks)
+
         urls: list[str] = []
-        for track in playlist.get("tracks", []):
+        for track in ordered_tracks:
             if isinstance(track, dict):
                 url = str(track.get("thumbnail_url") or "").strip()
                 if url and url not in urls:
