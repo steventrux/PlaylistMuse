@@ -45,13 +45,13 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
         '<script src="/static/youtube-account.js?v=5"></script>'
     )
     assert index.index(common) < index.index(
-        '<script src="/static/home-status.js?v=14"></script>'
+        '<script src="/static/home-status.js?v=15"></script>'
     )
     assert generation_state in index
     assert index.index(generation_state) < index.index(app)
     assert index.index(common) < index.index(app)
     assert '<script src="/static/prompt-complexity.js?v=7"></script>' in index
-    assert index.index('<script src="/static/home-status.js?v=14"></script>') < (
+    assert index.index('<script src="/static/home-status.js?v=15"></script>') < (
         index.index(app)
     )
 
@@ -213,7 +213,7 @@ def test_header_uses_exact_uploaded_banner() -> None:
     brand = _style("brand.css")
     banner = (FRONTEND / "playlistmuse-banner.svg").read_bytes()
 
-    assert '/static/home-status.js?v=14' in index
+    assert '/static/home-status.js?v=15' in index
     assert '/static/home-status.js?v=15' in playlist
     assert "const HEADER_BANNER_URL = '/static/playlistmuse-banner.svg?v=1';" in status
     assert "function installBrandBanner()" in status
