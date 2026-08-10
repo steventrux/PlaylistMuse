@@ -114,15 +114,11 @@ body.sidebar-open .playlistmuse-sidebar {
   border-bottom: 1px solid var(--border);
 }
 
-.sidebar-brand {
-  margin: 0;
-  font-size: 1.32rem;
-  font-weight: 850;
-  letter-spacing: -.035em;
-  background: var(--brand-gradient);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+.sidebar-brand-banner {
+  display: block;
+  width: min(164px, calc(100% - 52px));
+  height: auto;
+  object-fit: contain;
 }
 
 .sidebar-close {
@@ -326,12 +322,44 @@ body.sidebar-open .playlistmuse-sidebar {
 }
 
 .sidebar-footer {
+  display: flex;
   margin-top: 24px;
   padding: 16px 8px 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   border-top: 1px solid var(--border);
   color: var(--text-muted);
   font-size: .72rem;
   line-height: 1.45;
+}
+
+.sidebar-build-version {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-repo-link {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.sidebar-repo-link:hover,
+.sidebar-repo-link:focus-visible {
+  color: var(--text-primary);
+}
+
+.sidebar-repo-link svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
 }
 
 @media (max-width: 650px),
