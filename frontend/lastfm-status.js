@@ -9,6 +9,8 @@
     </svg>
   `;
 
+  let waitingForSettingsReady = false;
+
   function setState(element, state, tooltip) {
     element.classList.remove(...INDICATOR_STATES);
     element.classList.add(state);
@@ -41,11 +43,29 @@
     return button;
   }
 
-  function openSettings() {
+  function openSettingsWhenReady() {
     if (typeof window.PlaylistMuseOpenLastFmSettings === 'function') {
+      waitingForSettingsReady = false;
       window.PlaylistMuseOpenLastFmSettings();
-      return;
+      return true;
     }
+
+    /* On the home page the Last.fm settings module is loaded asynchronously
+     * after window.load. Waiting for its ready event avoids turning a restored
+     * settings request into a redirect loop while that module is still loading. */
+    if (!document.getElementById('setup-dialog')) return false;
+    if (waitingForSettingsReady) return true;
+
+    waitingForSettingsReady = true;
+    window.addEventListener('playlistmuse-lastfm-settings-ready', () => {
+      waitingForSettingsReady = false;
+      window.PlaylistMuseOpenLastFmSettings?.();
+    }, {once: true});
+    return true;
+  }
+
+  function openSettings() {
+    if (openSettingsWhenReady()) return;
 
     sessionStorage.setItem(SETTINGS_REQUEST_KEY, 'lastfm');
     window.location.assign('/');
@@ -82,7 +102,7 @@
   function restoreRequestedSettings() {
     if (sessionStorage.getItem(SETTINGS_REQUEST_KEY) !== 'lastfm') return;
     sessionStorage.removeItem(SETTINGS_REQUEST_KEY);
-    setTimeout(openSettings, 0);
+    openSettings();
   }
 
   createIndicator();
