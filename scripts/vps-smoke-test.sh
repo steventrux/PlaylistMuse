@@ -2,10 +2,16 @@
 set -Eeuo pipefail
 
 COMPOSE_FILE="${PLAYLISTMUSE_SMOKE_COMPOSE_FILE:-docker-compose.yml}"
-CONTAINER="${PLAYLISTMUSE_SMOKE_CONTAINER:-playlistmuse}"
-BASE_URL="${PLAYLISTMUSE_SMOKE_URL:-http://127.0.0.1:5780}"
+COMPOSE_PROJECT="${PLAYLISTMUSE_SMOKE_PROJECT:-playlistmuse-dev}"
+CONTAINER="${PLAYLISTMUSE_SMOKE_CONTAINER:-playlistmuse-dev}"
+HOST_PORT="${PLAYLISTMUSE_SMOKE_PORT:-5781}"
+BASE_URL="${PLAYLISTMUSE_SMOKE_URL:-}"
 EXPECTED_APP_VERSION="${PLAYLISTMUSE_EXPECTED_APP_VERSION:-0.2.0}"
 EXPECTED_BUILD_CHANNEL="${PLAYLISTMUSE_EXPECTED_BUILD_CHANNEL:-dev}"
+
+if [[ -z "$BASE_URL" ]]; then
+  BASE_URL="http://127.0.0.1:${HOST_PORT}"
+fi
 
 HEALTH_URL="$BASE_URL/api/health"
 VERSION_URL="$BASE_URL/api/version"
@@ -34,16 +40,43 @@ fetch() {
   curl --fail --silent --show-error "$1"
 }
 
+compose() {
+  PLAYLISTMUSE_CONTAINER_NAME="$CONTAINER" \
+  PLAYLISTMUSE_HOST_PORT="$HOST_PORT" \
+    docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" "$@"
+}
+
 command -v docker >/dev/null 2>&1 || fail "docker is not installed or not in PATH"
 docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is not available"
 [[ -f "$COMPOSE_FILE" ]] || fail "$COMPOSE_FILE not found in $(pwd)"
 [[ -f .env ]] || fail ".env not found in $(pwd)"
 
-echo "Stopping previous dev deployment..."
-docker compose -f "$COMPOSE_FILE" down --remove-orphans
+if [[ "$EXPECTED_BUILD_CHANNEL" == "dev" ]]; then
+  [[ "$CONTAINER" != "playlistmuse" ]] || fail "dev smoke test must not use the stable container name playlistmuse"
+  [[ "$HOST_PORT" != "5780" ]] || fail "dev smoke test must not use the stable port 5780"
+fi
 
-echo "Building and starting PlaylistMuse..."
-docker compose -f "$COMPOSE_FILE" up -d --build --force-recreate
+stable_id_before="$(docker inspect --format '{{.Id}}' playlistmuse 2>/dev/null || true)"
+if [[ -n "$stable_id_before" ]]; then
+  echo "Stable container detected and protected: playlistmuse"
+fi
+
+if docker inspect "$CONTAINER" >/dev/null 2>&1; then
+  echo "Removing previous dev smoke container: $CONTAINER"
+  docker rm --force "$CONTAINER" >/dev/null
+fi
+
+port_owner="$(docker ps --filter "publish=${HOST_PORT}" --format '{{.Names}}' | head -n 1)"
+if [[ -n "$port_owner" ]]; then
+  fail "port ${HOST_PORT} is already used by container ${port_owner}; refusing to remove an unknown container"
+fi
+
+# Clean only resources belonging to the isolated dev Compose project.
+echo "Cleaning previous isolated dev Compose resources..."
+compose down --remove-orphans >/dev/null 2>&1 || true
+
+echo "Building and starting PlaylistMuse dev on port ${HOST_PORT}..."
+compose up -d --build --force-recreate
 
 echo "Waiting for application health..."
 ready=0
@@ -64,14 +97,19 @@ for attempt in $(seq 1 30); do
 done
 
 if [[ "$ready" != "1" ]]; then
-  docker compose -f "$COMPOSE_FILE" ps
+  compose ps
   docker logs --tail 200 "$CONTAINER" || true
   fail "application health endpoint did not become ready"
 fi
 
+stable_id_after="$(docker inspect --format '{{.Id}}' playlistmuse 2>/dev/null || true)"
+if [[ "$stable_id_before" != "$stable_id_after" ]]; then
+  fail "stable container playlistmuse changed during the dev smoke test"
+fi
+
 echo
 echo "Container status:"
-docker compose -f "$COMPOSE_FILE" ps
+compose ps
 
 echo
 echo "Backend compilation:"
@@ -245,8 +283,9 @@ done
 echo "OK: current frontend assets"
 
 echo
-echo "Recent logs:"
+echo "Recent dev logs:"
 docker logs --tail 50 "$CONTAINER"
 
 echo
+echo "Stable container protection: OK"
 echo "PlaylistMuse 0.2.0 VPS smoke test passed."
