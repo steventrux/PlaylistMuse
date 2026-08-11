@@ -1,0 +1,109 @@
+/* Compact action controls keep the existing PlaylistMuse button palette while reducing width. */
+
+.compact-action {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  width: auto;
+  min-width: 40px;
+  min-height: 40px;
+  height: 40px;
+  padding: 0 10px !important;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.compact-action-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+}
+
+.compact-action-icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.compact-action-label {
+  display: inline-block;
+  max-width: 0;
+  margin-left: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateX(-3px);
+  transition: max-width 180ms ease, margin-left 180ms ease, opacity 140ms ease, transform 180ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .compact-action:not(:disabled):hover .compact-action-label,
+  .compact-action:focus-visible .compact-action-label {
+    max-width: 190px;
+    margin-left: 7px;
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.track .track-action.compact-action {
+  width: auto;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0 10px !important;
+  border-radius: 11px;
+}
+
+.playlist-draft-actions .compact-action {
+  flex: 0 0 auto;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0 10px !important;
+  font-size: .8rem;
+}
+
+@media (max-width: 650px) {
+  .playlist-tracks-toolbar {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .playlist-draft-actions {
+    width: auto;
+    flex-wrap: nowrap;
+  }
+
+  .track-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .track .track-action.compact-action,
+  .playlist-draft-actions .compact-action {
+    width: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    height: 44px;
+    padding: 0 !important;
+  }
+
+  .compact-action-label {
+    max-width: 0 !important;
+    margin-left: 0 !important;
+    opacity: 0 !important;
+    transform: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .compact-action-label {
+    transition: none;
+  }
+}
