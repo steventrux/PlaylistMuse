@@ -32,10 +32,34 @@ def test_playlist_page_centralizes_draft_editing_controls() -> None:
     assert 'id="playlist-draft-actions" class="playlist-draft-actions hidden"' in html
     assert 'id="add-track"' in html
     assert 'id="refine-playlist"' in html
-    assert '/static/playlist-header.css?v=8' in html
+    assert '/static/playlist-header.css?v=9' in html
     assert '/static/playlist-editor.css?v=2' in html
     assert '/static/playlist-add-track.js?v=2' in html
     assert '/static/playlist-refine.js?v=2' in html
+
+
+def test_playlist_autosave_status_tracks_persistent_library_writes() -> None:
+    html = _text("playlist.html")
+    script = _text("playlist-save-status.js")
+    style = _text("playlist-header.css")
+
+    status_script = '<script src="/static/playlist-save-status.js?v=1"></script>'
+    playlist_script = '<script src="/static/playlist.js?v=20"></script>'
+    assert status_script in html
+    assert html.index(status_script) < html.index(playlist_script)
+    assert "saving: 'Saving…'" in script
+    assert "saved: 'Saved'" in script
+    assert "error: 'Save failed'" in script
+    assert "document.body.dataset.librarySaveState" in script
+    assert "method === 'PUT'" in script
+    assert "path.endsWith('/tags/suggest')" in script
+    assert "path.endsWith('/refine-apply')" in script
+    assert "if (!response.ok) batchFailed = true;" in script
+    assert "playlist.youtube_playlist?.url" in script
+    assert "role', 'status'" in script
+    assert ".playlist-save-status[data-state=\"saving\"]" in style
+    assert ".playlist-save-status[data-state=\"error\"]" in style
+    assert "body.playlist-readonly .playlist-save-status" in style
 
 
 def test_add_track_searches_existing_youtube_catalogue_and_appends_safely() -> None:
