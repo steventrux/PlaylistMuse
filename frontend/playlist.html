@@ -14,10 +14,10 @@
   <link rel="stylesheet" href="/static/controls.css?v=8">
   <link rel="stylesheet" href="/static/playlist.css?v=5">
   <link rel="stylesheet" href="/static/playlist-editor.css?v=1">
-  <link rel="stylesheet" href="/static/playlist-refine.css?v=1">
+  <link rel="stylesheet" href="/static/playlist-refine.css?v=2">
   <link rel="stylesheet" href="/static/playlist-cards.css?v=4">
   <link rel="stylesheet" href="/static/compact-cards.css?v=7">
-  <link rel="stylesheet" href="/static/playlist-header.css?v=7">
+  <link rel="stylesheet" href="/static/playlist-header.css?v=8">
   <link rel="stylesheet" href="/static/library-tags.css?v=3">
   <link rel="stylesheet" href="/static/generation.css?v=3">
   <link rel="stylesheet" href="/static/youtube.css?v=5">
@@ -37,6 +37,15 @@
 
   <main class="playlist-shell">
     <section class="card playlist-card">
+      <label class="playlist-title-editor" for="playlist-name">
+        <span class="visually-hidden">Edit playlist title</span>
+        <input id="playlist-name" type="text" maxlength="100" value="Generated playlist" title="Edit playlist title before sending it to YouTube Music">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16v4Z" />
+          <path d="m13.5 6.5 4 4" />
+        </svg>
+      </label>
+
       <div class="playlist-overview">
         <div
           class="playlist-cover"
@@ -47,19 +56,10 @@
         </div>
 
         <div class="playlist-overview-copy">
-          <label class="playlist-title-editor" for="playlist-name">
-            <span class="visually-hidden">Edit playlist title</span>
-            <input id="playlist-name" type="text" maxlength="100" value="Generated playlist" title="Edit playlist title before sending it to YouTube Music">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16v4Z" />
-              <path d="m13.5 6.5 4 4" />
-            </svg>
-          </label>
-
           <p id="playlist-summary" class="playlist-summary"></p>
           <label class="playlist-description-editor" for="playlist-description">
             <span class="visually-hidden">Edit playlist description</span>
-            <textarea id="playlist-description" maxlength="2000" rows="2" title="Edit playlist description"></textarea>
+            <textarea id="playlist-description" maxlength="2000" rows="4" title="Edit playlist description"></textarea>
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16v4Z" />
               <path d="m13.5 6.5 4 4" />
@@ -103,7 +103,7 @@
       <section class="playlist-tracks-section" aria-labelledby="playlist-tracks-heading">
         <div class="playlist-tracks-toolbar">
           <h2 id="playlist-tracks-heading" class="playlist-tracks-heading">Tracks</h2>
-          <div id="playlist-draft-actions" class="playlist-draft-actions">
+          <div id="playlist-draft-actions" class="playlist-draft-actions hidden">
             <button id="add-track" class="secondary" type="button">Add track</button>
             <button id="refine-playlist" class="secondary" type="button">Refine playlist</button>
           </div>
@@ -121,8 +121,8 @@
   <script src="/static/playlist-mosaic.js?v=1"></script>
   <script src="/static/library-tags.js?v=3"></script>
   <script src="/static/playlist.js?v=20"></script>
-  <script src="/static/playlist-add-track.js?v=1"></script>
-  <script src="/static/playlist-refine.js?v=1"></script>
+  <script src="/static/playlist-add-track.js?v=2"></script>
+  <script src="/static/playlist-refine.js?v=2"></script>
   <script src="/static/settings-overlay.js?v=1"></script>
   <script data-playlistmuse-footer-status src="/static/home-status.js?v=18"></script>
   <script src="/static/youtube-publish.js?v=15"></script>

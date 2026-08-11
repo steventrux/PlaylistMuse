@@ -23,7 +23,9 @@
   }
 
   function trackText(track) {
-    return `${String(track?.title || 'Unknown track').trim()} — ${String(track?.artists || track?.artist || 'Unknown artist').trim()}`;
+    const title = String(track?.title || 'Unknown track').trim();
+    const artists = String(track?.artists || track?.artist || 'Unknown artist').trim();
+    return `${title} — ${artists}`;
   }
 
   function normalized(value) {
@@ -34,18 +36,6 @@
     const videoId = String(track?.video_id || '').trim();
     if (videoId) return `video:${videoId}`;
     return `text:${normalized(track?.title)}|${normalized(track?.artists || track?.artist)}`;
-  }
-
-  function createTrackList(playlist, {addedKeys = new Set()} = {}) {
-    const list = document.createElement('ol');
-    list.className = 'playlist-refine-preview-list';
-    (playlist?.tracks || []).forEach((track) => {
-      const item = document.createElement('li');
-      item.textContent = trackText(track);
-      if (addedKeys.has(trackKey(track))) item.classList.add('playlist-refine-track-added');
-      list.append(item);
-    });
-    return list;
   }
 
   function createChangeGroup(title, tracks, className) {
@@ -71,7 +61,7 @@
     const changed = Number(summary.changed || 0);
     const reordered = Number(summary.reordered || 0);
     const parts = [`${kept}/${tracks} tracks kept`, `${changed} changed`];
-    if (reordered) parts.push(`${reordereded} repositioned`);
+    if (reordered) parts.push(`${reordered} repositioned`);
     return `Preview ready · ${parts.join(' · ')}`;
   }
 
@@ -83,33 +73,29 @@
     status.classList.toggle('error', error);
   }
 
-  function renderCurrentPlaylist() {
-    const heading = host.querySelector('.playlist-refine-track-heading');
-    const body = host.querySelector('.playlist-refine-track-body');
-    if (!heading || !body || !currentRecord) return;
-    heading.textContent = 'Current playlist';
-    body.replaceChildren(createTrackList(currentRecord.playlist));
-  }
-
   function renderComparison(proposed) {
-    const heading = host.querySelector('.playlist-refine-track-heading');
-    const body = host.querySelector('.playlist-refine-track-body');
-    if (!heading || !body || !currentRecord) return;
-    const currentTracks = Array.isArray(currentRecord.playlist?.tracks) ? currentRecord.playlist.tracks : [];
+    const container = host.querySelector('.playlist-refine-changes');
+    if (!container || !currentRecord) return;
+
+    const currentTracks = Array.isArray(currentRecord.playlist?.tracks)
+      ? currentRecord.playlist.tracks
+      : [];
     const proposedTracks = Array.isArray(proposed?.tracks) ? proposed.tracks : [];
     const currentKeys = new Set(currentTracks.map(trackKey));
     const proposedKeys = new Set(proposedTracks.map(trackKey));
     const removed = currentTracks.filter((track) => !proposedKeys.has(trackKey(track)));
     const added = proposedTracks.filter((track) => !currentKeys.has(trackKey(track)));
-    const addedKeys = new Set(added.map(trackKey));
 
-    heading.textContent = 'Refinement preview';
     const content = document.createDocumentFragment();
     if (removed.length || added.length) {
       const changes = document.createElement('div');
       changes.className = 'playlist-refine-change-grid';
-      if (removed.length) changes.append(createChangeGroup('Removed', removed, 'playlist-refine-track-removed'));
-      if (added.length) changes.append(createChangeGroup('Added', added, 'playlist-refine-track-added'));
+      if (removed.length) {
+        changes.append(createChangeGroup('Removed', removed, 'playlist-refine-track-removed'));
+      }
+      if (added.length) {
+        changes.append(createChangeGroup('Added', added, 'playlist-refine-track-added'));
+      }
       content.append(changes);
     } else {
       const unchanged = document.createElement('p');
@@ -117,11 +103,9 @@
       unchanged.textContent = 'No track substitutions in this preview.';
       content.append(unchanged);
     }
-    const proposedHeading = document.createElement('h5');
-    proposedHeading.className = 'playlist-refine-proposed-heading';
-    proposedHeading.textContent = 'Proposed playlist';
-    content.append(proposedHeading, createTrackList(proposed, {addedKeys}));
-    body.replaceChildren(content);
+
+    container.replaceChildren(content);
+    container.classList.remove('hidden');
   }
 
   function resetPreview() {
@@ -129,7 +113,9 @@
     previewInstruction = '';
     host.querySelector('.playlist-refine-apply')?.classList.add('hidden');
     host.querySelector('.playlist-refine-preview')?.classList.remove('hidden');
-    renderCurrentPlaylist();
+    const changes = host.querySelector('.playlist-refine-changes');
+    changes?.replaceChildren();
+    changes?.classList.add('hidden');
     setStatus('');
   }
 
@@ -146,10 +132,12 @@
     const editor = window.PlaylistMusePlaylistEditor;
     if (!editor?.flushPersistence) throw new Error('The playlist editor is not ready yet.');
     const libraryId = await editor.flushPersistence();
-    const record = await readJson(await fetch(`${ENDPOINT}/${encodeURIComponent(libraryId)}`, {cache: 'no-store'}));
+    const record = await readJson(await fetch(
+      `${ENDPOINT}/${encodeURIComponent(libraryId)}`,
+      {cache: 'no-store'},
+    ));
     if (record.status !== 'draft') throw new Error('Published playlists cannot be refined.');
     currentRecord = record;
-    renderCurrentPlaylist();
   }
 
   async function buildPreview() {
@@ -174,7 +162,11 @@
     try {
       const payload = await readJson(await fetch(
         `${ENDPOINT}/${encodeURIComponent(currentRecord.id)}/refine-preview`,
-        {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({instruction})},
+        {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({instruction}),
+        },
       ));
       previewPlaylist = payload.playlist;
       previewInstruction = instruction;
@@ -212,7 +204,9 @@
         },
       ));
       const editor = window.PlaylistMusePlaylistEditor;
-      if (!editor?.applyRecord) throw new Error('The playlist editor could not apply the saved refinement.');
+      if (!editor?.applyRecord) {
+        throw new Error('The playlist editor could not apply the saved refinement.');
+      }
       editor.applyRecord(record);
     } catch (error) {
       textarea.disabled = false;
@@ -233,6 +227,7 @@
     const panel = document.createElement('section');
     panel.className = 'playlist-refine-panel';
     panel.setAttribute('aria-label', 'Refine playlist');
+
     const head = document.createElement('div');
     head.className = 'playlist-editor-panel-head';
     const heading = document.createElement('strong');
@@ -258,22 +253,14 @@
     const hint = document.createElement('p');
     hint.className = 'playlist-refine-hint';
     hint.textContent = 'The current draft stays unchanged until you apply the preview.';
+
     const status = document.createElement('p');
     status.className = 'playlist-refine-status hidden';
     status.setAttribute('aria-live', 'polite');
 
-    const trackArea = document.createElement('section');
-    trackArea.className = 'playlist-refine-track-area';
-    const trackHeading = document.createElement('h4');
-    trackHeading.className = 'playlist-refine-track-heading';
-    trackHeading.textContent = 'Current playlist';
-    const trackBody = document.createElement('div');
-    trackBody.className = 'playlist-refine-track-body';
-    const loading = document.createElement('p');
-    loading.className = 'playlist-refine-loading';
-    loading.textContent = 'Loading tracks…';
-    trackBody.append(loading);
-    trackArea.append(trackHeading, trackBody);
+    const changes = document.createElement('section');
+    changes.className = 'playlist-refine-changes hidden';
+    changes.setAttribute('aria-label', 'Refinement changes');
 
     const actions = document.createElement('div');
     actions.className = 'playlist-refine-actions';
@@ -295,7 +282,7 @@
     cancelButton.addEventListener('click', closePanel);
     actions.append(previewButton, applyButton, cancelButton);
 
-    panel.append(head, label, hint, status, trackArea, actions);
+    panel.append(head, label, hint, status, changes, actions);
     host.append(panel);
     trigger.setAttribute('aria-expanded', 'true');
     textarea.focus();
@@ -305,10 +292,10 @@
       previewButton.disabled = false;
     } catch (error) {
       setStatus(error.message || String(error), true);
-      trackBody.replaceChildren();
     }
   }
 
   trigger.setAttribute('aria-expanded', 'false');
   trigger.addEventListener('click', () => void openPanel());
+  window.addEventListener('playlistmuse-playlist-published', closePanel);
 })();

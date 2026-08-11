@@ -12,7 +12,9 @@
 
   const trigger = $('add-track');
   const host = $('playlist-add-track-host');
+  const titleInput = $('playlist-name');
   const descriptionInput = $('playlist-description');
+  const draftActions = $('playlist-draft-actions');
   if (!trigger || !host) return;
 
   let results = [];
@@ -38,6 +40,10 @@
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(playlist));
   }
 
+  function writeGenerationRequest(request) {
+    sessionStorage.setItem(REQUEST_KEY, JSON.stringify(request));
+  }
+
   function playlistDocument(playlist) {
     const document = JSON.parse(JSON.stringify(playlist));
     delete document.library_id;
@@ -53,6 +59,46 @@
 
   function isPublished() {
     return Boolean(currentPlaylist()?.youtube_playlist?.url);
+  }
+
+  function syncEditorState() {
+    const playlist = currentPlaylist();
+    const editable = Boolean(playlist && Array.isArray(playlist.tracks) && !playlist.youtube_playlist?.url);
+    document.body.classList.toggle('playlist-readonly', !editable);
+    if (titleInput) {
+      titleInput.readOnly = !editable;
+      titleInput.setAttribute('aria-readonly', String(!editable));
+      titleInput.title = editable ? 'Edit playlist title' : 'Published playlist title';
+    }
+    if (descriptionInput) {
+      descriptionInput.readOnly = !editable;
+      descriptionInput.setAttribute('aria-readonly', String(!editable));
+      descriptionInput.title = editable ? 'Edit playlist description' : 'Published playlist description';
+    }
+    draftActions?.classList.toggle('hidden', !editable);
+    if (!editable) {
+      host.replaceChildren();
+      trigger.setAttribute('aria-expanded', 'false');
+    }
+  }
+
+  function trackHistoryText(track) {
+    const title = String(track?.title || 'Unknown track').trim();
+    const artists = String(track?.artists || track?.artist || '').trim();
+    return artists ? `${title} — ${artists}` : title;
+  }
+
+  function appendManualHistory(kind, track) {
+    const request = generationRequest() || {};
+    const refinements = Array.isArray(request.refinements) ? [...request.refinements] : [];
+    const action = kind === 'manual_remove' ? 'Removed manually' : 'Added manually';
+    refinements.push({
+      prompt: `${action}: ${trackHistoryText(track)}`,
+      kind,
+      applied_at: new Date().toISOString(),
+    });
+    request.refinements = refinements;
+    writeGenerationRequest(request);
   }
 
   async function waitForExistingAutosave() {
@@ -87,7 +133,7 @@
     const merged = {...record.playlist, library_id: record.id};
     writePlaylist(merged);
     if (record.generation_request) {
-      sessionStorage.setItem(REQUEST_KEY, JSON.stringify(record.generation_request));
+      writeGenerationRequest(record.generation_request);
     }
     return record;
   }
@@ -132,6 +178,7 @@
     });
     playlist.requested_count = playlist.tracks.length;
     playlist.resolved_count = playlist.tracks.length;
+    appendManualHistory('manual_add', track);
     writePlaylist(playlist);
     await persistPlaylist(playlist);
     return playlist.tracks.length - 1;
@@ -150,6 +197,7 @@
     playlist.tracks.splice(index, 1);
     playlist.requested_count = playlist.tracks.length;
     playlist.resolved_count = playlist.tracks.length;
+    appendManualHistory('manual_remove', track);
     writePlaylist(playlist);
     await persistPlaylist(playlist);
     window.location.reload();
@@ -160,7 +208,7 @@
     if (!record?.id || !record.playlist) return;
     writePlaylist({...record.playlist, library_id: record.id});
     if (record.generation_request) {
-      sessionStorage.setItem(REQUEST_KEY, JSON.stringify(record.generation_request));
+      writeGenerationRequest(record.generation_request);
     } else {
       sessionStorage.removeItem(REQUEST_KEY);
     }
@@ -171,11 +219,11 @@
     if (!descriptionInput) return;
     const playlist = currentPlaylist();
     descriptionInput.value = playlist?.description ?? playlist?.prompt ?? '';
-    descriptionInput.disabled = false;
+    syncEditorState();
 
     descriptionInput.addEventListener('input', () => {
       const latest = currentPlaylist();
-      if (!latest || !Array.isArray(latest.tracks)) return;
+      if (!latest || !Array.isArray(latest.tracks) || latest.youtube_playlist?.url) return;
       latest.description = descriptionInput.value.slice(0, 2000);
       writePlaylist(latest);
       clearTimeout(descriptionTimer);
@@ -387,6 +435,7 @@
   trigger.addEventListener('click', openPanel);
   installDescriptionEditor();
   observeTrackRendering();
+  window.addEventListener('playlistmuse-playlist-published', syncEditorState);
 
   window.PlaylistMusePlaylistEditor = {
     appendTrack,
@@ -394,5 +443,6 @@
     flushPersistence,
     isPublished,
     removeTrack,
+    syncEditorState,
   };
 })();

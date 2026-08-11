@@ -1,5 +1,15 @@
 /* Playlist header and generated cover layout. */
 
+.playlist-title-editor {
+  width: 100%;
+  max-width: none;
+  margin-bottom: 14px;
+}
+
+.playlist-title-editor input {
+  width: 100%;
+}
+
 .playlist-overview {
   display: grid;
   grid-template-columns: minmax(150px, 220px) minmax(0, 1fr);
@@ -52,19 +62,38 @@
     linear-gradient(145deg, rgba(77, 67, 210, 0.42), rgba(7, 9, 22, 0.96));
 }
 
-.playlist-title-editor {
-  width: 100%;
-  max-width: none;
-}
-
-.playlist-title-editor input {
-  width: 100%;
-}
-
 .playlist-summary,
-.playlist-description {
+.playlist-description,
+.playlist-description-editor {
   width: 100%;
   max-width: none;
+}
+
+.playlist-description-editor textarea {
+  min-height: 112px;
+}
+
+body.playlist-readonly .playlist-title-editor,
+body.playlist-readonly .playlist-description-editor {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+body.playlist-readonly .playlist-title-editor svg,
+body.playlist-readonly .playlist-description-editor svg {
+  display: none;
+}
+
+body.playlist-readonly .playlist-title-editor input,
+body.playlist-readonly .playlist-description-editor textarea {
+  cursor: default;
+}
+
+body.playlist-readonly .playlist-title-editor input:hover,
+body.playlist-readonly .playlist-title-editor input:focus,
+body.playlist-readonly .playlist-description-editor textarea:hover,
+body.playlist-readonly .playlist-description-editor textarea:focus {
+  border-bottom-color: transparent;
+  box-shadow: none;
 }
 
 /* Keep the Tracks label equally spaced from publishing controls and results. */
@@ -99,5 +128,9 @@
   .playlist-cover {
     width: min(72vw, 280px);
     margin-inline: auto;
+  }
+
+  .playlist-description-editor textarea {
+    min-height: 96px;
   }
 }
