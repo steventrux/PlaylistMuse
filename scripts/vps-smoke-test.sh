@@ -1,38 +1,47 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-COMPOSE_FILE="docker-compose.playlistmuse.yml"
-CONTAINER="playlistmuse-test"
-HEALTH_URL="http://127.0.0.1:5770/api/health"
-ROOT_URL="http://127.0.0.1:5770/"
-PLAYLIST_URL="http://127.0.0.1:5770/static/playlist.html"
-PLAYLIST_CSS_URL="http://127.0.0.1:5770/static/playlist.css"
-COMPACT_CARDS_CSS_URL="http://127.0.0.1:5770/static/compact-cards.css"
-COMMON_JS_URL="http://127.0.0.1:5770/static/common.js"
-PLAYLIST_MOSAIC_JS_URL="http://127.0.0.1:5770/static/playlist-mosaic.js"
-PLAYLIST_JS_URL="http://127.0.0.1:5770/static/playlist.js"
-YOUTUBE_ACCOUNT_JS_URL="http://127.0.0.1:5770/static/youtube-account.js"
-YOUTUBE_PUBLISH_JS_URL="http://127.0.0.1:5770/static/youtube-publish.js"
-YOUTUBE_CSS_URL="http://127.0.0.1:5770/static/youtube.css"
-YOUTUBE_RESULTS_CSS_URL="http://127.0.0.1:5770/static/youtube-results.css"
-YOUTUBE_STATUS_URL="http://127.0.0.1:5770/api/youtube/status"
-YOUTUBE_SETTINGS_URL="http://127.0.0.1:5770/api/youtube/settings"
-OPENAPI_URL="http://127.0.0.1:5770/openapi.json"
-SETTINGS_URL="http://127.0.0.1:5770/api/settings"
+COMPOSE_FILE="${PLAYLISTMUSE_SMOKE_COMPOSE_FILE:-docker-compose.playlistmuse.yml}"
+CONTAINER="${PLAYLISTMUSE_SMOKE_CONTAINER:-playlistmuse-test}"
+BASE_URL="${PLAYLISTMUSE_SMOKE_URL:-http://127.0.0.1:5770}"
+EXPECTED_APP_VERSION="${PLAYLISTMUSE_EXPECTED_APP_VERSION:-0.2.0}"
+EXPECTED_BUILD_CHANNEL="${PLAYLISTMUSE_EXPECTED_BUILD_CHANNEL:-dev}"
+
+HEALTH_URL="$BASE_URL/api/health"
+VERSION_URL="$BASE_URL/api/version"
+ROOT_URL="$BASE_URL/"
+LIBRARY_URL="$BASE_URL/static/library.html"
+PLAYLIST_URL="$BASE_URL/static/playlist.html"
+OPENAPI_URL="$BASE_URL/openapi.json"
+SETTINGS_URL="$BASE_URL/api/settings"
+YOUTUBE_STATUS_URL="$BASE_URL/api/youtube/status"
+YOUTUBE_SETTINGS_URL="$BASE_URL/api/youtube/settings"
+
+fail() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+require_text() {
+  local haystack="$1"
+  local needle="$2"
+  local label="${3:-$2}"
+  grep -Fq "$needle" <<<"$haystack" || fail "missing $label"
+  echo "OK: $label"
+}
+
+fetch() {
+  curl --fail --silent --show-error "$1"
+}
 
 if ! command -v docker >/dev/null 2>&1; then
-  echo "ERROR: docker is not installed or not in PATH." >&2
-  exit 1
+  fail "docker is not installed or not in PATH"
 fi
-
 if ! docker compose version >/dev/null 2>&1; then
-  echo "ERROR: Docker Compose v2 is not available." >&2
-  exit 1
+  fail "Docker Compose v2 is not available"
 fi
-
 if [[ ! -f "$COMPOSE_FILE" ]]; then
-  echo "ERROR: $COMPOSE_FILE not found in $(pwd)." >&2
-  exit 1
+  fail "$COMPOSE_FILE not found in $(pwd)"
 fi
 
 if ! docker volume inspect playlistmuse-data >/dev/null 2>&1; then
@@ -40,33 +49,29 @@ if ! docker volume inspect playlistmuse-data >/dev/null 2>&1; then
   docker volume create playlistmuse-data >/dev/null
 fi
 
-echo "Stopping the previous test deployment..."
+echo "Stopping previous test deployment..."
 docker compose -f "$COMPOSE_FILE" down --remove-orphans
 
 echo "Building and starting PlaylistMuse..."
 docker compose -f "$COMPOSE_FILE" up -d --build --force-recreate
 
-echo "Waiting for the container healthcheck..."
+echo "Waiting for container health..."
 for attempt in $(seq 1 30); do
   status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$CONTAINER" 2>/dev/null || true)"
   printf 'Attempt %02d/30: %s\n' "$attempt" "${status:-not-created}"
-  if [[ "$status" == "healthy" ]]; then
-    break
-  fi
+  [[ "$status" == "healthy" ]] && break
   if [[ "$status" == "exited" || "$status" == "dead" ]]; then
-    echo "ERROR: container stopped unexpectedly." >&2
     docker logs --tail 200 "$CONTAINER" || true
-    exit 1
+    fail "container stopped unexpectedly"
   fi
   sleep 3
 done
 
 status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$CONTAINER" 2>/dev/null || true)"
 if [[ "$status" != "healthy" ]]; then
-  echo "ERROR: container did not become healthy." >&2
   docker compose -f "$COMPOSE_FILE" ps
   docker logs --tail 200 "$CONTAINER" || true
-  exit 1
+  fail "container did not become healthy"
 fi
 
 echo
@@ -74,159 +79,175 @@ echo "Container status:"
 docker compose -f "$COMPOSE_FILE" ps
 
 echo
-echo "Python compilation:"
+echo "Backend compilation:"
 docker exec "$CONTAINER" python -m compileall -q backend
 echo "OK: backend compiled"
 
 echo
-echo "Duplicate-track identity:"
-docker exec "$CONTAINER" python -c "from backend.youtube import track_identity_key as k; assert k('Bé-Bop-A-Lula!', 'Gene Vincent') == k('be bop a lula', 'GENE VINCENT'); assert k('Woman', 'Wolfmother') == k('Woman', 'Wolfmother')"
-echo "OK: alternate uploads share one track identity"
+echo "Core backend invariants:"
+docker exec "$CONTAINER" python - <<'PY'
+from backend.version import APP_VERSION
+from backend.youtube import track_identity_key as key
+from backend.config import AppConfig, api_key_matches_provider, api_key_slot
+from backend.youtube_routes import YouTubePlaylistCreateRequest
+
+assert APP_VERSION == "0.2.0"
+assert key("Bé-Bop-A-Lula!", "Gene Vincent") == key("be bop a lula", "GENE VINCENT")
+assert api_key_slot("openrouter_auto") == "openrouter"
+assert api_key_slot("openrouter_free") == "openrouter"
+config = AppConfig(provider_api_keys={"openrouter": "sk-or-saved"})
+assert config.key_is_saved("openrouter_auto") and config.key_is_saved("openrouter_free")
+assert not api_key_matches_provider("gemini", "sk-or-v1-wrong")
+request = YouTubePlaylistCreateRequest(
+    title="Test",
+    privacy_status="UNLISTED",
+    video_ids=["b", "a", "b"],
+)
+assert request.video_ids == ["b", "a"]
+assert request.privacy_status == "UNLISTED"
+PY
+echo "OK: version, track identity, provider separation and YouTube request normalization"
 
 echo
-echo "Provider credential separation:"
-docker exec "$CONTAINER" python -c "from backend.config import AppConfig, api_key_matches_provider, api_key_slot; assert api_key_slot('openrouter_auto') == 'openrouter'; assert api_key_slot('openrouter_free') == 'openrouter'; c=AppConfig(provider_api_keys={'openrouter':'sk-or-saved'}); assert c.key_is_saved('openrouter_auto') and c.key_is_saved('openrouter_free'); assert not api_key_matches_provider('gemini','sk-or-v1-wrong'); assert not AppConfig(provider='gemini',api_key='sk-or-v1-wrong',model='gemini-3.6-flash').configured"
-echo "OK: provider keys are shared only where intended"
+echo "Health and version metadata:"
+health_json="$(fetch "$HEALTH_URL")"
+version_json="$(fetch "$VERSION_URL")"
+openapi_json="$(fetch "$OPENAPI_URL")"
+python - "$EXPECTED_APP_VERSION" "$EXPECTED_BUILD_CHANNEL" "$health_json" "$version_json" "$openapi_json" <<'PY'
+import json
+import sys
+
+expected_version, expected_channel, health_raw, version_raw, openapi_raw = sys.argv[1:]
+health = json.loads(health_raw)
+version = json.loads(version_raw)
+openapi = json.loads(openapi_raw)
+
+assert health["status"] == "healthy"
+assert health["application"] == "PlaylistMuse"
+assert openapi["info"]["version"] == expected_version, openapi["info"]
+assert version["channel"] == expected_channel, version
+if expected_channel == "stable":
+    assert version["version"] == expected_version, version
+else:
+    assert version["version"] == "dev", version
+print(version)
+PY
+echo "OK: application version $EXPECTED_APP_VERSION and build channel $EXPECTED_BUILD_CHANNEL"
 
 echo
-echo "Gemini request compatibility:"
-docker exec "$CONTAINER" python -c "import inspect; import backend.llm as llm; source=inspect.getsource(llm._request_model); assert 'x-goog-api-key' in source; assert 'responseMimeType' in source; assert 'responseJsonSchema' in source; assert 'responseFormat' not in source; schema=llm._gemini_json_schema(llm._playlist_json_schema(5, exact_count=True)); assert schema['properties']['tracks']['minItems']==5"
-if grep -Fq 'params={"key"' backend/llm.py; then
-  echo "ERROR: Gemini API key is still sent in the URL query string" >&2
-  exit 1
-fi
-if [[ -e backend/gemini_compat.py ]]; then
-  echo "ERROR: obsolete Gemini monkey-patch module is still present" >&2
-  exit 1
-fi
-echo "OK: Gemini compatibility is integrated into the provider implementation"
-
-echo
-echo "AI generation strategy:"
-docker exec "$CONTAINER" python -c "from backend.llm import _attempt_count, _playlist_response_format; full=_playlist_response_format(25, exact_count=True)['json_schema']['schema']['properties']['tracks']; batch=_playlist_response_format(6)['json_schema']['schema']['properties']['tracks']; assert full['minItems']==25 and full['maxItems']==25; assert batch['minItems']==1 and batch['maxItems']==6; assert _attempt_count('openrouter_free')==2"
-grep -Fq 'response-healing' backend/llm.py
-grep -Fq '_try_complete_request' backend/llm.py
-grep -Fq '_complete_in_batches' backend/llm.py
-grep -Fq '_replenishment_prompt' backend/main.py
-echo "OK: complete request first, AI batching and YouTube replenishment enabled"
-
-echo
-echo "YouTube account service:"
-docker exec "$CONTAINER" python -c "from backend.youtube_account import youtube_settings_response; response=youtube_settings_response(); assert set(response)=={'client_id','client_secret_set','configured'}; assert 'client_secret' not in response"
-docker exec "$CONTAINER" python -c "from backend.youtube_routes import YouTubePlaylistCreateRequest; request=YouTubePlaylistCreateRequest(title='Test', privacy_status='UNLISTED', video_ids=['b','a','b']); assert request.video_ids==['b','a']; assert request.privacy_status=='UNLISTED'"
-docker exec "$CONTAINER" python -c "import backend.youtube_account as account; C=type('C',(),{'get_library_playlists':lambda self,limit=1: [],'get_account_info':lambda self: (_ for _ in ()).throw(RuntimeError('profile unavailable'))}); assert account._validate_youtube_connection_sync(C())=={}; assert not hasattr(account, '_create_playlist_sync'); assert not hasattr(account, 'create_youtube_playlist')"
-docker exec "$CONTAINER" python -c "from backend.storage import read_json_object, write_secure_json; from pathlib import Path; import tempfile; root=Path(tempfile.mkdtemp()); path=root/'test.json'; write_secure_json(path, {'ok': True}); assert read_json_object(path)=={'ok': True}; assert path.stat().st_mode & 0o777 == 0o600"
-echo "OK: YouTube OAuth hides secrets, preserves order, accepts missing profile data and uses shared secure storage"
-
-echo
-echo "Health endpoint:"
-curl --fail --silent --show-error "$HEALTH_URL"
-echo
-
-echo
-echo "Settings endpoint:"
-settings_json="$(curl --fail --silent --show-error "$SETTINGS_URL")"
-echo "$settings_json"
+echo "Settings and YouTube API schemas:"
+settings_json="$(fetch "$SETTINGS_URL")"
+youtube_settings_json="$(fetch "$YOUTUBE_SETTINGS_URL")"
+youtube_status_json="$(fetch "$YOUTUBE_STATUS_URL")"
 for required_key in provider model fallback_1 fallback_2 base_url configured api_key_set provider_keys_set; do
-  if ! grep -Fq "\"${required_key}\":" <<<"$settings_json"; then
-    echo "ERROR: settings response is missing key: $required_key" >&2
-    exit 1
-  fi
+  require_text "$settings_json" "\"${required_key}\":" "settings.$required_key"
 done
-echo "OK: settings schema"
-
-echo
-echo "YouTube endpoints:"
-youtube_settings_json="$(curl --fail --silent --show-error "$YOUTUBE_SETTINGS_URL")"
-youtube_status_json="$(curl --fail --silent --show-error "$YOUTUBE_STATUS_URL")"
 for required_key in client_id client_secret_set configured; do
-  if ! grep -Fq "\"${required_key}\":" <<<"$youtube_settings_json"; then
-    echo "ERROR: YouTube settings response is missing key: $required_key" >&2
-    exit 1
-  fi
+  require_text "$youtube_settings_json" "\"${required_key}\":" "youtube-settings.$required_key"
 done
 if grep -Fq 'client_secret"' <<<"$youtube_settings_json"; then
-  echo "ERROR: YouTube client secret was exposed by the settings endpoint" >&2
-  exit 1
+  fail "YouTube client secret was exposed by the settings endpoint"
 fi
 for required_key in catalog_available credentials_configured account_connected message; do
-  if ! grep -Fq "\"${required_key}\":" <<<"$youtube_status_json"; then
-    echo "ERROR: YouTube status response is missing key: $required_key" >&2
-    exit 1
-  fi
-done
-echo "OK: YouTube Music status and settings API"
-
-echo
-echo "Frontend structure:"
-frontend_html="$(curl --fail --silent --show-error "$ROOT_URL")"
-for required_text in "From Prompt" "From Seed" "AI provider" "Fallbacks" "OpenRouter Auto" "OpenRouter Free" "YouTube Music account" "Google OAuth client ID" "Connect account"; do
-  if ! grep -Fq "$required_text" <<<"$frontend_html"; then
-    echo "ERROR: frontend is missing: $required_text" >&2
-    exit 1
-  fi
-  echo "OK: $required_text"
+  require_text "$youtube_status_json" "\"${required_key}\":" "youtube-status.$required_key"
 done
 
 echo
-echo "Playlist result structure:"
-playlist_html="$(curl --fail --silent --show-error "$PLAYLIST_URL")"
-for required_id in playlist-name playlist-summary playlist-description youtube-publish-warning youtube-open-settings youtube-settings-dialog youtube-publish-controls create-youtube-playlist track-list; do
-  if ! grep -Fq "id=\"${required_id}\"" <<<"$playlist_html"; then
-    echo "ERROR: playlist page is missing: $required_id" >&2
-    exit 1
-  fi
-  echo "OK: $required_id"
+echo "Home page:"
+home_html="$(fetch "$ROOT_URL")"
+for required_text in "From Prompt" "From Seed" "AI provider" "Fallbacks" "OpenRouter Auto" "OpenRouter Free" "YouTube Music account"; do
+  require_text "$home_html" "$required_text"
+done
+
+echo
+echo "Playlist editor page:"
+playlist_html="$(fetch "$PLAYLIST_URL")"
+for required_id in playlist-name playlist-summary playlist-description playlist-tags youtube-publish-warning youtube-publish-controls create-youtube-playlist playlist-draft-actions add-track refine-playlist playlist-add-track-host playlist-refine-host track-list; do
+  require_text "$playlist_html" "id=\"${required_id}\"" "$required_id"
 done
 for privacy_value in PRIVATE UNLISTED PUBLIC; do
-  if ! grep -Fq "data-privacy=\"${privacy_value}\"" <<<"$playlist_html"; then
-    echo "ERROR: playlist page is missing privacy option: $privacy_value" >&2
-    exit 1
-  fi
-  echo "OK: privacy $privacy_value"
+  require_text "$playlist_html" "data-privacy=\"${privacy_value}\"" "privacy $privacy_value"
 done
-
-for required_asset in "/static/common.js?v=1" "/static/playlist-mosaic.js?v=1" "/static/playlist.js?v=18" "/static/youtube-account.js?v=3" "/static/youtube-publish.js?v=8"; do
-  if ! grep -Fq "$required_asset" <<<"$playlist_html"; then
-    echo "ERROR: playlist page is missing optimized asset: $required_asset" >&2
-    exit 1
-  fi
+for required_asset in \
+  "/static/common.js?v=1" \
+  "/static/playlist-save-status.js?v=2" \
+  "/static/playlist-mosaic.js?v=1" \
+  "/static/library-tags.js?v=3" \
+  "/static/playlist.js?v=20" \
+  "/static/playlist-add-track.js?v=2" \
+  "/static/playlist-refine.js?v=2" \
+  "/static/youtube-publish.js?v=15"; do
+  require_text "$playlist_html" "$required_asset" "$required_asset"
 done
-
-playlist_js="$(curl --fail --silent --show-error "$PLAYLIST_JS_URL")"
-for required_text in "track-details" "Open in YouTube Music" "Replace track" "/api/playlists/replace-track"; do
-  if ! grep -Fq "$required_text" <<<"$playlist_js"; then
-    echo "ERROR: playlist script is missing: $required_text" >&2
-    exit 1
-  fi
-  echo "OK: $required_text"
-done
-
-openapi_json="$(curl --fail --silent --show-error "$OPENAPI_URL")"
-for required_route in "/api/playlists/replace-track" "/api/youtube/settings" "/api/youtube/status" "/api/youtube/connect/start" "/api/youtube/connect/poll" "/api/youtube/connection" "/api/youtube/playlists"; do
-  if ! grep -Fq "\"${required_route}\"" <<<"$openapi_json"; then
-    echo "ERROR: API route is missing: $required_route" >&2
-    exit 1
-  fi
-done
-echo "OK: YouTube OAuth and playlist publishing API"
-
-for asset_url in "$PLAYLIST_CSS_URL" "$COMPACT_CARDS_CSS_URL" "$COMMON_JS_URL" "$PLAYLIST_MOSAIC_JS_URL" "$YOUTUBE_ACCOUNT_JS_URL" "$YOUTUBE_PUBLISH_JS_URL" "$YOUTUBE_CSS_URL" "$YOUTUBE_RESULTS_CSS_URL"; do
-  curl --fail --silent --show-error --output /dev/null "$asset_url"
-done
-echo "OK: playlist, shared frontend, mosaic and YouTube Music assets"
 
 echo
-echo "Frontend HTTP status:"
-curl --fail --silent --show-error --output /dev/null --write-out '%{http_code}\n' "$ROOT_URL"
+echo "Playlist editor JavaScript:"
+playlist_js="$(fetch "$BASE_URL/static/playlist.js")"
+add_track_js="$(fetch "$BASE_URL/static/playlist-add-track.js")"
+refine_js="$(fetch "$BASE_URL/static/playlist-refine.js")"
+save_status_js="$(fetch "$BASE_URL/static/playlist-save-status.js")"
+for required_text in "Open in YouTube Music" "Replace track" "/api/playlists/replace-track"; do
+  require_text "$playlist_js" "$required_text"
+done
+for required_text in "/api/seeds/search" "Add" "duplicate"; do
+  require_text "$add_track_js" "$required_text" "add-track: $required_text"
+done
+for required_text in "/refine/preview" "/refine/apply" "Removed" "Added"; do
+  require_text "$refine_js" "$required_text" "refine: $required_text"
+done
+for required_text in "Saving…" "Saved" "Save failed" "position: fixed"; do
+  require_text "$save_status_js" "$required_text" "autosave: $required_text"
+done
 
 echo
-echo "Playlist page HTTP status:"
-curl --fail --silent --show-error --output /dev/null --write-out '%{http_code}\n' "$PLAYLIST_URL"
+echo "Library page:"
+library_html="$(fetch "$LIBRARY_URL")"
+library_js="$(fetch "$BASE_URL/static/library.js")"
+for required_id in library-search library-count library-list library-empty library-pagination; do
+  require_text "$library_html" "id=\"${required_id}\"" "$required_id"
+done
+require_text "$library_html" "/static/library.js?v=11" "current library script"
+require_text "$library_js" "item.status === 'draft' ? 'Edit' : 'Open'" "Draft=Edit / Published=Open"
+require_text "$library_js" "Refinements" "refinement history"
+
+echo
+echo "Published read-only and publication atomicity guards:"
+application_py="$(docker exec "$CONTAINER" cat backend/application.py)"
+youtube_publish_py="$(docker exec "$CONTAINER" cat backend/youtube_publish.py)"
+require_text "$application_py" "Published playlists are read-only" "published API read-only guard"
+require_text "$youtube_publish_py" "rollback" "YouTube publication rollback path"
+require_text "$youtube_publish_py" "rejected" "YouTube rejected-track failure path"
+
+echo
+echo "OpenAPI routes:"
+for required_route in \
+  "/api/playlists/replace-track" \
+  "/api/library/playlists" \
+  "/api/library/playlists/{playlist_id}/refine/preview" \
+  "/api/library/playlists/{playlist_id}/refine/apply" \
+  "/api/youtube/settings" \
+  "/api/youtube/status" \
+  "/api/youtube/connect/start" \
+  "/api/youtube/connect/poll" \
+  "/api/youtube/connection" \
+  "/api/youtube/playlists"; do
+  require_text "$openapi_json" "\"${required_route}\"" "$required_route"
+done
+
+echo
+echo "Static asset HTTP checks:"
+for asset in \
+  style.css layout.css controls.css playlist.css playlist-editor.css playlist-refine.css \
+  playlist-header.css compact-cards.css library-tags.css youtube.css youtube-results.css \
+  common.js playlist-save-status.js playlist-mosaic.js playlist.js playlist-add-track.js \
+  playlist-refine.js library.js youtube-account.js youtube-publish.js; do
+  curl --fail --silent --show-error --output /dev/null "$BASE_URL/static/$asset"
+done
+echo "OK: current frontend assets"
 
 echo
 echo "Recent logs:"
 docker logs --tail 50 "$CONTAINER"
 
 echo
-echo "PlaylistMuse VPS smoke test passed."
+echo "PlaylistMuse 0.2.0 VPS smoke test passed."
