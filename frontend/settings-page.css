@@ -220,9 +220,14 @@ html.settings-embedded .settings-page-content-heading {
   }
 
   .settings-section-navigation {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: flex;
     gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .settings-section-navigation::-webkit-scrollbar {
+    display: none;
   }
 
   .settings-section-label {
@@ -230,10 +235,8 @@ html.settings-embedded .settings-page-content-heading {
   }
 
   .settings-section-link {
-    width: 100%;
-    min-width: 0;
-    padding-inline: 8px;
-    text-align: center;
+    min-width: max-content;
+    padding-inline: 12px;
   }
 
   .settings-section-link::before {
