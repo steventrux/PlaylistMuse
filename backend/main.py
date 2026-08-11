@@ -367,40 +367,6 @@ def _artist_identity_keys(value: str) -> set[str]:
     return keys
 
 
-def _blend_candidates(
-    primary: list[dict[str, str]],
-    supplemental: list[dict[str, str]],
-    count: int,
-) -> list[dict[str, str]]:
-    """Legacy bounded blending helper retained for compatibility with older tests."""
-    combined_primary = list(primary)
-    seen = {_candidate_key(candidate) for candidate in combined_primary}
-    seen.discard("")
-    quota = min(len(supplemental), max(1, min(12, count // 5)))
-    extras: list[dict[str, str]] = []
-    for candidate in supplemental:
-        key = _candidate_key(candidate)
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        extras.append(candidate)
-        if len(extras) >= quota:
-            break
-
-    if not extras:
-        return combined_primary
-    if not combined_primary:
-        return extras
-
-    blended = list(combined_primary)
-    spacing = max(1, len(combined_primary) // (len(extras) + 1))
-    offset = spacing
-    for candidate in extras:
-        blended.insert(min(offset, len(blended)), candidate)
-        offset += spacing + 1
-    return blended
-
-
 def _discovery_prompt(
     original_prompt: str,
     first_draft: dict,
