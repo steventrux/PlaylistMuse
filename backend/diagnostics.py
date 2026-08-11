@@ -42,7 +42,7 @@ LOG_PATH = LOG_DIR / "playlistmuse.log"
 LOG_MAX_BYTES = 1_048_576
 LOG_BACKUP_COUNT = 3
 LOGGER_NAME = "playlistmuse"
-ERROR_REFERENCE_HEADER = "X-PlaylistMuse-Error-Reference"
+ERROR_REFERENCE_HEADER = "x-playlistmuse-error-reference"
 
 _SENSITIVE_KEY_RE = re.compile(
     r"(?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|cookie|"
