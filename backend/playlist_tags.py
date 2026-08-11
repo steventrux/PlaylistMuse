@@ -87,12 +87,21 @@ def parse_playlist_tags(text: str) -> dict[str, list[str]]:
     return normalize_playlist_tags({key: payload.get(key) for key in AI_TAG_KEYS})
 
 
+def _sample_tracks_for_tagging(value: Any) -> list[dict[str, Any]]:
+    """Keep tagging input bounded while representing the full playlist sequence."""
+    tracks = [track for track in value if isinstance(track, dict)] if isinstance(value, list) else []
+    if len(tracks) <= MAX_TAGGING_TRACKS:
+        return tracks
+
+    last_index = len(tracks) - 1
+    return [
+        tracks[round(position * last_index / (MAX_TAGGING_TRACKS - 1))]
+        for position in range(MAX_TAGGING_TRACKS)
+    ]
+
+
 def _classification_request(playlist: dict[str, Any]) -> str:
-    tracks = [
-        track
-        for track in playlist.get("tracks", [])
-        if isinstance(track, dict)
-    ][:MAX_TAGGING_TRACKS]
+    tracks = _sample_tracks_for_tagging(playlist.get("tracks", []))
     track_lines = [
         "- "
         + " — ".join(

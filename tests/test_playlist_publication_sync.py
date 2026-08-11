@@ -83,3 +83,93 @@ def test_verification_failure_keeps_published_state(
     assert record["status"] == "published"
     assert record["youtube_playlist_id"] == "PL_KEEP"
     assert record["youtube_playlist_url"].endswith("PL_KEEP")
+
+
+def test_recent_reconciliation_uses_ttl_cache(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    library = PlaylistLibrary(tmp_path / "playlists.db")
+    library.create(sample_playlist("Keep published", "PL_KEEP"))
+    calls: list[list[str]] = []
+
+    def fetch_existing(playlist_ids):
+        calls.append(list(playlist_ids))
+        return {"PL_KEEP"}
+
+    clock = [100.0]
+    monkeypatch.setattr(publication_sync, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        publication_sync,
+        "_fetch_existing_youtube_playlist_ids",
+        fetch_existing,
+    )
+
+    first = asyncio.run(publication_sync.reconcile_deleted_youtube_playlists(library))
+    second = asyncio.run(publication_sync.reconcile_deleted_youtube_playlists(library))
+
+    assert first == 0
+    assert second == 0
+    assert calls == [["PL_KEEP"]]
+
+    clock[0] += publication_sync.RECONCILIATION_TTL_SECONDS + 1
+    third = asyncio.run(publication_sync.reconcile_deleted_youtube_playlists(library))
+
+    assert third == 0
+    assert calls == [["PL_KEEP"], ["PL_KEEP"]]
+
+
+def test_changed_published_ids_bypass_reconciliation_ttl(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    library = PlaylistLibrary(tmp_path / "playlists.db")
+    library.create(sample_playlist("First", "PL_FIRST"))
+    calls: list[set[str]] = []
+
+    def fetch_existing(playlist_ids):
+        ids = set(playlist_ids)
+        calls.append(ids)
+        return ids
+
+    monkeypatch.setattr(publication_sync, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(
+        publication_sync,
+        "_fetch_existing_youtube_playlist_ids",
+        fetch_existing,
+    )
+
+    asyncio.run(publication_sync.reconcile_deleted_youtube_playlists(library))
+    library.create(sample_playlist("Second", "PL_SECOND"))
+    asyncio.run(publication_sync.reconcile_deleted_youtube_playlists(library))
+
+    assert calls == [
+        {"PL_FIRST"},
+        {"PL_FIRST", "PL_SECOND"},
+    ]
+
+
+def test_failed_verification_is_throttled_with_same_ttl(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    library = PlaylistLibrary(tmp_path / "playlists.db")
+    library.create(sample_playlist("Keep published", "PL_KEEP"))
+    calls = 0
+
+    def fail_verification(playlist_ids):
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("temporary YouTube failure")
+
+    monkeypatch.setattr(publication_sync, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(
+        publication_sync,
+        "_fetch_existing_youtube_playlist_ids",
+        fail_verification,
+    )
+
+    asyncio.run(publication_sync.reconcile_deleted_youtube_playlists(library))
+    asyncio.run(publication_sync.reconcile_deleted_youtube_playlists(library))
+
+    assert calls == 1
