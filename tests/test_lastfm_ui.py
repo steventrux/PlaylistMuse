@@ -15,39 +15,40 @@ def test_shared_frontend_loader_adds_lastfm_assets() -> None:
     assert "document.getElementById('setup-dialog')" in script
 
 
-def test_lastfm_header_indicator_matches_existing_status_behavior() -> None:
+def test_lastfm_home_status_updates_existing_shared_indicator() -> None:
     script = (FRONTEND / "lastfm-status.js").read_text(encoding="utf-8")
     stylesheet = (FRONTEND / "lastfm.css").read_text(encoding="utf-8")
 
-    assert "header-lastfm-status" in script
-    assert "header-indicator lastfm pending" in script
-    assert "controls.append(button)" in script
+    assert "if (!document.getElementById('setup-dialog')) return;" in script
+    assert "document.getElementById('header-lastfm-status')" in script
     assert "fetch('/api/lastfm/status'" in script
     assert "configured ? 'on' : 'off'" in script
-    assert "PlaylistMuseOpenLastFmSettings" in script
-    assert "sessionStorage.setItem(SETTINGS_REQUEST_KEY, 'lastfm')" in script
+    assert "playlistmuse-lastfm-status" in script
+    assert "PlaylistMuseOpenLastFmSettings" not in script
+    assert "window.location.assign('/')" not in script
     assert ".header-indicator.lastfm.on" in stylesheet
 
 
-def test_lastfm_restored_settings_wait_for_async_module_without_redirect_loop() -> None:
-    status = (FRONTEND / "lastfm-status.js").read_text(encoding="utf-8")
+def test_lastfm_settings_module_is_scoped_to_settings_page() -> None:
     settings = (FRONTEND / "lastfm-settings.js").read_text(encoding="utf-8")
 
-    assert "function openSettingsWhenReady()" in status
-    assert "if (!document.getElementById('setup-dialog')) return false;" in status
-    assert "if (openSettingsWhenReady()) return;" in status
-    assert "playlistmuse-lastfm-settings-ready" in status
-    assert "sessionStorage.removeItem(SETTINGS_REQUEST_KEY);\n    openSettings();" in status
-    assert "setTimeout(openSettings, 0)" not in status
-    assert "window.dispatchEvent(new Event('playlistmuse-lastfm-settings-ready'));" in settings
+    assert "const pageHost = $('settings-lastfm-host');" in settings
+    assert "if (!pageHost) return;" in settings
+    assert "pageHost.append(panel);" in settings
+    assert "playlistmuse-lastfm-settings-opened" in settings
+    assert "setup-dialog" not in settings
+    assert "PlaylistMuseOpenLastFmSettings" not in settings
+    assert "playlistmuse-lastfm-settings-ready" not in settings
+    assert "playlistmuse-ai-settings-opened" not in settings
+    assert "playlistmuse-youtube-settings-opened" not in settings
 
 
 def test_lastfm_indicator_uses_the_official_brand_mark_and_red() -> None:
-    script = (FRONTEND / "lastfm-status.js").read_text(encoding="utf-8")
+    shared_status = (FRONTEND / "home-status.js").read_text(encoding="utf-8")
     stylesheet = (FRONTEND / "lastfm.css").read_text(encoding="utf-8")
 
-    assert 'class="lastfm-mark" viewBox="0 0 512 512"' in script
-    assert "M225.8 367.1l-18.8-51" in script
+    assert 'class="lastfm-mark" viewBox="0 0 512 512"' in shared_status
+    assert "M225.8 367.1l-18.8-51" in shared_status
     assert "color: #d51007" in stylesheet
 
 
@@ -61,9 +62,7 @@ def test_lastfm_settings_panel_saves_without_exposing_the_key() -> None:
     assert "method: 'PUT'" in script
     assert "method: 'DELETE'" in script
     assert "input.value = ''" in script
-    assert "PlaylistMuseOpenLastFmSettings" in script
-    assert "playlistmuse-ai-settings-opened" in script
-    assert "playlistmuse-youtube-settings-opened" in script
+    assert "window.addEventListener('playlistmuse-lastfm-settings-opened'" in script
 
 
 def test_seed_die_is_shown_only_for_valid_lastfm_status() -> None:
