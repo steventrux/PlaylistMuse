@@ -13,13 +13,13 @@ import httpx
 
 from backend.lastfm_enrichment import enrich_lastfm_candidates
 from backend.lastfm_settings import lastfm_api_key
+from backend.version import USER_AGENT
 
 API_ROOT = "https://ws.audioscrobbler.com/2.0/"
 DEFAULT_TIMEOUT_SECONDS = 4.0
 DEFAULT_CACHE_TTL_SECONDS = 6 * 60 * 60
 MAX_SIMILAR_TRACKS = 100
 MAX_CACHE_ENTRIES = 256
-USER_AGENT = "PlaylistMuse/0.7 (+https://github.com/steventrux/PlaylistMuse)"
 
 LOGGER = logging.getLogger(__name__)
 _CACHE: dict[tuple[str, str, str, int], tuple[float, list[dict[str, str]]]] = {}
