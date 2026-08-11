@@ -171,9 +171,10 @@ body.playlist-readonly .playlist-description-editor textarea:focus {
 .playlist-tracks-heading {
   margin: 0;
   color: var(--text-muted);
-  font-size: .76rem;
-  font-weight: 850;
-  letter-spacing: .12em;
+  font-size: .9rem;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: .08em;
   text-transform: uppercase;
 }
 
