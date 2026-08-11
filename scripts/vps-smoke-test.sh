@@ -145,7 +145,7 @@ echo "Health and version metadata:"
 health_json="$(fetch "$HEALTH_URL")"
 version_json="$(fetch "$VERSION_URL")"
 openapi_json="$(fetch "$OPENAPI_URL")"
-python - "$EXPECTED_APP_VERSION" "$EXPECTED_BUILD_CHANNEL" "$health_json" "$version_json" "$openapi_json" <<'PY'
+docker exec -i "$CONTAINER" python - "$EXPECTED_APP_VERSION" "$EXPECTED_BUILD_CHANNEL" "$health_json" "$version_json" "$openapi_json" <<'PY'
 import json
 import sys
 
