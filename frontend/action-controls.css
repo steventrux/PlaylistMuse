@@ -89,8 +89,10 @@
   .playlist-draft-actions .compact-action {
     width: 44px;
     min-width: 44px;
+    max-width: 44px;
     min-height: 44px;
     height: 44px;
+    flex: 0 0 44px;
     padding: 0 !important;
   }
 
@@ -99,6 +101,19 @@
     margin-left: 0 !important;
     opacity: 0 !important;
     transform: none !important;
+  }
+
+  .compact-action.is-loading {
+    gap: 0;
+  }
+
+  .compact-action.is-loading .generation-label,
+  .compact-action.is-loading .generation-dots {
+    display: none;
+  }
+
+  .compact-action.is-loading .generation-spinner {
+    margin: 0;
   }
 }
 
