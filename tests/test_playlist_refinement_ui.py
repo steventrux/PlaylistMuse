@@ -1,0 +1,67 @@
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+FRONTEND = ROOT / "frontend"
+
+
+def _text(name: str) -> str:
+    return (FRONTEND / name).read_text(encoding="utf-8")
+
+
+def test_refinement_moves_from_library_to_playlist_editor() -> None:
+    library = _text("library.html")
+    playlist = _text("playlist.html")
+    library_script = _text("library.js")
+
+    assert "/static/library-refine.css" not in library
+    assert "/static/library-refine.js" not in library
+    assert "PlaylistMuseLibraryRefine" not in library_script
+    assert 'id="refine-playlist"' in playlist
+    assert '/static/playlist-refine.css?v=2' in playlist
+    assert '/static/playlist-refine.js?v=2' in playlist
+
+
+def test_refinement_uses_preview_before_apply_and_flushes_current_draft() -> None:
+    script = _text("playlist-refine.js")
+
+    assert "editor.flushPersistence()" in script
+    assert "/refine-preview`" in script
+    assert "/refine-apply`" in script
+    assert "The current draft stays unchanged until you apply the preview." in script
+    assert "previewPlaylist = payload.playlist;" in script
+    assert "Apply changes" in script
+    assert "textarea.addEventListener('input', resetPreview);" in script
+    assert "editor.applyRecord(record);" in script
+    assert "`${reordered} repositioned`" in script
+
+
+def test_refinement_preview_shows_only_changes_not_full_track_lists() -> None:
+    script = _text("playlist-refine.js")
+    style = _text("playlist-refine.css")
+
+    assert "function renderComparison(proposed)" in script
+    assert "const removed = currentTracks.filter" in script
+    assert "const added = proposedTracks.filter" in script
+    assert "createChangeGroup('Removed'" in script
+    assert "createChangeGroup('Added'" in script
+    assert "playlist-refine-changes" in script
+    assert "createTrackList" not in script
+    assert "Current playlist" not in script
+    assert "Proposed playlist" not in script
+    assert "playlist-refine-preview-list" not in style
+    assert "playlist-refine-track-area" not in style
+    assert ".playlist-refine-changes" in style
+    assert ".playlist-refine-track-removed" in style
+    assert "text-decoration: line-through;" in style
+    assert ".playlist-refine-track-added" in style
+
+
+def test_refinement_panel_remains_compact() -> None:
+    style = _text("playlist-refine.css")
+    editor_style = _text("playlist-editor.css")
+
+    assert ".playlist-refine-actions" in style
+    assert ".playlist-refine-panel" in editor_style
+    assert "padding: 14px;" in editor_style
+    assert "border-radius: 14px;" in editor_style
+    assert "max-height: 300px;" not in style

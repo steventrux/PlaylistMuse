@@ -1,8 +1,15 @@
 FROM python:3.12-slim
 
+ARG PLAYLISTMUSE_VERSION=dev
+ARG PLAYLISTMUSE_CHANNEL=dev
+ARG PLAYLISTMUSE_GIT_SHA=unknown
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PLAYLISTMUSE_DATA_DIR=/app/data
+    PLAYLISTMUSE_DATA_DIR=/app/data \
+    PLAYLISTMUSE_VERSION=${PLAYLISTMUSE_VERSION} \
+    PLAYLISTMUSE_CHANNEL=${PLAYLISTMUSE_CHANNEL} \
+    PLAYLISTMUSE_GIT_SHA=${PLAYLISTMUSE_GIT_SHA}
 
 WORKDIR /app
 COPY requirements.txt .
@@ -12,4 +19,4 @@ COPY frontend frontend
 RUN mkdir -p data
 
 EXPOSE 5780
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "5780"]
+CMD ["uvicorn", "backend.application:app", "--host", "0.0.0.0", "--port", "5780"]

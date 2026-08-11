@@ -19,9 +19,9 @@ import httpx
 from backend.musicbrainz_client import rate_limited_get
 from backend.text_normalization import normalize_identity as _normalize
 from backend.validation_fixes import effective_temporal_range
+from backend.version import USER_AGENT
 
 API_ROOT = "https://musicbrainz.org/ws/2"
-USER_AGENT = "PlaylistMuse/0.7 (https://github.com/steventrux/PlaylistMuse)"
 DEFAULT_TTL_SECONDS = 90 * 24 * 60 * 60
 RECENT_TTL_SECONDS = 7 * 24 * 60 * 60
 NEGATIVE_TTL_SECONDS = 24 * 60 * 60
@@ -596,6 +596,7 @@ def _select_best_metadata(
         )
     return max(candidates, key=lambda candidate: candidate.match_score)
 
+
 async def _rate_limited_get(
     client: httpx.AsyncClient,
     params: dict[str, str],
@@ -687,6 +688,7 @@ async def _lookup_historical_metadata(
     finally:
         if owns_client:
             await active_client.aclose()
+
 
 async def lookup_track_metadata(
     artist: str,

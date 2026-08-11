@@ -1,0 +1,130 @@
+.prompt-input-shell,
+.seed-query-shell {
+  position: relative;
+}
+
+.prompt-input-shell textarea {
+  display: block;
+  padding-bottom: 48px;
+}
+
+.seed-query-shell {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.seed-query-shell input {
+  padding-right: 48px;
+}
+
+.prompt-surprise {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgba(183, 156, 255, .18);
+  border-radius: 9px;
+  background: rgba(20, 24, 48, .52);
+  color: rgba(216, 205, 255, .62);
+  box-shadow: none;
+  backdrop-filter: blur(8px);
+  opacity: .78;
+  transition:
+    opacity 160ms ease,
+    color 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.prompt-surprise svg {
+  width: 18px;
+  height: 18px;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.45;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.prompt-surprise .prompt-surprise-face {
+  fill: currentColor;
+  fill-opacity: .07;
+}
+
+.prompt-surprise .prompt-surprise-pip {
+  fill: currentColor;
+  stroke: none;
+}
+
+.prompt-surprise:hover,
+.prompt-surprise:focus-visible {
+  opacity: 1;
+  color: var(--violet-light);
+  border-color: rgba(183, 156, 255, .42);
+  background: rgba(37, 43, 80, .78);
+  transform: translateY(-1px);
+}
+
+.prompt-surprise:active {
+  transform: translateY(0);
+}
+
+.prompt-surprise:disabled {
+  cursor: default;
+  opacity: .38;
+  transform: none;
+}
+
+.seed-surprise {
+  left: auto;
+  right: 8px;
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+}
+
+.seed-surprise:hover,
+.seed-surprise:focus-visible {
+  transform: translateY(calc(-50% - 1px));
+}
+
+.seed-surprise:active,
+.seed-surprise:disabled {
+  transform: translateY(-50%);
+}
+
+.seed-surprise[hidden] {
+  display: none;
+}
+
+@media (max-width: 650px) {
+  .prompt-input-shell textarea {
+    padding-bottom: 46px;
+  }
+
+  .prompt-surprise {
+    left: 9px;
+    bottom: 9px;
+    width: 29px;
+    height: 29px;
+  }
+
+  .seed-surprise {
+    left: auto;
+    right: 8px;
+    top: 50%;
+    bottom: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prompt-surprise {
+    transition: none;
+  }
+}

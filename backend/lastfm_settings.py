@@ -10,6 +10,7 @@ import httpx
 
 from backend.config import DATA_DIR
 from backend.storage import delete_file, read_json_object, write_secure_json
+from backend.version import USER_AGENT
 
 LASTFM_SETTINGS_PATH = DATA_DIR / "lastfm.json"
 LASTFM_API_ROOT = "https://ws.audioscrobbler.com/2.0/"
@@ -135,7 +136,7 @@ async def validate_lastfm_api_key(
     owns_client = client is None
     active_client = client or httpx.AsyncClient(
         timeout=httpx.Timeout(LASTFM_VALIDATION_TIMEOUT_SECONDS),
-        headers={"User-Agent": "PlaylistMuse/0.7"},
+        headers={"User-Agent": USER_AGENT},
     )
     try:
         response = await active_client.get(

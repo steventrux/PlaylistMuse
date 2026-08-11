@@ -23,7 +23,7 @@ def _style(name: str) -> str:
 
 
 def test_html_static_references_exist() -> None:
-    for html_name in ("index.html", "playlist.html"):
+    for html_name in ("index.html", "playlist.html", "library.html", "settings.html"):
         for relative_path in STATIC_REFERENCE_RE.findall(_html(html_name)):
             assert (FRONTEND / relative_path).is_file(), (
                 f"{html_name} references missing static asset {relative_path}"
@@ -33,9 +33,12 @@ def test_html_static_references_exist() -> None:
 def test_shared_frontend_helpers_load_before_dependents() -> None:
     index = _html("index.html")
     playlist = _html("playlist.html")
+    settings = _html("settings.html")
     common = '<script src="/static/common.js?v=1"></script>'
-    generation_state = '<script src="/static/generation-state.js?v=2"></script>'
-    app = '<script src="/static/app.js?v=17"></script>'
+    settings_overlay = '<script src="/static/settings-overlay.js?v=1"></script>'
+    home_status = '<script src="/static/home-status.js?v=18"></script>'
+    generation_state = '<script src="/static/generation-state.js?v=3"></script>'
+    app = '<script src="/static/app.js?v=19"></script>'
 
     assert index.index(common) < index.index(
         '<script src="/static/ai-settings.js?v=12"></script>'
@@ -43,31 +46,40 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     assert index.index(common) < index.index(
         '<script src="/static/youtube-account.js?v=5"></script>'
     )
-    assert index.index(common) < index.index(
-        '<script src="/static/home-status.js?v=14"></script>'
-    )
+    assert settings_overlay in index
+    assert index.index(settings_overlay) < index.index(home_status)
+    assert index.index(common) < index.index(home_status)
     assert generation_state in index
     assert index.index(generation_state) < index.index(app)
     assert index.index(common) < index.index(app)
     assert '<script src="/static/prompt-complexity.js?v=7"></script>' in index
-    assert index.index('<script src="/static/home-status.js?v=14"></script>') < (
-        index.index(app)
-    )
+    assert index.index(home_status) < index.index(app)
 
-    ai_results = '<script src="/static/ai-results-settings.js?v=2"></script>'
-    ai_settings = '<script src="/static/ai-settings.js?v=12"></script>'
-    home_status = (
+    playlist_home_status = (
         '<script data-playlistmuse-footer-status '
-        'src="/static/home-status.js?v=14"></script>'
-    )
-    assert playlist.index(common) < playlist.index(ai_results)
-    assert playlist.index(ai_results) < playlist.index(ai_settings)
-    assert playlist.index(ai_settings) < playlist.index(home_status)
-    assert playlist.index(common) < playlist.index(
-        '<script src="/static/playlist.js?v=19"></script>'
+        'src="/static/home-status.js?v=18"></script>'
     )
     assert playlist.index(common) < playlist.index(
-        '<script src="/static/youtube-publish.js?v=13"></script>'
+        '<script src="/static/playlist.js?v=20"></script>'
+    )
+    assert settings_overlay in playlist
+    assert playlist.index(settings_overlay) < playlist.index(playlist_home_status)
+    assert playlist.index(common) < playlist.index(playlist_home_status)
+    assert playlist.index(playlist_home_status) < playlist.index(
+        '<script src="/static/youtube-publish.js?v=15"></script>'
+    )
+    assert '/static/ai-results-settings.js' not in playlist
+    assert '/static/ai-settings.js' not in playlist
+    assert '/static/youtube-account.js' not in playlist
+
+    assert settings.index(common) < settings.index(
+        '<script src="/static/ai-settings.js?v=12"></script>'
+    )
+    assert settings.index(common) < settings.index(
+        '<script src="/static/youtube-account.js?v=5"></script>'
+    )
+    assert settings.index(common) < settings.index(
+        '<script src="/static/lastfm-settings.js?v=2"></script>'
     )
 
 
@@ -124,7 +136,7 @@ def test_generation_requires_configured_ai_provider() -> None:
     assert "button.disabled = !configured" in home_status
     assert "button.classList.toggle('hidden', !configured)" in home_status
     assert "if (button.disabled) return;" in app
-    assert "openSetup('ai', 'single')" in app
+    assert "window.PlaylistMuseSettingsOverlay?.open('ai')" in app
 
 
 def test_first_run_setup_is_persistent_and_two_step() -> None:
@@ -203,8 +215,8 @@ def test_header_uses_exact_uploaded_banner() -> None:
     brand = _style("brand.css")
     banner = (FRONTEND / "playlistmuse-banner.svg").read_bytes()
 
-    assert '/static/home-status.js?v=14' in index
-    assert '/static/home-status.js?v=14' in playlist
+    assert '/static/home-status.js?v=18' in index
+    assert '/static/home-status.js?v=18' in playlist
     assert "const HEADER_BANNER_URL = '/static/playlistmuse-banner.svg?v=1';" in status
     assert "function installBrandBanner()" in status
     assert "header.querySelector('.brand-banner')" in status
@@ -214,13 +226,14 @@ def test_header_uses_exact_uploaded_banner() -> None:
     assert "max-width: 400px" in brand
     assert "max-width: 250px" in brand
     assert sha256(banner).hexdigest() == (
-        "f5cae7189adfdf9e1b40a4dd68a7c2e1c3fe6c723270b599fbeccc1795740b5e"
+        "9a78899e35902b912068554164fa5e64a952a21907e8807625e8ae4e0c3f1c2c"
     )
 
 
 def test_header_indicators_show_active_provider_without_neon() -> None:
     index = _html("index.html")
     status = _script("home-status.js")
+    overlay = _script("settings-overlay.js")
     layout = _style("layout.css")
 
     assert 'id="home-ai-status"' not in index
@@ -241,10 +254,10 @@ def test_header_indicators_show_active_provider_without_neon() -> None:
     assert "providerIcons[provider] || brainIcon" in status
     assert "youtube-body" in status
     assert "element.dataset.tooltip = tooltip" in status
-    assert "homeAiSettings.click()" in status
-    assert "$('setup-next')?.click()" in status
-    assert "$('youtube-open-settings').click()" in status
-    assert "window.location.assign('/')" in status
+    assert "window.PlaylistMuseSettingsOverlay?.open(section);" in status
+    assert "function settingsPageUrl(section)" not in status
+    assert "window.location.assign(settingsPageUrl(section));" not in status
+    assert "target.searchParams.set('embedded', '1');" in overlay
     assert ".header-indicator.ai.on" in layout
     assert ".header-indicator.youtube.on" in layout
     assert "width: 32px" in layout
@@ -274,22 +287,25 @@ def test_ai_settings_can_manage_and_activate_multiple_profiles() -> None:
 
 def test_ai_settings_separate_active_and_selected_provider_states() -> None:
     index = _html("index.html")
+    settings = _html("settings.html")
     playlist = _html("playlist.html")
-    bridge = _script("ai-results-settings.js")
     ai_settings = _script("ai-settings.js")
     ai_style = _style("ai-settings.css")
     shared_style = _style("settings-dialog.css")
     app = _script("app.js")
 
     assert '/static/ai-settings.css?v=3' in index
-    assert '/static/ai-settings.css?v=3' in playlist
-    assert '/static/app.js?v=17' in index
+    assert '/static/ai-settings.css?v=3' in settings
+    assert '/static/ai-settings.css' not in playlist
+    assert '/static/app.js?v=19' in index
     assert 'id="ai-active-status"' in index
-    assert 'id="ai-active-status"' in bridge
+    assert 'id="ai-active-status"' in settings
     assert "Choose or configure a provider" in index
-    assert "Choose or configure a provider" in bridge
+    assert "Choose or configure a provider" in settings
     assert "<strong>✓</strong> In use" in index
     assert "<strong>●</strong> Configured" in index
+    assert "<strong>✓</strong> In use" in settings
+    assert "<strong>●</strong> Configured" in settings
     assert "function renderActiveProviderStatus()" in ai_settings
     assert "Active AI provider: ${defaults.label}" in ai_settings
     assert "is configured and currently in use" in ai_settings
@@ -310,46 +326,48 @@ def test_ai_settings_separate_active_and_selected_provider_states() -> None:
     assert ":has(#setup-progress.hidden) .dialog-head" in shared_style
 
 
-def test_results_page_opens_ai_settings_without_losing_playlist() -> None:
+def test_results_page_opens_ai_settings_without_local_dialog_or_navigation() -> None:
     playlist = _html("playlist.html")
-    bridge = _script("ai-results-settings.js")
+    status = _script("home-status.js")
 
-    assert 'id="youtube-settings-dialog"' in playlist
-    assert '/static/ai-results-settings.js?v=2' in playlist
-    assert '/static/ai-settings.js?v=12' in playlist
-    assert "ai-settings-dialog" in bridge
-    assert "#header-ai-status" in bridge
-    assert "dialog.showModal()" in bridge
-    assert "event.stopImmediatePropagation()" in bridge
-    assert "playlistmuse-ai-settings-opened" in bridge
-    assert "window.location" not in bridge
-    assert "sessionStorage.removeItem" not in bridge
-    assert "playlistmuse-generated-playlist" not in bridge
+    assert 'id="youtube-settings-dialog"' not in playlist
+    assert '/static/ai-results-settings.js' not in playlist
+    assert '/static/ai-settings.js' not in playlist
+    assert '/static/settings-overlay.js?v=1' in playlist
+    assert '/static/home-status.js?v=18' in playlist
+    assert "window.PlaylistMuseSettingsOverlay?.open(section);" in status
+    assert "window.location.assign(settingsPageUrl(section));" not in status
 
 
-def test_results_page_exposes_youtube_settings() -> None:
+def test_results_page_opens_youtube_settings_without_navigation() -> None:
     playlist = _html("playlist.html")
     youtube_publish = _script("youtube-publish.js")
 
-    assert 'id="youtube-settings-dialog"' in playlist
-    assert "playlistmuse-youtube-settings-opened" in youtube_publish
+    assert 'id="youtube-settings-dialog"' not in playlist
+    assert '/static/settings-overlay.js?v=1' in playlist
+    assert "window.PlaylistMuseSettingsOverlay?.open('youtube');" in youtube_publish
+    assert "new URL('/static/settings.html', window.location.origin)" not in youtube_publish
+    assert "window.location.assign" not in youtube_publish
 
 
 def test_youtube_settings_show_account_and_relevant_actions() -> None:
     index = _html("index.html")
+    settings = _html("settings.html")
     playlist = _html("playlist.html")
     youtube_account = _script("youtube-account.js")
     youtube_style = _style("youtube-settings.css")
     shared_style = _style("settings-dialog.css")
 
     assert '/static/youtube-settings.css?v=1' in index
-    assert '/static/youtube-settings.css?v=1' in playlist
+    assert '/static/youtube-settings.css?v=1' in settings
+    assert '/static/youtube-settings.css' not in playlist
     assert '/static/youtube-account.js?v=5' in index
-    assert '/static/youtube-account.js?v=5' in playlist
+    assert '/static/youtube-account.js?v=5' in settings
+    assert '/static/youtube-account.js' not in playlist
     assert "youtube-account-summary" in index
-    assert "youtube-account-summary" in playlist
+    assert "youtube-account-summary" in settings
     assert "Google OAuth credentials" in index
-    assert "Google OAuth credentials" in playlist
+    assert "Google OAuth credentials" in settings
     assert ".youtube-credentials-section > h3" in shared_style
     assert "display: none" in shared_style
     assert "status.account_name || 'Connected YouTube Music account'" in youtube_account
@@ -371,7 +389,7 @@ def test_youtube_publish_progress_is_compact_and_not_redundant() -> None:
     youtube_results = _style("youtube-results.css")
 
     assert '/static/youtube-results.css?v=4' in playlist
-    assert '/static/youtube-publish.js?v=13' in playlist
+    assert '/static/youtube-publish.js?v=15' in playlist
     assert (
         'id="youtube-publish-status" class="youtube-publish-status hidden"'
         in playlist
@@ -393,8 +411,8 @@ def test_published_playlist_hides_track_replacement_controls() -> None:
     playlist_script = _script("playlist.js")
     youtube_publish = _script("youtube-publish.js")
 
-    assert '/static/playlist.js?v=19' in playlist
-    assert '/static/youtube-publish.js?v=13' in playlist
+    assert '/static/playlist.js?v=20' in playlist
+    assert '/static/youtube-publish.js?v=15' in playlist
     assert 'id="youtube-publish-account"' not in playlist
     assert "YouTube Music account connected" not in playlist
     assert "function isPublished()" in playlist_script
@@ -403,3 +421,24 @@ def test_published_playlist_hides_track_replacement_controls() -> None:
     assert "playlistmuse-playlist-published" in playlist_script
     assert "playlistmuse-playlist-published" in youtube_publish
     assert "new CustomEvent" in youtube_publish
+
+
+def test_favicon_uses_single_canonical_png() -> None:
+    expected_url = "/static/playlistmuse-favicon.png?v=1"
+    expected_link = f'<link rel="icon" type="image/png" href="{expected_url}">'
+    for html_name in ("index.html", "playlist.html", "library.html", "settings.html"):
+        html = _html(html_name)
+        assert expected_link in html
+        assert "playlistmuse-favicon-v2.png" not in html
+        assert "playlistmuse-favicon.svg" not in html
+
+    home_status = _script("home-status.js")
+    assert f"const FAVICON_URL = '{expected_url}';" in home_status
+    assert "favicon.type = 'image/png';" in home_status
+    assert "playlistmuse-favicon-v2.png" not in home_status
+    assert "playlistmuse-favicon.svg" not in home_status
+
+    favicon = (FRONTEND / "playlistmuse-favicon.png").read_bytes()
+    assert sha256(favicon).hexdigest() == (
+        "2afccaf81bc677f9dcc49b7e5bedb5462c5685c1530cbfa1ae829af50b07a918"
+    )

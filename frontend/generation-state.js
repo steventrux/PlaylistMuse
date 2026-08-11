@@ -43,6 +43,7 @@
 
     const originalParent = status.parentElement;
     const prompt = document.getElementById('prompt');
+    const promptShell = prompt?.closest('.prompt-input-shell');
     const promptPanel = document.getElementById('prompt-panel');
 
     const update = () => {
@@ -60,7 +61,7 @@
 
       const promptVisible = promptPanel && !promptPanel.classList.contains('hidden');
       if (type && prompt && promptVisible) {
-        prompt.insertAdjacentElement('afterend', status);
+        (promptShell || prompt).insertAdjacentElement('afterend', status);
       } else if (originalParent && status.parentElement !== originalParent) {
         originalParent.append(status);
       }

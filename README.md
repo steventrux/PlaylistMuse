@@ -1,8 +1,13 @@
 <div align="center">
-  <img alt="PlaylistMuse — AI-assisted playlist creation for YouTube Music" src=".github/assets/playlistmuse-logo-lockup.svg" width="100%">
+  <img alt="PlaylistMuse" src="frontend/playlistmuse-banner.svg" width="100%">
+
+  <p>
+    Built for people who would rather describe a sound than manually assemble a queue.
+  </p>
 
   <br>
 
+  <a href="https://github.com/steventrux/PlaylistMuse/releases/latest"><img src="https://img.shields.io/github/v/release/steventrux/PlaylistMuse?style=flat-square&label=release" alt="Latest release" height="24"></a>
   <a href="https://github.com/steventrux/PlaylistMuse/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/steventrux/PlaylistMuse/ci.yml?branch=main&style=flat-square&label=CI&logo=github" alt="CI status" height="24"></a>
   <img src="https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.12" height="24">
   <img src="https://img.shields.io/badge/FastAPI-0.116+-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI" height="24">
@@ -11,11 +16,11 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/steventrux/PlaylistMuse?style=flat-square&color=EC4899" alt="MIT license" height="24"></a>
 
   <p>
-    Create, refine and publish YouTube Music playlists from a written idea or a reference song.
+    Create, save, refine and publish YouTube Music playlists from a written idea or a reference song.
   </p>
 
   <p>
-    <a href="#playlistmuse-at-a-glance"><strong>Overview</strong></a>
+    <a href="#what-playlistmuse-does"><strong>Features</strong></a>
     &nbsp;·&nbsp;
     <a href="#from-idea-to-playlist"><strong>How it works</strong></a>
     &nbsp;·&nbsp;
@@ -27,71 +32,64 @@
 
 <br>
 
-## PlaylistMuse at a glance
+## What PlaylistMuse does
 
-PlaylistMuse is a self hosted web application that turns a musical idea into an editable YouTube Music playlist.
+PlaylistMuse is a self-hosted web application that turns a musical idea into an editable YouTube Music playlist.
 
-Describe a mood, genre, era, activity or journey, or begin with an existing song. PlaylistMuse uses the AI provider you choose, finds matching tracks in the YouTube Music catalogue and prepares a playlist that you can review before publishing.
+Describe a mood, genre, era, activity, journey or any combination of musical constraints, or start from an existing song. PlaylistMuse uses the AI provider you choose, resolves the request against real catalogue tracks and prepares a playlist that you can review before publishing.
 
-Last.fm can optionally add listening based discovery signals. Connecting YouTube Music is only required when you want to publish directly from PlaylistMuse.
+Generated playlists are saved automatically in a local library, so they remain available after the browser or container restarts. Last.fm can optionally add discovery signals and random seed suggestions. Connecting YouTube Music is only required when you want to publish directly from PlaylistMuse.
 
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <h3>🎵 Create</h3>
-      <p>Generate a playlist from a natural language prompt or a seed song, with between 5 and 100 tracks.</p>
-    </td>
-    <td width="50%" valign="top">
-      <h3>✨ Refine</h3>
-      <p>Exclude live recordings, covers and remixes, remove duplicates and replace individual songs.</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <h3>🔎 Discover</h3>
-      <p>Use optional Last.fm signals to help the AI find related tracks and artists beyond the most obvious choices.</p>
-    </td>
-    <td width="50%" valign="top">
-      <h3>▶️ Publish</h3>
-      <p>Edit the title, review the sequence, create a cover mosaic and publish to YouTube Music with the visibility you prefer.</p>
-    </td>
-  </tr>
-</table>
+### Create and understand the request
+
+- Generate playlists from a natural-language prompt or a seed song.
+- Choose between 5 and 100 tracks.
+- Exclude live recordings, covers and remixes.
+- Inspect request complexity and clarity before generation.
+- Use **Surprise me** for a random prompt, or let Last.fm suggest a random seed when configured.
+
+### Refine before publishing
+
+- Edit the playlist title and description.
+- Add, remove or replace individual tracks.
+- Refine a saved draft with a natural-language instruction.
+- Preview proposed additions, removals and reordering before applying a refinement.
+- Keep published playlists protected from draft-only editing operations.
+
+### Keep a local playlist library
+
+- Save generated playlists automatically in persistent storage.
+- Reopen drafts and published playlists later.
+- Search, sort and filter the library by status.
+- Add and manage playlist tags.
+- Keep the YouTube Music link associated with playlists that have already been published.
+
+### Improve discovery with Last.fm
+
+Last.fm is optional. When enabled, PlaylistMuse can use related artists, tracks and listening signals to broaden discovery beyond the most obvious AI suggestions while keeping the original request as the primary guide.
+
+### Publish to YouTube Music
+
+Review the final sequence, choose Private, Unlisted or Public visibility, and create the playlist directly in your YouTube Music account. PlaylistMuse also assembles a cover mosaic from representative track artwork for the local playlist view.
 
 ## From idea to playlist
 
-<table>
-  <tr>
-    <td width="8%" align="center"><strong>1</strong></td>
-    <td><strong>Describe what you want</strong><br>Write a prompt or choose a song as the starting point.</td>
-  </tr>
-  <tr>
-    <td width="8%" align="center"><strong>2</strong></td>
-    <td><strong>Let the AI shape the direction</strong><br>The selected provider interprets your request and proposes a coherent sequence. When Last.fm is enabled, it can add related listening signals.</td>
-  </tr>
-  <tr>
-    <td width="8%" align="center"><strong>3</strong></td>
-    <td><strong>Match real catalogue tracks</strong><br>PlaylistMuse checks title, artist and album information, removes duplicates and rejects unwanted versions.</td>
-  </tr>
-  <tr>
-    <td width="8%" align="center"><strong>4</strong></td>
-    <td><strong>Review and publish</strong><br>Replace songs, edit the title and send the finished playlist to YouTube Music when ready.</td>
-  </tr>
-</table>
+1. **Describe what you want** — write a prompt or choose a song as the starting point.
+2. **Shape the direction** — the selected AI provider interprets the request and, when enabled, Last.fm adds discovery context.
+3. **Match real tracks** — PlaylistMuse resolves title, artist and catalogue information, removes duplicates and rejects unwanted versions.
+4. **Review and refine** — edit metadata and tracks, or ask PlaylistMuse to refine a draft and preview the changes before applying them.
+5. **Save automatically** — the playlist is kept in the local library and can be reopened later.
+6. **Publish when ready** — send the finished playlist to YouTube Music and retain its remote link in the library.
 
 ## Installation
 
-> **Recommended setup**
->
-> Run the published Docker image and store application data in a persistent local directory.
+> **Recommended setup:** run the published Docker image and store application data in a persistent local directory.
 
 ### Requirements
 
-1. Docker Engine
+- Docker Engine
 
-2. Docker Compose v2, only when building from source
-
-### Run the published image
+### Run the latest stable release
 
 ```bash
 git clone https://github.com/steventrux/PlaylistMuse.git
@@ -114,6 +112,8 @@ The initial setup guides you through the required AI provider configuration and 
 
 ### Update
 
+Back up the `data` directory first, then pull the current stable image:
+
 ```bash
 docker pull ghcr.io/steventrux/playlistmuse:latest
 docker rm -f playlistmuse
@@ -121,7 +121,7 @@ docker rm -f playlistmuse
 
 Run the installation command again after pulling the new image.
 
-Use a versioned image tag instead of `latest` when you want to keep a specific release.
+Use a versioned image tag such as `ghcr.io/steventrux/playlistmuse:0.2.0` when you want to remain on a specific release.
 
 ### Stop
 
@@ -133,6 +133,8 @@ docker rm -f playlistmuse
 <summary><strong>Build from source</strong></summary>
 
 <br>
+
+Docker Compose v2 is required for this installation method.
 
 ```bash
 git clone https://github.com/steventrux/PlaylistMuse.git
@@ -151,38 +153,28 @@ docker compose down
 
 ## Configuration
 
-<table>
-  <tr>
-    <th align="left">Service</th>
-    <th align="left">Required</th>
-    <th align="left">Purpose</th>
-  </tr>
-  <tr>
-    <td><strong>AI provider</strong></td>
-    <td>Yes</td>
-    <td>Interprets the request and creates the playlist.</td>
-  </tr>
-  <tr>
-    <td><strong>Last.fm</strong></td>
-    <td>No</td>
-    <td>Adds listening based discovery signals.</td>
-  </tr>
-  <tr>
-    <td><strong>YouTube Music</strong></td>
-    <td>No</td>
-    <td>Publishes the finished playlist directly to your account.</td>
-  </tr>
-</table>
+| Service | Required | Purpose |
+|---|---|---|
+| **AI provider** | Yes | Interprets requests and creates or refines playlists. |
+| **Last.fm** | No | Adds discovery signals and optional random seed suggestions. |
+| **YouTube Music** | No | Publishes finished playlists directly to your account. |
 
 ### AI provider
 
 Credentials, models and saved profiles are managed from the web interface.
 
-PlaylistMuse supports Google Gemini, OpenAI, Anthropic, OpenRouter, Ollama and OpenAI compatible endpoints.
+PlaylistMuse supports:
+
+- Google Gemini
+- OpenAI
+- Anthropic
+- OpenRouter Auto and OpenRouter Free
+- Ollama
+- OpenAI-compatible endpoints
 
 ### Last.fm
 
-Add an API key from the Last.fm settings panel or through `PLAYLISTMUSE_LASTFM_API_KEY` in `.env`.
+Add an API key from the Last.fm settings page or through `PLAYLISTMUSE_LASTFM_API_KEY` in `.env`.
 
 Playlist generation continues to work normally when Last.fm is not configured.
 
@@ -191,30 +183,27 @@ Playlist generation continues to work normally when Last.fm is not configured.
 To enable direct publishing:
 
 1. Create or select a project in Google Cloud Console.
-
 2. Enable **YouTube Data API v3**.
-
 3. Configure the OAuth consent screen.
-
 4. Create an OAuth client of type **TVs and Limited Input devices**.
-
 5. Enter the client ID and secret in PlaylistMuse.
-
 6. Select **Connect account** and complete the authorization.
 
-## Data and access
+## Data, backup and remote access
 
-Settings, credentials and authorization data are stored in the persistent `./data` directory.
+Settings, credentials, authorization data and the playlist library are stored in the persistent `./data` directory.
 
-Back up this directory before moving or updating the installation.
+The playlist library uses `data/playlists.db`. SQLite may also create `playlists.db-wal` and `playlists.db-shm` while the application is running.
 
-For remote access, use a trusted private network or protect the application with HTTPS and authentication.
+Back up the complete `data` directory before moving or updating the installation. For the most consistent backup, stop the container first or use an SQLite-aware backup tool.
+
+For remote access, use a trusted private network or protect PlaylistMuse with HTTPS and authentication.
 
 ## Disclaimer
 
 PlaylistMuse is an independent project and is not affiliated with Google, YouTube or Last.fm.
 
-YouTube Music access relies on third party and Google APIs that may change over time.
+YouTube Music access relies on third-party and Google APIs that may change over time.
 
 ## License
 

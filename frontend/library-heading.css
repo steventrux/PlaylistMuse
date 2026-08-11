@@ -1,0 +1,20 @@
+.library-count-row {
+  margin: -6px 0 10px;
+}
+
+.library-count {
+  color: var(--text-muted);
+  font-size: .76rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+@media (max-width: 650px) {
+  .library-count-row {
+    margin: -4px 0 9px;
+  }
+
+  .library-count {
+    font-size: .74rem;
+  }
+}

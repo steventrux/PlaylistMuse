@@ -25,8 +25,8 @@ def test_abbreviated_range_after_cutoff_is_impossible():
 
 def test_prompt_validation_guard_is_loaded_after_app_listener_registration():
     html = (FRONTEND / "index.html").read_text(encoding="utf-8")
-    app = '<script src="/static/app.js?v=17"></script>'
-    guard = '<script src="/static/prompt-validation-guard.js?v=1"></script>'
+    app = '<script src="/static/app.js?v=19"></script>'
+    guard = '<script src="/static/prompt-validation-guard.js?v=2"></script>'
 
     assert app in html
     assert guard in html
@@ -40,3 +40,11 @@ def test_prompt_validation_guard_blocks_impossible_status_before_generation():
     assert "result.status === 'impossible'" in script
     assert "button.click()" in script
     assert "/api/playlists/validate-prompt" in script
+
+
+def test_prompt_feedback_is_inserted_after_shell_not_inside_textarea_shell():
+    script = (FRONTEND / "prompt-validation-guard.js").read_text(encoding="utf-8")
+
+    assert "const shell = prompt?.closest('.prompt-input-shell');" in script
+    assert "(shell || prompt)?.insertAdjacentElement('afterend', node);" in script
+    assert "document.getElementById('prompt')?.insertAdjacentElement('afterend', node);" not in script

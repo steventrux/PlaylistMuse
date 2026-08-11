@@ -19,6 +19,7 @@ from backend.config import (
     load_config,
     save_config,
 )
+from backend.constraint_interpreter import interpret_constraints
 from backend.generation_runtime import (
     discover_for_seed as similar_track_candidates,
     discover_from_anchors,
@@ -27,7 +28,12 @@ from backend.generation_runtime import (
 )
 from backend.lastfm_discovery import select_prompt_anchors
 from backend.llm import safe_error_message
+from backend.playlist_ordering import (
+    chronological_order_from_payload,
+    order_tracks_by_release_date,
+)
 from backend.prompt_analysis import analyze_prompt_semantics
+from backend.version import APP_VERSION
 from backend.youtube import search_songs, track_identity_key
 from backend.youtube_routes import router as youtube_router
 
@@ -72,7 +78,7 @@ _SEED_MODE: ContextVar[str] = ContextVar(
 app = FastAPI(
     title="PlaylistMuse",
     description="AI-assisted playlist creation for YouTube Music",
-    version="0.7.0",
+    version=APP_VERSION,
 )
 app.include_router(youtube_router)
 app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
@@ -359,40 +365,6 @@ def _artist_identity_keys(value: str) -> set[str]:
         if part:
             keys.add(track_identity_key("", part))
     return keys
-
-
-def _blend_candidates(
-    primary: list[dict[str, str]],
-    supplemental: list[dict[str, str]],
-    count: int,
-) -> list[dict[str, str]]:
-    """Legacy bounded blending helper retained for compatibility with older tests."""
-    combined_primary = list(primary)
-    seen = {_candidate_key(candidate) for candidate in combined_primary}
-    seen.discard("")
-    quota = min(len(supplemental), max(1, min(12, count // 5)))
-    extras: list[dict[str, str]] = []
-    for candidate in supplemental:
-        key = _candidate_key(candidate)
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        extras.append(candidate)
-        if len(extras) >= quota:
-            break
-
-    if not extras:
-        return combined_primary
-    if not combined_primary:
-        return extras
-
-    blended = list(combined_primary)
-    spacing = max(1, len(combined_primary) // (len(extras) + 1))
-    offset = spacing
-    for candidate in extras:
-        blended.insert(min(offset, len(blended)), candidate)
-        offset += spacing + 1
-    return blended
 
 
 def _discovery_prompt(
@@ -774,6 +746,30 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     active_policy = _ACTIVE_POLICY.get()
     if active_policy is not None:
         final_tracks = apply_track_positions(final_tracks, active_policy)
+
+    interpretation = await interpret_constraints(config, prompt)
+    chronological_order = chronological_order_from_payload(interpretation, prompt)
+    if chronological_order is not None:
+        ordered_tracks = await order_tracks_by_release_date(
+            final_tracks,
+            chronological_order,
+        )
+        if active_policy is not None and active_policy.track_positions:
+            positioned = apply_track_positions(ordered_tracks, active_policy)
+            ordered_keys = [
+                track_identity_key(track.get("title", ""), track.get("artists", ""))
+                for track in ordered_tracks
+            ]
+            positioned_keys = [
+                track_identity_key(track.get("title", ""), track.get("artists", ""))
+                for track in positioned
+            ]
+            if positioned_keys != ordered_keys:
+                raise ValueError(
+                    "The requested chronological ordering conflicts with an explicit track position."
+                )
+        final_tracks = ordered_tracks
+
     return {
         "name": draft["title"],
         "description": draft["description"],
@@ -1015,6 +1011,15 @@ async def replace_track(request: ReplaceTrackRequest) -> dict:
             status_code=502,
             detail="Track replacement failed. Please try again.",
         ) from error
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> FileResponse:
+    return FileResponse(
+        FRONTEND / "playlistmuse-favicon.png",
+        media_type="image/png",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/", include_in_schema=False)
