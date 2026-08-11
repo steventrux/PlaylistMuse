@@ -10,8 +10,8 @@ import platform
 import re
 import secrets
 import sqlite3
-import sys
 import time
+import traceback
 import zipfile
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -74,8 +74,7 @@ class FrontendErrorReport(BaseModel):
 
 class _SanitizingFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
-        message = record.getMessage()
-        record.msg = sanitize_text(message)
+        record.msg = sanitize_text(record.getMessage())
         record.args = ()
         return True
 
@@ -163,12 +162,12 @@ def configure_diagnostics_logging() -> logging.Logger:
 
     handler._playlistmuse_diagnostics = True  # type: ignore[attr-defined]
     handler.addFilter(_SanitizingFilter())
-    handler.setFormatter(
-        logging.Formatter(
-            "%(asctime)sZ %(levelname)s %(name)s %(message)s",
-            datefmt="%Y-%m-%dT%H:%M:%S",
-        )
+    formatter = logging.Formatter(
+        "%(asctime)sZ %(levelname)s %(name)s %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
     )
+    formatter.converter = time.gmtime
+    handler.setFormatter(formatter)
     logger.addHandler(handler)
     return logger
 
@@ -182,13 +181,18 @@ def new_error_reference() -> str:
 
 
 def _log_exception(error: Exception, *, reference: str, method: str, path: str) -> None:
+    secret_values = _known_secret_values()
+    traceback_text = "".join(
+        traceback.format_exception(type(error), error, error.__traceback__)
+    )
+    safe_traceback = sanitize_text(traceback_text, secret_values=secret_values)
     LOGGER.error(
-        "error_reference=%s method=%s path=%s exception=%s",
+        "error_reference=%s method=%s path=%s exception_type=%s traceback=%s",
         reference,
         method,
         path,
-        error,
-        exc_info=(type(error), error, error.__traceback__),
+        type(error).__name__,
+        safe_traceback,
     )
 
 
@@ -197,6 +201,13 @@ def _error_detail(detail: str, reference: str) -> str:
     if "Error reference:" in clean:
         return clean
     return f"{clean} Error reference: {reference}"
+
+
+async def _response_body(response: Response) -> bytes:
+    chunks: list[bytes] = []
+    async for chunk in response.body_iterator:  # type: ignore[attr-defined]
+        chunks.append(chunk.encode("utf-8") if isinstance(chunk, str) else chunk)
+    return b"".join(chunks)
 
 
 async def diagnostics_middleware(
@@ -250,7 +261,7 @@ async def diagnostics_middleware(
     if "application/json" not in content_type.lower() or not hasattr(response, "body_iterator"):
         return response
 
-    body = b"".join([chunk async for chunk in response.body_iterator])
+    body = await _response_body(response)
     try:
         payload = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -387,16 +398,17 @@ def build_diagnostic_archive() -> bytes:
 @router.post("/frontend-error")
 async def report_frontend_error(report: FrontendErrorReport) -> dict[str, str | bool]:
     reference = new_error_reference()
+    secret_values = _known_secret_values()
     LOGGER.warning(
         "frontend_error reference=%s kind=%s path=%s source=%s line=%s column=%s message=%s stack=%s",
         reference,
-        report.kind,
-        report.path,
-        report.source,
+        sanitize_text(report.kind, secret_values=secret_values),
+        sanitize_text(report.path, secret_values=secret_values),
+        sanitize_text(report.source, secret_values=secret_values),
         report.line,
         report.column,
-        report.message,
-        report.stack,
+        sanitize_text(report.message, secret_values=secret_values),
+        sanitize_text(report.stack, secret_values=secret_values),
     )
     return {"accepted": True, "error_reference": reference}
 
