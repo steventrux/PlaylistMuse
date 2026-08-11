@@ -3,7 +3,8 @@
 The OAuth device flow already grants the ``youtube`` scope required by the
 official playlists and playlistItems endpoints. A private playlist is created
 first, tracks are appended one at a time in order, then the requested privacy
-is applied. Invalid or unavailable videos do not abort the whole playlist.
+is applied. Any rejected track aborts publication and rolls back the incomplete
+remote playlist so PlaylistMuse never reports a partial playlist as published.
 """
 
 from __future__ import annotations
@@ -13,7 +14,6 @@ import logging
 import re
 import time
 import uuid
-from contextlib import suppress
 from typing import Any
 
 import httpx
@@ -34,7 +34,7 @@ _SENSITIVE_FIELD_RE = re.compile(
     r'(?i)(access_token|refresh_token|client_secret|authorization)[\s\'":=]+[^,}\s]+'
 )
 _BEARER_TOKEN_RE = re.compile(r"(?i)Bearer\s+[A-Za-z0-9._~+/=-]+")
-_SKIPPABLE_TRACK_REASONS = {
+_TRACK_REJECTION_REASONS = {
     "videonotfound",
     "invalidresourcetype",
     "videoalreadyinplaylist",
@@ -267,9 +267,75 @@ def _set_privacy(
     )
 
 
-def _delete_quietly(client: httpx.Client, playlist_id: str) -> None:
-    with suppress(Exception):
+def _rollback_playlist(
+    client: httpx.Client,
+    playlist_id: str,
+    diagnostic: str,
+) -> bool:
+    """Best-effort rollback for an incomplete remote playlist.
+
+    A 404 is treated as success because the remote container is already absent.
+    Any other failure is surfaced to the caller so the UI can warn the user that
+    manual cleanup may be required.
+    """
+
+    try:
         _request(client, "DELETE", "playlists", params={"id": playlist_id})
+        LOGGER.info(
+            "Incomplete YouTube playlist rolled back [%s] playlist_id=%s",
+            diagnostic,
+            playlist_id,
+        )
+        return True
+    except _GoogleApiError as error:
+        if error.status_code == 404:
+            return True
+        LOGGER.error(
+            "YouTube playlist rollback failed [%s] playlist_id=%s reason=%s status=%s message=%s",
+            diagnostic,
+            playlist_id,
+            error.reason,
+            error.status_code,
+            _safe_log_text(error.message),
+        )
+    except Exception as error:
+        LOGGER.exception(
+            "Unexpected YouTube playlist rollback failure [%s] playlist_id=%s error=%s",
+            diagnostic,
+            playlist_id,
+            _safe_log_text(error),
+        )
+    return False
+
+
+def _track_rejection_error(
+    *,
+    position: int,
+    track_count: int,
+    video_id: str,
+    diagnostic: str,
+    rollback_succeeded: bool,
+) -> YouTubeAccountError:
+    track_reference = f"track {position} of {track_count} (video ID {video_id})"
+    if rollback_succeeded:
+        return YouTubeAccountError(
+            f"YouTube rejected {track_reference}. The incomplete YouTube playlist was removed, "
+            "and your PlaylistMuse draft was left unchanged. Replace or remove that track and "
+            f"try again. Reference: {diagnostic}."
+        )
+    return YouTubeAccountError(
+        f"YouTube rejected {track_reference}. PlaylistMuse could not confirm deletion of the "
+        "incomplete YouTube playlist. Check YouTube Music and remove it if present. Your "
+        f"PlaylistMuse draft was left unchanged. Reference: {diagnostic}."
+    )
+
+
+def _rollback_note(diagnostic: str) -> str:
+    return (
+        " PlaylistMuse could not confirm deletion of the incomplete YouTube playlist. "
+        "Check YouTube Music and remove it if present. "
+        f"Reference: {diagnostic}."
+    )
 
 
 def _create_playlist_sync(
@@ -293,32 +359,60 @@ def _create_playlist_sync(
             playlist_id = _create_empty_playlist(client, normalized_title, normalized_description)
 
             added: list[str] = []
-            skipped: list[str] = []
-            for video_id in unique_video_ids:
+            for position, video_id in enumerate(unique_video_ids, start=1):
                 try:
                     _add_track(client, playlist_id, video_id)
                     added.append(video_id)
                 except _GoogleApiError as error:
-                    reason = error.reason.lower()
-                    if reason in _SKIPPABLE_TRACK_REASONS or error.status_code == 404:
-                        skipped.append(video_id)
-                        continue
+                    normalized_reason = _normalize_error_reason(error.reason)
                     LOGGER.error(
-                        "YouTube track insert failed [%s] reason=%s status=%s message=%s",
+                        "YouTube track insert failed [%s] position=%s/%s video_id=%s reason=%s status=%s message=%s",
                         diagnostic,
+                        position,
+                        len(unique_video_ids),
+                        video_id,
                         error.reason,
                         error.status_code,
                         _safe_log_text(error.message),
                     )
-                    _delete_quietly(client, playlist_id)
-                    raise _public_error(error, diagnostic) from error
+                    rollback_succeeded = _rollback_playlist(client, playlist_id, diagnostic)
+                    if (
+                        normalized_reason in _TRACK_REJECTION_REASONS
+                        or error.status_code == 404
+                    ):
+                        raise _track_rejection_error(
+                            position=position,
+                            track_count=len(unique_video_ids),
+                            video_id=video_id,
+                            diagnostic=diagnostic,
+                            rollback_succeeded=rollback_succeeded,
+                        ) from error
 
-            if not added:
-                _delete_quietly(client, playlist_id)
-                raise YouTubeAccountError(
-                    "YouTube created the playlist container but rejected every track. "
-                    f"Reference: {diagnostic}."
-                )
+                    public_error = _public_error(error, diagnostic)
+                    if rollback_succeeded:
+                        raise public_error from error
+                    raise YouTubeAccountError(
+                        f"{public_error}{_rollback_note(diagnostic)}"
+                    ) from error
+                except Exception as error:
+                    LOGGER.exception(
+                        "Unexpected YouTube track insert failure [%s] position=%s/%s video_id=%s error=%s",
+                        diagnostic,
+                        position,
+                        len(unique_video_ids),
+                        video_id,
+                        _safe_log_text(error),
+                    )
+                    rollback_succeeded = _rollback_playlist(client, playlist_id, diagnostic)
+                    message = (
+                        "YouTube could not complete the playlist, so PlaylistMuse left the local "
+                        "draft unchanged."
+                    )
+                    if not rollback_succeeded:
+                        message += _rollback_note(diagnostic)
+                    else:
+                        message += f" Reference: {diagnostic}."
+                    raise YouTubeAccountError(message) from error
 
             applied_privacy = "PRIVATE"
             privacy_warning = ""
@@ -366,22 +460,14 @@ def _create_playlist_sync(
             f"Diagnostic reference: {diagnostic}."
         ) from error
 
-    warning_parts: list[str] = []
-    if skipped:
-        warning_parts.append(
-            f"YouTube skipped {len(skipped)} of {len(unique_video_ids)} tracks that could not be added."
-        )
-    if privacy_warning:
-        warning_parts.append(privacy_warning)
-
     return {
         "playlist_id": playlist_id,
         "title": normalized_title,
         "track_count": len(added),
         "requested_track_count": len(unique_video_ids),
-        "skipped_count": len(skipped),
+        "skipped_count": 0,
         "privacy_status": applied_privacy,
-        "warning": " ".join(warning_parts) or None,
+        "warning": privacy_warning or None,
         "url": f"https://music.youtube.com/playlist?list={playlist_id}",
     }
 
