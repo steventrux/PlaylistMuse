@@ -5,10 +5,6 @@
   const AI_CATEGORIES = ['genre', 'mood', 'period'];
   const activeTagFilters = new Set();
   let renderLibrary = null;
-  let reloadLibrary = null;
-  let setLibraryStatus = null;
-  let readJson = null;
-  let endpoint = '';
 
   function clean(value) {
     return String(value || '').trim().replace(/\s+/g, ' ');
@@ -53,9 +49,7 @@
   }
 
   function refreshFilters(items) {
-    const available = new Set(
-      items.flatMap((item) => searchValues(item)).map(keyFor),
-    );
+    const available = new Set(items.flatMap((item) => searchValues(item)).map(keyFor));
     [...activeTagFilters].forEach((tag) => {
       if (!available.has(tag)) activeTagFilters.delete(tag);
     });
@@ -133,44 +127,6 @@
     const key = keyFor(value);
     next.custom = next.custom.filter((tag) => keyFor(tag) !== key);
     return next;
-  }
-
-  async function updatePersonalTags(item, transform, statusText) {
-    if (!readJson || !endpoint || !reloadLibrary) {
-      throw new Error('Playlist tag controls are not ready yet.');
-    }
-    setLibraryStatus?.(statusText);
-    const record = await readJson(await fetch(
-      `${endpoint}/${encodeURIComponent(item.id)}`,
-      {cache: 'no-store'},
-    ));
-    record.playlist.tags = transform(record.playlist?.tags);
-    await readJson(await fetch(`${endpoint}/${encodeURIComponent(item.id)}`, {
-      method: 'PUT',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        playlist: record.playlist,
-        generation_request: record.generation_request || null,
-      }),
-    }));
-    await reloadLibrary();
-    setLibraryStatus?.('');
-  }
-
-  async function addPersonalTag(item, value) {
-    await updatePersonalTags(
-      item,
-      (tags) => addPersonal(tags, value),
-      'Adding personal tag…',
-    );
-  }
-
-  async function removePersonalTag(item, value) {
-    await updatePersonalTags(
-      item,
-      (tags) => removePersonal(tags, value),
-      'Removing personal tag…',
-    );
   }
 
   function personalChip(value, {filterable, onRemove, onError}) {
@@ -322,12 +278,7 @@
   }
 
   function summary(item) {
-    return renderTags(item?.tags, {
-      filterable: true,
-      onAddPersonal: (value) => addPersonalTag(item, value),
-      onRemovePersonal: (value) => removePersonalTag(item, value),
-      onError: (error) => setLibraryStatus?.(error.message || String(error), true),
-    });
+    return renderTags(item?.tags, {filterable: true});
   }
 
   function editableSummary(tags, options = {}) {
@@ -337,18 +288,10 @@
     });
   }
 
-  function install({reload, setStatus, readJson: jsonReader, endpoint: apiEndpoint}) {
-    reloadLibrary = reload;
-    setLibraryStatus = setStatus;
-    readJson = jsonReader;
-    endpoint = apiEndpoint;
-  }
-
   const api = {
     addPersonal,
     bindFilters,
     editableSummary,
-    install,
     matchesFilters,
     normalize,
     refreshFilters,

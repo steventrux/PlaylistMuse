@@ -16,11 +16,16 @@
     document.body.append(script);
   }
 
-  try {
-    playlist = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || 'null');
-  } catch {
-    playlist = null;
+  function loadPlaylistFromSession() {
+    try {
+      playlist = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || 'null');
+    } catch {
+      playlist = null;
+    }
+    return playlist;
   }
+
+  loadPlaylistFromSession();
 
   function setPublishState(state = 'ready') {
     publishSection?.classList.toggle('is-publishing', state === 'publishing');
@@ -157,6 +162,7 @@
   }
 
   async function refreshStatus() {
+    loadPlaylistFromSession();
     const alreadyPublished = Boolean(playlist?.youtube_playlist?.url);
     if (alreadyPublished) {
       renderPublishedResult(playlist.youtube_playlist);
@@ -179,6 +185,7 @@
   }
 
   async function publishPlaylist() {
+    loadPlaylistFromSession();
     if (!playlist || !Array.isArray(playlist.tracks)) {
       setStatus('No generated playlist is available in this browser session.', 'error');
       return;
@@ -247,6 +254,7 @@
   $('youtube-open-settings').addEventListener('click', openYouTubeSettings);
   $('create-youtube-playlist').addEventListener('click', publishPlaylist);
   window.addEventListener('playlistmuse-status-changed', refreshStatus);
+  window.addEventListener('playlistmuse-playlist-record-updated', loadPlaylistFromSession);
   loadFooterStatus();
   refreshStatus();
 })();

@@ -107,9 +107,7 @@ def test_playlist_tagger_retries_fallback_after_empty_classification(monkeypatch
     }
 
 
-def test_playlist_tagger_rejects_empty_classification_from_all_models(
-    monkeypatch,
-) -> None:
+def test_playlist_tagger_rejects_empty_classification_from_all_models(monkeypatch) -> None:
     async def fake_request(config, prompt, *, system_prompt, max_tokens, model):
         return '{"genre":[],"mood":[],"period":[]}'
 
@@ -187,7 +185,7 @@ def test_library_api_auto_tags_new_playlist_without_changing_generation(
     assert updated.json()["playlist"]["tags"] == payload["playlist"]["tags"]
 
 
-def test_library_tag_ui_uses_general_search_click_filters_and_personal_tags() -> None:
+def test_library_tag_ui_is_read_only_but_keeps_search_filters() -> None:
     page = (FRONTEND / "library.html").read_text(encoding="utf-8")
     library_script = (FRONTEND / "library.js").read_text(encoding="utf-8")
     tags_script = (FRONTEND / "library-tags.js").read_text(encoding="utf-8")
@@ -202,16 +200,13 @@ def test_library_tag_ui_uses_general_search_click_filters_and_personal_tags() ->
     assert "tagTools?.matchesFilters(item)" in library_script
     assert "const activeTagFilters = new Set();" in tags_script
     assert "element.setAttribute('aria-pressed', String(active));" in tags_script
-    assert "library-tag-add" in tags_script
-    assert "library-tag-delete" in tags_script
+    assert "function summary(item)" in tags_script
+    assert "return renderTags(item?.tags, {filterable: true});" in tags_script
+    assert "async function updatePersonalTags" not in tags_script
+    assert "method: 'PUT'" not in tags_script
+    assert "function install(" not in tags_script
     assert "custom: valuesFor(tags, 'custom')" in tags_script
-    assert "method: 'PUT'" in tags_script
-    assert "/tags/suggest" not in tags_script
-    assert "Save tags" not in tags_script
-    assert "Suggest with AI" not in tags_script
-    assert "Genre up to 3" not in tags_script
     assert ".library-tag-chip.active" in tags_style
-    assert ".library-personal-tag" in tags_style
 
 
 def test_playlist_page_shows_ai_and_personal_tags_with_shared_controls() -> None:
