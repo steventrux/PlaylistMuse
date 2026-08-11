@@ -3,6 +3,7 @@
 
   const STORAGE_KEY = 'playlistmuse-generated-playlist';
   const LIBRARY_ROOT = '/api/library/playlists';
+  const SAVED_VISIBLE_MS = 1400;
   const LABELS = {
     saving: 'Saving…',
     saved: 'Saved',
@@ -11,6 +12,9 @@
   const originalFetch = window.fetch.bind(window);
   let activeWrites = 0;
   let batchFailed = false;
+  let userChangeArmed = false;
+  let visibleCycle = false;
+  let hideTimer = null;
 
   function sessionPlaylist() {
     try {
@@ -33,40 +37,74 @@
     let status = document.getElementById('playlist-save-status');
     if (status) return status;
 
-    const titleEditor = document.querySelector('.playlist-title-editor');
-    if (!titleEditor) return null;
-
     status = document.createElement('p');
     status.id = 'playlist-save-status';
     status.className = 'playlist-save-status hidden';
     status.setAttribute('role', 'status');
     status.setAttribute('aria-live', 'polite');
     status.setAttribute('aria-atomic', 'true');
-    titleEditor.insertAdjacentElement('afterend', status);
+    document.body.append(status);
     return status;
+  }
+
+  function hideStatus() {
+    clearTimeout(hideTimer);
+    hideTimer = null;
+    visibleCycle = false;
+    userChangeArmed = false;
+    const status = ensureStatusElement();
+    if (!status) return;
+    status.textContent = '';
+    status.dataset.state = '';
+    status.title = '';
+    status.classList.add('hidden');
+  }
+
+  function scheduleSavedHide() {
+    clearTimeout(hideTimer);
+    hideTimer = window.setTimeout(hideStatus, SAVED_VISIBLE_MS);
   }
 
   function renderStatus() {
     const status = ensureStatusElement();
     if (!status) return;
 
-    const playlist = sessionPlaylist();
-    const fallbackState = playlist?.library_id ? 'saved' : '';
-    const state = document.body.dataset.librarySaveState || fallbackState;
-    const label = LABELS[state] || '';
-    const visible = isCurrentDraft() && Boolean(label);
+    const state = document.body.dataset.librarySaveState || '';
+    if (!isCurrentDraft()) {
+      hideStatus();
+      return;
+    }
 
-    status.textContent = visible ? label : '';
-    status.dataset.state = visible ? state : '';
+    if (state === 'saving' && userChangeArmed) visibleCycle = true;
+    if (!visibleCycle || !LABELS[state]) {
+      status.classList.add('hidden');
+      return;
+    }
+
+    status.textContent = LABELS[state];
+    status.dataset.state = state;
     status.title = state === 'error'
       ? 'Autosave failed. Your latest changes may not be stored.'
       : '';
-    status.classList.toggle('hidden', !visible);
+    status.classList.remove('hidden');
+
+    if (state === 'saved') {
+      scheduleSavedHide();
+    } else {
+      clearTimeout(hideTimer);
+      hideTimer = null;
+    }
   }
 
   function setState(state) {
     document.body.dataset.librarySaveState = state;
     renderStatus();
+  }
+
+  function armUserChange(event) {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target?.closest('.playlist-card') || !isCurrentDraft()) return;
+    userChangeArmed = true;
   }
 
   function requestMethod(input, init) {
@@ -115,18 +153,17 @@
     }
   };
 
+  ['input', 'change', 'click', 'dragstart', 'drop'].forEach((eventName) => {
+    document.addEventListener(eventName, armUserChange, true);
+  });
+
   new MutationObserver(renderStatus).observe(document.body, {
     attributes: true,
     attributeFilter: ['data-library-save-state'],
   });
 
-  window.addEventListener('playlistmuse-playlist-published', () => {
-    window.setTimeout(renderStatus, 0);
-  });
-  window.addEventListener('pageshow', renderStatus);
+  window.addEventListener('playlistmuse-playlist-published', hideStatus);
+  window.addEventListener('pageshow', hideStatus);
 
-  if (sessionPlaylist()?.library_id && !document.body.dataset.librarySaveState) {
-    document.body.dataset.librarySaveState = 'saved';
-  }
-  renderStatus();
+  hideStatus();
 })();
