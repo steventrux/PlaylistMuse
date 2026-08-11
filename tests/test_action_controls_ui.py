@@ -13,7 +13,7 @@ def test_playlist_actions_are_compact_responsive_and_accessible() -> None:
     script = _text("action-controls.js")
     style = _text("action-controls.css")
 
-    assert '/static/action-controls.css?v=1' in html
+    assert '/static/action-controls.css?v=2' in html
     assert '/static/action-controls.js?v=1' in html
     assert html.index('/static/playlist-refine.js?v=2') < html.index('/static/action-controls.js?v=1')
 
@@ -37,6 +37,11 @@ def test_playlist_actions_are_compact_responsive_and_accessible() -> None:
     assert "max-width: 190px;" in style
     assert "width: 44px;" in style
     assert "min-width: 44px;" in style
+    assert "max-width: 44px;" in style
+    assert "flex: 0 0 44px;" in style
+    assert ".compact-action.is-loading .generation-label" in style
+    assert ".compact-action.is-loading .generation-dots" in style
+    assert "display: none;" in style
     assert ".playlist-tracks-toolbar" in style
     assert "flex-direction: row;" in style
 
