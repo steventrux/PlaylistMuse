@@ -21,6 +21,7 @@ def test_settings_dialogs_share_the_same_visual_system() -> None:
     assert ".settings-dialog-card .settings-summary" in shared_styles
     assert ".settings-dialog-card .settings-state.ok" in shared_styles
     assert ":has(#setup-progress.hidden) .dialog-head" in shared_styles
+    assert "#setup-dialog .setup-step.settings-block" in shared_styles
     assert "padding: 14px 0" in shared_styles
     assert "margin: 0 0 20px" in shared_styles
     assert "font-size: 1rem" in shared_styles
@@ -28,8 +29,8 @@ def test_settings_dialogs_share_the_same_visual_system() -> None:
     assert ".youtube-account-summary-heading h3" in shared_styles
     assert ".youtube-credentials-section > h3" in shared_styles
     assert "display: none" in shared_styles
-    assert "#ai-settings-dialog .dialog-head h2::before" in shared_styles
-    assert "#youtube-settings-dialog .dialog-head h2::before" in shared_styles
+    assert "#ai-settings-dialog" not in shared_styles
+    assert "#youtube-settings-dialog" not in shared_styles
 
     assert ".ai-active-summary" not in ai_styles
     assert '.settings-fields > label[for="ai-provider"]' in ai_styles
