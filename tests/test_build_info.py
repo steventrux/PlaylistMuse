@@ -8,8 +8,14 @@ import backend.build_info as build_info
 from backend.application import app
 from backend.build_info import current_build_info
 from backend.source_revision import git_revision
+from backend.version import APP_VERSION
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_application_version_is_centralized() -> None:
+    assert APP_VERSION == "0.2.0"
+    assert app.version == APP_VERSION
 
 
 def test_build_info_defaults_to_dev_without_claiming_a_revision(monkeypatch) -> None:
@@ -24,6 +30,20 @@ def test_build_info_defaults_to_dev_without_claiming_a_revision(monkeypatch) -> 
     assert info.channel == "dev"
     assert info.commit == ""
     assert info.display == "dev"
+
+
+def test_stable_channel_uses_application_version_when_not_overridden(monkeypatch) -> None:
+    monkeypatch.delenv("PLAYLISTMUSE_VERSION", raising=False)
+    monkeypatch.setenv("PLAYLISTMUSE_CHANNEL", "stable")
+    monkeypatch.delenv("PLAYLISTMUSE_GIT_SHA", raising=False)
+    monkeypatch.setattr(build_info, "_STARTUP_SOURCE_COMMIT", "")
+
+    info = current_build_info()
+
+    assert info.version == APP_VERSION
+    assert info.channel == "stable"
+    assert info.commit == ""
+    assert info.display == f"v{APP_VERSION}"
 
 
 def test_dev_build_falls_back_to_startup_checkout_revision(monkeypatch) -> None:
@@ -62,10 +82,10 @@ def test_explicit_build_revision_takes_precedence(monkeypatch) -> None:
 
 
 def test_build_info_keeps_stable_and_beta_labels_version_only(monkeypatch) -> None:
-    monkeypatch.setenv("PLAYLISTMUSE_VERSION", "0.1.1")
+    monkeypatch.setenv("PLAYLISTMUSE_VERSION", APP_VERSION)
     monkeypatch.setenv("PLAYLISTMUSE_CHANNEL", "stable")
     monkeypatch.setenv("PLAYLISTMUSE_GIT_SHA", "abcdef1234567890")
-    assert current_build_info().display == "v0.1.1"
+    assert current_build_info().display == f"v{APP_VERSION}"
 
     monkeypatch.setenv("PLAYLISTMUSE_VERSION", "0.2.0-beta.1")
     monkeypatch.setenv("PLAYLISTMUSE_CHANNEL", "beta")
