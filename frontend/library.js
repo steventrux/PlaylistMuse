@@ -9,6 +9,7 @@
   const tagTools = window.PlaylistMuseLibraryTags;
   const paginationTools = window.PlaylistMuseLibraryPagination;
   const PAGE_SIZE = paginationTools.DEFAULT_PAGE_SIZE;
+
   let expandedLibraryId = null;
   let libraryItems = [];
   let activeStatusFilter = 'all';
@@ -58,10 +59,6 @@
     }).format(date);
   }
 
-  function coverPlaceholder() {
-    return document.createElement('span');
-  }
-
   function createCover(urls = []) {
     const cover = document.createElement('div');
     cover.className = 'library-cover';
@@ -70,14 +67,16 @@
     for (let index = 0; index < 4; index += 1) {
       const url = urls[index];
       if (!url) {
-        cover.append(coverPlaceholder());
+        cover.append(document.createElement('span'));
         continue;
       }
       const image = document.createElement('img');
       image.src = url;
       image.alt = '';
       image.loading = 'lazy';
-      image.addEventListener('error', () => image.replaceWith(coverPlaceholder()), {once: true});
+      image.addEventListener('error', () => image.replaceWith(document.createElement('span')), {
+        once: true,
+      });
       cover.append(image);
     }
     return cover;
@@ -145,17 +144,14 @@
       item.refinement_prompts = refinementPrompts(record.generation_request);
       renderRefinementHistory(block, item.refinement_prompts);
     } catch {
-      // The initial request remains useful even if the optional refinement history cannot load.
+      // The library remains useful even if optional refinement history cannot load.
     } finally {
       item.refinement_history_loading = false;
     }
   }
 
   function requestDetailBlock(item) {
-    const block = detailBlock(
-      'Initial request',
-      item.prompt || 'No initial prompt saved.',
-    );
+    const block = detailBlock('Initial request', item.prompt || 'No initial prompt saved.');
     block.dataset.requestHistory = 'true';
     return block;
   }
@@ -166,19 +162,17 @@
     card.setAttribute('aria-expanded', String(expanded));
 
     const toggle = card.querySelector('.library-expand-icon');
-    if (toggle) {
-      toggle.setAttribute('aria-expanded', String(expanded));
-      toggle.setAttribute(
-        'aria-label',
-        `${expanded ? 'Collapse' : 'Expand'} details for ${playlistName}`,
-      );
-    }
+    if (!toggle) return;
+    toggle.setAttribute('aria-expanded', String(expanded));
+    toggle.setAttribute(
+      'aria-label',
+      `${expanded ? 'Collapse' : 'Expand'} details for ${playlistName}`,
+    );
   }
 
   function closeOtherCards(currentCard) {
     document.querySelectorAll('.library-item.expanded').forEach((card) => {
-      if (card === currentCard) return;
-      setLibraryCardExpanded(card, false);
+      if (card !== currentCard) setLibraryCardExpanded(card, false);
     });
   }
 
@@ -187,16 +181,16 @@
     if (willExpand) closeOtherCards(card);
     setLibraryCardExpanded(card, willExpand);
     expandedLibraryId = willExpand ? item.id : null;
-    if (willExpand) {
-      const requestBlock = card.querySelector('[data-request-history="true"]');
-      if (requestBlock) void hydrateRefinementHistory(item, requestBlock);
-      card.scrollIntoView({behavior: 'smooth', block: 'nearest'});
-    }
+    if (!willExpand) return;
+
+    const requestBlock = card.querySelector('[data-request-history="true"]');
+    if (requestBlock) void hydrateRefinementHistory(item, requestBlock);
+    card.scrollIntoView({behavior: 'smooth', block: 'nearest'});
   }
 
   async function openPlaylist(item, link) {
     const previousText = link.textContent;
-    link.textContent = 'Opening…';
+    link.textContent = item.status === 'draft' ? 'Editing…' : 'Opening…';
     link.setAttribute('aria-busy', 'true');
     link.classList.add('is-loading');
     try {
@@ -243,13 +237,7 @@
         method: 'DELETE',
       });
       if (!response.ok) await readJson(response);
-      const current = (() => {
-        try {
-          return JSON.parse(sessionStorage.getItem(STORAGE_KEY) || 'null');
-        } catch {
-          return null;
-        }
-      })();
+      const current = readSessionJson(STORAGE_KEY);
       if (current?.library_id === item.id) {
         sessionStorage.removeItem(STORAGE_KEY);
         sessionStorage.removeItem(REQUEST_KEY);
@@ -270,7 +258,6 @@
     card.setAttribute('role', 'button');
     card.setAttribute('aria-expanded', String(expandedLibraryId === item.id));
     card.setAttribute('aria-label', `Show details for ${item.name || 'this playlist'}`);
-
     card.append(createCover(item.thumbnail_urls));
 
     const copy = document.createElement('div');
@@ -316,10 +303,7 @@
     detailGrid.className = 'library-detail-grid';
     const requestBlock = requestDetailBlock(item);
     detailGrid.append(
-      detailBlock(
-        'Description',
-        item.description || 'No description saved.',
-      ),
+      detailBlock('Description', item.description || 'No description saved.'),
       requestBlock,
       detailBlock('Playlist details', [
         `${trackLabel} · ${item.status === 'published' ? 'Published' : 'Draft'}`,
@@ -327,15 +311,6 @@
         `Updated ${formatDate(item.updated_at)}`,
       ]),
     );
-
-    tagTools?.install({
-      item,
-      detailGrid,
-      reload: loadLibrary,
-      setStatus,
-      readJson,
-      endpoint: ENDPOINT,
-    });
 
     if (item.youtube_playlist_id || item.youtube_playlist_url) {
       detailGrid.append(detailBlock('YouTube Music', [
@@ -350,7 +325,11 @@
     const open = document.createElement('a');
     open.href = `/static/playlist.html?id=${encodeURIComponent(item.id)}`;
     open.className = 'primary';
-    open.textContent = 'Open';
+    open.textContent = item.status === 'draft' ? 'Edit' : 'Open';
+    open.setAttribute(
+      'aria-label',
+      `${item.status === 'draft' ? 'Edit' : 'Open'} ${item.name || 'playlist'}`,
+    );
     open.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -389,21 +368,11 @@
     }
 
     detailsInner.append(detailGrid, actions);
-    if (item.status === 'draft') {
-      window.PlaylistMuseLibraryRefine?.install({
-        item,
-        actions,
-        detailsInner,
-        reload: loadLibrary,
-      });
-    }
     details.append(detailsInner);
-
     card.append(copy, expandIcon, details);
     setLibraryCardExpanded(card, expandedLibraryId === item.id);
-    if (expandedLibraryId === item.id) {
-      void hydrateRefinementHistory(item, requestBlock);
-    }
+    if (expandedLibraryId === item.id) void hydrateRefinementHistory(item, requestBlock);
+
     card.addEventListener('click', (event) => {
       if (card.classList.contains('expanded')) return;
       if (event.target.closest('a, button, input, select, label, form')) return;

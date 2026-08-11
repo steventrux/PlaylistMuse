@@ -13,6 +13,8 @@
   <link rel="stylesheet" href="/static/layout.css?v=5">
   <link rel="stylesheet" href="/static/controls.css?v=8">
   <link rel="stylesheet" href="/static/playlist.css?v=5">
+  <link rel="stylesheet" href="/static/playlist-editor.css?v=1">
+  <link rel="stylesheet" href="/static/playlist-refine.css?v=1">
   <link rel="stylesheet" href="/static/playlist-cards.css?v=4">
   <link rel="stylesheet" href="/static/compact-cards.css?v=7">
   <link rel="stylesheet" href="/static/playlist-header.css?v=7">
@@ -55,7 +57,14 @@
           </label>
 
           <p id="playlist-summary" class="playlist-summary"></p>
-          <p id="playlist-description" class="playlist-description"></p>
+          <label class="playlist-description-editor" for="playlist-description">
+            <span class="visually-hidden">Edit playlist description</span>
+            <textarea id="playlist-description" maxlength="2000" rows="2" title="Edit playlist description"></textarea>
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16v4Z" />
+              <path d="m13.5 6.5 4 4" />
+            </svg>
+          </label>
           <div id="playlist-tags" class="playlist-tags" aria-label="Playlist tags"></div>
           <p id="playlist-tags-status" class="playlist-tag-status hidden" aria-live="polite"></p>
         </div>
@@ -92,7 +101,15 @@
       <p id="youtube-publish-status" class="youtube-publish-status hidden" aria-live="polite"></p>
 
       <section class="playlist-tracks-section" aria-labelledby="playlist-tracks-heading">
-        <h2 id="playlist-tracks-heading" class="playlist-tracks-heading">Tracks</h2>
+        <div class="playlist-tracks-toolbar">
+          <h2 id="playlist-tracks-heading" class="playlist-tracks-heading">Tracks</h2>
+          <div id="playlist-draft-actions" class="playlist-draft-actions">
+            <button id="add-track" class="secondary" type="button">Add track</button>
+            <button id="refine-playlist" class="secondary" type="button">Refine playlist</button>
+          </div>
+        </div>
+        <div id="playlist-add-track-host" class="playlist-editor-host"></div>
+        <div id="playlist-refine-host" class="playlist-editor-host"></div>
         <ol id="track-list" class="track-list"></ol>
         <div id="empty-state" class="empty-state hidden">No generated playlist was found in this browser session.</div>
       </section>
@@ -104,6 +121,8 @@
   <script src="/static/playlist-mosaic.js?v=1"></script>
   <script src="/static/library-tags.js?v=3"></script>
   <script src="/static/playlist.js?v=20"></script>
+  <script src="/static/playlist-add-track.js?v=1"></script>
+  <script src="/static/playlist-refine.js?v=1"></script>
   <script src="/static/settings-overlay.js?v=1"></script>
   <script data-playlistmuse-footer-status src="/static/home-status.js?v=18"></script>
   <script src="/static/youtube-publish.js?v=15"></script>
