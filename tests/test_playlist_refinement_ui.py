@@ -17,22 +17,38 @@ def test_refinement_moves_from_library_to_playlist_editor() -> None:
     assert "/static/library-refine.js" not in library
     assert "PlaylistMuseLibraryRefine" not in library_script
     assert 'id="refine-playlist"' in playlist
-    assert '/static/playlist-refine.css?v=2' in playlist
-    assert '/static/playlist-refine.js?v=2' in playlist
+    assert '>Playlist Studio</button>' in playlist
+    assert '/static/playlist-refine.css?v=3' in playlist
+    assert '/static/playlist-refine.js?v=3' in playlist
 
 
 def test_refinement_uses_preview_before_apply_and_flushes_current_draft() -> None:
     script = _text("playlist-refine.js")
 
     assert "editor.flushPersistence()" in script
-    assert "/refine-preview`" in script
-    assert "/refine-apply`" in script
-    assert "The current draft stays unchanged until you apply the preview." in script
+    assert "/studio-preview`" in script
+    assert "/studio-apply`" in script
+    assert "Target only the tracks you want the AI to edit." in script
     assert "previewPlaylist = payload.playlist;" in script
     assert "Apply changes" in script
     assert "textarea.addEventListener('input', resetPreview);" in script
     assert "editor.applyRecord(record);" in script
     assert "`${reordered} repositioned`" in script
+
+
+def test_playlist_studio_exposes_target_and_lock_controls() -> None:
+    script = _text("playlist-refine.js")
+    style = _text("playlist-refine.css")
+
+    assert "All tracks" in script
+    assert "Selected tracks" in script
+    assert "playlist-studio-target" in script
+    assert "playlist-studio-lock" in script
+    assert "target_positions: targetPositions" in script
+    assert "locked_positions: lockedPositions" in script
+    assert "Select at least one unlocked track to refine." in script
+    assert ".playlist-studio-track-list" in style
+    assert "max-block-size: min(42vh, 20rem);" in style
 
 
 def test_refinement_preview_shows_only_changes_not_full_track_lists() -> None:
@@ -65,3 +81,4 @@ def test_refinement_panel_remains_compact() -> None:
     assert "padding: 14px;" in editor_style
     assert "border-radius: 14px;" in editor_style
     assert "max-height: 300px;" not in style
+    assert "max-block-size: min(42vh, 20rem);" in style
