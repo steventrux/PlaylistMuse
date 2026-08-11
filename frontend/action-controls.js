@@ -28,7 +28,7 @@
     up: {label: 'Move up', icon: ICONS.up},
     down: {label: 'Move down', icon: ICONS.down},
     add: {label: 'Add track', icon: ICONS.add},
-    refine: {label: 'Refine playlist', icon: ICONS.refine},
+    refine: {label: 'Playlist Studio', icon: ICONS.refine},
   });
 
   function elementsWithin(root, selector) {
