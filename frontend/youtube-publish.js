@@ -8,14 +8,6 @@
   let playlist = null;
   let selectedPrivacy = 'PRIVATE';
 
-  function loadFooterStatus() {
-    if (document.querySelector('script[data-playlistmuse-footer-status]')) return;
-    const script = document.createElement('script');
-    script.src = '/static/home-status.js?v=16';
-    script.dataset.playlistmuseFooterStatus = 'true';
-    document.body.append(script);
-  }
-
   function loadPlaylistFromSession() {
     try {
       playlist = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || 'null');
@@ -255,6 +247,5 @@
   $('create-youtube-playlist').addEventListener('click', publishPlaylist);
   window.addEventListener('playlistmuse-status-changed', refreshStatus);
   window.addEventListener('playlistmuse-playlist-record-updated', loadPlaylistFromSession);
-  loadFooterStatus();
   refreshStatus();
 })();
