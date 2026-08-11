@@ -82,6 +82,13 @@ def test_old_release_user_agents_are_removed() -> None:
     assert stale == []
 
 
+def test_legacy_lastfm_blending_helper_is_removed() -> None:
+    main_source = (BACKEND / "main.py").read_text(encoding="utf-8")
+
+    assert "def _blend_candidates(" not in main_source
+    assert "Legacy bounded blending helper" not in main_source
+
+
 def _runtime_backend_imports() -> set[str]:
     imported: set[str] = set()
     for path in BACKEND.glob("*.py"):
