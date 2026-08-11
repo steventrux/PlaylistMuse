@@ -6,13 +6,15 @@ ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
 
 
-def test_shared_frontend_loader_adds_lastfm_assets() -> None:
+def test_shared_frontend_loader_only_adds_lastfm_styles() -> None:
     script = (FRONTEND / "common.js").read_text(encoding="utf-8")
 
+    assert "function ensureLastFmStyles()" in script
     assert "/static/lastfm.css?v=1" in script
-    assert "await loadScript('/static/lastfm-settings.js')" in script
-    assert "await loadScript('/static/lastfm-status.js')" in script
-    assert "document.getElementById('setup-dialog')" in script
+    assert "ensureLastFmStyles();" in script
+    assert "function loadScript(" not in script
+    assert "/static/lastfm-settings.js" not in script
+    assert "/static/lastfm-status.js" not in script
 
 
 def test_lastfm_home_status_updates_existing_shared_indicator() -> None:
