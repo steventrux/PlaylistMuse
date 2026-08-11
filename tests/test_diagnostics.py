@@ -28,12 +28,14 @@ def test_sanitize_text_redacts_common_and_known_secrets() -> None:
     assert "[REDACTED]" in sanitized
 
 
-def test_sanitize_data_redacts_sensitive_fields_recursively() -> None:
+def test_sanitize_data_redacts_secrets_but_keeps_safe_state_flags() -> None:
     payload = {
         "provider": "openai",
         "api_key": "secret-value",
+        "api_key_configured": True,
         "nested": {
             "refresh_token": "refresh-value",
+            "oauth_token_present": False,
             "message": "secret-value should disappear",
         },
     }
@@ -42,7 +44,9 @@ def test_sanitize_data_redacts_sensitive_fields_recursively() -> None:
 
     assert sanitized["provider"] == "openai"
     assert sanitized["api_key"] == "[REDACTED]"
+    assert sanitized["api_key_configured"] is True
     assert sanitized["nested"]["refresh_token"] == "[REDACTED]"
+    assert sanitized["nested"]["oauth_token_present"] is False
     assert "secret-value" not in sanitized["nested"]["message"]
 
 
