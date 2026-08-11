@@ -9,6 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter
 
 from backend.source_revision import git_revision
+from backend.version import APP_VERSION
 
 REPOSITORY_URL = "https://github.com/steventrux/PlaylistMuse"
 _VALID_CHANNELS = {"stable", "beta", "dev"}
@@ -70,8 +71,12 @@ def _running_commit() -> str:
 
 def current_build_info() -> BuildInfo:
     """Return metadata for the exact build currently serving the application."""
-    version = _clean(os.getenv("PLAYLISTMUSE_VERSION")) or "dev"
     requested_channel = _clean(os.getenv("PLAYLISTMUSE_CHANNEL")).lower()
+    configured_version = _clean(os.getenv("PLAYLISTMUSE_VERSION"))
+    version = (
+        configured_version
+        or (APP_VERSION if requested_channel == "stable" else "dev")
+    )
     channel = requested_channel if requested_channel in _VALID_CHANNELS else _infer_channel(version)
     short_commit = _running_commit()
 
