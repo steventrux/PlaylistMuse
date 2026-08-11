@@ -115,7 +115,7 @@
 
 .playlist-studio-track-list {
   display: grid;
-  max-height: 300px;
+  max-block-size: min(42vh, 20rem);
   overflow-y: auto;
   overscroll-behavior: contain;
   border-top: 1px solid rgba(183, 156, 255, .1);
@@ -247,7 +247,7 @@
   }
 
   .playlist-studio-track-list {
-    max-height: 250px;
+    max-block-size: min(36vh, 16rem);
   }
 
   .playlist-studio-target-wrap span,
