@@ -1,12 +1,54 @@
 """PlaylistMuse ASGI application composition root."""
 
 from fastapi import Request
+from fastapi.responses import JSONResponse
 
 from backend.build_info import router as build_info_router
 from backend.main import app
-from backend.playlist_library import router as playlist_library_router
+from backend.playlist_library import (
+    PlaylistNotFoundError,
+    get_library,
+    router as playlist_library_router,
+)
 from backend.playlist_publication_sync import reconcile_deleted_youtube_playlists
 from backend.playlist_refinement import router as playlist_refinement_router
+
+_LIBRARY_PLAYLIST_PREFIX = "/api/library/playlists/"
+_PUBLISHED_READ_ONLY_DETAIL = (
+    "Published playlists are read-only. Duplicate this playlist to make changes."
+)
+
+
+def _protected_library_playlist_id(request: Request) -> str | None:
+    """Return the playlist ID for API writes that mutate playlist contents."""
+    if not request.url.path.startswith(_LIBRARY_PLAYLIST_PREFIX):
+        return None
+
+    remainder = request.url.path[len(_LIBRARY_PLAYLIST_PREFIX) :].strip("/")
+    parts = remainder.split("/") if remainder else []
+    if request.method == "PUT" and len(parts) == 1:
+        return parts[0]
+    if request.method == "POST" and len(parts) == 3 and parts[1:] == ["tags", "suggest"]:
+        return parts[0]
+    return None
+
+
+@app.middleware("http")
+async def protect_published_playlist_writes(request: Request, call_next):
+    """Keep published library records immutable through the public API."""
+    playlist_id = _protected_library_playlist_id(request)
+    if playlist_id:
+        try:
+            record = get_library().get(playlist_id)
+        except PlaylistNotFoundError:
+            pass
+        else:
+            if record.get("status") == "published":
+                return JSONResponse(
+                    status_code=409,
+                    content={"detail": _PUBLISHED_READ_ONLY_DETAIL},
+                )
+    return await call_next(request)
 
 
 @app.middleware("http")
