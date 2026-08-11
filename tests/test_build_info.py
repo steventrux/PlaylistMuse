@@ -8,7 +8,7 @@ import backend.build_info as build_info
 from backend.application import app
 from backend.build_info import current_build_info
 from backend.source_revision import git_revision
-from backend.version import APP_VERSION
+from backend.version import APP_VERSION, REPOSITORY_URL, USER_AGENT
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -16,6 +16,11 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_application_version_is_centralized() -> None:
     assert APP_VERSION == "0.2.0"
     assert app.version == APP_VERSION
+
+
+def test_release_identity_is_centralized() -> None:
+    assert REPOSITORY_URL == "https://github.com/steventrux/PlaylistMuse"
+    assert USER_AGENT == f"PlaylistMuse/{APP_VERSION} (+{REPOSITORY_URL})"
 
 
 def test_build_info_defaults_to_dev_without_claiming_a_revision(monkeypatch) -> None:
@@ -151,5 +156,5 @@ def test_version_endpoint_reports_running_build_metadata(monkeypatch) -> None:
         "channel": "beta",
         "commit": "abcdef1",
         "display": "v0.3.0-beta.2",
-        "repository_url": "https://github.com/steventrux/PlaylistMuse",
+        "repository_url": REPOSITORY_URL,
     }
