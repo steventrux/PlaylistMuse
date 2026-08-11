@@ -76,6 +76,14 @@ jobs:
             exit 0
           fi
 
+          NOTES_FILE=".github/release-notes/${TAG}.md"
+          if [[ ! -s "$NOTES_FILE" ]]; then
+            echo "Missing curated release notes: $NOTES_FILE" >&2
+            echo "Every new stable release must include user-facing highlights before publication." >&2
+            exit 1
+          fi
+          echo "notes_file=$NOTES_FILE" >> "$GITHUB_OUTPUT"
+
           if git show-ref --tags --verify --quiet "refs/tags/$TAG"; then
             TAG_SHA="$(git rev-list -n 1 "$TAG")"
             if [[ "$TAG_SHA" != "$HEAD_SHA" ]]; then
@@ -182,17 +190,21 @@ jobs:
           TAG="${{ steps.gate.outputs.tag }}"
           VERSION="${{ steps.gate.outputs.version }}"
           SHA="${{ steps.gate.outputs.sha }}"
+          NOTES_FILE="${{ steps.gate.outputs.notes_file }}"
+          CURATED_NOTES="$(cat "$NOTES_FILE")"
 
           if [[ "${{ steps.gate.outputs.tag_exists }}" == "true" ]]; then
             gh release create "$TAG" \
               --verify-tag \
               --title "PlaylistMuse $VERSION" \
+              --notes "$CURATED_NOTES" \
               --generate-notes \
               --latest
           else
             gh release create "$TAG" \
               --target "$SHA" \
               --title "PlaylistMuse $VERSION" \
+              --notes "$CURATED_NOTES" \
               --generate-notes \
               --latest
           fi
@@ -206,6 +218,7 @@ jobs:
             echo
             echo "- Git tag: \`${{ steps.gate.outputs.tag }}\`"
             echo "- Commit: \`${{ steps.gate.outputs.sha }}\`"
+            echo "- Curated notes: \`${{ steps.gate.outputs.notes_file }}\`"
             echo "- Container: \`${IMAGE}:${{ steps.gate.outputs.version }}\`"
             echo "- Stable container: \`${IMAGE}:latest\`"
           } >> "$GITHUB_STEP_SUMMARY"
