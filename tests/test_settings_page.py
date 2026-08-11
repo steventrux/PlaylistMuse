@@ -22,7 +22,7 @@ def test_settings_page_exposes_all_current_sections() -> None:
     assert 'href="/api/diagnostics/report"' in html
     assert 'template=bug_report.yml' in html
     assert '/static/diagnostics-client.js?v=1' in html
-    assert '/static/support.js?v=1' in html
+    assert '/static/support.js?v=' in html
     assert '/static/ai-settings.js?v=12' in html
     assert '/static/youtube-account.js?v=5' in html
     assert '/static/lastfm-settings.js?v=2' in html
@@ -116,10 +116,13 @@ def test_lastfm_settings_reuse_existing_logic_inside_settings_page() -> None:
     assert "method: 'DELETE'" in script
 
 
-def test_support_page_reads_running_build_without_credentials() -> None:
+def test_support_page_reads_running_build_without_credentials_or_duplication() -> None:
     script = _text("support.js")
 
     assert "fetch('/api/version', {cache: 'no-store'})" in script
     assert "support-build-info" in script
+    assert "info.display || info.version || 'Version unavailable'" in script
+    assert "info.channel" not in script
+    assert "info.commit" not in script
     assert "api_key" not in script
     assert "token" not in script
