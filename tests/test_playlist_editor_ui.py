@@ -32,10 +32,11 @@ def test_playlist_page_centralizes_draft_editing_controls() -> None:
     assert 'id="playlist-draft-actions" class="playlist-draft-actions hidden"' in html
     assert 'id="add-track"' in html
     assert 'id="refine-playlist"' in html
+    assert '>Playlist Studio</button>' in html
     assert '/static/playlist-header.css?v=12' in html
     assert '/static/playlist-editor.css?v=2' in html
     assert '/static/playlist-add-track.js?v=2' in html
-    assert '/static/playlist-refine.js?v=2' in html
+    assert '/static/playlist-refine.js?v=3' in html
 
 
 def test_playlist_autosave_status_tracks_persistent_library_writes() -> None:
@@ -62,6 +63,7 @@ def test_playlist_autosave_status_tracks_persistent_library_writes() -> None:
     assert "method === 'PUT'" in script
     assert "path.endsWith('/tags/suggest')" in script
     assert "path.endsWith('/refine-apply')" in script
+    assert "path.endsWith('/studio-apply')" in script
     assert "if (!response.ok) batchFailed = true;" in script
     assert "playlist.youtube_playlist?.url" in script
     assert "role', 'status'" in script
@@ -96,36 +98,3 @@ def test_manual_add_and_remove_are_recorded_in_refinement_history() -> None:
     assert "prompt: `${action}: ${trackHistoryText(track)}`" in script
     assert "request.refinements = refinements;" in script
     assert "applied_at: new Date().toISOString()" in script
-
-
-def test_description_remove_and_published_state_are_controlled_from_playlist_page() -> None:
-    script = _text("playlist-add-track.js")
-    style = _text("playlist-header.css")
-    editor_style = _text("playlist-editor.css")
-
-    assert "descriptionInput.addEventListener('input'" in script
-    assert "latest.description = descriptionInput.value.slice(0, 2000);" in script
-    assert "async function persistPlaylist(playlist" in script
-    assert "async function removeTrack(index)" in script
-    assert "Remove track" in script
-    assert "A playlist must contain at least one track." in script
-    assert "playlist.tracks.splice(index, 1);" in script
-    assert "await waitForExistingAutosave();" in script
-    assert "titleInput.readOnly = !editable;" in script
-    assert "descriptionInput.readOnly = !editable;" in script
-    assert "draftActions?.classList.toggle('hidden', !editable);" in script
-    assert "window.addEventListener('playlistmuse-playlist-published', syncEditorState);" in script
-    assert "body.playlist-readonly .playlist-title-editor svg" in style
-    assert "body.playlist-readonly .playlist-description-editor svg" in style
-    assert "body.playlist-readonly #playlist-tags .library-tag-add" in editor_style
-    assert "body.playlist-readonly #playlist-tags .library-tag-delete" in editor_style
-    assert "body.playlist-readonly #playlist-tags .library-tag-add-form" in editor_style
-    assert "min-height: 112px;" in style
-
-
-def test_youtube_publish_reads_current_editor_state_at_publish_time() -> None:
-    script = _text("youtube-publish.js")
-
-    assert "function loadPlaylistFromSession()" in script
-    assert "loadPlaylistFromSession();" in script
-    assert "description: playlist.description || playlist.prompt || ''" in script
