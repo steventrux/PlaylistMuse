@@ -12,7 +12,7 @@
 
 .playlist-save-status {
   position: fixed;
-  top: 50%;
+  bottom: 18px;
   left: calc(50% + 444px);
   z-index: 90;
   display: flex;
@@ -32,7 +32,6 @@
   line-height: 1;
   white-space: nowrap;
   pointer-events: none;
-  transform: translateY(-50%);
 }
 
 .playlist-save-status::before {
@@ -184,9 +183,9 @@ body.playlist-readonly .playlist-description-editor textarea:focus {
 
 @media (max-width: 1099px) {
   .playlist-save-status {
-    top: 12px;
-    left: 50%;
-    transform: translateX(-50%);
+    right: 12px;
+    bottom: 12px;
+    left: auto;
   }
 }
 
