@@ -9,9 +9,8 @@ from pathlib import Path
 from fastapi import APIRouter
 
 from backend.source_revision import git_revision
-from backend.version import APP_VERSION
+from backend.version import APP_VERSION, REPOSITORY_URL
 
-REPOSITORY_URL = "https://github.com/steventrux/PlaylistMuse"
 _VALID_CHANNELS = {"stable", "beta", "dev"}
 _INVALID_COMMITS = {"", "unknown", "none", "local"}
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
