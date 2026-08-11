@@ -12,8 +12,8 @@
 
 .playlist-save-status {
   position: fixed;
-  right: 18px;
-  bottom: 18px;
+  top: 50%;
+  left: calc(50% + 444px);
   z-index: 90;
   display: flex;
   align-items: center;
@@ -30,7 +30,9 @@
   font-size: .72rem;
   font-weight: 720;
   line-height: 1;
+  white-space: nowrap;
   pointer-events: none;
+  transform: translateY(-50%);
 }
 
 .playlist-save-status::before {
@@ -180,12 +182,15 @@ body.playlist-readonly .playlist-description-editor textarea:focus {
   margin-top: 0;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 1099px) {
   .playlist-save-status {
-    right: 12px;
-    bottom: 12px;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
   }
+}
 
+@media (max-width: 720px) {
   .playlist-overview {
     grid-template-columns: 1fr;
   }
