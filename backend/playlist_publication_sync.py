@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from time import monotonic
 from typing import Any
 
 import httpx
@@ -14,6 +15,8 @@ from backend.youtube_publish import YOUTUBE_API_BASE, _access_token
 LOGGER = logging.getLogger("playlistmuse.playlist.publication-sync")
 STATUS_REQUEST_TIMEOUT = 5.0
 YOUTUBE_PLAYLIST_BATCH_SIZE = 50
+RECONCILIATION_TTL_SECONDS = 300.0
+_RECONCILIATION_CACHE: dict[str, tuple[float, tuple[str, ...]]] = {}
 
 
 def _published_remote_ids(records: list[dict[str, Any]]) -> list[str]:
@@ -24,6 +27,42 @@ def _published_remote_ids(records: list[dict[str, Any]]) -> list[str]:
             if record.get("status") == "published"
             and str(record.get("youtube_playlist_id") or "").strip()
         )
+    )
+
+
+def _repository_cache_key(library: PlaylistLibrary) -> str:
+    return str(library.database_path.resolve())
+
+
+def _remote_id_fingerprint(remote_ids: list[str]) -> tuple[str, ...]:
+    return tuple(sorted(remote_ids))
+
+
+def _reconciliation_is_fresh(
+    library: PlaylistLibrary,
+    remote_ids: list[str],
+    *,
+    now: float,
+) -> bool:
+    cached = _RECONCILIATION_CACHE.get(_repository_cache_key(library))
+    if cached is None:
+        return False
+    checked_at, fingerprint = cached
+    return (
+        fingerprint == _remote_id_fingerprint(remote_ids)
+        and 0 <= now - checked_at < RECONCILIATION_TTL_SECONDS
+    )
+
+
+def _remember_reconciliation(
+    library: PlaylistLibrary,
+    remote_ids: list[str],
+    *,
+    checked_at: float,
+) -> None:
+    _RECONCILIATION_CACHE[_repository_cache_key(library)] = (
+        checked_at,
+        _remote_id_fingerprint(remote_ids),
     )
 
 
@@ -125,12 +164,21 @@ async def reconcile_deleted_youtube_playlists(
     if not remote_ids:
         return 0
 
+    now = monotonic()
+    if _reconciliation_is_fresh(repository, remote_ids, now=now):
+        return 0
+
     try:
         existing = await asyncio.to_thread(
             _fetch_existing_youtube_playlist_ids,
             remote_ids,
         )
     except Exception as error:
+        _remember_reconciliation(
+            repository,
+            remote_ids,
+            checked_at=monotonic(),
+        )
         LOGGER.warning(
             "Skipping YouTube publication reconciliation because verification failed: %s",
             error,
@@ -146,6 +194,17 @@ async def reconcile_deleted_youtube_playlists(
             continue
         if _demote_missing_playlist(repository, record, remote_id):
             changed += 1
+
+    final_remote_ids = (
+        _published_remote_ids(repository.list())
+        if changed
+        else remote_ids
+    )
+    _remember_reconciliation(
+        repository,
+        final_remote_ids,
+        checked_at=monotonic(),
+    )
 
     if changed:
         LOGGER.info("Demoted %s deleted YouTube playlist(s) to draft", changed)

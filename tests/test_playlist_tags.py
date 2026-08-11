@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -46,6 +47,49 @@ def test_tag_normalization_is_bounded_and_case_insensitive() -> None:
         "period": ["1970s–1980s"],
         "custom": ["Road trip", "Favorites"],
     }
+
+
+def test_playlist_tagger_samples_long_playlists_across_full_sequence() -> None:
+    playlist = sample_playlist()
+    playlist["tracks"] = [
+        {
+            "video_id": f"video-{index:03d}",
+            "title": f"Track {index:03d}",
+            "artists": f"Artist {index:03d}",
+        }
+        for index in range(100)
+    ]
+
+    payload = json.loads(playlist_tags_module._classification_request(playlist))
+    sampled_indices = [
+        int(line.rsplit("Track ", 1)[1])
+        for line in payload["tracks"]
+    ]
+
+    assert len(sampled_indices) == playlist_tags_module.MAX_TAGGING_TRACKS
+    assert len(set(sampled_indices)) == playlist_tags_module.MAX_TAGGING_TRACKS
+    assert sampled_indices[0] == 0
+    assert sampled_indices[-1] == 99
+    assert max(sampled_indices) > 59
+    assert sampled_indices != list(range(playlist_tags_module.MAX_TAGGING_TRACKS))
+
+
+def test_playlist_tagger_uses_all_tracks_when_within_limit() -> None:
+    playlist = sample_playlist()
+    playlist["tracks"] = [
+        {
+            "video_id": f"video-{index:03d}",
+            "title": f"Track {index:03d}",
+            "artists": f"Artist {index:03d}",
+        }
+        for index in range(playlist_tags_module.MAX_TAGGING_TRACKS)
+    ]
+
+    payload = json.loads(playlist_tags_module._classification_request(playlist))
+
+    assert len(payload["tracks"]) == playlist_tags_module.MAX_TAGGING_TRACKS
+    assert "Track 000" in payload["tracks"][0]
+    assert "Track 059" in payload["tracks"][-1]
 
 
 def test_playlist_tagger_uses_multilingual_library_only_categories(monkeypatch) -> None:
