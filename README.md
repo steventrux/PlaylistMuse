@@ -127,7 +127,7 @@ docker rm -f playlistmuse
 
 Run the installation command again after pulling the new image.
 
-Use a versioned image tag such as `ghcr.io/steventrux/playlistmuse:0.2.1` when you want to remain on a specific release.
+Use a versioned image tag such as `ghcr.io/steventrux/playlistmuse:0.2.0` when you want to remain on a specific published release.
 
 ### Stop
 
