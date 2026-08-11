@@ -1,21 +1,8 @@
-/* Shared visual language for every PlaylistMuse settings dialog. */
+/* Shared visual language for PlaylistMuse settings surfaces. */
 
 .settings-dialog-card .dialog-head {
   min-height: 58px;
   gap: 20px;
-}
-
-#ai-settings-dialog .dialog-head h2::before,
-#youtube-settings-dialog .dialog-head h2::before {
-  content: "Configuration";
-  display: block;
-  margin-bottom: 5px;
-  color: var(--cyan-light);
-  font-size: .75rem;
-  font-weight: 800;
-  letter-spacing: .16em;
-  line-height: 1.2;
-  text-transform: uppercase;
 }
 
 /* Keep the onboarding gap only while the onboarding progress is visible. */
@@ -23,8 +10,6 @@
   margin-bottom: 0;
 }
 
-#ai-settings-dialog .settings-block,
-#youtube-settings-dialog .settings-block,
 #setup-dialog .setup-step.settings-block {
   padding-top: 0;
   padding-bottom: 0;
