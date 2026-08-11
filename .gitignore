@@ -9,5 +9,6 @@ data/*.tmp
 data/*.db
 data/*.db-shm
 data/*.db-wal
+data/*.sqlite3
 data/logs/
 .DS_Store
