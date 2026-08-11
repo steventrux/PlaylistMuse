@@ -112,12 +112,12 @@ def test_fatal_insert_rolls_back_partially_created_playlist(
             raise youtube_publish._GoogleApiError(500, "backendError", "fatal insert")
         inserted.append(video_id)
 
+    def fake_rollback(client, playlist_id: str, diagnostic: str) -> bool:
+        deleted.append(playlist_id)
+        return True
+
     monkeypatch.setattr(youtube_publish, "_add_track", fake_add_track)
-    monkeypatch.setattr(
-        youtube_publish,
-        "_delete_quietly",
-        lambda client, playlist_id: deleted.append(playlist_id),
-    )
+    monkeypatch.setattr(youtube_publish, "_rollback_playlist", fake_rollback)
 
     with pytest.raises(youtube_publish.YouTubeAccountError):
         youtube_publish._create_playlist_sync(
@@ -131,7 +131,7 @@ def test_fatal_insert_rolls_back_partially_created_playlist(
     assert deleted == ["PL123"]
 
 
-def test_skippable_insert_error_keeps_valid_playlist(
+def test_rejected_track_rolls_back_instead_of_publishing_partial_playlist(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_publish_client(monkeypatch)
@@ -143,22 +143,81 @@ def test_skippable_insert_error_keeps_valid_playlist(
             raise youtube_publish._GoogleApiError(404, "videoNotFound", "missing")
         inserted.append(video_id)
 
+    def fake_rollback(client, playlist_id: str, diagnostic: str) -> bool:
+        deleted.append(playlist_id)
+        return True
+
     monkeypatch.setattr(youtube_publish, "_add_track", fake_add_track)
+    monkeypatch.setattr(youtube_publish, "_rollback_playlist", fake_rollback)
+
+    with pytest.raises(youtube_publish.YouTubeAccountError) as raised:
+        youtube_publish._create_playlist_sync(
+            "Night drive",
+            "Test playlist",
+            "PRIVATE",
+            ["valid-video", "missing-video"],
+        )
+
+    assert inserted == ["valid-video"]
+    assert deleted == ["PL123"]
+    message = str(raised.value)
+    assert "track 2 of 2" in message
+    assert "missing-video" in message
+    assert "incomplete YouTube playlist was removed" in message
+    assert "draft was left unchanged" in message
+
+
+def test_rejected_track_reports_when_rollback_cannot_be_confirmed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_publish_client(monkeypatch)
+
+    def reject_track(client, playlist_id: str, video_id: str) -> None:
+        raise youtube_publish._GoogleApiError(404, "videoNotFound", "missing")
+
+    monkeypatch.setattr(youtube_publish, "_add_track", reject_track)
     monkeypatch.setattr(
         youtube_publish,
-        "_delete_quietly",
-        lambda client, playlist_id: deleted.append(playlist_id),
+        "_rollback_playlist",
+        lambda client, playlist_id, diagnostic: False,
+    )
+
+    with pytest.raises(youtube_publish.YouTubeAccountError) as raised:
+        youtube_publish._create_playlist_sync(
+            "Night drive",
+            "Test playlist",
+            "PRIVATE",
+            ["missing-video"],
+        )
+
+    message = str(raised.value)
+    assert "could not confirm deletion" in message
+    assert "Check YouTube Music and remove it if present" in message
+    assert "draft was left unchanged" in message
+
+
+def test_successful_publish_reports_complete_track_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_publish_client(monkeypatch)
+    inserted: list[str] = []
+
+    monkeypatch.setattr(
+        youtube_publish,
+        "_add_track",
+        lambda client, playlist_id, video_id: inserted.append(video_id),
     )
 
     result = youtube_publish._create_playlist_sync(
         "Night drive",
         "Test playlist",
         "PRIVATE",
-        ["valid-video", "missing-video"],
+        ["first-video", "second-video"],
     )
 
-    assert inserted == ["valid-video"]
-    assert deleted == []
-    assert result["track_count"] == 1
-    assert result["skipped_count"] == 1
+    assert inserted == ["first-video", "second-video"]
+    assert result["track_count"] == 2
+    assert result["requested_track_count"] == 2
+    assert result["skipped_count"] == 0
+    assert result["warning"] is None
     assert result["playlist_id"] == "PL123"
