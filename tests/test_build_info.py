@@ -130,6 +130,13 @@ def test_compose_exposes_only_checkout_head_and_refs_for_revision() -> None:
     assert "./.git:/run/playlistmuse-source-git" not in compose
 
 
+def test_compose_preserves_stable_defaults_and_allows_dev_isolation() -> None:
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert "${PLAYLISTMUSE_CONTAINER_NAME:-playlistmuse}" in compose
+    assert '"${PLAYLISTMUSE_HOST_PORT:-5780}:5780"' in compose
+
+
 def test_version_endpoint_reports_running_build_metadata(monkeypatch) -> None:
     monkeypatch.setenv("PLAYLISTMUSE_VERSION", "0.3.0-beta.2")
     monkeypatch.setenv("PLAYLISTMUSE_CHANNEL", "beta")
