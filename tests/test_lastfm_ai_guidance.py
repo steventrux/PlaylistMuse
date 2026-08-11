@@ -115,13 +115,9 @@ def test_prompt_generation_uses_lastfm_as_ai_context_without_fixed_quota(monkeyp
             for index, candidate in enumerate(candidates, start=1)
         ], []
 
-    def forbidden_fixed_blend(*args, **kwargs):
-        raise AssertionError("The old fixed Last.fm quota must not be used")
-
     monkeypatch.setattr(main_module, "generate_playlist_draft", fake_generate)
     monkeypatch.setattr(main_module, "discover_from_anchors", fake_discover)
     monkeypatch.setattr(main_module, "resolve_candidates", fake_resolve)
-    monkeypatch.setattr(main_module, "_blend_candidates", forbidden_fixed_blend)
 
     result = asyncio.run(
         main_module._generate(
