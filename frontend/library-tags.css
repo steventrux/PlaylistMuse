@@ -1,0 +1,187 @@
+.library-item:not(.expanded) .library-tags {
+  display: none;
+}
+
+.library-tags,
+.library-tag-ai-group,
+.library-tag-personal-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.library-tags {
+  --playlist-tag-height: 22px;
+  min-width: 0;
+  margin-top: 7px;
+}
+
+.library-tag-chip,
+.library-tag-add,
+.library-tag-delete,
+.library-tag-confirm {
+  display: inline-grid;
+  place-items: center;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid rgba(183, 156, 255, .24);
+  background: rgba(139, 92, 246, .08);
+  color: var(--text-secondary);
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.library-tag-chip {
+  max-width: 190px;
+  height: var(--playlist-tag-height);
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: .68rem;
+  font-weight: 720;
+  line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-tag-chip:hover,
+.library-tag-add:hover,
+.library-tag-delete:hover,
+.library-tag-confirm:hover {
+  border-color: rgba(183, 156, 255, .55);
+  background: rgba(139, 92, 246, .18);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.library-tag-chip.active,
+.library-tag-chip.active:hover {
+  border-color: #a78bfa;
+  background: rgba(139, 92, 246, .34);
+  color: #fff;
+  box-shadow: 0 0 0 1px rgba(167, 139, 250, .12);
+  transform: none;
+}
+
+.library-tag-add,
+.library-tag-confirm {
+  width: var(--playlist-tag-height);
+  height: var(--playlist-tag-height);
+  padding: 0;
+  border-radius: 7px;
+  color: var(--violet-light);
+}
+
+.library-tag-add svg,
+.library-tag-confirm svg,
+.library-tag-delete svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.library-personal-tag {
+  display: inline-flex;
+  align-items: stretch;
+  height: var(--playlist-tag-height);
+  overflow: hidden;
+  border: 1px solid rgba(56, 189, 248, .28);
+  border-radius: 999px;
+  background: rgba(56, 189, 248, .07);
+}
+
+.library-personal-tag .library-tag-chip {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.library-personal-tag .library-tag-chip.active {
+  background: rgba(56, 189, 248, .22);
+  color: #fff;
+}
+
+.library-tag-delete {
+  width: var(--playlist-tag-height);
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid rgba(56, 189, 248, .2);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.library-tag-delete:hover {
+  border-color: rgba(251, 113, 133, .35);
+  background: rgba(251, 113, 133, .1);
+  color: #fda4af;
+}
+
+.library-tag-add-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.library-tag-add-form input {
+  width: 132px;
+  min-height: 26px;
+  box-sizing: border-box;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: .72rem;
+}
+
+.library-item.expanded .library-tags {
+  grid-column: 2 / 4;
+  grid-row: 2;
+  align-self: end;
+  margin-top: 62px;
+}
+
+.playlist-tags {
+  min-height: var(--playlist-tag-height, 22px);
+  margin-top: 10px;
+}
+
+.playlist-tags .library-tags {
+  margin-top: 0;
+}
+
+.playlist-tag-status {
+  margin: 6px 0 0;
+  color: #fda4af;
+  font-size: .74rem;
+  line-height: 1.35;
+}
+
+@media (max-width: 650px) {
+  .library-item.expanded .library-tags {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    margin-top: 0;
+  }
+
+  .library-item.expanded .library-details {
+    grid-row: 4;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .library-tag-chip,
+  .library-tag-add,
+  .library-tag-delete,
+  .library-tag-confirm {
+    transition: none;
+  }
+}

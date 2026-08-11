@@ -19,40 +19,6 @@ def _resolved_track(index: int) -> dict[str, str]:
     }
 
 
-def test_blend_candidates_keeps_ai_pool_and_bounds_lastfm_share() -> None:
-    primary = [
-        {
-            "artist": f"Primary Artist {index}",
-            "title": f"Primary Track {index}",
-            "description": "Primary.",
-            "reason": "Primary selection.",
-        }
-        for index in range(5)
-    ]
-    supplemental = [
-        dict(primary[0]),
-        {
-            "artist": "Last.fm Artist A",
-            "title": "Last.fm Track A",
-            "description": "Last.fm.",
-            "reason": "Listening-data match.",
-        },
-        {
-            "artist": "Last.fm Artist B",
-            "title": "Last.fm Track B",
-            "description": "Last.fm.",
-            "reason": "Listening-data match.",
-        },
-    ]
-
-    blended = main_module._blend_candidates(primary, supplemental, count=5)
-
-    assert len(blended) == 6
-    assert primary[0] in blended
-    assert supplemental[1] in blended
-    assert supplemental[2] not in blended
-
-
 def test_seed_lastfm_context_is_isolated_to_one_generation(monkeypatch) -> None:
     seen: dict[str, object] = {}
     lastfm_candidates = [

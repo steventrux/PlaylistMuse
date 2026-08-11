@@ -8,19 +8,16 @@
   let playlist = null;
   let selectedPrivacy = 'PRIVATE';
 
-  function loadFooterStatus() {
-    if (document.querySelector('script[data-playlistmuse-footer-status]')) return;
-    const script = document.createElement('script');
-    script.src = '/static/home-status.js?v=12';
-    script.dataset.playlistmuseFooterStatus = 'true';
-    document.body.append(script);
+  function loadPlaylistFromSession() {
+    try {
+      playlist = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || 'null');
+    } catch {
+      playlist = null;
+    }
+    return playlist;
   }
 
-  try {
-    playlist = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || 'null');
-  } catch {
-    playlist = null;
-  }
+  loadPlaylistFromSession();
 
   function setPublishState(state = 'ready') {
     publishSection?.classList.toggle('is-publishing', state === 'publishing');
@@ -100,14 +97,7 @@
   }
 
   function openYouTubeSettings() {
-    const dialog = $('youtube-settings-dialog');
-    if (!dialog.open) dialog.showModal();
-    window.dispatchEvent(new Event('playlistmuse-youtube-settings-opened'));
-  }
-
-  function closeYouTubeSettings() {
-    const dialog = $('youtube-settings-dialog');
-    if (dialog.open) dialog.close();
+    window.PlaylistMuseSettingsOverlay?.open('youtube');
   }
 
   function renderPublishedResult(result) {
@@ -164,6 +154,7 @@
   }
 
   async function refreshStatus() {
+    loadPlaylistFromSession();
     const alreadyPublished = Boolean(playlist?.youtube_playlist?.url);
     if (alreadyPublished) {
       renderPublishedResult(playlist.youtube_playlist);
@@ -186,6 +177,7 @@
   }
 
   async function publishPlaylist() {
+    loadPlaylistFromSession();
     if (!playlist || !Array.isArray(playlist.tracks)) {
       setStatus('No generated playlist is available in this browser session.', 'error');
       return;
@@ -252,9 +244,8 @@
     button.addEventListener('click', () => selectPrivacy(button));
   });
   $('youtube-open-settings').addEventListener('click', openYouTubeSettings);
-  $('close-youtube-settings').addEventListener('click', closeYouTubeSettings);
   $('create-youtube-playlist').addEventListener('click', publishPlaylist);
   window.addEventListener('playlistmuse-status-changed', refreshStatus);
-  loadFooterStatus();
+  window.addEventListener('playlistmuse-playlist-record-updated', loadPlaylistFromSession);
   refreshStatus();
 })();

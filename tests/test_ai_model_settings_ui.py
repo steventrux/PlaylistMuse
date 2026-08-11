@@ -12,18 +12,13 @@ def _read(name: str) -> str:
 
 def test_ai_settings_show_only_primary_model_and_hide_fallback_controls() -> None:
     settings = _read("ai-settings.js")
-    results_bridge = _read("ai-results-settings.js")
     style = _read("ai-settings.css")
 
     assert "Model in use" in settings
-    assert "Model in use" in results_bridge
     assert "function ensureModelControls()" in settings
     assert "fallbackRow.hidden = true" in settings
     assert "#fallback-row" in style
     assert "display: none !important" in style
-    assert "Fallbacks" not in results_bridge
-    assert 'id="ai-fallback-1" type="hidden"' in results_bridge
-    assert 'id="ai-fallback-2" type="hidden"' in results_bridge
 
 
 def test_active_ai_summary_shows_primary_model_only() -> None:

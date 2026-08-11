@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#070916">
+  <link rel="icon" type="image/png" href="/static/playlistmuse-favicon.png?v=1">
+  <title>My playlists · PlaylistMuse</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v=10">
+  <link rel="stylesheet" href="/static/layout.css?v=5">
+  <link rel="stylesheet" href="/static/controls.css?v=7">
+  <link rel="stylesheet" href="/static/library.css?v=10">
+  <link rel="stylesheet" href="/static/library-tags.css?v=3">
+  <link rel="stylesheet" href="/static/library-refinement-history.css?v=1">
+  <link rel="stylesheet" href="/static/library-heading.css?v=3">
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">AI playlist studio</p>
+      <h1>PlaylistMuse</h1>
+    </div>
+    <a class="secondary library-header-link" href="/" aria-label="Home" title="Home">Create playlist</a>
+  </header>
+
+  <main>
+    <section class="card library-card" aria-label="My playlists">
+      <div class="library-controls" aria-label="Playlist library controls">
+        <label class="library-search" for="library-search">
+          <span>Search</span>
+          <input id="library-search" type="search" autocomplete="off" placeholder="Search playlists...">
+        </label>
+
+        <div class="library-filter-group">
+          <span class="library-control-label">Status</span>
+          <div class="library-filter-tabs" role="group" aria-label="Filter playlists by status">
+            <button class="library-filter active" type="button" data-status-filter="all" aria-pressed="true">All</button>
+            <button class="library-filter" type="button" data-status-filter="draft" aria-pressed="false">Draft</button>
+            <button class="library-filter" type="button" data-status-filter="published" aria-pressed="false">Published</button>
+          </div>
+        </div>
+
+        <label class="library-sort" for="library-sort">
+          Sort by
+          <select id="library-sort">
+            <option value="updated_desc">Recently updated</option>
+            <option value="created_desc">Recently created</option>
+            <option value="title_asc">Title A–Z</option>
+            <option value="title_desc">Title Z–A</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="library-count-row">
+        <span id="library-count" class="library-count" aria-live="polite">0 playlists</span>
+      </div>
+
+      <p id="library-status" class="status" aria-live="polite">Loading playlists…</p>
+      <div id="library-list" class="library-list" aria-live="polite"></div>
+      <div id="library-empty" class="empty-state hidden">
+        No saved playlists yet. Create one and it will appear here automatically.
+      </div>
+      <nav id="library-pagination" class="library-pagination hidden" aria-label="Playlist pages">
+        <button id="library-page-previous" class="secondary library-page-nav" type="button">Previous</button>
+        <div id="library-page-numbers" class="library-page-numbers"></div>
+        <button id="library-page-next" class="secondary library-page-nav" type="button">Next</button>
+      </nav>
+    </section>
+  </main>
+
+  <script src="/static/common.js?v=1"></script>
+  <script src="/static/library-tags.js?v=3"></script>
+  <script src="/static/library-pagination.js?v=1"></script>
+  <script src="/static/library.js?v=11"></script>
+  <script src="/static/action-controls.js?v=1"></script>
+  <script src="/static/settings-overlay.js?v=1"></script>
+  <script src="/static/home-status.js?v=18"></script>
+</body>
+</html>

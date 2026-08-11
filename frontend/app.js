@@ -6,6 +6,9 @@
     selectedSeed: null,
     seedMode: 'balanced',
     seedSearching: false,
+    seedSuggestionLoading: false,
+    lastFmConfigured: false,
+    generating: false,
     setupMode: 'single',
     setupStep: 'ai',
   };
@@ -34,6 +37,16 @@
     },
   };
 
+  const GENERATION_LOCKED_CONTROL_IDS = [
+    'prompt',
+    'track-count',
+    'exclude-live',
+    'exclude-covers',
+    'exclude-remixes',
+    'prompt-surprise',
+    'seed-surprise',
+  ];
+
   function message(text = '', error = false) {
     $('status').textContent = text;
     $('status').classList.toggle('error', error);
@@ -61,6 +74,31 @@
     return generationState.normalizePrompt($('prompt').value);
   }
 
+  function updateSeedSurpriseAvailability() {
+    const button = $('seed-surprise');
+    if (!button) return;
+    button.hidden = !state.lastFmConfigured;
+    const disabled = (
+      !state.lastFmConfigured
+      || state.seedSearching
+      || state.seedSuggestionLoading
+      || state.generating
+    );
+    button.disabled = disabled;
+    button.setAttribute('aria-disabled', String(disabled));
+  }
+
+  function setGenerationInputsLocked(locked) {
+    state.generating = locked;
+    GENERATION_LOCKED_CONTROL_IDS.forEach((id) => {
+      const control = $(id);
+      if (!control) return;
+      control.disabled = locked;
+      control.setAttribute('aria-disabled', String(locked));
+    });
+    updateSeedSurpriseAvailability();
+  }
+
   function updateGenerationControls() {
     const ready = generationState.isGenerationReady(
       state.mode,
@@ -85,6 +123,7 @@
     state.seedSearching = searching;
     $('seed-search').textContent = searching ? 'Searching…' : 'Search';
     updateSeedSearchAvailability();
+    updateSeedSurpriseAvailability();
   }
 
   function updateSeedModeControls() {
@@ -308,6 +347,39 @@
     container.classList.remove('hidden');
   }
 
+  async function suggestRandomSeed() {
+    if (
+      !state.lastFmConfigured
+      || state.seedSuggestionLoading
+      || state.seedSearching
+      || state.generating
+    ) return;
+
+    state.seedSuggestionLoading = true;
+    updateSeedSurpriseAvailability();
+    message('Finding a random seed on Last.fm…');
+
+    try {
+      const suggestion = await readJson(
+        await fetch('/api/lastfm/random-seed', {cache: 'no-store'}),
+      );
+      const query = String(suggestion.query || '').trim();
+      if (!query) throw new Error('Last.fm returned an empty suggestion.');
+
+      clearSelectedSeed();
+      $('seed-results').classList.add('hidden');
+      $('seed-query').value = query;
+      $('seed-query').dispatchEvent(new Event('input', {bubbles: true}));
+      setSeedGuidance('');
+      message('');
+    } catch (error) {
+      message(error.message || String(error), true);
+    } finally {
+      state.seedSuggestionLoading = false;
+      updateSeedSurpriseAvailability();
+    }
+  }
+
   async function searchSeed() {
     if (state.seedSearching) return;
 
@@ -344,6 +416,7 @@
   async function generate() {
     const button = $('generate');
     if (button.disabled) return;
+    if (state.generating) return;
 
     let endpoint;
     let request;
@@ -369,6 +442,7 @@
       resetText: 'Generate playlist',
       ariaLabel: 'Generating playlist',
     });
+    setGenerationInputsLocked(true);
     message('Generating and resolving tracks on YouTube Music…');
 
     try {
@@ -387,6 +461,7 @@
       }));
       window.location.assign('/static/playlist.html');
     } catch (error) {
+      setGenerationInputsLocked(false);
       resetGeneratingButton();
       message(error.message || String(error), true);
     }
@@ -408,6 +483,7 @@
   $('generate').addEventListener('click', generate);
   $('prompt').addEventListener('input', updateGenerationControls);
   $('seed-search').addEventListener('click', searchSeed);
+  $('seed-surprise').addEventListener('click', () => void suggestRandomSeed());
   $('seed-query').addEventListener('input', updateSeedSearchAvailability);
   $('seed-query').addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
@@ -416,11 +492,18 @@
     }
   });
 
+  window.addEventListener('playlistmuse-lastfm-status', (event) => {
+    state.lastFmConfigured = Boolean(event.detail?.configured);
+    updateSeedSurpriseAvailability();
+  });
+
   document.querySelectorAll('.mode').forEach((button) => button.addEventListener('click', () => {
     setMode(button.dataset.mode, button);
   }));
 
-  $('ai-open-settings').addEventListener('click', () => openSetup('ai', 'single'));
+  $('ai-open-settings').addEventListener('click', () => {
+    window.PlaylistMuseSettingsOverlay?.open('ai');
+  });
   $('close-setup').addEventListener('click', closeSetup);
   $('setup-skip').addEventListener('click', closeSetup);
   $('setup-finish').addEventListener('click', closeSetup);
@@ -434,6 +517,7 @@
   });
 
   updateSeedSearchAvailability();
+  updateSeedSurpriseAvailability();
   updateGenerationControls();
   void showInitialSetupIfRequired();
 })();

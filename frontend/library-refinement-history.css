@@ -1,0 +1,49 @@
+.library-refinement-history-line {
+  margin: 0;
+}
+
+.library-refinement-history-line:has(strong) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px !important;
+  padding-top: 12px;
+  border-top: 1px solid rgba(183, 156, 255, .16);
+  color: var(--cyan-light);
+  font-size: .7rem;
+  font-weight: 850;
+  letter-spacing: .08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.library-refinement-history-line:has(strong) strong {
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.library-refinement-history-line:not(:has(strong)) {
+  margin-top: 7px !important;
+  padding: 8px 10px 8px 12px;
+  border-left: 2px solid rgba(139, 92, 246, .46);
+  border-radius: 0 9px 9px 0;
+  background: rgba(8, 11, 27, .28);
+  color: var(--text-secondary);
+  font-size: .82rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 650px) {
+  .library-refinement-history-line:has(strong) {
+    margin-top: 14px !important;
+    padding-top: 10px;
+  }
+
+  .library-refinement-history-line:not(:has(strong)) {
+    margin-top: 6px !important;
+    padding: 7px 9px 7px 10px;
+    font-size: .8rem;
+  }
+}

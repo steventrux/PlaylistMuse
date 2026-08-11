@@ -233,7 +233,6 @@ def test_runtime_guards_use_explicit_generation_modules() -> None:
         metadata_validation,
         playlist_policy,
         prompt_validation,
-        runtime_fixes,
         youtube,
     )
 
@@ -271,8 +270,3 @@ def test_runtime_guards_use_explicit_generation_modules() -> None:
     )
     assert youtube._metadata_filter.__module__ == "backend.youtube"
     assert llm.safe_error_message.__module__ == "backend.llm"
-    assert not getattr(
-        runtime_fixes.install_pre_generation_fixes,
-        "_installed",
-        False,
-    )

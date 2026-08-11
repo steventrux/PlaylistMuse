@@ -94,37 +94,72 @@
 
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
-  function loadScript(src) {
-    return new Promise((resolve, reject) => {
-      const existing = document.querySelector(`script[src^="${src}"]`);
-      if (existing) {
-        resolve();
-        return;
-      }
-      const script = document.createElement('script');
-      script.src = `${src}?v=1`;
-      script.onload = resolve;
-      script.onerror = reject;
-      document.body.append(script);
-    });
+  function ensureLastFmStyles() {
+    if (document.querySelector('link[href^="/static/lastfm.css"]')) return;
+    const stylesheet = document.createElement('link');
+    stylesheet.rel = 'stylesheet';
+    stylesheet.href = '/static/lastfm.css?v=1';
+    document.head.append(stylesheet);
   }
 
-  async function loadLastFmEnhancements() {
-    if (!document.querySelector('link[href^="/static/lastfm.css"]')) {
-      const stylesheet = document.createElement('link');
-      stylesheet.rel = 'stylesheet';
-      stylesheet.href = '/static/lastfm.css?v=1';
-      document.head.append(stylesheet);
+  function primaryNavigationHost() {
+    const path = window.location.pathname;
+    if (
+      path.endsWith('/library.html')
+      || path.endsWith('/playlist.html')
+      || path === '/'
+      || path.endsWith('/index.html')
+    ) {
+      return document.querySelector('.app-header');
     }
+    return null;
+  }
 
-    try {
-      if (document.getElementById('setup-dialog')) {
-        await loadScript('/static/lastfm-settings.js');
-      }
-      await loadScript('/static/lastfm-status.js');
-    } catch {
-      // Last.fm is optional and must never block the existing interface.
-    }
+  function ensurePrimaryNavigationStyles() {
+    if (document.querySelector('link[href^="/static/primary-navigation.css"]')) return;
+    const stylesheet = document.createElement('link');
+    stylesheet.rel = 'stylesheet';
+    stylesheet.href = '/static/primary-navigation.css?v=2';
+    document.head.append(stylesheet);
+  }
+
+  function installPrimaryNavigation() {
+    const host = primaryNavigationHost();
+    if (!host || host.querySelector('.primary-page-navigation')) return;
+
+    const pageGroup = document.querySelector(
+      '.playlistmuse-sidebar .sidebar-group[aria-labelledby="sidebar-pages-label"]',
+    );
+    if (!pageGroup) return;
+
+    const links = Array.from(pageGroup.querySelectorAll('.sidebar-link'));
+    if (!links.length) return;
+
+    ensurePrimaryNavigationStyles();
+
+    const navigation = document.createElement('nav');
+    navigation.className = 'primary-page-navigation';
+    navigation.setAttribute('aria-label', 'Primary playlist navigation');
+
+    links.forEach((link) => {
+      const label = link.querySelector('span')?.textContent?.trim()
+        || link.textContent.trim();
+      const active = link.getAttribute('aria-current') === 'page';
+
+      link.className = 'primary-page-link';
+      link.classList.toggle('active', active);
+      link.replaceChildren(label);
+      navigation.append(link);
+    });
+
+    const sidebar = pageGroup.closest('.playlistmuse-sidebar');
+    const sidebarNav = pageGroup.closest('.sidebar-nav');
+    pageGroup.remove();
+    if (sidebar) sidebar.setAttribute('aria-label', 'PlaylistMuse integrations');
+    if (sidebarNav) sidebarNav.setAttribute('aria-label', 'Integrations');
+
+    host.classList.add('has-primary-page-navigation');
+    host.append(navigation);
   }
 
   function installPromptAssessmentStyles() {
@@ -289,8 +324,9 @@
   }
 
   function initializeEnhancements() {
+    installPrimaryNavigation();
     installPromptPreflight();
-    void loadLastFmEnhancements();
+    ensureLastFmStyles();
   }
 
   if (document.readyState === 'complete') {

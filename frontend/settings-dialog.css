@@ -1,21 +1,8 @@
-/* Shared visual language for every PlaylistMuse settings dialog. */
+/* Shared visual language for PlaylistMuse settings surfaces. */
 
 .settings-dialog-card .dialog-head {
   min-height: 58px;
   gap: 20px;
-}
-
-#ai-settings-dialog .dialog-head h2::before,
-#youtube-settings-dialog .dialog-head h2::before {
-  content: "Configuration";
-  display: block;
-  margin-bottom: 5px;
-  color: var(--cyan-light);
-  font-size: .75rem;
-  font-weight: 800;
-  letter-spacing: .16em;
-  line-height: 1.2;
-  text-transform: uppercase;
 }
 
 /* Keep the onboarding gap only while the onboarding progress is visible. */
@@ -23,8 +10,6 @@
   margin-bottom: 0;
 }
 
-#ai-settings-dialog .settings-block,
-#youtube-settings-dialog .settings-block,
 #setup-dialog .setup-step.settings-block {
   padding-top: 0;
   padding-bottom: 0;
@@ -70,14 +55,27 @@
   max-width: 100%;
   margin: 0;
   padding: 8px 10px;
-  border: 1px solid rgba(148, 163, 184, .25);
+  gap: 9px;
+  border: 1px solid rgba(251, 191, 36, .36);
   border-radius: 10px;
-  background: rgba(15, 23, 42, .52);
-  color: var(--text-secondary);
+  background: rgba(120, 74, 8, .12);
+  color: #fde68a;
   font-size: 1rem;
   font-weight: 800;
-  line-height: 1.3;
+  line-height: 1.35;
   white-space: normal;
+}
+
+.settings-dialog-card .ai-active-status::before,
+.settings-dialog-card .youtube-account-state::before,
+.settings-dialog-card .settings-state::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 999px;
+  background: var(--warning);
+  box-shadow: 0 0 0 3px rgba(251, 191, 36, .1);
 }
 
 .settings-dialog-card .ai-active-status.ok,
@@ -88,6 +86,13 @@
   color: #86efac;
 }
 
+.settings-dialog-card .ai-active-status.ok::before,
+.settings-dialog-card .youtube-account-state.ok::before,
+.settings-dialog-card .settings-state.ok::before {
+  background: var(--success);
+  box-shadow: 0 0 0 3px rgba(74, 222, 128, .1);
+}
+
 .settings-dialog-card .ai-active-status.error,
 .settings-dialog-card .youtube-account-state.error,
 .settings-dialog-card .settings-state.error {
@@ -96,10 +101,18 @@
   color: var(--error);
 }
 
+.settings-dialog-card .ai-active-status.error::before,
+.settings-dialog-card .youtube-account-state.error::before,
+.settings-dialog-card .settings-state.error::before {
+  background: var(--error);
+  box-shadow: 0 0 0 3px rgba(251, 113, 133, .1);
+}
+
 .settings-dialog-card .youtube-account-profile:not(.hidden) {
   margin-top: 12px;
 }
 
+.settings-dialog-card .ai-provider-selection,
 .settings-dialog-card .youtube-credentials-section,
 .settings-dialog-card .settings-section {
   padding-top: 0;

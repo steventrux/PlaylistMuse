@@ -6,18 +6,21 @@ ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
 
 
-def test_prompt_placeholder_is_updated_without_music_note() -> None:
+def test_prompt_placeholder_is_generated_from_random_prompt_engine() -> None:
     html = (FRONTEND / "index.html").read_text(encoding="utf-8")
+    surprise = (FRONTEND / "prompt-surprise.js").read_text(encoding="utf-8")
 
-    placeholder = (
+    old_placeholder = (
         "A slow-burning road-trip playlist with blues rock, warm guitars and "
         "a steady night-drive mood..."
     )
-    assert f'placeholder="{placeholder}"' in html
-    assert "A nocturnal blues-rock drive through the Alps" not in html
-    assert "♪" not in placeholder
-    assert "♫" not in placeholder
-    assert "♬" not in placeholder
+    assert old_placeholder not in html
+    assert '<textarea id="prompt" maxlength="1950" rows="5"></textarea>' in html
+    assert "const example = buildPrompt('example');" in surprise
+    assert "prompt.placeholder = example;" in surprise
+    assert "♪" not in surprise
+    assert "♫" not in surprise
+    assert "♬" not in surprise
 
 
 def test_generation_controls_start_hidden_and_keep_status_outside() -> None:
@@ -37,12 +40,20 @@ def test_generation_controls_start_hidden_and_keep_status_outside() -> None:
     assert 'id="status"' not in controls
 
 
+def test_generation_feedback_stays_outside_prompt_shell() -> None:
+    script = (FRONTEND / "generation-state.js").read_text(encoding="utf-8")
+
+    assert "const promptShell = prompt?.closest('.prompt-input-shell');" in script
+    assert "(promptShell || prompt).insertAdjacentElement('afterend', status);" in script
+    assert "prompt.insertAdjacentElement('afterend', status);" not in script
+
+
 def test_prompt_and_seed_control_generation_visibility() -> None:
     html = (FRONTEND / "index.html").read_text(encoding="utf-8")
     script = (FRONTEND / "app.js").read_text(encoding="utf-8")
 
-    assert '/static/generation-state.js?v=2' in html
-    assert '/static/app.js?v=17' in html
+    assert '/static/generation-state.js?v=3' in html
+    assert '/static/app.js?v=19' in html
     assert "const generationState = window.PlaylistMuseGenerationState" in script
     assert "function updateGenerationControls()" in script
     assert "generationState.isGenerationReady(" in script
@@ -52,6 +63,30 @@ def test_prompt_and_seed_control_generation_visibility() -> None:
     assert "function clearSelectedSeed(" in script
     assert script.count("updateGenerationControls();") >= 4
     assert "updateGenerationControls();\n  void showInitialSetupIfRequired();" in script
+
+
+def test_generation_locks_request_controls_until_completion_or_error() -> None:
+    script = (FRONTEND / "app.js").read_text(encoding="utf-8")
+
+    assert "generating: false" in script
+    assert "const GENERATION_LOCKED_CONTROL_IDS = [" in script
+    for control_id in (
+        "prompt",
+        "track-count",
+        "exclude-live",
+        "exclude-covers",
+        "exclude-remixes",
+        "prompt-surprise",
+        "seed-surprise",
+    ):
+        assert f"'{control_id}'" in script
+    assert "function setGenerationInputsLocked(locked)" in script
+    assert "control.disabled = locked;" in script
+    assert "control.setAttribute('aria-disabled', String(locked));" in script
+    assert "if (button.disabled) return;" in script
+    assert "if (state.generating) return;" in script
+    assert "setGenerationInputsLocked(true);" in script
+    assert "setGenerationInputsLocked(false);\n      resetGeneratingButton();" in script
 
 
 def test_seed_search_is_disabled_while_empty_or_searching() -> None:

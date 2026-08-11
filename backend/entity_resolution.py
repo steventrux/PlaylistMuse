@@ -13,9 +13,9 @@ import httpx
 
 from backend.musicbrainz_client import rate_limited_get
 from backend.text_normalization import normalize_identity as _normalize
+from backend.version import USER_AGENT
 
 API_ROOT = "https://musicbrainz.org/ws/2"
-USER_AGENT = "PlaylistMuse/0.7 (https://github.com/steventrux/PlaylistMuse)"
 CACHE_TTL_SECONDS = 180 * 24 * 60 * 60
 MIN_API_SCORE = 90
 MAX_NAMES_PER_REQUEST = 8

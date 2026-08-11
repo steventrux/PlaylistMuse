@@ -1,11 +1,20 @@
 services:
   playlistmuse:
-    build: .
-    container_name: playlistmuse
+    build:
+      context: .
+      args:
+        PLAYLISTMUSE_VERSION: ${PLAYLISTMUSE_VERSION:-dev}
+        PLAYLISTMUSE_CHANNEL: ${PLAYLISTMUSE_CHANNEL:-dev}
+        PLAYLISTMUSE_GIT_SHA: ${PLAYLISTMUSE_GIT_SHA:-local}
+    container_name: ${PLAYLISTMUSE_CONTAINER_NAME:-playlistmuse}
     ports:
-      - "5780:5780"
+      - "${PLAYLISTMUSE_HOST_PORT:-5780}:5780"
     env_file:
       - .env
+    environment:
+      PLAYLISTMUSE_SOURCE_GIT_DIR: /run/playlistmuse-source-git
     volumes:
       - ./data:/app/data
+      - ./.git/HEAD:/run/playlistmuse-source-git/HEAD:ro
+      - ./.git/refs:/run/playlistmuse-source-git/refs:ro
     restart: unless-stopped
