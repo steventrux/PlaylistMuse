@@ -35,12 +35,6 @@ def _protected_library_playlist_id(request: Request) -> str | None:
 
 
 @app.middleware("http")
-async def record_diagnostics(request: Request, call_next):
-    """Record API activity and attach references to server-side failures."""
-    return await diagnostics_middleware(request, call_next)
-
-
-@app.middleware("http")
 async def protect_published_playlist_writes(request: Request, call_next):
     """Keep published library records immutable through the public API."""
     playlist_id = _protected_library_playlist_id(request)
@@ -64,6 +58,12 @@ async def refresh_library_publication_state(request: Request, call_next):
     if request.method == "GET" and request.url.path == "/api/library/playlists":
         await reconcile_deleted_youtube_playlists()
     return await call_next(request)
+
+
+@app.middleware("http")
+async def record_diagnostics(request: Request, call_next):
+    """Record API activity and attach references to server-side failures."""
+    return await diagnostics_middleware(request, call_next)
 
 
 app.include_router(build_info_router, prefix="/api")
