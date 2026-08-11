@@ -33,6 +33,7 @@ from backend.playlist_ordering import (
     order_tracks_by_release_date,
 )
 from backend.prompt_analysis import analyze_prompt_semantics
+from backend.version import APP_VERSION
 from backend.youtube import search_songs, track_identity_key
 from backend.youtube_routes import router as youtube_router
 
@@ -77,7 +78,7 @@ _SEED_MODE: ContextVar[str] = ContextVar(
 app = FastAPI(
     title="PlaylistMuse",
     description="AI-assisted playlist creation for YouTube Music",
-    version="0.7.0",
+    version=APP_VERSION,
 )
 app.include_router(youtube_router)
 app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
