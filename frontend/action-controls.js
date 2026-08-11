@@ -1,6 +1,16 @@
 (() => {
   'use strict';
 
+  const PLAYLIST_ACTION_SELECTOR = [
+    '#add-track',
+    '#refine-playlist',
+    'a.primary.track-action',
+    '.replace-track-button',
+    '.remove-track-button',
+    '.track-move-button',
+  ].join(', ');
+  const LIBRARY_OPEN_SELECTOR = '.library-actions > a.primary';
+
   const ICONS = Object.freeze({
     youtube: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.5" y="5.5" width="17" height="13" rx="4"/><path d="m10 9 5 3-5 3Z"/></svg>',
     replace: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 7h-9a4 4 0 0 0-4 4v1"/><path d="m17 4 3 3-3 3"/><path d="M4 17h9a4 4 0 0 0 4-4v-1"/><path d="m7 20-3-3 3-3"/></svg>',
@@ -20,6 +30,13 @@
     add: {label: 'Add track', icon: ICONS.add},
     refine: {label: 'Refine playlist', icon: ICONS.refine},
   });
+
+  function elementsWithin(root, selector) {
+    const elements = [];
+    if (root instanceof Element && root.matches(selector)) elements.push(root);
+    root.querySelectorAll?.(selector).forEach((element) => elements.push(element));
+    return elements;
+  }
 
   function decorateCompactAction(element, actionName) {
     const action = ACTIONS[actionName];
@@ -60,16 +77,14 @@
   }
 
   function decoratePlaylistActions(root = document) {
-    root.querySelectorAll?.(
-      '#add-track, #refine-playlist, a.primary.track-action, .replace-track-button, .remove-track-button, .track-move-button',
-    ).forEach((element) => {
+    elementsWithin(root, PLAYLIST_ACTION_SELECTOR).forEach((element) => {
       const actionName = element.dataset.compactAction || compactActionName(element);
       if (actionName) decorateCompactAction(element, actionName);
     });
   }
 
   function normalizeLibraryOpenActions(root = document) {
-    root.querySelectorAll?.('.library-actions > a.primary').forEach((link) => {
+    elementsWithin(root, LIBRARY_OPEN_SELECTOR).forEach((link) => {
       const text = link.textContent.trim();
       if (text === 'Edit') link.textContent = 'Open';
       if (text === 'Editing…') link.textContent = 'Opening…';
@@ -90,10 +105,6 @@
 
   const observer = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
-      mutation.addedNodes.forEach((node) => {
-        if (!(node instanceof Element)) return;
-        refresh(node.matches('.library-actions, .track-actions, #playlist-draft-actions') ? node : node);
-      });
       if (mutation.target instanceof Element) refresh(mutation.target);
     });
   });
