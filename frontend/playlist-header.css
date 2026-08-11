@@ -11,16 +11,26 @@
 }
 
 .playlist-save-status {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 90;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 6px;
   min-height: 18px;
-  margin: -10px 0 10px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(7, 9, 22, .9);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .24);
   color: var(--text-muted);
   font-size: .72rem;
   font-weight: 720;
   line-height: 1;
+  pointer-events: none;
 }
 
 .playlist-save-status::before {
@@ -171,6 +181,11 @@ body.playlist-readonly .playlist-description-editor textarea:focus {
 }
 
 @media (max-width: 720px) {
+  .playlist-save-status {
+    right: 12px;
+    bottom: 12px;
+  }
+
   .playlist-overview {
     grid-template-columns: 1fr;
   }
