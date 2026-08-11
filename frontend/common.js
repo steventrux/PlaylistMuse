@@ -155,11 +155,40 @@
     const sidebar = pageGroup.closest('.playlistmuse-sidebar');
     const sidebarNav = pageGroup.closest('.sidebar-nav');
     pageGroup.remove();
-    if (sidebar) sidebar.setAttribute('aria-label', 'PlaylistMuse integrations');
-    if (sidebarNav) sidebarNav.setAttribute('aria-label', 'Integrations');
+    if (sidebar) sidebar.setAttribute('aria-label', 'PlaylistMuse settings');
+    if (sidebarNav) sidebarNav.setAttribute('aria-label', 'Settings and integrations');
 
     host.classList.add('has-primary-page-navigation');
     host.append(navigation);
+  }
+
+  function installSupportNavigation() {
+    const sidebarNav = document.querySelector('.playlistmuse-sidebar .sidebar-nav');
+    if (!sidebarNav || sidebarNav.querySelector('[data-settings-section="support"]')) return;
+
+    const group = document.createElement('section');
+    group.className = 'sidebar-group';
+    group.setAttribute('aria-labelledby', 'sidebar-support-label');
+    group.innerHTML = `
+      <p id="sidebar-support-label" class="sidebar-group-label">Support</p>
+      <a class="sidebar-link" data-settings-section="support" href="/static/settings.html?section=support">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <circle cx="12" cy="12" r="8.5" />
+          <path d="M7.5 12h2.4l1.5-3.5 2.2 7 1.5-3.5h1.4" />
+        </svg>
+        <span>Diagnostics</span>
+      </a>
+    `;
+
+    const link = group.querySelector('[data-settings-section="support"]');
+    link?.addEventListener('click', (event) => {
+      if (typeof window.PlaylistMuseSettingsOverlay?.open !== 'function') return;
+      event.preventDefault();
+      document.querySelector('.playlistmuse-sidebar .sidebar-close')?.click();
+      window.PlaylistMuseSettingsOverlay.open('support');
+    });
+
+    sidebarNav.append(group);
   }
 
   function installPromptAssessmentStyles() {
@@ -325,6 +354,7 @@
 
   function initializeEnhancements() {
     installPrimaryNavigation();
+    installSupportNavigation();
     installPromptPreflight();
     ensureLastFmStyles();
   }
