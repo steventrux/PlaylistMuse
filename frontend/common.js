@@ -94,37 +94,12 @@
 
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
-  function loadScript(src) {
-    return new Promise((resolve, reject) => {
-      const existing = document.querySelector(`script[src^="${src}"]`);
-      if (existing) {
-        resolve();
-        return;
-      }
-      const script = document.createElement('script');
-      script.src = `${src}?v=1`;
-      script.onload = resolve;
-      script.onerror = reject;
-      document.body.append(script);
-    });
-  }
-
-  async function loadLastFmEnhancements() {
-    if (!document.querySelector('link[href^="/static/lastfm.css"]')) {
-      const stylesheet = document.createElement('link');
-      stylesheet.rel = 'stylesheet';
-      stylesheet.href = '/static/lastfm.css?v=1';
-      document.head.append(stylesheet);
-    }
-
-    try {
-      if (document.getElementById('setup-dialog')) {
-        await loadScript('/static/lastfm-settings.js');
-      }
-      await loadScript('/static/lastfm-status.js');
-    } catch {
-      // Last.fm is optional and must never block the existing interface.
-    }
+  function ensureLastFmStyles() {
+    if (document.querySelector('link[href^="/static/lastfm.css"]')) return;
+    const stylesheet = document.createElement('link');
+    stylesheet.rel = 'stylesheet';
+    stylesheet.href = '/static/lastfm.css?v=1';
+    document.head.append(stylesheet);
   }
 
   function primaryNavigationHost() {
@@ -351,7 +326,7 @@
   function initializeEnhancements() {
     installPrimaryNavigation();
     installPromptPreflight();
-    void loadLastFmEnhancements();
+    ensureLastFmStyles();
   }
 
   if (document.readyState === 'complete') {
