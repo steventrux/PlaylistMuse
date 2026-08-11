@@ -3,21 +3,16 @@
 
   const $ = (id) => document.getElementById(id);
   const {readJson} = window.PlaylistMuseCommon;
+  const pageHost = $('settings-lastfm-host');
+  if (!pageHost) return;
 
   function ensurePanel() {
     const existing = $('setup-lastfm-step');
     if (existing) return existing;
 
-    const pageHost = $('settings-lastfm-host');
-    const navigation = $('setup-navigation');
-    const form = $('setup-dialog')?.querySelector('form');
-    if (!pageHost && !form) return null;
-
     const panel = document.createElement('section');
     panel.id = 'setup-lastfm-step';
-    panel.className = pageHost
-      ? 'settings-block setup-step lastfm-settings-panel'
-      : 'settings-block setup-step lastfm-settings-panel hidden';
+    panel.className = 'settings-block setup-step lastfm-settings-panel';
     panel.innerHTML = `
       <div class="settings-summary">
         <div class="settings-summary-heading">
@@ -47,15 +42,8 @@
       </div>
     `;
 
-    if (pageHost) pageHost.append(panel);
-    else if (navigation) form.insertBefore(panel, navigation);
-    else form.append(panel);
+    pageHost.append(panel);
     return panel;
-  }
-
-  function hidePanel() {
-    if ($('settings-lastfm-host')) return;
-    $('setup-lastfm-step')?.classList.add('hidden');
   }
 
   function setStatus(text, state = '') {
@@ -71,30 +59,6 @@
     status.textContent = displayText;
     status.classList.toggle('ok', state === 'ok');
     status.classList.toggle('error', state === 'error');
-  }
-
-  function openSettings() {
-    if ($('settings-lastfm-host')) {
-      window.PlaylistMuseSettingsSelect?.('lastfm');
-      return true;
-    }
-
-    const dialog = $('setup-dialog');
-    const lastFmPanel = ensurePanel();
-    if (!dialog || !lastFmPanel) return false;
-
-    $('ai-open-settings')?.click();
-    $('setup-eyebrow').textContent = 'Configuration';
-    $('setup-title').textContent = 'Last.fm Settings';
-    $('setup-intro').classList.add('hidden');
-    $('setup-progress').classList.add('hidden');
-    $('setup-navigation').classList.add('hidden');
-    $('setup-ai-step').classList.add('hidden');
-    $('setup-youtube-step').classList.add('hidden');
-    lastFmPanel.classList.remove('hidden');
-    if (!dialog.open) dialog.showModal();
-    window.dispatchEvent(new Event('playlistmuse-lastfm-settings-opened'));
-    return true;
   }
 
   function renderSettings(data) {
@@ -185,17 +149,13 @@
   }
 
   const panel = ensurePanel();
-  panel?.querySelector('#save-lastfm')?.addEventListener('click', () => void saveSettings());
-  panel?.querySelector('#disconnect-lastfm')?.addEventListener('click', () => void disconnect());
-  panel?.querySelector('#lastfm-api-key')?.addEventListener('keydown', (event) => {
+  panel.querySelector('#save-lastfm')?.addEventListener('click', () => void saveSettings());
+  panel.querySelector('#disconnect-lastfm')?.addEventListener('click', () => void disconnect());
+  panel.querySelector('#lastfm-api-key')?.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
       event.preventDefault();
       void saveSettings();
     }
   });
-  window.PlaylistMuseOpenLastFmSettings = openSettings;
-  window.dispatchEvent(new Event('playlistmuse-lastfm-settings-ready'));
   window.addEventListener('playlistmuse-lastfm-settings-opened', () => void loadSettings());
-  window.addEventListener('playlistmuse-ai-settings-opened', hidePanel);
-  window.addEventListener('playlistmuse-youtube-settings-opened', hidePanel);
 })();
