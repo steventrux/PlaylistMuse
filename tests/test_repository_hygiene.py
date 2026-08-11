@@ -73,6 +73,15 @@ def test_obsolete_compatibility_files_are_removed() -> None:
     assert leftovers == []
 
 
+def test_old_release_user_agents_are_removed() -> None:
+    stale = sorted(
+        path.name
+        for path in BACKEND.glob("*.py")
+        if "PlaylistMuse/0.7" in path.read_text(encoding="utf-8")
+    )
+    assert stale == []
+
+
 def _runtime_backend_imports() -> set[str]:
     imported: set[str] = set()
     for path in BACKEND.glob("*.py"):
