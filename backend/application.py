@@ -13,6 +13,7 @@ from backend.playlist_library import (
 )
 from backend.playlist_publication_sync import reconcile_deleted_youtube_playlists
 from backend.playlist_refinement import router as playlist_refinement_router
+from backend.playlist_studio import router as playlist_studio_router
 
 _LIBRARY_PLAYLIST_PREFIX = "/api/library/playlists/"
 _PUBLISHED_READ_ONLY_DETAIL = (
@@ -70,5 +71,6 @@ app.include_router(build_info_router, prefix="/api")
 app.include_router(diagnostics_router, prefix="/api")
 app.include_router(playlist_library_router, prefix="/api")
 app.include_router(playlist_refinement_router, prefix="/api")
+app.include_router(playlist_studio_router, prefix="/api")
 
 __all__ = ["app"]
