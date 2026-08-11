@@ -22,7 +22,7 @@
   <link rel="stylesheet" href="/static/youtube.css?v=3">
   <link rel="stylesheet" href="/static/youtube-settings.css?v=1">
   <link rel="stylesheet" href="/static/lastfm.css?v=1">
-  <link rel="stylesheet" href="/static/settings-page.css?v=3">
+  <link rel="stylesheet" href="/static/settings-page.css?v=4">
 </head>
 <body class="settings-page-body">
   <header class="settings-page-header">
@@ -44,7 +44,7 @@
           <h1>Settings</h1>
         </div>
 
-        <nav class="settings-section-navigation" aria-label="Integration settings">
+        <nav class="settings-section-navigation" aria-label="PlaylistMuse settings">
           <p class="settings-section-label">Integrations</p>
           <button class="settings-section-link" type="button" data-settings-section="ai">
             <span>AI</span>
@@ -55,12 +55,16 @@
           <button class="settings-section-link" type="button" data-settings-section="lastfm">
             <span>Last.fm</span>
           </button>
+          <p class="settings-section-label">Support</p>
+          <button class="settings-section-link" type="button" data-settings-section="support">
+            <span>Diagnostics</span>
+          </button>
         </nav>
       </aside>
 
       <section class="settings-page-content settings-dialog-card" aria-live="polite">
         <div class="settings-page-content-heading">
-          <p class="eyebrow">Integration</p>
+          <p id="settings-section-eyebrow" class="eyebrow">Integration</p>
           <h2 id="settings-section-title">AI</h2>
         </div>
 
@@ -177,14 +181,35 @@
         </section>
 
         <div id="settings-lastfm-host" class="settings-page-panel hidden"></div>
+
+        <section id="settings-support-panel" class="settings-block setup-step settings-page-panel hidden">
+          <div class="settings-summary">
+            <h3>Bug reports and diagnostics</h3>
+            <p class="field-hint">
+              If PlaylistMuse behaves unexpectedly, download a diagnostic report and attach it to a GitHub bug report together with the steps needed to reproduce the problem.
+            </p>
+            <p id="support-build-info" class="settings-status">Checking running version…</p>
+          </div>
+
+          <div class="settings-actions">
+            <a id="download-diagnostics" class="secondary" href="/api/diagnostics/report">Download diagnostic report</a>
+            <a id="report-bug" class="primary" href="https://github.com/steventrux/PlaylistMuse/issues/new?template=bug_report.yml" target="_blank" rel="noopener noreferrer">Report a bug on GitHub</a>
+          </div>
+
+          <p class="field-hint">
+            The report contains build information, configuration state and recent application errors. Known credentials and common secret formats are redacted automatically. Review the archive before sharing it and never upload your <code>.env</code>, raw configuration files or OAuth token files.
+          </p>
+        </section>
       </section>
     </div>
   </main>
 
   <script src="/static/common.js?v=1"></script>
+  <script src="/static/diagnostics-client.js?v=1"></script>
   <script src="/static/ai-settings.js?v=12"></script>
   <script src="/static/youtube-account.js?v=5"></script>
   <script src="/static/lastfm-settings.js?v=2"></script>
-  <script src="/static/settings-page.js?v=2"></script>
+  <script src="/static/support.js?v=3"></script>
+  <script src="/static/settings-page.js?v=3"></script>
 </body>
 </html>
