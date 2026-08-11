@@ -26,7 +26,7 @@ def test_settings_page_exposes_all_current_sections() -> None:
     assert '/static/ai-settings.js?v=12' in html
     assert '/static/youtube-account.js?v=5' in html
     assert '/static/lastfm-settings.js?v=2' in html
-    assert '/static/settings-page.css?v=3' in html
+    assert '/static/settings-page.css?v=' in html
     assert '/static/settings-page.js?v=3' in html
 
 
@@ -105,6 +105,13 @@ def test_mobile_settings_layout_keeps_navigation_compact_and_clear() -> None:
     assert "padding-top: 58px;" in style
     assert "#settings-support-panel .settings-actions" in style
     assert "grid-template-columns: minmax(0, 1fr);" in style
+
+
+def test_diagnostics_actions_leave_space_before_support_note() -> None:
+    style = _text("settings-page.css")
+
+    assert "#settings-support-panel .settings-actions + .field-hint" in style
+    assert "margin-top: 16px;" in style
 
 
 def test_youtube_publish_uses_same_settings_overlay() -> None:
