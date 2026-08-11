@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-COMPOSE_FILE="${PLAYLISTMUSE_SMOKE_COMPOSE_FILE:-docker-compose.playlistmuse.yml}"
-CONTAINER="${PLAYLISTMUSE_SMOKE_CONTAINER:-playlistmuse-test}"
-BASE_URL="${PLAYLISTMUSE_SMOKE_URL:-http://127.0.0.1:5770}"
+COMPOSE_FILE="${PLAYLISTMUSE_SMOKE_COMPOSE_FILE:-docker-compose.yml}"
+CONTAINER="${PLAYLISTMUSE_SMOKE_CONTAINER:-playlistmuse}"
+BASE_URL="${PLAYLISTMUSE_SMOKE_URL:-http://127.0.0.1:5780}"
 EXPECTED_APP_VERSION="${PLAYLISTMUSE_EXPECTED_APP_VERSION:-0.2.0}"
 EXPECTED_BUILD_CHANNEL="${PLAYLISTMUSE_EXPECTED_BUILD_CHANNEL:-dev}"
 
@@ -34,44 +34,39 @@ fetch() {
   curl --fail --silent --show-error "$1"
 }
 
-if ! command -v docker >/dev/null 2>&1; then
-  fail "docker is not installed or not in PATH"
-fi
-if ! docker compose version >/dev/null 2>&1; then
-  fail "Docker Compose v2 is not available"
-fi
-if [[ ! -f "$COMPOSE_FILE" ]]; then
-  fail "$COMPOSE_FILE not found in $(pwd)"
-fi
+command -v docker >/dev/null 2>&1 || fail "docker is not installed or not in PATH"
+docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is not available"
+[[ -f "$COMPOSE_FILE" ]] || fail "$COMPOSE_FILE not found in $(pwd)"
+[[ -f .env ]] || fail ".env not found in $(pwd)"
 
-if ! docker volume inspect playlistmuse-data >/dev/null 2>&1; then
-  echo "Creating external volume playlistmuse-data..."
-  docker volume create playlistmuse-data >/dev/null
-fi
-
-echo "Stopping previous test deployment..."
+echo "Stopping previous dev deployment..."
 docker compose -f "$COMPOSE_FILE" down --remove-orphans
 
 echo "Building and starting PlaylistMuse..."
 docker compose -f "$COMPOSE_FILE" up -d --build --force-recreate
 
-echo "Waiting for container health..."
+echo "Waiting for application health..."
+ready=0
 for attempt in $(seq 1 30); do
-  status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$CONTAINER" 2>/dev/null || true)"
-  printf 'Attempt %02d/30: %s\n' "$attempt" "${status:-not-created}"
-  [[ "$status" == "healthy" ]] && break
-  if [[ "$status" == "exited" || "$status" == "dead" ]]; then
+  container_state="$(docker inspect --format '{{.State.Status}}' "$CONTAINER" 2>/dev/null || true)"
+  printf 'Attempt %02d/30: container=%s\n' "$attempt" "${container_state:-not-created}"
+
+  if [[ "$container_state" == "exited" || "$container_state" == "dead" ]]; then
     docker logs --tail 200 "$CONTAINER" || true
     fail "container stopped unexpectedly"
   fi
-  sleep 3
+
+  if curl --fail --silent "$HEALTH_URL" >/dev/null 2>&1; then
+    ready=1
+    break
+  fi
+  sleep 2
 done
 
-status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$CONTAINER" 2>/dev/null || true)"
-if [[ "$status" != "healthy" ]]; then
+if [[ "$ready" != "1" ]]; then
   docker compose -f "$COMPOSE_FILE" ps
   docker logs --tail 200 "$CONTAINER" || true
-  fail "container did not become healthy"
+  fail "application health endpoint did not become ready"
 fi
 
 echo
@@ -85,13 +80,11 @@ echo "OK: backend compiled"
 
 echo
 echo "Core backend invariants:"
-docker exec "$CONTAINER" python - <<'PY'
-from backend.version import APP_VERSION
+docker exec -i "$CONTAINER" python - <<'PY'
 from backend.youtube import track_identity_key as key
 from backend.config import AppConfig, api_key_matches_provider, api_key_slot
 from backend.youtube_routes import YouTubePlaylistCreateRequest
 
-assert APP_VERSION == "0.2.0"
 assert key("Bé-Bop-A-Lula!", "Gene Vincent") == key("be bop a lula", "GENE VINCENT")
 assert api_key_slot("openrouter_auto") == "openrouter"
 assert api_key_slot("openrouter_free") == "openrouter"
@@ -106,6 +99,7 @@ request = YouTubePlaylistCreateRequest(
 assert request.video_ids == ["b", "a"]
 assert request.privacy_status == "UNLISTED"
 PY
+docker exec "$CONTAINER" python -c "from backend.version import APP_VERSION; assert APP_VERSION == '$EXPECTED_APP_VERSION', APP_VERSION"
 echo "OK: version, track identity, provider separation and YouTube request normalization"
 
 echo
@@ -122,8 +116,8 @@ health = json.loads(health_raw)
 version = json.loads(version_raw)
 openapi = json.loads(openapi_raw)
 
-assert health["status"] == "healthy"
-assert health["application"] == "PlaylistMuse"
+assert health["status"] == "healthy", health
+assert health["application"] == "PlaylistMuse", health
 assert openapi["info"]["version"] == expected_version, openapi["info"]
 assert version["channel"] == expected_channel, version
 if expected_channel == "stable":
@@ -181,23 +175,28 @@ for required_asset in \
 done
 
 echo
-echo "Playlist editor JavaScript:"
+echo "Playlist editor JavaScript and autosave:"
 playlist_js="$(fetch "$BASE_URL/static/playlist.js")"
 add_track_js="$(fetch "$BASE_URL/static/playlist-add-track.js")"
 refine_js="$(fetch "$BASE_URL/static/playlist-refine.js")"
 save_status_js="$(fetch "$BASE_URL/static/playlist-save-status.js")"
+playlist_header_css="$(fetch "$BASE_URL/static/playlist-header.css")"
 for required_text in "Open in YouTube Music" "Replace track" "/api/playlists/replace-track"; do
   require_text "$playlist_js" "$required_text"
 done
-for required_text in "/api/seeds/search" "Add" "duplicate"; do
-  require_text "$add_track_js" "$required_text" "add-track: $required_text"
-done
-for required_text in "/refine/preview" "/refine/apply" "Removed" "Added"; do
-  require_text "$refine_js" "$required_text" "refine: $required_text"
-done
-for required_text in "Saving…" "Saved" "Save failed" "position: fixed"; do
+require_text "$add_track_js" "/api/seeds/search" "add-track search"
+require_text "$add_track_js" "manual_add" "manual add history"
+require_text "$add_track_js" "manual_remove" "manual remove history"
+require_text "$refine_js" "/refine-preview" "refinement preview"
+require_text "$refine_js" "/refine-apply" "refinement apply"
+require_text "$refine_js" "Removed" "refinement removed summary"
+require_text "$refine_js" "Added" "refinement added summary"
+for required_text in "Saving…" "Saved" "Save failed"; do
   require_text "$save_status_js" "$required_text" "autosave: $required_text"
 done
+require_text "$playlist_header_css" ".playlist-save-status" "autosave CSS"
+require_text "$playlist_header_css" "position: fixed" "autosave fixed viewport position"
+require_text "$playlist_header_css" "bottom: 18px" "autosave desktop bottom position"
 
 echo
 echo "Library page:"
@@ -211,20 +210,20 @@ require_text "$library_js" "item.status === 'draft' ? 'Edit' : 'Open'" "Draft=Ed
 require_text "$library_js" "Refinements" "refinement history"
 
 echo
-echo "Published read-only and publication atomicity guards:"
+echo "Published read-only and atomic publication guards:"
 application_py="$(docker exec "$CONTAINER" cat backend/application.py)"
 youtube_publish_py="$(docker exec "$CONTAINER" cat backend/youtube_publish.py)"
 require_text "$application_py" "Published playlists are read-only" "published API read-only guard"
-require_text "$youtube_publish_py" "rollback" "YouTube publication rollback path"
-require_text "$youtube_publish_py" "rejected" "YouTube rejected-track failure path"
+require_text "$youtube_publish_py" "_rollback_playlist" "YouTube publication rollback path"
+require_text "$youtube_publish_py" "YouTube rejected" "YouTube rejected-track failure path"
 
 echo
 echo "OpenAPI routes:"
 for required_route in \
   "/api/playlists/replace-track" \
   "/api/library/playlists" \
-  "/api/library/playlists/{playlist_id}/refine/preview" \
-  "/api/library/playlists/{playlist_id}/refine/apply" \
+  "/api/library/playlists/{playlist_id}/refine-preview" \
+  "/api/library/playlists/{playlist_id}/refine-apply" \
   "/api/youtube/settings" \
   "/api/youtube/status" \
   "/api/youtube/connect/start" \
