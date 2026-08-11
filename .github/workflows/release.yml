@@ -1,0 +1,211 @@
+name: Stable release
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: playlistmuse-stable-release
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/steventrux/playlistmuse
+
+jobs:
+  release:
+    name: Publish stable release
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || 'main' }}
+          fetch-depth: 0
+
+      - name: Evaluate release gate
+        id: gate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          git fetch origin main --tags --force
+
+          HEAD_SHA="$(git rev-parse HEAD)"
+          MAIN_SHA="$(git rev-parse origin/main)"
+          if [[ "$HEAD_SHA" != "$MAIN_SHA" ]]; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "reason=The successful CI run is no longer the current main commit." >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          VERSION="$(python - <<'PY'
+          from backend.version import APP_VERSION
+          print(APP_VERSION)
+          PY
+          )"
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "APP_VERSION must be a stable semantic version (x.y.z), got: $VERSION" >&2
+            exit 1
+          fi
+
+          TAG="v${VERSION}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "reason=GitHub Release $TAG already exists." >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git show-ref --tags --verify --quiet "refs/tags/$TAG"; then
+            TAG_SHA="$(git rev-list -n 1 "$TAG")"
+            if [[ "$TAG_SHA" != "$HEAD_SHA" ]]; then
+              echo "Tag $TAG already exists on $TAG_SHA instead of $HEAD_SHA." >&2
+              exit 1
+            fi
+            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "release=true" >> "$GITHUB_OUTPUT"
+          echo "reason=Version $VERSION is ready for stable publication." >> "$GITHUB_OUTPUT"
+
+      - name: Report skipped release
+        if: steps.gate.outputs.release != 'true'
+        run: echo "${{ steps.gate.outputs.reason }}"
+
+      - name: Build stable image
+        if: steps.gate.outputs.release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build \
+            --build-arg PLAYLISTMUSE_VERSION="${{ steps.gate.outputs.version }}" \
+            --build-arg PLAYLISTMUSE_CHANNEL=stable \
+            --build-arg PLAYLISTMUSE_GIT_SHA="${{ steps.gate.outputs.sha }}" \
+            --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.version=${{ steps.gate.outputs.version }}" \
+            --label "org.opencontainers.image.revision=${{ steps.gate.outputs.sha }}" \
+            --tag "${IMAGE}:${{ steps.gate.outputs.version }}" \
+            .
+
+      - name: Verify stable image
+        if: steps.gate.outputs.release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker run --detach \
+            --name playlistmuse-release-check \
+            --publish 5780:5780 \
+            "${IMAGE}:${{ steps.gate.outputs.version }}"
+
+          cleanup() {
+            docker rm --force playlistmuse-release-check >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:5780/api/health > health.json; then
+              curl --fail --silent http://127.0.0.1:5780/api/version > version.json
+              python - <<'PY'
+          import json
+          from pathlib import Path
+
+          health = json.loads(Path("health.json").read_text(encoding="utf-8"))
+          version = json.loads(Path("version.json").read_text(encoding="utf-8"))
+
+          assert health["status"] == "healthy"
+          assert version["version"] == "${{ steps.gate.outputs.version }}"
+          assert version["channel"] == "stable"
+          assert version["commit"] == "${{ steps.gate.outputs.sha }}"[:7]
+          assert version["repository_url"] == "https://github.com/steventrux/PlaylistMuse"
+          print(health)
+          print(version)
+          PY
+              exit 0
+            fi
+            sleep 2
+          done
+
+          docker logs playlistmuse-release-check
+          exit 1
+
+      - name: Log in to GitHub Container Registry
+        if: steps.gate.outputs.release == 'true'
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Publish stable image tags
+        if: steps.gate.outputs.release == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker tag \
+            "${IMAGE}:${{ steps.gate.outputs.version }}" \
+            "${IMAGE}:latest"
+          docker push "${IMAGE}:${{ steps.gate.outputs.version }}"
+          docker push "${IMAGE}:latest"
+
+      - name: Create GitHub Release
+        if: steps.gate.outputs.release == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          TAG="${{ steps.gate.outputs.tag }}"
+          VERSION="${{ steps.gate.outputs.version }}"
+          SHA="${{ steps.gate.outputs.sha }}"
+
+          if [[ "${{ steps.gate.outputs.tag_exists }}" == "true" ]]; then
+            gh release create "$TAG" \
+              --verify-tag \
+              --title "PlaylistMuse $VERSION" \
+              --generate-notes \
+              --latest
+          else
+            gh release create "$TAG" \
+              --target "$SHA" \
+              --title "PlaylistMuse $VERSION" \
+              --generate-notes \
+              --latest
+          fi
+
+      - name: Release summary
+        if: steps.gate.outputs.release == 'true'
+        shell: bash
+        run: |
+          {
+            echo "## PlaylistMuse ${{ steps.gate.outputs.version }}"
+            echo
+            echo "- Git tag: \`${{ steps.gate.outputs.tag }}\`"
+            echo "- Commit: \`${{ steps.gate.outputs.sha }}\`"
+            echo "- Container: \`${IMAGE}:${{ steps.gate.outputs.version }}\`"
+            echo "- Stable container: \`${IMAGE}:latest\`"
+          } >> "$GITHUB_STEP_SUMMARY"
