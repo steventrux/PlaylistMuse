@@ -27,6 +27,8 @@
     <a href="#installation"><strong>Installation</strong></a>
     &nbsp;·&nbsp;
     <a href="#configuration"><strong>Configuration</strong></a>
+    &nbsp;·&nbsp;
+    <a href="#support-and-bug-reports"><strong>Support</strong></a>
   </p>
 </div>
 
@@ -71,6 +73,10 @@ Last.fm is optional. When enabled, PlaylistMuse can use related artists, tracks 
 ### Publish to YouTube Music
 
 Review the final sequence, choose Private, Unlisted or Public visibility, and create the playlist directly in your YouTube Music account. PlaylistMuse also assembles a cover mosaic from representative track artwork for the local playlist view.
+
+### Diagnose problems safely
+
+PlaylistMuse keeps a small set of rotating application logs and can generate a diagnostic ZIP from **Settings → Diagnostics**. Server-side failures include a `PM-...` reference that can be matched with the related log entry. Diagnostic reports are sanitized before download and are designed to be attached to the project bug-report form.
 
 ## From idea to playlist
 
@@ -121,7 +127,7 @@ docker rm -f playlistmuse
 
 Run the installation command again after pulling the new image.
 
-Use a versioned image tag such as `ghcr.io/steventrux/playlistmuse:0.2.0` when you want to remain on a specific release.
+Use a versioned image tag such as `ghcr.io/steventrux/playlistmuse:0.2.1` when you want to remain on a specific release.
 
 ### Stop
 
@@ -191,13 +197,21 @@ To enable direct publishing:
 
 ## Data, backup and remote access
 
-Settings, credentials, authorization data and the playlist library are stored in the persistent `./data` directory.
+Settings, credentials, authorization data, diagnostic logs and the playlist library are stored in the persistent `./data` directory.
 
-The playlist library uses `data/playlists.db`. SQLite may also create `playlists.db-wal` and `playlists.db-shm` while the application is running.
+The playlist library uses `data/playlists.db`. SQLite may also create `playlists.db-wal` and `playlists.db-shm` while the application is running. Recent diagnostic logs are kept under `data/logs` and rotate automatically.
 
 Back up the complete `data` directory before moving or updating the installation. For the most consistent backup, stop the container first or use an SQLite-aware backup tool.
 
 For remote access, use a trusted private network or protect PlaylistMuse with HTTPS and authentication.
+
+## Support and bug reports
+
+Use the repository **Bug report** form for reproducible problems. Include the PlaylistMuse version/build, installation method, browser and operating system, steps to reproduce, expected and actual behavior, and any `PM-...` error reference shown by the application.
+
+For the most useful report, open **Settings → Diagnostics**, download the diagnostic ZIP and attach it to the issue. PlaylistMuse redacts known credentials and common secret formats, but you should still review the archive before sharing it.
+
+Never upload `.env`, raw configuration files, API keys, cookies or OAuth token files. See [SUPPORT.md](SUPPORT.md) for the complete reporting guide.
 
 ## Disclaimer
 
