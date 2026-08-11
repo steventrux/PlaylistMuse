@@ -22,6 +22,8 @@ OPENAPI_URL="$BASE_URL/openapi.json"
 SETTINGS_URL="$BASE_URL/api/settings"
 YOUTUBE_STATUS_URL="$BASE_URL/api/youtube/status"
 YOUTUBE_SETTINGS_URL="$BASE_URL/api/youtube/settings"
+LASTFM_STATUS_URL="$BASE_URL/api/lastfm/status"
+LASTFM_SETTINGS_URL="$BASE_URL/api/lastfm/settings"
 
 fail() {
   echo "ERROR: $*" >&2
@@ -122,7 +124,10 @@ docker exec -i "$CONTAINER" python - <<'PY'
 from backend.youtube import track_identity_key as key
 from backend.config import AppConfig, api_key_matches_provider, api_key_slot
 from backend.youtube_routes import YouTubePlaylistCreateRequest
+from backend.version import APP_VERSION, REPOSITORY_URL, USER_AGENT
 
+assert APP_VERSION == "0.2.0"
+assert USER_AGENT == f"PlaylistMuse/{APP_VERSION} (+{REPOSITORY_URL})"
 assert key("Bé-Bop-A-Lula!", "Gene Vincent") == key("be bop a lula", "GENE VINCENT")
 assert api_key_slot("openrouter_auto") == "openrouter"
 assert api_key_slot("openrouter_free") == "openrouter"
@@ -138,7 +143,7 @@ assert request.video_ids == ["b", "a"]
 assert request.privacy_status == "UNLISTED"
 PY
 docker exec "$CONTAINER" python -c "from backend.version import APP_VERSION; assert APP_VERSION == '$EXPECTED_APP_VERSION', APP_VERSION"
-echo "OK: version, track identity, provider separation and YouTube request normalization"
+echo "OK: release identity, track identity, provider separation and YouTube request normalization"
 
 echo
 echo "Health and version metadata:"
@@ -167,10 +172,12 @@ PY
 echo "OK: application version $EXPECTED_APP_VERSION and build channel $EXPECTED_BUILD_CHANNEL"
 
 echo
-echo "Settings and YouTube API schemas:"
+echo "Settings, YouTube and Last.fm API schemas:"
 settings_json="$(fetch "$SETTINGS_URL")"
 youtube_settings_json="$(fetch "$YOUTUBE_SETTINGS_URL")"
 youtube_status_json="$(fetch "$YOUTUBE_STATUS_URL")"
+lastfm_settings_json="$(fetch "$LASTFM_SETTINGS_URL")"
+lastfm_status_json="$(fetch "$LASTFM_STATUS_URL")"
 for required_key in provider model fallback_1 fallback_2 base_url configured api_key_set provider_keys_set; do
   require_text "$settings_json" "\"${required_key}\":" "settings.$required_key"
 done
@@ -183,6 +190,15 @@ fi
 for required_key in catalog_available credentials_configured account_connected message; do
   require_text "$youtube_status_json" "\"${required_key}\":" "youtube-status.$required_key"
 done
+for payload_name in lastfm_settings_json lastfm_status_json; do
+  payload="${!payload_name}"
+  for required_key in configured api_key_set source; do
+    require_text "$payload" "\"${required_key}\":" "${payload_name%_json}.$required_key"
+  done
+  if grep -Fq '"api_key":' <<<"$payload"; then
+    fail "Last.fm API key was exposed by ${payload_name%_json}"
+  fi
+done
 
 echo
 echo "Home page:"
@@ -190,6 +206,7 @@ home_html="$(fetch "$ROOT_URL")"
 for required_text in "From Prompt" "From Seed" "AI provider" "Fallbacks" "OpenRouter Auto" "OpenRouter Free" "YouTube Music account"; do
   require_text "$home_html" "$required_text"
 done
+require_text "$home_html" "/static/lastfm-status.js?v=2" "home Last.fm status asset"
 
 echo
 echo "Playlist editor page:"
@@ -237,15 +254,18 @@ require_text "$playlist_header_css" "position: fixed" "autosave fixed viewport p
 require_text "$playlist_header_css" "bottom: 18px" "autosave desktop bottom position"
 
 echo
-echo "Library page:"
+echo "Library and settings pages:"
 library_html="$(fetch "$LIBRARY_URL")"
 library_js="$(fetch "$BASE_URL/static/library.js")"
+settings_html="$(fetch "$BASE_URL/static/settings.html")"
 for required_id in library-search library-count library-list library-empty library-pagination; do
   require_text "$library_html" "id=\"${required_id}\"" "$required_id"
 done
 require_text "$library_html" "/static/library.js?v=11" "current library script"
 require_text "$library_js" "item.status === 'draft' ? 'Edit' : 'Open'" "Draft=Edit / Published=Open"
 require_text "$library_js" "Refinements" "refinement history"
+require_text "$settings_html" "/static/lastfm-settings.js?v=2" "settings Last.fm asset"
+require_text "$settings_html" "id=\"settings-lastfm-host\"" "Last.fm settings host"
 
 echo
 echo "Published read-only and atomic publication guards:"
@@ -262,6 +282,9 @@ for required_route in \
   "/api/library/playlists" \
   "/api/library/playlists/{playlist_id}/refine-preview" \
   "/api/library/playlists/{playlist_id}/refine-apply" \
+  "/api/lastfm/status" \
+  "/api/lastfm/settings" \
+  "/api/lastfm/random-seed" \
   "/api/youtube/settings" \
   "/api/youtube/status" \
   "/api/youtube/connect/start" \
@@ -276,8 +299,9 @@ echo "Static asset HTTP checks:"
 for asset in \
   style.css layout.css controls.css playlist.css playlist-editor.css playlist-refine.css \
   playlist-header.css compact-cards.css library-tags.css youtube.css youtube-results.css \
-  common.js playlist-save-status.js playlist-mosaic.js playlist.js playlist-add-track.js \
-  playlist-refine.js library.js youtube-account.js youtube-publish.js; do
+  lastfm.css common.js lastfm-status.js lastfm-settings.js playlist-save-status.js \
+  playlist-mosaic.js playlist.js playlist-add-track.js playlist-refine.js library.js \
+  youtube-account.js youtube-publish.js; do
   curl --fail --silent --show-error --output /dev/null "$BASE_URL/static/$asset"
 done
 echo "OK: current frontend assets"
