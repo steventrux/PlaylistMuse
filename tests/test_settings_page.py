@@ -134,13 +134,26 @@ def test_lastfm_settings_reuse_existing_logic_inside_settings_page() -> None:
     assert "method: 'DELETE'" in script
 
 
-def test_support_page_reads_running_build_without_credentials_or_duplication() -> None:
+def test_support_page_reads_running_build_without_duplication() -> None:
     script = _text("support.js")
 
     assert "fetch('/api/version', {cache: 'no-store'})" in script
     assert "support-build-info" in script
-    assert "info.display || info.version || 'Version unavailable'" in script
-    assert "info.channel" not in script
+    assert "const display = info.display || info.version || 'Version unavailable';" in script
+    assert "target.textContent = `Running build: ${display}`;" in script
     assert "info.commit" not in script
-    assert "api_key" not in script
-    assert "token" not in script
+    assert "info.api_key" not in script
+    assert "info.token" not in script
+
+
+def test_support_page_uses_template_on_stable_and_prefill_on_dev() -> None:
+    script = _text("support.js")
+
+    assert "const STABLE_TEMPLATE_URL = `${ISSUE_URL}?template=bug_report.yml`;" in script
+    assert "function developmentBugReportUrl(build)" in script
+    assert "info.channel === 'stable'" in script
+    assert "developmentBugReportUrl(display)" in script
+    assert "url.searchParams.set('title', '[Bug] ');" in script
+    assert "url.searchParams.set('body'" in script
+    assert "## Running build" in script
+    assert "## Diagnostic report" in script
