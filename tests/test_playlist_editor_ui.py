@@ -33,6 +33,7 @@ def test_playlist_page_centralizes_draft_editing_controls() -> None:
     assert 'id="add-track"' in html
     assert 'id="refine-playlist"' in html
     assert '/static/playlist-header.css?v=8' in html
+    assert '/static/playlist-editor.css?v=2' in html
     assert '/static/playlist-add-track.js?v=2' in html
     assert '/static/playlist-refine.js?v=2' in html
 
@@ -65,6 +66,7 @@ def test_manual_add_and_remove_are_recorded_in_refinement_history() -> None:
 def test_description_remove_and_published_state_are_controlled_from_playlist_page() -> None:
     script = _text("playlist-add-track.js")
     style = _text("playlist-header.css")
+    editor_style = _text("playlist-editor.css")
 
     assert "descriptionInput.addEventListener('input'" in script
     assert "latest.description = descriptionInput.value.slice(0, 2000);" in script
@@ -80,6 +82,9 @@ def test_description_remove_and_published_state_are_controlled_from_playlist_pag
     assert "window.addEventListener('playlistmuse-playlist-published', syncEditorState);" in script
     assert "body.playlist-readonly .playlist-title-editor svg" in style
     assert "body.playlist-readonly .playlist-description-editor svg" in style
+    assert "body.playlist-readonly #playlist-tags .library-tag-add" in editor_style
+    assert "body.playlist-readonly #playlist-tags .library-tag-delete" in editor_style
+    assert "body.playlist-readonly #playlist-tags .library-tag-add-form" in editor_style
     assert "min-height: 112px;" in style
 
 

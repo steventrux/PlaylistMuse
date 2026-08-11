@@ -157,6 +157,58 @@ def test_library_api_crud_and_duplicate(tmp_path: Path, monkeypatch) -> None:
     assert client.get(f"/api/library/playlists/{playlist_id}").status_code == 404
 
 
+def test_published_playlist_api_is_read_only_but_can_be_duplicated(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        playlist_library_module,
+        "_library",
+        PlaylistLibrary(tmp_path / "published-readonly.db"),
+    )
+    client = TestClient(app)
+
+    created = client.post(
+        "/api/library/playlists",
+        json={"playlist": sample_playlist(), "generation_request": {"mode": "prompt"}},
+    )
+    assert created.status_code == 201
+    playlist_id = created.json()["id"]
+
+    published = sample_playlist("Published snapshot")
+    published["youtube_playlist"] = {
+        "playlist_id": "PL123",
+        "url": "https://music.youtube.com/playlist?list=PL123",
+    }
+    publish = client.put(
+        f"/api/library/playlists/{playlist_id}",
+        json={"playlist": published, "generation_request": {"mode": "prompt"}},
+    )
+    assert publish.status_code == 200
+    assert publish.json()["status"] == "published"
+
+    modified = sample_playlist("Changed after publish")
+    modified["youtube_playlist"] = published["youtube_playlist"]
+    blocked = client.put(
+        f"/api/library/playlists/{playlist_id}",
+        json={"playlist": modified, "generation_request": {"mode": "prompt"}},
+    )
+    assert blocked.status_code == 409
+    assert "read-only" in blocked.json()["detail"].lower()
+
+    tag_refresh = client.post(f"/api/library/playlists/{playlist_id}/tags/suggest")
+    assert tag_refresh.status_code == 409
+
+    reopened = client.get(f"/api/library/playlists/{playlist_id}")
+    assert reopened.status_code == 200
+    assert reopened.json()["name"] == "Published snapshot"
+
+    duplicate = client.post(f"/api/library/playlists/{playlist_id}/duplicate")
+    assert duplicate.status_code == 201
+    assert duplicate.json()["status"] == "draft"
+    assert "youtube_playlist" not in duplicate.json()["playlist"]
+
+
 def test_library_ui_and_autosave_hooks_are_present() -> None:
     index = (FRONTEND / "index.html").read_text(encoding="utf-8")
     page = (FRONTEND / "library.html").read_text(encoding="utf-8")

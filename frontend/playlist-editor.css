@@ -197,6 +197,12 @@
   font-size: .76rem;
 }
 
+body.playlist-readonly #playlist-tags .library-tag-add,
+body.playlist-readonly #playlist-tags .library-tag-delete,
+body.playlist-readonly #playlist-tags .library-tag-add-form {
+  display: none;
+}
+
 @media (max-width: 650px) {
   .playlist-tracks-toolbar {
     align-items: flex-start;
