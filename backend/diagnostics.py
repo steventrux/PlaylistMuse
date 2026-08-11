@@ -102,7 +102,7 @@ def sanitize_data(value: Any, *, secret_values: tuple[str, ...] = ()) -> Any:
         for key, item in value.items():
             key_text = str(key)
             if _SENSITIVE_KEY_RE.search(key_text):
-                sanitized[key_text] = "[REDACTED]"
+                sanitized[key_text] = item if isinstance(item, bool) else "[REDACTED]"
             else:
                 sanitized[key_text] = sanitize_data(item, secret_values=secret_values)
         return sanitized
