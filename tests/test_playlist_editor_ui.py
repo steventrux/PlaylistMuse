@@ -32,7 +32,7 @@ def test_playlist_page_centralizes_draft_editing_controls() -> None:
     assert 'id="playlist-draft-actions" class="playlist-draft-actions hidden"' in html
     assert 'id="add-track"' in html
     assert 'id="refine-playlist"' in html
-    assert '/static/playlist-header.css?v=9' in html
+    assert '/static/playlist-header.css?v=10' in html
     assert '/static/playlist-editor.css?v=2' in html
     assert '/static/playlist-add-track.js?v=2' in html
     assert '/static/playlist-refine.js?v=2' in html
@@ -57,6 +57,9 @@ def test_playlist_autosave_status_tracks_persistent_library_writes() -> None:
     assert "if (!response.ok) batchFailed = true;" in script
     assert "playlist.youtube_playlist?.url" in script
     assert "role', 'status'" in script
+    assert "position: fixed;" in style
+    assert "right: 18px;" in style
+    assert "bottom: 18px;" in style
     assert ".playlist-save-status[data-state=\"saving\"]" in style
     assert ".playlist-save-status[data-state=\"error\"]" in style
     assert "body.playlist-readonly .playlist-save-status" in style
