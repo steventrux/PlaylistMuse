@@ -156,6 +156,10 @@
   margin-top: 0;
 }
 
+#settings-support-panel .settings-actions + .field-hint {
+  margin-top: 16px;
+}
+
 #settings-lastfm-host > .lastfm-settings-panel {
   padding: 0;
 }
