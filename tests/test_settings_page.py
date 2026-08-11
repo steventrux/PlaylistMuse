@@ -96,6 +96,17 @@ def test_embedded_settings_close_without_navigating_parent_page() -> None:
     assert "display: none;" in style
 
 
+def test_mobile_settings_layout_keeps_navigation_compact_and_clear() -> None:
+    style = _text("settings-page.css")
+
+    assert "grid-template-rows: auto minmax(0, 1fr);" in style
+    assert "scroll-snap-type: x proximity;" in style
+    assert "html.settings-embedded .settings-page-navigation" in style
+    assert "padding-top: 58px;" in style
+    assert "#settings-support-panel .settings-actions" in style
+    assert "grid-template-columns: minmax(0, 1fr);" in style
+
+
 def test_youtube_publish_uses_same_settings_overlay() -> None:
     script = _text("youtube-publish.js")
 
