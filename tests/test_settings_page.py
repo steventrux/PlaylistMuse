@@ -93,8 +93,9 @@ def test_lastfm_settings_reuse_existing_logic_inside_settings_page() -> None:
     script = _text("lastfm-settings.js")
 
     assert "const pageHost = $('settings-lastfm-host');" in script
-    assert "if (pageHost) pageHost.append(panel);" in script
-    assert "window.PlaylistMuseSettingsSelect?.('lastfm');" in script
+    assert "if (!pageHost) return;" in script
+    assert "pageHost.append(panel);" in script
+    assert "window.addEventListener('playlistmuse-lastfm-settings-opened'" in script
     assert "fetch('/api/lastfm/settings'" in script
     assert "method: 'PUT'" in script
     assert "method: 'DELETE'" in script
