@@ -1,11 +1,18 @@
 (() => {
   'use strict';
 
-  const SECTIONS = new Set(['ai', 'youtube', 'lastfm']);
+  const SECTIONS = new Set(['ai', 'youtube', 'lastfm', 'support']);
   const sectionTitles = {
     ai: 'AI',
     youtube: 'YouTube Music',
     lastfm: 'Last.fm',
+    support: 'Diagnostics',
+  };
+  const sectionEyebrows = {
+    ai: 'Integration',
+    youtube: 'Integration',
+    lastfm: 'Integration',
+    support: 'Support',
   };
 
   const $ = (id) => document.getElementById(id);
@@ -35,7 +42,8 @@
   function sectionPanel(section) {
     if (section === 'ai') return $('setup-ai-step');
     if (section === 'youtube') return $('setup-youtube-step');
-    return $('settings-lastfm-host');
+    if (section === 'lastfm') return $('settings-lastfm-host');
+    return $('settings-support-panel');
   }
 
   function notifySectionOpened(section) {
@@ -65,6 +73,7 @@
 
     const title = sectionTitles[selected] || sectionTitles.ai;
     $('settings-section-title').textContent = title;
+    $('settings-section-eyebrow').textContent = sectionEyebrows[selected] || 'Integration';
     document.title = `${title} Settings · PlaylistMuse`;
     if (updateUrl) updateLocation(selected);
     notifySectionOpened(selected);
