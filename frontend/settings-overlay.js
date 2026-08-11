@@ -1,7 +1,20 @@
 (() => {
   'use strict';
 
-  const SECTIONS = new Set(['ai', 'youtube', 'lastfm']);
+  function installDiagnosticsClient() {
+    if (
+      window.PlaylistMuseDiagnosticsClientInstalled
+      || document.querySelector('script[src^="/static/diagnostics-client.js"]')
+    ) return;
+    const script = document.createElement('script');
+    script.src = '/static/diagnostics-client.js?v=1';
+    script.defer = true;
+    document.head.append(script);
+  }
+
+  installDiagnosticsClient();
+
+  const SECTIONS = new Set(['ai', 'youtube', 'lastfm', 'support']);
   let overlay = null;
   let frame = null;
   let closeButton = null;

@@ -156,6 +156,10 @@
   margin-top: 0;
 }
 
+#settings-support-panel .settings-actions + .field-hint {
+  margin-top: 16px;
+}
+
 #settings-lastfm-host > .lastfm-settings-panel {
   padding: 0;
 }
@@ -205,12 +209,14 @@ html.settings-embedded .settings-page-content-heading {
   }
 
   .settings-page-shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    min-height: 0;
     border-radius: 18px;
   }
 
   .settings-page-navigation {
-    padding: 20px 18px 12px;
+    padding: 16px 14px 10px;
     border-right: 0;
     border-bottom: 1px solid var(--border);
   }
@@ -221,9 +227,11 @@ html.settings-embedded .settings-page-content-heading {
 
   .settings-section-navigation {
     display: flex;
-    gap: 4px;
+    gap: 3px;
     overflow-x: auto;
+    padding-bottom: 2px;
     scrollbar-width: none;
+    scroll-snap-type: x proximity;
   }
 
   .settings-section-navigation::-webkit-scrollbar {
@@ -236,32 +244,71 @@ html.settings-embedded .settings-page-content-heading {
 
   .settings-section-link {
     min-width: max-content;
-    padding-inline: 12px;
+    min-height: 40px;
+    padding: 8px 11px;
+    flex: 0 0 auto;
+    font-size: .86rem;
+    scroll-snap-align: start;
   }
 
   .settings-section-link::before {
     top: auto;
-    right: 12px;
+    right: 11px;
     bottom: 1px;
-    left: 12px;
+    left: 11px;
     width: auto;
     height: 2px;
   }
 
   .settings-page-content {
-    padding: 24px 20px 28px;
+    padding: 20px 18px 28px;
+  }
+
+  .settings-page-content-heading {
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+  }
+
+  .settings-page-content-heading h2 {
+    font-size: 1.5rem;
+  }
+
+  #settings-support-panel .settings-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  #settings-support-panel .settings-actions > a {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+  }
+
+  html.settings-embedded,
+  html.settings-embedded body {
+    height: 100%;
+    min-height: 100%;
   }
 
   html.settings-embedded .settings-page-main {
     width: 100%;
+    height: 100%;
+    min-height: 100%;
   }
 
   html.settings-embedded .settings-page-shell {
+    height: 100%;
+    min-height: 100%;
     border-radius: 18px;
   }
 
+  html.settings-embedded .settings-page-navigation {
+    padding-top: 58px;
+  }
+
   html.settings-embedded .settings-page-content-heading {
-    padding-right: 48px;
+    padding-right: 0;
   }
 }
 

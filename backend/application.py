@@ -4,6 +4,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from backend.build_info import router as build_info_router
+from backend.diagnostics import diagnostics_middleware, router as diagnostics_router
 from backend.main import app
 from backend.playlist_library import (
     PlaylistNotFoundError,
@@ -59,7 +60,14 @@ async def refresh_library_publication_state(request: Request, call_next):
     return await call_next(request)
 
 
+@app.middleware("http")
+async def record_diagnostics(request: Request, call_next):
+    """Record API activity and attach references to server-side failures."""
+    return await diagnostics_middleware(request, call_next)
+
+
 app.include_router(build_info_router, prefix="/api")
+app.include_router(diagnostics_router, prefix="/api")
 app.include_router(playlist_library_router, prefix="/api")
 app.include_router(playlist_refinement_router, prefix="/api")
 
