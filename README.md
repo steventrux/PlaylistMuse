@@ -60,18 +60,18 @@ PlaylistMuse starts from the musical direction you provide, either as a natural-
 
 ## Installation
 
-The recommended installation uses the published Docker image. Application data must be stored outside the container so that settings, credentials and playlists survive container replacement and upgrades.
+PlaylistMuse can be installed with Docker or run directly with Python. The published Docker image is the recommended method because it provides a self-contained environment and straightforward upgrades, while the native Python installation is available for users who prefer to run the application directly on the host.
 
-### Requirements
+### Docker installation — recommended
+
+#### Requirements
 
 - Docker Engine or Docker Desktop.
 - A host port available for PlaylistMuse. The examples below use `5780`.
 - Persistent local storage for the application `data` directory.
 - Network access from the container to the AI provider and any optional services you configure.
 
-Git and Docker Compose are required only when building PlaylistMuse from source.
-
-### Install the latest stable release
+#### Install the latest stable release
 
 Create a directory for PlaylistMuse and its persistent data:
 
@@ -105,9 +105,9 @@ http://localhost:5780
 
 On first use, configure at least one AI provider from the PlaylistMuse interface. Last.fm and YouTube Music can be configured later if required.
 
-### Use a different host port
+#### Use a different host port
 
-Only the port on the left side of the mapping changes. For example, to expose PlaylistMuse on port `8080`:
+To expose PlaylistMuse on a different host port, change the first value in the port mapping. For example:
 
 ```bash
 docker run -d \
@@ -120,7 +120,7 @@ docker run -d \
 
 Then open `http://localhost:8080`.
 
-### Run a specific release
+#### Run a specific release
 
 To stay on a specific published version, replace `latest` with the desired release tag:
 
@@ -130,24 +130,70 @@ ghcr.io/steventrux/playlistmuse:<version>
 
 Using a versioned tag prevents an installation from moving to a newer release when the image is pulled again.
 
-### Stop and start
+### Native Python installation
+
+A native installation runs PlaylistMuse directly from the repository without Docker.
+
+#### Requirements
+
+- Python 3.12
+- Git
+- `pip`
+- Python virtual environment support (`venv`)
+- Network access to the AI provider and any optional services you configure
+
+Clone the repository:
 
 ```bash
-docker stop playlistmuse
-docker start playlistmuse
+git clone https://github.com/steventrux/PlaylistMuse.git
+cd PlaylistMuse
 ```
 
-### Remove the container
-
-Removing the container does not remove the bind-mounted `data` directory:
+Create and activate a virtual environment:
 
 ```bash
-docker rm -f playlistmuse
+python3 -m venv .venv
+source .venv/bin/activate
 ```
 
-### Build from source
+On Windows PowerShell, activate it with:
 
-Building from source is intended for users who specifically want to run the repository code rather than the published image.
+```powershell
+.venv\Scripts\Activate.ps1
+```
+
+Install the application dependencies:
+
+```bash
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+Create the persistent data directory:
+
+```bash
+mkdir -p data
+```
+
+Start PlaylistMuse:
+
+```bash
+uvicorn backend.application:app --host 0.0.0.0 --port 5780
+```
+
+Open:
+
+```text
+http://localhost:5780
+```
+
+PlaylistMuse stores its persistent state in the local `data` directory by default. The location can be changed with the `PLAYLISTMUSE_DATA_DIR` environment variable.
+
+For a permanent deployment, run the Uvicorn command with the process or service manager appropriate for your operating system.
+
+### Build from source with Docker Compose
+
+Docker Compose can be used when you want to build the repository code locally while keeping a containerized installation.
 
 Requirements:
 
@@ -163,12 +209,6 @@ docker compose up -d --build
 ```
 
 Open `http://localhost:5780`.
-
-To stop the source installation:
-
-```bash
-docker compose down
-```
 
 The repository Compose configuration stores application data in `./data`.
 
@@ -243,7 +283,7 @@ Publishing depends on YouTube services and the quota available to the configured
 
 ### Environment configuration
 
-The published container already uses `/app/data` as its persistent data directory. The bind mount shown in the installation instructions maps that directory to `./data` on the host.
+PlaylistMuse uses `data` as its default persistent data directory for native runs. The published container uses `/app/data`, which the recommended Docker command maps to `./data` on the host.
 
 The repository includes `.env.example` for deployment-level options. The web interface remains the recommended place to manage service credentials and provider profiles because saved settings persist in the application data directory.
 
@@ -251,34 +291,24 @@ The repository includes `.env.example` for deployment-level options. The web int
 
 ### Persistent data
 
-All persistent PlaylistMuse state is stored under `/app/data` inside the container. With the recommended installation command, this corresponds to the host `./data` directory.
+PlaylistMuse keeps its persistent state in a single application data directory. With the recommended Docker installation this is the host `./data` directory mounted at `/app/data`; with the native Python installation it is `./data` by default.
 
-It includes the playlist library, application settings, service credentials and authorization data, and diagnostic logs. Treat the complete directory as private application data.
+The directory includes the playlist library, application settings, service credentials and authorization data, and diagnostic logs. Treat the complete directory as private application data.
 
-Do not run PlaylistMuse without persistent storage if you expect settings and playlists to survive container replacement.
+Do not run PlaylistMuse without persistent storage if you expect settings and playlists to survive upgrades, container replacement or service restarts.
 
 ### Backup
 
-For the safest filesystem-level backup, stop PlaylistMuse first:
-
-```bash
-docker stop playlistmuse
-```
-
-Copy the complete `data` directory to your backup location, preserving its contents and file structure, then restart PlaylistMuse:
-
-```bash
-docker start playlistmuse
-```
+Stop the running PlaylistMuse instance before taking a filesystem-level backup whenever possible, then copy the complete `data` directory to your backup location while preserving its contents and file structure.
 
 Back up the complete directory rather than individual database files. This keeps the playlist database and related configuration in a consistent set.
 
 ### Restore
 
-1. Stop the PlaylistMuse container.
+1. Stop the running PlaylistMuse instance.
 2. Keep a copy of the current `data` directory in case you need to undo the restore.
 3. Replace the current contents with the complete backup.
-4. Ensure the container can read and write the restored files.
+4. Ensure PlaylistMuse can read and write the restored files.
 5. Start PlaylistMuse and verify the library and configured services.
 
 ### Update the stable Docker installation
@@ -291,22 +321,21 @@ Pull the current stable image:
 docker pull ghcr.io/steventrux/playlistmuse:latest
 ```
 
-Replace the existing container:
+Recreate PlaylistMuse with the same persistent `data` directory and the new image. If you use a custom host port or additional Docker options, preserve the same deployment settings during the update.
+
+### Update a native Python installation
+
+Back up the `data` directory before updating, then update the repository and reinstall the declared dependencies inside the existing virtual environment:
 
 ```bash
-docker rm -f playlistmuse
-
-docker run -d \
-  --name playlistmuse \
-  --restart unless-stopped \
-  -p 5780:5780 \
-  -v "$(pwd)/data:/app/data" \
-  ghcr.io/steventrux/playlistmuse:latest
+git pull
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-The persistent `data` directory is reused by the new container.
+On Windows PowerShell, activate the environment with `.venv\Scripts\Activate.ps1` instead.
 
-When using a custom host port or additional Docker options, reuse the same options when recreating the container.
+Restart the PlaylistMuse process after the update. The existing `data` directory is reused automatically unless `PLAYLISTMUSE_DATA_DIR` points to another location.
 
 ### Remote access
 
