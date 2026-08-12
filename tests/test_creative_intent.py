@@ -24,8 +24,8 @@ def _track(title: str) -> dict[str, str]:
     return {
         "artist": "Test Artist",
         "title": title,
-        "description": "Description.",
-        "reason": "Reason.",
+        "description": "Generated description claiming perfect suitability.",
+        "reason": "Generated reason claiming this is ideal for the requested mood.",
     }
 
 
@@ -74,7 +74,11 @@ def test_creative_fit_rejects_high_confidence_conflicts_and_weak_fit(monkeypatch
         payload = json.loads(prompt)
         assert payload["creative_requirements"] == ["energetic social setting"]
         assert len(payload["tracks"]) == 5
+        assert set(payload["tracks"][0]) == {"index", "artist", "title"}
+        assert "Generated description" not in prompt
+        assert "Generated reason" not in prompt
         assert "positively contribute" in system_prompt
+        assert "self-justifying evidence" in system_prompt
         assert 'verdict="weak_fit"' in system_prompt
         return json.dumps(
             {
