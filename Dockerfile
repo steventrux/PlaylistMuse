@@ -16,6 +16,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend backend
 COPY frontend frontend
+COPY quality quality
 RUN mkdir -p data
 
 EXPOSE 5780
