@@ -19,13 +19,20 @@ test('playlist pagination clamps the current page after the result set shrinks',
   assert.deepEqual(page.items, items.slice(10, 20));
 });
 
-test('playlist pagination produces compact page tokens', () => {
-  assert.deepEqual(
-    pagination.pageTokens(10, 20),
-    [1, 'ellipsis', 9, 10, 11, 'ellipsis', 20],
-  );
-  assert.deepEqual(
-    pagination.pageTokens(1, 20),
-    [1, 2, 3, 4, 5, 'ellipsis', 20],
-  );
+test('desktop pagination shows at most five consecutive page numbers', () => {
+  assert.equal(pagination.DEFAULT_VISIBLE_PAGES, 5);
+  assert.deepEqual(pagination.pageTokens(1, 20, 5), [1, 2, 3, 4, 5]);
+  assert.deepEqual(pagination.pageTokens(10, 20, 5), [8, 9, 10, 11, 12]);
+  assert.deepEqual(pagination.pageTokens(20, 20, 5), [16, 17, 18, 19, 20]);
+});
+
+test('mobile pagination can be limited to three consecutive page numbers', () => {
+  assert.deepEqual(pagination.pageTokens(1, 20, 3), [1, 2, 3]);
+  assert.deepEqual(pagination.pageTokens(10, 20, 3), [9, 10, 11]);
+  assert.deepEqual(pagination.pageTokens(20, 20, 3), [18, 19, 20]);
+});
+
+test('pagination never pads the page window beyond the available pages', () => {
+  assert.deepEqual(pagination.pageTokens(2, 3, 5), [1, 2, 3]);
+  assert.deepEqual(pagination.pageTokens(1, 0, 5), []);
 });
