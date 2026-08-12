@@ -14,6 +14,7 @@ from backend.creative_intent import (
     interpret_creative_intent,
     reset_creative_intent,
 )
+from backend.lastfm_tags import LastfmTagEvidence
 
 
 def _config() -> AppConfig:
@@ -27,6 +28,10 @@ def _track(title: str) -> dict[str, str]:
         "description": "Generated description claiming perfect suitability.",
         "reason": "Generated reason claiming this is ideal for the requested mood.",
     }
+
+
+async def _empty_tag_evidence(tracks):
+    return [LastfmTagEvidence() for _ in tracks]
 
 
 def test_intent_payload_requires_explicit_high_confidence_requirements() -> None:
@@ -69,37 +74,58 @@ def test_interpret_creative_intent_is_semantic_and_provider_neutral(monkeypatch)
     assert intent.requirements == ("celebratory social atmosphere",)
 
 
-def test_creative_fit_rejects_high_confidence_conflicts_and_weak_fit(monkeypatch) -> None:
+def test_creative_fit_uses_external_tags_without_self_justification(monkeypatch) -> None:
+    async def fake_tags(tracks):
+        return [
+            LastfmTagEvidence(track_tags=("dance", "party")),
+            LastfmTagEvidence(artist_tags=("pop", "electropop")),
+            LastfmTagEvidence(),
+            LastfmTagEvidence(),
+            LastfmTagEvidence(),
+        ]
+
     async def fake_request(config, prompt, *, system_prompt, max_tokens, model):
         payload = json.loads(prompt)
         assert payload["creative_requirements"] == ["energetic social setting"]
         assert len(payload["tracks"]) == 5
-        assert set(payload["tracks"][0]) == {"index", "artist", "title"}
+        assert set(payload["tracks"][0]) == {
+            "index",
+            "artist",
+            "title",
+            "lastfm_track_tags",
+            "lastfm_artist_tags",
+        }
+        assert payload["tracks"][0]["lastfm_track_tags"] == ["dance", "party"]
+        assert payload["tracks"][0]["lastfm_artist_tags"] == []
+        assert payload["tracks"][1]["lastfm_track_tags"] == []
+        assert payload["tracks"][1]["lastfm_artist_tags"] == ["pop", "electropop"]
         assert "Generated description" not in prompt
         assert "Generated reason" not in prompt
         assert "positively contribute" in system_prompt
         assert "self-justifying evidence" in system_prompt
+        assert "community-generated external evidence" in system_prompt
+        assert "stronger evidence than generic artist tags" in system_prompt
         assert 'verdict="weak_fit"' in system_prompt
         return json.dumps(
             {
                 "assessments": [
                     {
                         "index": 1,
-                        "verdict": "conflict",
-                        "confidence": 0.97,
-                        "reason": "Clearly too subdued for the requested setting.",
+                        "verdict": "fit",
+                        "confidence": 0.98,
+                        "reason": "Track-specific tags support the requested setting.",
                     },
                     {
                         "index": 2,
                         "verdict": "weak_fit",
                         "confidence": 0.94,
-                        "reason": "Recognizable song, but only marginally supports the requested setting.",
+                        "reason": "Only broad artist-level evidence supports the setting.",
                     },
                     {
                         "index": 3,
-                        "verdict": "weak_fit",
-                        "confidence": 0.7,
-                        "reason": "Possible mismatch, but uncertain.",
+                        "verdict": "conflict",
+                        "confidence": 0.97,
+                        "reason": "Clearly too subdued for the requested setting.",
                     },
                     {
                         "index": 4,
@@ -109,14 +135,15 @@ def test_creative_fit_rejects_high_confidence_conflicts_and_weak_fit(monkeypatch
                     },
                     {
                         "index": 5,
-                        "verdict": "fit",
-                        "confidence": 0.98,
-                        "reason": "Clearly supports the requested setting.",
+                        "verdict": "weak_fit",
+                        "confidence": 0.7,
+                        "reason": "Possible mismatch, but uncertain.",
                     },
                 ]
             }
         )
 
+    monkeypatch.setattr(creative_intent, "tag_evidence_for_tracks", fake_tags)
     monkeypatch.setattr(creative_intent, "request_structured_json", fake_request)
     token = activate_creative_intent(
         CreativeIntent(("energetic social setting",), confidence=0.95)
@@ -137,8 +164,43 @@ def test_creative_fit_rejects_high_confidence_conflicts_and_weak_fit(monkeypatch
     finally:
         reset_creative_intent(token)
 
-    assert [item.index for item in conflicts] == [1, 2]
-    assert [item.confidence for item in conflicts] == [0.97, 0.94]
+    assert [item.index for item in conflicts] == [2, 3]
+    assert [item.confidence for item in conflicts] == [0.94, 0.97]
+
+
+def test_lastfm_tag_failure_fails_open_to_identity_only_evaluation(monkeypatch) -> None:
+    async def broken_tags(tracks):
+        raise RuntimeError("Last.fm unavailable")
+
+    async def fake_request(config, prompt, *, system_prompt, max_tokens, model):
+        payload = json.loads(prompt)
+        assert payload["tracks"][0]["lastfm_track_tags"] == []
+        assert payload["tracks"][0]["lastfm_artist_tags"] == []
+        return json.dumps(
+            {
+                "assessments": [
+                    {
+                        "index": 1,
+                        "verdict": "fit",
+                        "confidence": 0.95,
+                        "reason": "Known suitable recording.",
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(creative_intent, "tag_evidence_for_tracks", broken_tags)
+    monkeypatch.setattr(creative_intent, "request_structured_json", fake_request)
+
+    conflicts = asyncio.run(
+        assess_creative_fit(
+            _config(),
+            [_track("Track")],
+            intent=CreativeIntent(("energetic social setting",), confidence=0.95),
+        )
+    )
+
+    assert conflicts == []
 
 
 def test_unknown_creative_fit_never_becomes_rejection(monkeypatch) -> None:
@@ -156,6 +218,7 @@ def test_unknown_creative_fit_never_becomes_rejection(monkeypatch) -> None:
             }
         )
 
+    monkeypatch.setattr(creative_intent, "tag_evidence_for_tracks", _empty_tag_evidence)
     monkeypatch.setattr(creative_intent, "request_structured_json", fake_request)
     token = activate_creative_intent(
         CreativeIntent(("focused low-distraction atmosphere",), confidence=0.95)
@@ -176,6 +239,12 @@ def test_creative_fit_is_noop_without_explicit_intent(monkeypatch) -> None:
         called = True
         return "{}"
 
+    async def fake_tags(*args, **kwargs):
+        nonlocal called
+        called = True
+        return []
+
+    monkeypatch.setattr(creative_intent, "tag_evidence_for_tracks", fake_tags)
     monkeypatch.setattr(creative_intent, "request_structured_json", fake_request)
     token = activate_creative_intent(CreativeIntent())
     try:
