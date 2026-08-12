@@ -59,6 +59,15 @@ _SHORTHAND_QUOTA_CONTEXT_RE = re.compile(
     r"muss\s+(?:haben|enthalten)|mit|enthält|enthaelt|füge|fuege)\b",
     re.IGNORECASE,
 )
+_EXACT_SHORTHAND_CONTEXT_RE = re.compile(
+    r"\b(?:must\s+(?:have|contain|include)|needs?\s+to\s+(?:have|contain|include)|"
+    r"contains?|requires?|"
+    r"deve\s+(?:avere|contenere|includere)|deve\s+contenere|contiene|"
+    r"debe\s+(?:tener|contener|incluir)|contiene|"
+    r"doit\s+(?:avoir|contenir|inclure)|contient|"
+    r"muss\s+(?:haben|enthalten)|enthält|enthaelt)\b",
+    re.IGNORECASE,
+)
 _SHORTHAND_PAIR_RE = re.compile(
     rf"\b(?P<count>\d{{1,3}})\s+(?P<artist>[^,;.!?\n]+?)"
     rf"(?=\s*(?:,\s*\d{{1,3}}\s+|"
@@ -82,6 +91,12 @@ _LEADING_ARTICLE_RE = re.compile(
 class ArtistMinimumQuota:
     artist: str
     minimum: int
+
+
+@dataclass(frozen=True, slots=True)
+class ArtistExactQuota:
+    artist: str
+    count: int
 
 
 def user_request_text(prompt: str) -> str:
@@ -150,21 +165,54 @@ def _deduplicate_quotas(
     return [quota for _, quota in sorted(selected, key=lambda item: item[0])]
 
 
-def _shorthand_quota_matches(request: str) -> list[tuple[int, ArtistMinimumQuota]]:
-    """Parse compact independent counts such as `2 Metallica, 2 Queen tracks`."""
-    if not _SHORTHAND_QUOTA_CONTEXT_RE.search(request):
-        return []
+def _shorthand_pairs(request: str) -> list[tuple[int, str, int]]:
     if not _SHORT_TRACK_PRESENT_RE.search(request):
         return []
-
-    positioned: list[tuple[int, ArtistMinimumQuota]] = []
+    positioned: list[tuple[int, str, int]] = []
     for match in _SHORTHAND_PAIR_RE.finditer(request):
         artist = _clean_artist(match.group("artist"))
         if not artist:
             continue
-        minimum = max(0, min(100, int(match.group("count"))))
-        positioned.append((match.start(), ArtistMinimumQuota(artist, minimum)))
+        count = max(0, min(100, int(match.group("count"))))
+        positioned.append((match.start(), artist, count))
     return positioned if len(positioned) >= 2 else []
+
+
+def _shorthand_quota_matches(request: str) -> list[tuple[int, ArtistMinimumQuota]]:
+    """Parse compact independent counts such as `2 Metallica, 2 Queen tracks`."""
+    if not _SHORTHAND_QUOTA_CONTEXT_RE.search(request):
+        return []
+    return [
+        (position, ArtistMinimumQuota(artist, count))
+        for position, artist, count in _shorthand_pairs(request)
+    ]
+
+
+def extract_artist_exact_quotas(prompt: str) -> list[ArtistExactQuota]:
+    """Extract compact final exact counts when wording explicitly fixes playlist contents."""
+    request = user_request_text(prompt)
+    if not _EXACT_SHORTHAND_CONTEXT_RE.search(request):
+        return []
+
+    selected: list[ArtistExactQuota] = []
+    for _, artist, count in _shorthand_pairs(request):
+        existing_index = next(
+            (
+                index
+                for index, existing in enumerate(selected)
+                if _artists_equivalent(existing.artist, artist)
+            ),
+            None,
+        )
+        if existing_index is None:
+            selected.append(ArtistExactQuota(artist, count))
+            continue
+        if selected[existing_index].count == count:
+            continue
+        # Conflicting exact counts are intentionally not guessed here; the semantic prompt
+        # assessment remains responsible for surfacing an ambiguous/impossible request.
+        return []
+    return selected
 
 
 def extract_artist_minimum_quotas(prompt: str) -> list[ArtistMinimumQuota]:
@@ -220,6 +268,26 @@ def quota_deficits(
     ]
 
 
+def exact_quota_counts(
+    tracks: list[dict[str, Any]],
+    quotas: list[ArtistExactQuota],
+) -> dict[str, int]:
+    minimums = [ArtistMinimumQuota(quota.artist, quota.count) for quota in quotas]
+    return quota_counts(tracks, minimums)
+
+
+def exact_quota_mismatches(
+    tracks: list[dict[str, Any]],
+    quotas: list[ArtistExactQuota],
+) -> list[tuple[ArtistExactQuota, int]]:
+    counts = exact_quota_counts(tracks, quotas)
+    return [
+        (quota, counts[quota.artist])
+        for quota in quotas
+        if counts[quota.artist] != quota.count
+    ]
+
+
 def quota_guidance(quotas: list[ArtistMinimumQuota]) -> str:
     if not quotas:
         return ""
@@ -230,4 +298,17 @@ def quota_guidance(quotas: list[ArtistMinimumQuota]) -> str:
         "\n\nPER-ARTIST QUOTAS: the following are independent mandatory minimums, not "
         f"one combined quota: {requirements}. Satisfy every artist minimum separately. "
         "Do not count a track toward a different artist's quota."
+    )
+
+
+def exact_quota_guidance(quotas: list[ArtistExactQuota]) -> str:
+    if not quotas:
+        return ""
+    requirements = "; ".join(
+        f"exactly {quota.count} tracks by {quota.artist}" for quota in quotas
+    )
+    return (
+        "\n\nEXACT PER-ARTIST COUNTS: these are independent mandatory final counts: "
+        f"{requirements}. Do not return more or fewer tracks for any named artist. "
+        "These exact counts override any generic quota safety margin for the same artist."
     )
