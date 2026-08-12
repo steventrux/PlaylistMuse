@@ -4,6 +4,7 @@
   const DEBOUNCE_MS = 500;
   const FILTER_CONFLICT_PREFIX = 'FILTER_CONFLICT::';
   let latestFilterConflicts = [];
+  let ensureCurrentAnalysisImpl = async () => null;
 
   function complexityHue(value) {
     const score = Math.max(0, Math.min(100, Number(value) || 0));
@@ -120,7 +121,6 @@
     };
 
     const hideComponent = () => {
-      controller?.abort();
       component.classList.add('hidden');
       setPopoverOpen(false);
       renderFilterConflicts([]);
@@ -147,40 +147,56 @@
     const analyze = async () => {
       const payload = analysisPayload(prompt.value, settings());
       if (!payload.prompt) {
+        controller?.abort();
         hideComponent();
-        return;
+        return null;
       }
 
       const key = JSON.stringify(payload);
       if (cache.has(key)) {
-        render(cache.get(key));
-        return;
+        const cached = cache.get(key);
+        render(cached);
+        return cached;
       }
 
       controller?.abort();
-      controller = new AbortController();
+      const requestController = new AbortController();
+      controller = requestController;
       const sequence = ++requestSequence;
       try {
         const response = await fetch('/api/prompts/analyze', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: key,
-          signal: controller.signal,
+          signal: requestController.signal,
         });
         if (!response.ok) throw new Error('Prompt analysis unavailable');
         const result = await response.json();
-        if (sequence !== requestSequence) return;
+        if (sequence !== requestSequence) return null;
         cache.set(key, result);
         render(result);
+        return result;
       } catch (error) {
         if (error.name !== 'AbortError' && sequence === requestSequence) hideComponent();
+        return null;
+      } finally {
+        if (controller === requestController) controller = null;
       }
+    };
+
+    ensureCurrentAnalysisImpl = async () => {
+      window.clearTimeout(timer);
+      timer = null;
+      return analyze();
     };
 
     const schedule = () => {
       window.clearTimeout(timer);
       controller?.abort();
-      timer = window.setTimeout(analyze, DEBOUNCE_MS);
+      timer = window.setTimeout(() => {
+        timer = null;
+        void analyze();
+      }, DEBOUNCE_MS);
     };
 
     trigger.addEventListener('click', () => {
@@ -204,6 +220,7 @@
     clarityText,
     complexityHue,
     displayLevel,
+    ensureCurrentAnalysis: () => ensureCurrentAnalysisImpl(),
     filterConflicts,
     parseFilterConflict,
     debounceMs: DEBOUNCE_MS,
