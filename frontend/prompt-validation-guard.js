@@ -60,6 +60,23 @@
     });
   }
 
+  function filterConflicts() {
+    const conflicts = window.PlaylistMusePromptComplexity?.activeFilterConflicts?.();
+    return Array.isArray(conflicts) ? conflicts : [];
+  }
+
+  function renderFilterConflicts(conflicts) {
+    const visibleConflict = document.getElementById('prompt-filter-conflict-warning');
+    if (visibleConflict && !visibleConflict.classList.contains('hidden')) {
+      render({status: 'valid'});
+      return;
+    }
+    render({
+      status: 'impossible',
+      reasons: conflicts.map((item) => item.message).filter(Boolean),
+    });
+  }
+
   async function intercept(event) {
     const button = event.target.closest?.('#generate');
     if (!button) return;
@@ -77,6 +94,15 @@
     const submittedPrompt = promptText();
 
     try {
+      await window.PlaylistMusePromptComplexity?.ensureCurrentAnalysis?.();
+      if (submittedPrompt !== promptText()) return;
+
+      const conflicts = filterConflicts();
+      if (conflicts.length) {
+        renderFilterConflicts(conflicts);
+        return;
+      }
+
       const result = await validate();
       if (submittedPrompt !== promptText()) return;
       render(result);
@@ -99,5 +125,11 @@
     render({status: 'valid'});
   });
 
-  window.PlaylistMusePromptValidationGuard = {promptText, render, validate};
+  window.PlaylistMusePromptValidationGuard = {
+    filterConflicts,
+    promptText,
+    render,
+    renderFilterConflicts,
+    validate,
+  };
 })();

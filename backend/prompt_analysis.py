@@ -9,6 +9,13 @@ import httpx
 
 from backend.config import AppConfig
 from backend.constraint_interpreter import request_structured_json
+from backend.recording_variants import (
+    policy_from_payload,
+    recording_filter_conflicts,
+    remember_recording_policy,
+)
+
+FILTER_CONFLICT_PREFIX = "FILTER_CONFLICT::"
 
 SYSTEM_PROMPT = """You analyze playlist requests written in any language.
 Return JSON only and use exactly the fields described below.
@@ -31,12 +38,27 @@ Return:
   "conflicts": [],
   "missing_information": [],
   "imprecisions": [],
-  "possible_typos": []
+  "possible_typos": [],
+  "required_recording_types": [],
+  "included_recording_types": [],
+  "excluded_recording_types": [],
+  "recording_type_confidence": 0.0
 }
 
 Allowed dimensions: genre, period, mood_energy, context, references,
 language_geography, popularity, sound.
 Allowed structures: ordering, alternation, progression, proportions, transitions, sections.
+Allowed recording types: live, cover, remix.
+
+Recording-version semantics:
+- required_recording_types: every selected track must have that type, for requests equivalent
+  to "only live versions", "all tracks must be covers", or "every song must be a remix";
+- included_recording_types: some tracks of that type must be present, but not every track;
+- excluded_recording_types: that type must not be present;
+- recording_type_confidence: confidence from 0.0 to 1.0 in those three classifications.
+Interpret recording-version intent semantically in the request language. Do not infer a
+recording-type requirement just because an artist, song, album, genre, venue or event name
+contains a word such as live, cover, mix or remix.
 
 Definitions:
 - hard_constraints: mandatory inclusions, exclusions, ranges, identity requirements and
@@ -72,6 +94,7 @@ _STRUCTURES = {
     "transitions",
     "sections",
 }
+_RECORDING_TYPES = {"live", "cover", "remix"}
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -106,6 +129,21 @@ def _count(payload: dict[str, Any], key: str, maximum: int) -> int:
         return 0
 
 
+def _confidence(payload: dict[str, Any], key: str) -> float:
+    try:
+        return max(0.0, min(1.0, float(payload.get(key, 0.0))))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _recording_types(payload: dict[str, Any], key: str) -> list[str]:
+    return [
+        value
+        for value in _string_list(payload, key, 3)
+        if value.casefold() in _RECORDING_TYPES
+    ]
+
+
 def parse_analysis(text: str) -> dict[str, Any]:
     payload = _extract_json(text)
     return {
@@ -127,6 +165,18 @@ def parse_analysis(text: str) -> dict[str, Any]:
         "missing_information": _string_list(payload, "missing_information", 8),
         "imprecisions": _string_list(payload, "imprecisions", 8),
         "possible_typos": _string_list(payload, "possible_typos", 8),
+        "required_recording_types": _recording_types(
+            payload, "required_recording_types"
+        ),
+        "included_recording_types": _recording_types(
+            payload, "included_recording_types"
+        ),
+        "excluded_recording_types": _recording_types(
+            payload, "excluded_recording_types"
+        ),
+        "recording_type_confidence": _confidence(
+            payload, "recording_type_confidence"
+        ),
     }
 
 
@@ -154,7 +204,15 @@ async def analyze_prompt_semantics(
                 max_tokens=1_800,
                 model=model,
             )
-            return parse_analysis(response)
+            analysis = parse_analysis(response)
+            policy = policy_from_payload(analysis)
+            remember_recording_policy(config, prompt, policy)
+            conflicts = recording_filter_conflicts(options, policy)
+            analysis["conflicts"].extend(
+                f"{FILTER_CONFLICT_PREFIX}{conflict.option}::{conflict.message}"
+                for conflict in conflicts
+            )
+            return analysis
         except (httpx.HTTPError, TypeError, ValueError, json.JSONDecodeError) as error:
             errors.append(error)
     if errors:

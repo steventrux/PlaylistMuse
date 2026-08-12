@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -26,6 +27,9 @@ _STRICT_MAJORITY_ARTIST_RE = re.compile(
 
 _ACTIVE_RESOLUTION_QUOTAS: ContextVar[tuple[Any, ...]] = ContextVar(
     "playlistmuse_resolution_quotas", default=()
+)
+_ACTIVE_EXACT_ARTIST_QUOTAS: ContextVar[tuple[Any, ...]] = ContextVar(
+    "playlistmuse_exact_artist_quotas", default=()
 )
 _RESOLVED_SESSION_TRACKS: ContextVar[tuple[dict[str, Any], ...]] = ContextVar(
     "playlistmuse_resolved_session_tracks", default=()
@@ -149,11 +153,42 @@ def _repair_quota_prompt(
     )
 
 
-def _reset_resolution_session(quotas: list[Any], count: int) -> None:
+def _reset_resolution_session(
+    quotas: list[Any],
+    count: int,
+    exact_quotas: list[Any] | None = None,
+) -> None:
     """Start a clean catalogue-selection session for one generation request."""
     _ACTIVE_RESOLUTION_QUOTAS.set(tuple(quotas))
+    _ACTIVE_EXACT_ARTIST_QUOTAS.set(tuple(exact_quotas or ()))
     _RESOLVED_SESSION_TRACKS.set(())
     _REQUESTED_SESSION_COUNT.set(max(0, int(count)))
+
+
+def _cap_buffered_quotas_at_exact_counts(
+    quotas: list[Any],
+    exact_quotas: list[Any],
+) -> list[Any]:
+    if not exact_quotas:
+        return quotas
+
+    from backend.artist_quota_detection import ArtistMinimumQuota, artist_matches
+
+    capped: list[Any] = []
+    for quota in quotas:
+        exact = next(
+            (
+                item
+                for item in exact_quotas
+                if artist_matches(quota.artist, item.artist)
+                or artist_matches(item.artist, quota.artist)
+            ),
+            None,
+        )
+        capped.append(
+            ArtistMinimumQuota(quota.artist, exact.count) if exact is not None else quota
+        )
+    return capped
 
 
 def _album_key(track: dict[str, Any]) -> str:
@@ -218,6 +253,8 @@ async def generate_playlist_draft(
 ) -> dict[str, Any]:
     """Generate and validate one draft without mutating imported modules."""
     from backend.artist_quota_detection import (
+        exact_quota_guidance,
+        extract_artist_exact_quotas,
         extract_artist_minimum_quotas,
         quota_deficits,
         quota_guidance,
@@ -240,6 +277,11 @@ async def generate_playlist_draft(
         parse_replacement_tracks,
     )
     from backend.prompt_validation import assess_interpretation, assess_prompt
+    from backend.recording_variants import (
+        RecordingVariantPolicy,
+        activate_recording_policy,
+        interpret_recording_policy,
+    )
     from backend.request_constraints import (
         buffered_artist_quotas,
         open_ended_year_range,
@@ -254,24 +296,32 @@ async def generate_playlist_draft(
         _POLICY_BASE_TRACKS.set(())
         _REPLACEMENT_MODE.set(False)
         _REPLACEMENT_FINAL_COUNT.set(0)
+        activate_recording_policy(RecordingVariantPolicy())
     elif stage == "llm_replacement":
         base_tracks, final_count = parse_replacement_tracks(optimized_prompt)
         _ACTIVE_POLICY.set(None)
         _POLICY_BASE_TRACKS.set(tuple(base_tracks))
         _REPLACEMENT_MODE.set(True)
         _REPLACEMENT_FINAL_COUNT.set(final_count)
+        activate_recording_policy(RecordingVariantPolicy())
 
     started_at = time.perf_counter()
     should_interpret = stage in {"llm_initial", "llm_replacement"}
     source_prompt = _constraint_source(optimized_prompt, stage)
     user_request = user_request_text(optimized_prompt)
     artist_quotas = extract_artist_minimum_quotas(user_request)
+    exact_artist_quotas = extract_artist_exact_quotas(user_request)
     if should_interpret:
-        _reset_resolution_session(artist_quotas, count)
+        _reset_resolution_session(artist_quotas, count, exact_artist_quotas)
     generation_quotas = buffered_artist_quotas(
         artist_quotas, optimized_count
     )
+    generation_quotas = _cap_buffered_quotas_at_exact_counts(
+        generation_quotas,
+        exact_artist_quotas,
+    )
     submitted_prompt = optimized_prompt + quota_guidance(generation_quotas)
+    submitted_prompt += exact_quota_guidance(exact_artist_quotas)
     submitted_prompt += (
         "\n\nALBUM DIVERSITY: when several compliant tracks are available, prefer "
         "different original albums. Avoid selecting many tracks from the same "
@@ -286,7 +336,11 @@ async def generate_playlist_draft(
     assessment = None
     try:
         if should_interpret:
-            assessment = await assess_prompt(config, source_prompt)
+            assessment, recording_policy = await asyncio.gather(
+                assess_prompt(config, source_prompt),
+                interpret_recording_policy(config, source_prompt),
+            )
+            activate_recording_policy(recording_policy)
             if assessment.status == "impossible":
                 reason = " ".join(assessment.reasons)
                 raise ValueError(
@@ -378,13 +432,14 @@ async def generate_playlist_draft(
             logger.info(
                 "playlist_constraints stage=%s constraints=%s policy=%s "
                 "issues=%s artist_quota_deficits=%s "
-                "buffered_quota_deficits=%s assessment=%s",
+                "buffered_quota_deficits=%s exact_artist_quotas=%s assessment=%s",
                 stage,
                 asdict(constraints),
                 asdict(policy),
                 policy_issues,
                 [asdict(item) for item in effective_deficits],
                 [asdict(item) for item in generation_deficits],
+                [asdict(item) for item in exact_artist_quotas],
                 draft["prompt_assessment"],
             )
         else:
@@ -460,16 +515,35 @@ async def resolve_candidates(
     candidates: list[dict[str, str]],
     exclusions: dict[str, bool],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Resolve catalogue candidates and apply the integrated selection guard."""
+    """Resolve catalogue candidates and enforce recording-version policy before selection."""
     from backend import youtube
     from backend.artist_quota_detection import artist_matches, quota_deficits
+    from backend.recording_variants import (
+        active_recording_policy,
+        effective_resolver_options,
+        filter_resolved_recording_variants,
+        recording_filter_conflicts,
+    )
 
     started_at = time.perf_counter()
     try:
+        recording_policy = active_recording_policy()
+        conflicts = recording_filter_conflicts(exclusions, recording_policy)
+        if conflicts and not recording_policy.override_exclusions:
+            raise ValueError(conflicts[0].message)
+        effective_exclusions = effective_resolver_options(
+            exclusions,
+            recording_policy,
+        )
         resolved, unresolved = await youtube.resolve_candidates(
             candidates,
-            exclusions,
+            effective_exclusions,
         )
+        resolved, variant_rejected = filter_resolved_recording_variants(
+            resolved,
+            recording_policy,
+        )
+        unresolved.extend(variant_rejected)
         selected = _select_resolved_tracks(
             resolved,
             youtube=youtube,

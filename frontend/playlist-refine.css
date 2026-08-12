@@ -53,6 +53,137 @@
   color: var(--error);
 }
 
+.playlist-studio-selection-tools {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  margin: 10px 2px 8px;
+}
+
+.playlist-studio-select-all-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-secondary);
+  font-size: .74rem;
+  font-weight: 720;
+  cursor: pointer;
+  user-select: none;
+}
+
+.playlist-studio-select-all {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--cyan-light);
+  cursor: pointer;
+}
+
+.playlist-studio-select-all:disabled {
+  cursor: default;
+  opacity: .45;
+}
+
+body.playlist-studio-active .track-result-card,
+body.playlist-studio-active .track-result-card.reorderable,
+body.playlist-studio-active .track-result-card.expanded,
+body.playlist-studio-active .track-result-card.reorderable.expanded {
+  grid-template-columns: 28px 58px minmax(0, 1fr) 28px;
+  align-items: center;
+  cursor: default;
+}
+
+body.playlist-studio-active .track-result-card .track-artwork,
+body.playlist-studio-active .track-result-card.expanded .track-artwork {
+  grid-column: 2;
+  grid-row: 1;
+  width: 58px !important;
+  height: 58px !important;
+  border-radius: 11px !important;
+}
+
+body.playlist-studio-active .track-result-card .track-copy,
+body.playlist-studio-active .track-result-card.expanded .track-copy {
+  grid-column: 3;
+  grid-row: 1;
+  align-self: center;
+  padding-top: 0;
+}
+
+body.playlist-studio-active .track-reorder-handle,
+body.playlist-studio-active .track-expand-icon,
+body.playlist-studio-active .track-details {
+  display: none;
+}
+
+.playlist-studio-target-wrap {
+  display: grid;
+  grid-column: 1;
+  grid-row: 1;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.playlist-studio-target {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--cyan-light);
+  cursor: pointer;
+}
+
+.playlist-studio-lock-wrap {
+  display: inline-flex;
+  grid-column: 4;
+  grid-row: 1;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.playlist-studio-lock {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.playlist-studio-lock-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+  background: currentColor;
+  -webkit-mask: url('/static/lock-open-alt.svg') center / contain no-repeat;
+  mask: url('/static/lock-open-alt.svg') center / contain no-repeat;
+}
+
+.playlist-studio-lock-wrap:has(input:checked) {
+  color: var(--text-primary);
+}
+
+.playlist-studio-lock-wrap:has(input:checked) .playlist-studio-lock-icon {
+  -webkit-mask-image: url('/static/lock.svg');
+  mask-image: url('/static/lock.svg');
+}
+
+.playlist-studio-target-wrap:focus-within,
+.playlist-studio-lock-wrap:focus-within,
+.playlist-studio-select-all-wrap:focus-within {
+  border-radius: 5px;
+  outline: 2px solid rgba(56, 189, 248, .5);
+  outline-offset: 1px;
+}
+
 .playlist-refine-changes {
   padding: 11px 12px 12px;
   border: 1px solid rgba(183, 156, 255, .2);
@@ -127,6 +258,36 @@
 @media (max-width: 650px) {
   .playlist-refine-label textarea {
     min-height: 74px;
+  }
+
+  body.playlist-studio-active .track-result-card,
+  body.playlist-studio-active .track-result-card.reorderable,
+  body.playlist-studio-active .track-result-card.expanded,
+  body.playlist-studio-active .track-result-card.reorderable.expanded {
+    grid-template-columns: 24px 50px minmax(0, 1fr) 24px;
+  }
+
+  body.playlist-studio-active .track-result-card .track-artwork,
+  body.playlist-studio-active .track-result-card.expanded .track-artwork {
+    width: 50px !important;
+    height: 50px !important;
+  }
+
+  .playlist-studio-target-wrap,
+  .playlist-studio-lock-wrap {
+    width: 24px;
+    height: 24px;
+  }
+
+  .playlist-studio-target,
+  .playlist-studio-select-all {
+    width: 15px;
+    height: 15px;
+  }
+
+  .playlist-studio-lock-icon {
+    width: 15px;
+    height: 15px;
   }
 
   .playlist-refine-change-grid {

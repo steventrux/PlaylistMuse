@@ -27,6 +27,16 @@ Return only one valid JSON object with exactly this structure:
   ]
 }
 
+Curation protocol:
+- Before producing JSON, silently build a constraint checklist from the request and any internal guidance.
+- Apply requirements in this priority order: explicit mandatory constraints and placements; real-track identity and exclusions; requested structure, sequencing and progression; then coherence, variety and discovery preferences.
+- Never relax a mandatory requirement merely to improve variety. Use softer preferences only as tie-breakers after hard requirements are satisfied.
+- Silently verify every selected song against the applicable hard constraints and against the songs already selected.
+- If the request asks for ordering, alternation, sections, transitions or an energy progression, design the sequence deliberately rather than treating the playlist as an unordered bag of songs.
+- Prefer canonical, confidently real released tracks over uncertain titles. When discovery or obscurity is requested, explore less obvious choices only while preserving factual confidence and all hard constraints.
+- Before returning, silently verify the requested count, duplicate avoidance, explicit artist/song quotas, required inclusions and positional requirements.
+- Do not output this planning, checklist or verification. Return only the requested JSON; the short public `reason` field is not private analysis.
+
 Rules:
 - The title must be original, descriptive, 2 to 6 words, and no more than 70 characters.
 - Do not simply repeat the user's prompt as the title.
@@ -517,6 +527,10 @@ async def _try_complete_request(
             )
             if best_partial is None or len(draft["tracks"]) > len(best_partial["tracks"]):
                 best_partial = draft
+
+            missing = count - len(draft["tracks"])
+            if 0 < missing <= _batch_size(config.provider, count):
+                return None, draft, errors
     return None, best_partial, errors
 
 

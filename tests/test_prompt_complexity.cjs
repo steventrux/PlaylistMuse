@@ -9,7 +9,12 @@ const script = fs.readFileSync(
   'utf8',
 );
 vm.runInNewContext(script, context);
-const {analysisPayload, debounceMs} = context.window.PlaylistMusePromptComplexity;
+const {
+  analysisPayload,
+  debounceMs,
+  filterConflicts,
+  parseFilterConflict,
+} = context.window.PlaylistMusePromptComplexity;
 
 assert.equal(debounceMs, 500);
 
@@ -26,3 +31,19 @@ assert.deepEqual(JSON.parse(JSON.stringify(payload.options)), {
   exclude_covers: true,
   exclude_remixes: true,
 });
+
+const marker = 'FILTER_CONFLICT::exclude_live::The request requires live recordings.';
+assert.deepEqual(
+  JSON.parse(JSON.stringify(parseFilterConflict(marker))),
+  {
+    option: 'exclude_live',
+    message: 'The request requires live recordings.',
+  },
+);
+assert.deepEqual(
+  JSON.parse(JSON.stringify(filterConflicts({issues: ['other issue', marker]}))),
+  [{
+    option: 'exclude_live',
+    message: 'The request requires live recordings.',
+  }],
+);

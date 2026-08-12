@@ -1,6 +1,26 @@
-# PlaylistMuse support and bug reports
+# PlaylistMuse support and feedback
 
-GitHub Issues is the official place to report reproducible PlaylistMuse bugs.
+GitHub Issues is the official place for PlaylistMuse support reports.
+
+Use the appropriate category:
+
+- **Bug report** for reproducible technical failures, broken functions, errors, crashes, or unexpected application behavior.
+- **Playlist result feedback** when PlaylistMuse works technically but a generated or refined playlist does not follow the musical request as expected.
+
+## Playlist result feedback
+
+From a generated playlist, select **Give feedback**. PlaylistMuse opens a GitHub issue with the relevant request context and current track list already prepared.
+
+Before submitting it:
+
+1. Describe what part of the request was not respected.
+2. Explain what result you expected instead.
+3. Review the captured prompt, refinement context, generation filters, and track list.
+4. Remove personal or sensitive information if the prompt contains any.
+
+Playlist result feedback does **not** need a diagnostic ZIP unless there is also a technical failure. These reports are reviewed separately from bugs and can be promoted into PlaylistMuse's prompt-quality regression corpus after the expected behavior has been validated.
+
+If you open the issue directly from GitHub instead of from PlaylistMuse, choose **Playlist result feedback** and paste the relevant prompt or Playlist Studio instruction and playlist result.
 
 ## Before opening a bug report
 
@@ -11,7 +31,7 @@ GitHub Issues is the official place to report reproducible PlaylistMuse bugs.
 5. Review the downloaded ZIP before sharing it.
 6. Open the GitHub **Bug report** form and attach the diagnostic ZIP when available.
 
-## What to include
+## What to include in a bug report
 
 A useful bug report should contain:
 
@@ -27,7 +47,7 @@ A useful bug report should contain:
 - A screenshot when it helps explain the visible problem.
 - The diagnostic report when available.
 
-If a playlist-generation problem depends on a particular prompt or seed song, include it when you can. Remove personal information first if the request contains any.
+If a playlist-generation problem is a technical failure and depends on a particular prompt or seed song, include it when you can. Remove personal information first if the request contains any.
 
 ## Diagnostic report
 

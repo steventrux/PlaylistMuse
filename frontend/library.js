@@ -9,6 +9,7 @@
   const tagTools = window.PlaylistMuseLibraryTags;
   const paginationTools = window.PlaylistMuseLibraryPagination;
   const PAGE_SIZE = paginationTools.DEFAULT_PAGE_SIZE;
+  const MOBILE_PAGINATION = window.matchMedia('(max-width: 650px)');
 
   let expandedLibraryId = null;
   let libraryItems = [];
@@ -432,6 +433,10 @@
     return button;
   }
 
+  function visiblePageNumberCount() {
+    return MOBILE_PAGINATION.matches ? 3 : paginationTools.DEFAULT_VISIBLE_PAGES;
+  }
+
   function renderPagination(pageState) {
     const pagination = $('library-pagination');
     const numbers = $('library-page-numbers');
@@ -442,16 +447,16 @@
       return;
     }
 
-    $('library-page-previous').disabled = currentPage <= 1;
-    $('library-page-next').disabled = currentPage >= pageState.totalPages;
-    const controls = paginationTools.pageTokens(currentPage, pageState.totalPages).map((token) => {
-      if (token !== 'ellipsis') return createPageButton(token);
-      const ellipsis = document.createElement('span');
-      ellipsis.className = 'library-page-ellipsis';
-      ellipsis.textContent = '…';
-      ellipsis.setAttribute('aria-hidden', 'true');
-      return ellipsis;
-    });
+    const atFirstPage = currentPage <= 1;
+    const atLastPage = currentPage >= pageState.totalPages;
+    $('library-page-first').disabled = atFirstPage;
+    $('library-page-previous').disabled = atFirstPage;
+    $('library-page-next').disabled = atLastPage;
+    $('library-page-last').disabled = atLastPage;
+
+    const controls = paginationTools
+      .pageTokens(currentPage, pageState.totalPages, visiblePageNumberCount())
+      .map(createPageButton);
     numbers.replaceChildren(...controls);
   }
 
@@ -559,8 +564,11 @@
   document.querySelectorAll('[data-status-filter]').forEach((button) => {
     button.addEventListener('click', () => setStatusFilter(button.dataset.statusFilter || 'all'));
   });
+  $('library-page-first').addEventListener('click', () => setLibraryPage(1));
   $('library-page-previous').addEventListener('click', () => setLibraryPage(currentPage - 1));
   $('library-page-next').addEventListener('click', () => setLibraryPage(currentPage + 1));
+  $('library-page-last').addEventListener('click', () => setLibraryPage(Number.MAX_SAFE_INTEGER));
+  MOBILE_PAGINATION.addEventListener?.('change', renderLibrary);
   $('library-sort').addEventListener('change', () => {
     currentPage = 1;
     expandedLibraryId = null;

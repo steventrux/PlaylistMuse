@@ -7,6 +7,7 @@ import pytest
 import backend
 from backend import generation_runtime, llm
 from backend.artist_quota_detection import (
+    ArtistExactQuota,
     ArtistMinimumQuota,
     artist_matches,
     extract_artist_minimum_quotas,
@@ -30,6 +31,7 @@ def _reset_runtime_context():
     """Prevent request-scoped ContextVars from leaking into later tests."""
     defaults = (
         (generation_runtime._ACTIVE_RESOLUTION_QUOTAS, ()),
+        (generation_runtime._ACTIVE_EXACT_ARTIST_QUOTAS, ()),
         (generation_runtime._REQUESTED_SESSION_COUNT, 0),
         (generation_runtime._RESOLVED_SESSION_TRACKS, ()),
         (_ACTIVE_POLICY, None),
@@ -139,6 +141,42 @@ def test_quota_selection_never_records_more_tracks_than_capacity() -> None:
 
     assert len(selected) == 1
     assert len(generation_runtime._RESOLVED_SESSION_TRACKS.get()) == 2
+
+
+def test_exact_artist_quota_stops_surplus_resolved_tracks() -> None:
+    generation_runtime._ACTIVE_RESOLUTION_QUOTAS.set(
+        (ArtistMinimumQuota("Metallica", 2),)
+    )
+    generation_runtime._ACTIVE_EXACT_ARTIST_QUOTAS.set(
+        (ArtistExactQuota("Metallica", 2),)
+    )
+    generation_runtime._REQUESTED_SESSION_COUNT.set(6)
+    generation_runtime._RESOLVED_SESSION_TRACKS.set(
+        (_track("Metallica", "One"),)
+    )
+    _ACTIVE_POLICY.set(None)
+    _POLICY_BASE_TRACKS.set(())
+    _REPLACEMENT_MODE.set(False)
+    _REPLACEMENT_FINAL_COUNT.set(0)
+
+    selected = guarded_select_resolved_tracks(
+        [
+            _track("Metallica", "Two"),
+            _track("Metallica", "Three"),
+            _track("AC/DC", "Back in Black"),
+        ],
+        youtube=_youtube(),
+        artist_matches=artist_matches,
+        quota_deficits=quota_deficits,
+    )
+
+    assert [track["title"] for track in selected] == ["Two", "Back in Black"]
+    metallica = [
+        track
+        for track in generation_runtime._RESOLVED_SESSION_TRACKS.get()
+        if artist_matches(track["artists"], "Metallica")
+    ]
+    assert len(metallica) == 2
 
 
 def test_combined_required_track_and_quota_reserve_separate_slots() -> None:

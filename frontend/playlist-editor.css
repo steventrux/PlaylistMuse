@@ -63,14 +63,17 @@
   margin: 0;
 }
 
+.playlist-toolbar-actions,
 .playlist-draft-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
+  align-items: center;
   gap: 8px;
 }
 
-.playlist-draft-actions .secondary {
+.playlist-draft-actions .secondary,
+.playlist-feedback-action {
   min-height: 36px;
   padding: 8px 12px;
   font-size: .8rem;
@@ -209,11 +212,17 @@ body.playlist-readonly #playlist-tags .library-tag-add-form {
     flex-direction: column;
   }
 
-  .playlist-draft-actions {
+  .playlist-toolbar-actions {
     width: 100%;
+    justify-content: flex-start;
   }
 
-  .playlist-draft-actions .secondary {
+  .playlist-draft-actions {
+    width: auto;
+  }
+
+  .playlist-draft-actions .secondary,
+  .playlist-feedback-action {
     flex: 1 1 auto;
   }
 

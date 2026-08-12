@@ -60,7 +60,8 @@
   border-radius: 11px;
 }
 
-.playlist-draft-actions .compact-action {
+.playlist-draft-actions .compact-action,
+.playlist-feedback-action.compact-action {
   flex: 0 0 auto;
   min-width: 40px;
   min-height: 40px;
@@ -72,6 +73,14 @@
   .playlist-tracks-toolbar {
     flex-direction: row;
     align-items: center;
+  }
+
+  .playlist-toolbar-actions {
+    width: auto;
+    margin-left: auto;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
   }
 
   .playlist-draft-actions {
@@ -86,7 +95,8 @@
   }
 
   .track .track-action.compact-action,
-  .playlist-draft-actions .compact-action {
+  .playlist-draft-actions .compact-action,
+  .playlist-feedback-action.compact-action {
     width: 44px;
     min-width: 44px;
     max-width: 44px;

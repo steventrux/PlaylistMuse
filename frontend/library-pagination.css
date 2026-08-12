@@ -1,0 +1,42 @@
+.library-pagination {
+  flex-wrap: nowrap;
+  gap: 5px;
+}
+
+.library-page-numbers {
+  flex: 0 0 auto;
+  gap: 5px;
+}
+
+.library-page-nav {
+  display: inline-grid;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  place-items: center;
+  border-radius: 9px;
+}
+
+.library-page-nav svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.library-page-nav:disabled {
+  opacity: .42;
+  cursor: default;
+}
+
+@media (max-width: 650px) {
+  .library-pagination,
+  .library-page-numbers {
+    gap: 4px;
+  }
+}

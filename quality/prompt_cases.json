@@ -1,0 +1,147 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "artist-independent-minimums-it",
+      "status": "approved",
+      "origin": "regression",
+      "flows": ["generation", "studio"],
+      "prompt": "almeno 4 brani dei Rolling Stones e 3 brani degli AC/DC e 2 brani dei Metallica",
+      "context": {},
+      "failure": "Independent artist quotas were previously merged or one quota could be lost while repairing another.",
+      "desired_behavior": "Treat every artist quantity as an independent mandatory minimum and preserve all of them through generation, catalogue resolution and refinement.",
+      "guidance": "Never merge numeric artist requirements into one shared quota. Validate each named artist independently after catalogue resolution.",
+      "expectations": {
+        "artist_minimum_quotas": [
+          {"artist": "Rolling Stones", "minimum": 4},
+          {"artist": "AC/DC", "minimum": 3},
+          {"artist": "Metallica", "minimum": 2}
+        ]
+      },
+      "tags": ["artist-quota", "minimum", "multilingual", "regression"]
+    },
+    {
+      "id": "artist-shorthand-counts-en",
+      "status": "approved",
+      "origin": "user_feedback",
+      "flows": ["generation", "studio"],
+      "prompt": "the playlist must have 2 metallica, 2 guns n' roses and 2 ac/dc tracks",
+      "context": {},
+      "failure": "The numeric artist requirements were ignored and unrelated artists were selected instead; treating them only as minimums could also over-represent the requested artists in a larger playlist.",
+      "desired_behavior": "Recognize three independent exact final artist counts and ensure the resolved playlist contains exactly two tracks for every named artist.",
+      "guidance": "A compact mandatory content list such as 'must have 2 Artist A, 2 Artist B and 2 Artist C tracks' expresses independent exact final counts, not one combined preference and not merely minimums.",
+      "expectations": {
+        "artist_exact_quotas": [
+          {"artist": "metallica", "count": 2},
+          {"artist": "guns n' roses", "count": 2},
+          {"artist": "ac/dc", "count": 2}
+        ]
+      },
+      "tags": ["artist-quota", "exact-count", "shorthand", "user-feedback", "regression"]
+    },
+    {
+      "id": "recording-live-filter-conflict",
+      "status": "approved",
+      "origin": "user_feedback",
+      "flows": ["generation"],
+      "prompt": "Create a playlist of rock music with only live versions",
+      "context": {
+        "options": {
+          "exclude_live": true,
+          "exclude_covers": true,
+          "exclude_remixes": true
+        }
+      },
+      "failure": "The prompt required live recordings while the live-exclusion checkbox remained active without a visible conflict.",
+      "desired_behavior": "Block generation and show a conflict until the request or the incompatible exclusion filter is changed.",
+      "guidance": "Explicit recording-version requirements take priority over creative preferences and must be checked against UI filters before generation.",
+      "expectations": {
+        "recording_required": ["live"],
+        "conflicting_option": "exclude_live"
+      },
+      "tags": ["recording-version", "live", "filter-conflict", "regression"]
+    },
+    {
+      "id": "studio-preserves-original-live-policy",
+      "status": "approved",
+      "origin": "regression",
+      "flows": ["studio"],
+      "prompt": "the playlist must have 2 metallica, 2 guns n' roses and 2 ac/dc tracks",
+      "context": {
+        "original_prompt": "Create a playlist of rock music with only live versions",
+        "current_playlist_satisfies_original_recording_policy": true
+      },
+      "failure": "A later artist refinement could satisfy the new artist request by introducing studio recordings into an already valid all-live playlist.",
+      "desired_behavior": "Keep the original mandatory live-recording policy when it is already an established invariant of the current playlist, unless the new refinement explicitly supersedes it, while still satisfying the new exact artist counts.",
+      "guidance": "A refinement preserves an original mandatory recording constraint only when the current playlist actually satisfies that constraint; an established invariant remains active unless explicitly superseded.",
+      "expectations": {
+        "inherit_recording_policy": true,
+        "artist_exact_quotas": [
+          {"artist": "metallica", "count": 2},
+          {"artist": "guns n' roses", "count": 2},
+          {"artist": "ac/dc", "count": 2}
+        ]
+      },
+      "tags": ["playlist-studio", "constraint-inheritance", "live", "artist-quota", "exact-count", "regression"]
+    },
+    {
+      "id": "studio-does-not-resurrect-unsatisfied-live-policy",
+      "status": "approved",
+      "origin": "user_feedback",
+      "flows": ["studio"],
+      "prompt": "must have 2 metallica, 2 guns n roses and 2 ac/dc songs",
+      "context": {
+        "original_prompt": "Create a playlist of rock music with only live versions",
+        "current_playlist_satisfies_original_recording_policy": false
+      },
+      "failure": "A legacy mixed playlist created before live-version enforcement was fixed still carried an old 'only live' prompt. Playlist Studio resurrected that unsatisfied historical constraint and blocked an unrelated artist-count refinement.",
+      "desired_behavior": "Do not inherit a historical recording-version constraint that the current playlist does not already satisfy. Apply the current artist-count refinement normally, while still preserving recording constraints for playlists where they are genuinely established.",
+      "guidance": "Constraint inheritance must follow validated playlist state, not prompt history alone. Never turn a previously unsatisfied legacy requirement into a new hidden prerequisite for an unrelated refinement.",
+      "expectations": {
+        "inherit_recording_policy": false,
+        "artist_exact_quotas": [
+          {"artist": "metallica", "count": 2},
+          {"artist": "guns n roses", "count": 2},
+          {"artist": "ac/dc", "count": 2}
+        ]
+      },
+      "tags": ["playlist-studio", "constraint-inheritance", "legacy-state", "live", "artist-quota", "exact-count", "user-feedback", "regression"]
+    },
+    {
+      "id": "studio-explicit-addition-target",
+      "status": "approved",
+      "origin": "regression",
+      "flows": ["studio"],
+      "prompt": "Add 2 David Bowie tracks",
+      "context": {},
+      "failure": "Explicit additions must not be treated as a vague preference or as a whole-playlist allow-list.",
+      "desired_behavior": "Add exactly two new distinct David Bowie tracks while keeping the playlist size unchanged by replacing only the required number of existing tracks.",
+      "guidance": "Incremental add/include instructions are exact new-track targets and existing tracks by that artist do not count toward the requested additions.",
+      "expectations": {
+        "artist_addition_targets": [
+          {"artist": "David Bowie", "count": 2}
+        ]
+      },
+      "tags": ["playlist-studio", "artist-addition", "regression"]
+    },
+    {
+      "id": "studio-compact-addition-list-en",
+      "status": "approved",
+      "origin": "user_feedback",
+      "flows": ["studio"],
+      "prompt": "insert 2 metallica, 2 guns n' roses and 2 ac/dc tracks",
+      "context": {},
+      "failure": "A compact multi-artist insertion could be interpreted as a vague refinement and return unrelated replacement artists.",
+      "desired_behavior": "Add exactly two new distinct tracks for each named artist, independently, while preserving the playlist size.",
+      "guidance": "When an add/insert verb governs a compact list of count-and-artist pairs, every pair is an exact incremental addition target.",
+      "expectations": {
+        "artist_addition_targets": [
+          {"artist": "metallica", "count": 2},
+          {"artist": "guns n' roses", "count": 2},
+          {"artist": "ac/dc", "count": 2}
+        ]
+      },
+      "tags": ["playlist-studio", "artist-addition", "shorthand", "user-feedback", "regression"]
+    }
+  ]
+}

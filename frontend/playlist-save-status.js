@@ -128,7 +128,11 @@
     if (method === 'POST' && path === LIBRARY_ROOT) return true;
     if (method === 'PUT' && /^\/api\/library\/playlists\/[^/]+$/.test(path)) return true;
     if (method !== 'POST' || !path.startsWith(`${LIBRARY_ROOT}/`)) return false;
-    return path.endsWith('/tags/suggest') || path.endsWith('/refine-apply');
+    return (
+      path.endsWith('/tags/suggest')
+      || path.endsWith('/refine-apply')
+      || path.endsWith('/studio-apply')
+    );
   }
 
   window.fetch = async function playlistMuseTrackedFetch(input, init) {
