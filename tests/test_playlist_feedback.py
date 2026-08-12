@@ -3,6 +3,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
 ISSUE_TEMPLATE = ROOT / ".github" / "ISSUE_TEMPLATE" / "playlist_feedback.yml"
+BUG_TEMPLATE = ROOT / ".github" / "ISSUE_TEMPLATE" / "bug_report.yml"
 
 
 def _text(path: Path) -> str:
@@ -11,12 +12,14 @@ def _text(path: Path) -> str:
 
 def test_playlist_feedback_is_separate_from_bug_reports() -> None:
     template = _text(ISSUE_TEMPLATE)
+    bug_template = _text(BUG_TEMPLATE)
 
     assert "name: Playlist result feedback" in template
     assert 'title: "[Playlist feedback] "' in template
+    assert 'labels: ["playlist feedback"]' in template
     assert "did not match your request" in template
     assert "separate from a **Bug report**" in template
-    assert "labels: [\"bug\"]" not in template
+    assert 'labels: ["bug"]' in bug_template
     assert "Diagnostic report" not in template
 
 
@@ -36,6 +39,8 @@ def test_feedback_prefills_only_playlist_quality_context() -> None:
     script = _text(FRONTEND / "playlist-feedback.js")
 
     assert "https://github.com/steventrux/PlaylistMuse/issues/new" in script
+    assert "const FEEDBACK_LABEL = 'playlist feedback';" in script
+    assert "labels: FEEDBACK_LABEL" in script
     assert "[Playlist feedback]" in script
     assert "<!-- playlistmuse-feedback:v1 -->" in script
     assert "## What did not match your request?" in script
