@@ -60,6 +60,11 @@
     });
   }
 
+  function filterConflicts() {
+    const conflicts = window.PlaylistMusePromptComplexity?.activeFilterConflicts?.();
+    return Array.isArray(conflicts) ? conflicts : [];
+  }
+
   async function intercept(event) {
     const button = event.target.closest?.('#generate');
     if (!button) return;
@@ -73,6 +78,16 @@
 
     event.preventDefault();
     event.stopImmediatePropagation();
+
+    const conflicts = filterConflicts();
+    if (conflicts.length) {
+      render({
+        status: 'impossible',
+        reasons: conflicts.map((item) => item.message).filter(Boolean),
+      });
+      return;
+    }
+
     validating = true;
     const submittedPrompt = promptText();
 
@@ -99,5 +114,5 @@
     render({status: 'valid'});
   });
 
-  window.PlaylistMusePromptValidationGuard = {promptText, render, validate};
+  window.PlaylistMusePromptValidationGuard = {filterConflicts, promptText, render, validate};
 })();
