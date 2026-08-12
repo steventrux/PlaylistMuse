@@ -20,15 +20,17 @@
   </p>
 
   <p>
+    <a href="#overview"><strong>Overview</strong></a>
+    &nbsp;·&nbsp;
     <a href="#features"><strong>Features</strong></a>
     &nbsp;·&nbsp;
     <a href="#installation"><strong>Installation</strong></a>
     &nbsp;·&nbsp;
     <a href="#configuration"><strong>Configuration</strong></a>
     &nbsp;·&nbsp;
-    <a href="#data-backup-and-updates"><strong>Data & backup</strong></a>
+    <a href="#data-backup-and-updates"><strong>Data, backup & updates</strong></a>
     &nbsp;·&nbsp;
-    <a href="#support-and-feedback"><strong>Support</strong></a>
+    <a href="#support-and-feedback"><strong>Support & feedback</strong></a>
   </p>
 </div>
 
