@@ -142,6 +142,33 @@
         ]
       },
       "tags": ["playlist-studio", "artist-addition", "shorthand", "user-feedback", "regression"]
+    },
+    {
+      "id": "generation-preserves-explicit-mood-context-it",
+      "status": "approved",
+      "origin": "user_feedback",
+      "flows": ["generation"],
+      "prompt": "Crea una playlist di musica italiana dal 2000 ad oggi adatta per un party. il mood deve essere festoso.",
+      "context": {
+        "options": {
+          "exclude_live": true,
+          "exclude_covers": false,
+          "exclude_remixes": false
+        }
+      },
+      "failure": "The generated playlist broadly matched the Italian repertoire and date range but drifted toward generic well-known songs, including selections weakly aligned with the explicitly requested party use context and festive mood.",
+      "desired_behavior": "Keep hard eligibility constraints authoritative while treating explicit mood, energy, activity, occasion and listening-context wording as substantive playlist-wide curation objectives across every generation stage.",
+      "guidance": "Do not reduce a request to broad genre, era, language, country or popularity. After hard constraints are satisfied, explicit mood, energy and listening context must outrank generic popularity, variety and discovery defaults; every selected track should have a defensible role in that context.",
+      "expectations": {
+        "release_year_from": 2000,
+        "creative_intent": {
+          "listening_context": ["party"],
+          "mood": ["festive"],
+          "scope": "playlist_wide"
+        },
+        "selection_priority": "explicit_soft_intent_before_generic_preferences"
+      },
+      "tags": ["generation", "mood", "listening-context", "soft-constraints", "user-feedback", "regression", "multilingual"]
     }
   ]
 }
