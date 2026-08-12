@@ -69,10 +69,10 @@
     node.setAttribute('role', 'alert');
     node.setAttribute('aria-live', 'polite');
     node.dataset.feedbackIcon = '⚠';
-    const controls = document.getElementById('generation-controls');
-    const aiWarning = document.getElementById('ai-generation-warning');
-    if (controls && aiWarning) controls.insertBefore(node, aiWarning);
-    else controls?.append(node);
+    const prompt = document.getElementById('prompt');
+    const shell = prompt?.closest('.prompt-input-shell');
+    if (shell || prompt) (shell || prompt).insertAdjacentElement('afterend', node);
+    else document.getElementById('generation-controls')?.prepend(node);
     return node;
   }
 
