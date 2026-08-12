@@ -58,3 +58,19 @@ def test_prompt_feedback_is_inserted_after_shell_not_inside_textarea_shell():
     assert "const shell = prompt?.closest('.prompt-input-shell');" in script
     assert "(shell || prompt)?.insertAdjacentElement('afterend', node);" in script
     assert "document.getElementById('prompt')?.insertAdjacentElement('afterend', node);" not in script
+
+
+def test_prompt_filter_warning_uses_same_feedback_position():
+    script = (FRONTEND / "prompt-complexity.js").read_text(encoding="utf-8")
+
+    assert "const shell = prompt?.closest('.prompt-input-shell');" in script
+    assert "(shell || prompt).insertAdjacentElement('afterend', node);" in script
+    assert "controls.insertBefore(node, aiWarning)" not in script
+
+
+def test_prompt_filter_conflict_does_not_duplicate_validation_alert():
+    script = (FRONTEND / "prompt-validation-guard.js").read_text(encoding="utf-8")
+
+    assert "document.getElementById('prompt-filter-conflict-warning')" in script
+    assert "!visibleConflict.classList.contains('hidden')" in script
+    assert "render({status: 'valid'});" in script
