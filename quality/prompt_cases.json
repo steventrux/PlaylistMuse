@@ -68,11 +68,12 @@
       "flows": ["studio"],
       "prompt": "the playlist must have 2 metallica, 2 guns n' roses and 2 ac/dc tracks",
       "context": {
-        "original_prompt": "Create a playlist of rock music with only live versions"
+        "original_prompt": "Create a playlist of rock music with only live versions",
+        "current_playlist_satisfies_original_recording_policy": true
       },
-      "failure": "A later artist refinement could satisfy the new artist request by introducing studio recordings into an originally all-live playlist.",
-      "desired_behavior": "Keep the original mandatory live-recording policy unless the new refinement explicitly supersedes it, while still satisfying the new exact artist counts.",
-      "guidance": "A refinement adds or supersedes only what it explicitly changes. Mandatory original constraints remain active otherwise.",
+      "failure": "A later artist refinement could satisfy the new artist request by introducing studio recordings into an already valid all-live playlist.",
+      "desired_behavior": "Keep the original mandatory live-recording policy when it is already an established invariant of the current playlist, unless the new refinement explicitly supersedes it, while still satisfying the new exact artist counts.",
+      "guidance": "A refinement preserves an original mandatory recording constraint only when the current playlist actually satisfies that constraint; an established invariant remains active unless explicitly superseded.",
       "expectations": {
         "inherit_recording_policy": true,
         "artist_exact_quotas": [
@@ -82,6 +83,29 @@
         ]
       },
       "tags": ["playlist-studio", "constraint-inheritance", "live", "artist-quota", "exact-count", "regression"]
+    },
+    {
+      "id": "studio-does-not-resurrect-unsatisfied-live-policy",
+      "status": "approved",
+      "origin": "user_feedback",
+      "flows": ["studio"],
+      "prompt": "must have 2 metallica, 2 guns n roses and 2 ac/dc songs",
+      "context": {
+        "original_prompt": "Create a playlist of rock music with only live versions",
+        "current_playlist_satisfies_original_recording_policy": false
+      },
+      "failure": "A legacy mixed playlist created before live-version enforcement was fixed still carried an old 'only live' prompt. Playlist Studio resurrected that unsatisfied historical constraint and blocked an unrelated artist-count refinement.",
+      "desired_behavior": "Do not inherit a historical recording-version constraint that the current playlist does not already satisfy. Apply the current artist-count refinement normally, while still preserving recording constraints for playlists where they are genuinely established.",
+      "guidance": "Constraint inheritance must follow validated playlist state, not prompt history alone. Never turn a previously unsatisfied legacy requirement into a new hidden prerequisite for an unrelated refinement.",
+      "expectations": {
+        "inherit_recording_policy": false,
+        "artist_exact_quotas": [
+          {"artist": "metallica", "count": 2},
+          {"artist": "guns n roses", "count": 2},
+          {"artist": "ac/dc", "count": 2}
+        ]
+      },
+      "tags": ["playlist-studio", "constraint-inheritance", "legacy-state", "live", "artist-quota", "exact-count", "user-feedback", "regression"]
     },
     {
       "id": "studio-explicit-addition-target",
