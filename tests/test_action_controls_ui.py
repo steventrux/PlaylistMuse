@@ -15,7 +15,7 @@ def test_playlist_actions_are_compact_responsive_and_accessible() -> None:
 
     assert '/static/action-controls.css?v=2' in html
     assert '/static/action-controls.js?v=1' in html
-    assert html.index('/static/playlist-refine.js?v=6') < html.index('/static/action-controls.js?v=1')
+    assert html.index('/static/playlist-refine.js?v=7') < html.index('/static/action-controls.js?v=1')
 
     for label in (
         "Open in YouTube Music",
