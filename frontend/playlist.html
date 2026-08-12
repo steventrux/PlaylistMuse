@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="/static/layout.css?v=5">
   <link rel="stylesheet" href="/static/controls.css?v=8">
   <link rel="stylesheet" href="/static/playlist.css?v=5">
-  <link rel="stylesheet" href="/static/playlist-editor.css?v=2">
+  <link rel="stylesheet" href="/static/playlist-editor.css?v=3">
   <link rel="stylesheet" href="/static/playlist-refine.css?v=7">
   <link rel="stylesheet" href="/static/playlist-cards.css?v=4">
   <link rel="stylesheet" href="/static/compact-cards.css?v=7">
@@ -104,9 +104,12 @@
       <section class="playlist-tracks-section" aria-labelledby="playlist-tracks-heading">
         <div class="playlist-tracks-toolbar">
           <h2 id="playlist-tracks-heading" class="playlist-tracks-heading">Tracks</h2>
-          <div id="playlist-draft-actions" class="playlist-draft-actions hidden">
-            <button id="add-track" class="secondary" type="button">Add track</button>
-            <button id="refine-playlist" class="secondary" type="button">Playlist Studio</button>
+          <div class="playlist-toolbar-actions">
+            <div id="playlist-draft-actions" class="playlist-draft-actions hidden">
+              <button id="add-track" class="secondary" type="button">Add track</button>
+              <button id="refine-playlist" class="secondary" type="button">Playlist Studio</button>
+            </div>
+            <button id="playlist-feedback" class="secondary playlist-feedback-action hidden" type="button">Give feedback</button>
           </div>
         </div>
         <div id="playlist-add-track-host" class="playlist-editor-host"></div>
@@ -125,6 +128,7 @@
   <script src="/static/playlist.js?v=20"></script>
   <script src="/static/playlist-add-track.js?v=2"></script>
   <script src="/static/playlist-refine.js?v=7"></script>
+  <script src="/static/playlist-feedback.js?v=1"></script>
   <script src="/static/action-controls.js?v=1"></script>
   <script src="/static/settings-overlay.js?v=1"></script>
   <script data-playlistmuse-footer-status src="/static/home-status.js?v=18"></script>
