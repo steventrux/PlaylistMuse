@@ -13,7 +13,7 @@ def test_playlist_actions_are_compact_responsive_and_accessible() -> None:
     script = _text("action-controls.js")
     style = _text("action-controls.css")
 
-    assert '/static/action-controls.css?v=3' in html
+    assert '/static/action-controls.css?v=4' in html
     assert '/static/action-controls.js?v=2' in html
     assert html.index('/static/playlist-refine.js?v=7') < html.index('/static/action-controls.js?v=2')
 
@@ -49,6 +49,10 @@ def test_playlist_actions_are_compact_responsive_and_accessible() -> None:
     assert "display: none;" in style
     assert ".playlist-tracks-toolbar" in style
     assert "flex-direction: row;" in style
+    assert ".playlist-toolbar-actions" in style
+    assert "margin-left: auto;" in style
+    assert "justify-content: flex-end;" in style
+    assert "flex-wrap: nowrap;" in style
 
 
 def test_library_uses_open_for_drafts_and_published_playlists() -> None:
@@ -56,7 +60,7 @@ def test_library_uses_open_for_drafts_and_published_playlists() -> None:
     script = _text("action-controls.js")
 
     assert '/static/action-controls.js?v=2' in html
-    assert html.index('/static/library.js?v=11') < html.index('/static/action-controls.js?v=2')
+    assert html.index('/static/library.js?v=12') < html.index('/static/action-controls.js?v=2')
     assert "if (text === 'Edit') link.textContent = 'Open';" in script
     assert "if (text === 'Editing…') link.textContent = 'Opening…';" in script
     assert "if (ariaLabel.startsWith('Edit '))" in script
