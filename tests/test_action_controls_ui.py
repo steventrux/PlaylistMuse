@@ -13,9 +13,9 @@ def test_playlist_actions_are_compact_responsive_and_accessible() -> None:
     script = _text("action-controls.js")
     style = _text("action-controls.css")
 
-    assert '/static/action-controls.css?v=2' in html
-    assert '/static/action-controls.js?v=1' in html
-    assert html.index('/static/playlist-refine.js?v=2') < html.index('/static/action-controls.js?v=1')
+    assert '/static/action-controls.css?v=4' in html
+    assert '/static/action-controls.js?v=2' in html
+    assert html.index('/static/playlist-refine.js?v=7') < html.index('/static/action-controls.js?v=2')
 
     for label in (
         "Open in YouTube Music",
@@ -24,10 +24,15 @@ def test_playlist_actions_are_compact_responsive_and_accessible() -> None:
         "Move up",
         "Move down",
         "Add track",
-        "Refine playlist",
+        "Playlist Studio",
+        "Give feedback",
     ):
         assert label in script
 
+    assert "'#playlist-feedback'" in script
+    assert "if (element.id === 'playlist-feedback') return 'feedback';" in script
+    assert "feedback: {label: 'Give feedback', icon: ICONS.feedback}" in script
+    assert ".playlist-feedback-action.compact-action" in style
     assert "element.setAttribute('aria-label', action.label);" in script
     assert "element.title = action.label;" in script
     assert "new MutationObserver" in script
@@ -44,14 +49,18 @@ def test_playlist_actions_are_compact_responsive_and_accessible() -> None:
     assert "display: none;" in style
     assert ".playlist-tracks-toolbar" in style
     assert "flex-direction: row;" in style
+    assert ".playlist-toolbar-actions" in style
+    assert "margin-left: auto;" in style
+    assert "justify-content: flex-end;" in style
+    assert "flex-wrap: nowrap;" in style
 
 
 def test_library_uses_open_for_drafts_and_published_playlists() -> None:
     html = _text("library.html")
     script = _text("action-controls.js")
 
-    assert '/static/action-controls.js?v=1' in html
-    assert html.index('/static/library.js?v=11') < html.index('/static/action-controls.js?v=1')
+    assert '/static/action-controls.js?v=2' in html
+    assert html.index('/static/library.js?v=12') < html.index('/static/action-controls.js?v=2')
     assert "if (text === 'Edit') link.textContent = 'Open';" in script
     assert "if (text === 'Editing…') link.textContent = 'Opening…';" in script
     assert "if (ariaLabel.startsWith('Edit '))" in script

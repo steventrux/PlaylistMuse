@@ -8,11 +8,13 @@
 
   const trigger = $('refine-playlist');
   const host = $('playlist-refine-host');
-  if (!trigger || !host) return;
+  const trackList = $('track-list');
+  if (!trigger || !host || !trackList) return;
 
   let currentRecord = null;
   let previewPlaylist = null;
   let previewInstruction = '';
+  let previewScope = null;
 
   function sessionPlaylist() {
     try {
@@ -60,7 +62,11 @@
     const kept = Number(summary.kept || 0);
     const changed = Number(summary.changed || 0);
     const reordered = Number(summary.reordered || 0);
+    const targeted = Number(summary.targeted || tracks);
+    const locked = Number(summary.locked || 0);
     const parts = [`${kept}/${tracks} tracks kept`, `${changed} changed`];
+    if (targeted < tracks) parts.push(`${targeted} targeted`);
+    if (locked) parts.push(`${locked} locked`);
     if (reordered) parts.push(`${reordered} repositioned`);
     return `Preview ready · ${parts.join(' · ')}`;
   }
@@ -111,6 +117,7 @@
   function resetPreview() {
     previewPlaylist = null;
     previewInstruction = '';
+    previewScope = null;
     host.querySelector('.playlist-refine-apply')?.classList.add('hidden');
     host.querySelector('.playlist-refine-preview')?.classList.remove('hidden');
     const changes = host.querySelector('.playlist-refine-changes');
@@ -119,11 +126,180 @@
     setStatus('');
   }
 
+  function studioCards() {
+    return [...trackList.querySelectorAll('.track-result-card[data-track-index]')];
+  }
+
+  function selectedPositions(selector) {
+    return studioCards()
+      .filter((card) => card.querySelector(selector)?.checked)
+      .map((card) => Number(card.dataset.trackIndex) + 1)
+      .filter((position) => Number.isInteger(position) && position > 0);
+  }
+
+  function currentStudioScope() {
+    const lockedPositions = selectedPositions('.playlist-studio-lock');
+    const targetPositions = selectedPositions('.playlist-studio-target').filter(
+      (position) => !lockedPositions.includes(position),
+    );
+    if (!targetPositions.length) {
+      throw new Error('Select at least one unlocked track to refine.');
+    }
+    return {
+      target_positions: targetPositions,
+      locked_positions: lockedPositions,
+    };
+  }
+
+  function syncLockControl(lock, lockWrap, position) {
+    const action = lock.checked ? 'Unlock' : 'Lock';
+    lock.setAttribute('aria-label', `${action} track ${position}`);
+    lockWrap.title = `${action} track ${position}`;
+  }
+
+  function syncSelectAllControl() {
+    const master = document.querySelector('.playlist-studio-select-all');
+    if (!master) return;
+
+    const eligibleTargets = studioCards()
+      .filter((card) => !card.querySelector('.playlist-studio-lock')?.checked)
+      .map((card) => card.querySelector('.playlist-studio-target'))
+      .filter(Boolean);
+    const selectedCount = eligibleTargets.filter((target) => target.checked).length;
+
+    master.disabled = eligibleTargets.length === 0;
+    master.checked = eligibleTargets.length > 0 && selectedCount === eligibleTargets.length;
+    master.indeterminate = selectedCount > 0 && selectedCount < eligibleTargets.length;
+  }
+
+  function createLockIcon() {
+    const icon = document.createElement('span');
+    icon.className = 'playlist-studio-lock-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    return icon;
+  }
+
+  function createCardControls(card) {
+    const position = Number(card.dataset.trackIndex) + 1;
+    if (!Number.isInteger(position) || position < 1) return;
+
+    card.dataset.studioWasExpanded = String(card.classList.contains('expanded'));
+    card.classList.remove('expanded');
+    card.setAttribute('aria-expanded', 'false');
+
+    const targetWrap = document.createElement('label');
+    targetWrap.className = 'playlist-studio-target-wrap';
+    targetWrap.title = `Edit track ${position}`;
+    const target = document.createElement('input');
+    target.type = 'checkbox';
+    target.className = 'playlist-studio-target';
+    target.checked = true;
+    target.setAttribute('aria-label', `Edit track ${position}`);
+    const targetLabel = document.createElement('span');
+    targetLabel.className = 'visually-hidden';
+    targetLabel.textContent = `Edit track ${position}`;
+    targetWrap.append(target, targetLabel);
+    targetWrap.addEventListener('click', (event) => event.stopPropagation());
+
+    const lockWrap = document.createElement('label');
+    lockWrap.className = 'playlist-studio-lock-wrap';
+    const lock = document.createElement('input');
+    lock.type = 'checkbox';
+    lock.className = 'playlist-studio-lock';
+    lockWrap.append(lock, createLockIcon());
+    lockWrap.addEventListener('click', (event) => event.stopPropagation());
+    syncLockControl(lock, lockWrap, position);
+
+    target.addEventListener('change', () => {
+      if (target.checked && lock.checked) {
+        lock.checked = false;
+        syncLockControl(lock, lockWrap, position);
+      }
+      syncSelectAllControl();
+      resetPreview();
+    });
+    lock.addEventListener('change', () => {
+      if (lock.checked) target.checked = false;
+      syncLockControl(lock, lockWrap, position);
+      syncSelectAllControl();
+      resetPreview();
+    });
+
+    card.append(targetWrap, lockWrap);
+  }
+
+  function blockCardInteraction(event) {
+    if (!document.body.classList.contains('playlist-studio-active')) return;
+    const card = event.target.closest?.('.track-result-card');
+    if (!card) return;
+    if (event.target.closest('.playlist-studio-target-wrap, .playlist-studio-lock-wrap')) return;
+    if (event.type === 'keydown' && !['Enter', ' '].includes(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function createSelectionToolbar() {
+    const toolbar = document.createElement('div');
+    toolbar.className = 'playlist-studio-selection-tools';
+    toolbar.setAttribute('aria-label', 'Playlist Studio selection');
+
+    const selectAllWrap = document.createElement('label');
+    selectAllWrap.className = 'playlist-studio-select-all-wrap';
+    const selectAll = document.createElement('input');
+    selectAll.type = 'checkbox';
+    selectAll.className = 'playlist-studio-select-all';
+    selectAll.checked = true;
+    const selectAllLabel = document.createElement('span');
+    selectAllLabel.textContent = 'Select all';
+    selectAllWrap.append(selectAll, selectAllLabel);
+
+    selectAll.addEventListener('change', () => {
+      const shouldSelect = selectAll.checked;
+      studioCards().forEach((card) => {
+        const target = card.querySelector('.playlist-studio-target');
+        const lock = card.querySelector('.playlist-studio-lock');
+        if (target && !lock?.checked) target.checked = shouldSelect;
+      });
+      selectAll.indeterminate = false;
+      syncSelectAllControl();
+      resetPreview();
+    });
+
+    toolbar.append(selectAllWrap);
+    return toolbar;
+  }
+
+  function enterStudioCards() {
+    document.body.classList.add('playlist-studio-active');
+    studioCards().forEach(createCardControls);
+    trackList.before(createSelectionToolbar());
+    syncSelectAllControl();
+    trackList.addEventListener('click', blockCardInteraction, true);
+    trackList.addEventListener('keydown', blockCardInteraction, true);
+  }
+
+  function exitStudioCards() {
+    trackList.removeEventListener('click', blockCardInteraction, true);
+    trackList.removeEventListener('keydown', blockCardInteraction, true);
+    document.querySelector('.playlist-studio-selection-tools')?.remove();
+    studioCards().forEach((card) => {
+      card.querySelector('.playlist-studio-target-wrap')?.remove();
+      card.querySelector('.playlist-studio-lock-wrap')?.remove();
+      const wasExpanded = card.dataset.studioWasExpanded === 'true';
+      card.classList.toggle('expanded', wasExpanded);
+      card.setAttribute('aria-expanded', String(wasExpanded));
+      delete card.dataset.studioWasExpanded;
+    });
+    document.body.classList.remove('playlist-studio-active');
+  }
+
   function closePanel() {
+    exitStudioCards();
     host.replaceChildren();
     currentRecord = null;
     previewPlaylist = null;
     previewInstruction = '';
+    previewScope = null;
     trigger.setAttribute('aria-expanded', 'false');
     trigger.focus();
   }
@@ -155,21 +331,30 @@
       return;
     }
 
+    let scope;
+    try {
+      scope = currentStudioScope();
+    } catch (error) {
+      setStatus(error.message || String(error), true);
+      return;
+    }
+
     const reset = setLoadingButton(previewButton, {label: 'Refining', resetText: 'Preview'});
     textarea.disabled = true;
     cancelButton.disabled = true;
-    setStatus('Building a refinement preview…');
+    setStatus('Building a Playlist Studio preview…');
     try {
       const payload = await readJson(await fetch(
-        `${ENDPOINT}/${encodeURIComponent(currentRecord.id)}/refine-preview`,
+        `${ENDPOINT}/${encodeURIComponent(currentRecord.id)}/studio-preview`,
         {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({instruction}),
+          body: JSON.stringify({instruction, ...scope}),
         },
       ));
       previewPlaylist = payload.playlist;
       previewInstruction = instruction;
+      previewScope = scope;
       renderComparison(previewPlaylist);
       previewButton.classList.add('hidden');
       host.querySelector('.playlist-refine-apply')?.classList.remove('hidden');
@@ -184,7 +369,7 @@
   }
 
   async function applyPreview() {
-    if (!currentRecord || !previewPlaylist || !previewInstruction) return;
+    if (!currentRecord || !previewPlaylist || !previewInstruction || !previewScope) return;
     const textarea = host.querySelector('.playlist-refine-instruction');
     const previewButton = host.querySelector('.playlist-refine-preview');
     const applyButton = host.querySelector('.playlist-refine-apply');
@@ -193,14 +378,18 @@
     textarea.disabled = true;
     previewButton.disabled = true;
     cancelButton.disabled = true;
-    setStatus('Applying refinement…');
+    setStatus('Applying Playlist Studio changes…');
     try {
       const record = await readJson(await fetch(
-        `${ENDPOINT}/${encodeURIComponent(currentRecord.id)}/refine-apply`,
+        `${ENDPOINT}/${encodeURIComponent(currentRecord.id)}/studio-apply`,
         {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({instruction: previewInstruction, playlist: previewPlaylist}),
+          body: JSON.stringify({
+            instruction: previewInstruction,
+            playlist: previewPlaylist,
+            ...previewScope,
+          }),
         },
       ));
       const editor = window.PlaylistMusePlaylistEditor;
@@ -226,12 +415,12 @@
 
     const panel = document.createElement('section');
     panel.className = 'playlist-refine-panel';
-    panel.setAttribute('aria-label', 'Refine playlist');
+    panel.setAttribute('aria-label', 'Playlist Studio');
 
     const head = document.createElement('div');
     head.className = 'playlist-editor-panel-head';
     const heading = document.createElement('strong');
-    heading.textContent = 'Refine playlist';
+    heading.textContent = 'Playlist Studio';
     const close = document.createElement('button');
     close.type = 'button';
     close.className = 'secondary playlist-editor-close';
@@ -246,13 +435,13 @@
     textarea.className = 'playlist-refine-instruction';
     textarea.rows = 3;
     textarea.maxLength = 1000;
-    textarea.placeholder = 'e.g. More blues, less classic rock, and make the ending more energetic.';
+    textarea.placeholder = 'e.g. Make the selected tracks progressively more energetic without changing the locked songs.';
     textarea.addEventListener('input', resetPreview);
     label.append(textarea);
 
     const hint = document.createElement('p');
     hint.className = 'playlist-refine-hint';
-    hint.textContent = 'The current draft stays unchanged until you apply the preview.';
+    hint.textContent = 'Select the tracks to edit with the checkboxes. Locked tracks remain exactly unchanged.';
 
     const status = document.createElement('p');
     status.className = 'playlist-refine-status hidden';
@@ -284,6 +473,7 @@
 
     panel.append(head, label, hint, status, changes, actions);
     host.append(panel);
+    enterStudioCards();
     trigger.setAttribute('aria-expanded', 'true');
     textarea.focus();
 

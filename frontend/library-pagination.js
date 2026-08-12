@@ -2,6 +2,7 @@
   'use strict';
 
   const DEFAULT_PAGE_SIZE = 10;
+  const DEFAULT_VISIBLE_PAGES = 5;
 
   function positiveInteger(value, fallback) {
     const number = Number(value);
@@ -34,31 +35,31 @@
     };
   }
 
-  function pageTokens(currentPage, totalPages) {
+  function pageTokens(currentPage, totalPages, maxVisible = DEFAULT_VISIBLE_PAGES) {
     const total = Math.max(0, Number(totalPages) || 0);
-    if (total <= 7) return Array.from({length: total}, (_, index) => index + 1);
+    if (!total) return [];
 
+    const visible = Math.min(positiveInteger(maxVisible, DEFAULT_VISIBLE_PAGES), total);
     const current = Math.min(Math.max(1, positiveInteger(currentPage, 1)), total);
-    const pages = new Set([1, total, current - 1, current, current + 1]);
-    if (current <= 4) [2, 3, 4, 5].forEach((page) => pages.add(page));
-    if (current >= total - 3) {
-      [total - 4, total - 3, total - 2, total - 1].forEach((page) => pages.add(page));
+    const before = Math.floor((visible - 1) / 2);
+    let start = current - before;
+    let end = start + visible - 1;
+
+    if (start < 1) {
+      start = 1;
+      end = visible;
+    }
+    if (end > total) {
+      end = total;
+      start = total - visible + 1;
     }
 
-    const sorted = [...pages]
-      .filter((page) => page >= 1 && page <= total)
-      .sort((left, right) => left - right);
-    const tokens = [];
-    sorted.forEach((page, index) => {
-      const previous = sorted[index - 1];
-      if (previous && page - previous > 1) tokens.push('ellipsis');
-      tokens.push(page);
-    });
-    return tokens;
+    return Array.from({length: visible}, (_, index) => start + index);
   }
 
   const api = Object.freeze({
     DEFAULT_PAGE_SIZE,
+    DEFAULT_VISIBLE_PAGES,
     pageCount,
     clampPage,
     paginate,

@@ -1,0 +1,76 @@
+name: Playlist result feedback
+description: Report a generated or refined playlist that did not match your request
+title: "[Playlist feedback] "
+labels: ["playlist feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when PlaylistMuse worked technically, but the generated or refined playlist did not follow your request as expected.
+
+        This is separate from a **Bug report**. Do not attach diagnostic archives unless there is also a technical failure.
+
+  - type: dropdown
+    id: flow
+    attributes:
+      label: Where did the result come from?
+      options:
+        - Initial prompt generation
+        - Playlist Studio refinement
+        - Seed-track generation
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: request
+    attributes:
+      label: Request
+      description: Paste the prompt or Playlist Studio instruction that produced the unexpected result.
+      placeholder: The exact request you gave PlaylistMuse.
+    validations:
+      required: true
+
+  - type: textarea
+    id: mismatch
+    attributes:
+      label: What did not match your request?
+      description: Describe which constraint, preference, ordering rule, quantity, version, artist, or other part was not respected.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect instead?
+      description: Explain the intended result as precisely as possible.
+    validations:
+      required: true
+
+  - type: textarea
+    id: result
+    attributes:
+      label: Playlist result
+      description: Paste the relevant tracks or the complete result. The in-app feedback action pre-fills this section automatically.
+    validations:
+      required: true
+
+  - type: textarea
+    id: lineage
+    attributes:
+      label: Previous refinement context
+      description: If relevant, include earlier Playlist Studio instructions whose constraints should still have been active.
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Add screenshots or anything else that helps explain the expected musical behavior.
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Sensitive data check
+      options:
+        - label: I have removed personal information, API keys, tokens, cookies, credentials, and other sensitive data from the prompt and context.
+          required: true

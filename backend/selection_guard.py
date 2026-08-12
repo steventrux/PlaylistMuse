@@ -47,6 +47,38 @@ def _missing_capacity(
     return missing_required + max(independent_missing, shared_missing)
 
 
+def _respect_exact_artist_caps(
+    tracks: list[dict[str, Any]],
+    existing: list[dict[str, Any]],
+    exact_quotas: list[Any],
+    *,
+    artist_matches: Any,
+) -> list[dict[str, Any]]:
+    """Drop resolved surplus tracks before they can exceed explicit final artist counts."""
+    if not exact_quotas:
+        return tracks
+
+    counts = {quota.artist: 0 for quota in exact_quotas}
+    for track in existing:
+        artist = str(track.get("artists", track.get("artist", "")))
+        for quota in exact_quotas:
+            if artist_matches(artist, quota.artist):
+                counts[quota.artist] += 1
+
+    kept: list[dict[str, Any]] = []
+    for track in tracks:
+        artist = str(track.get("artists", track.get("artist", "")))
+        matched = [
+            quota for quota in exact_quotas if artist_matches(artist, quota.artist)
+        ]
+        if any(counts[quota.artist] >= quota.count for quota in matched):
+            continue
+        kept.append(track)
+        for quota in matched:
+            counts[quota.artist] += 1
+    return kept
+
+
 def guarded_select_resolved_tracks(
     resolved: list[dict[str, Any]],
     *,
@@ -73,7 +105,14 @@ def guarded_select_resolved_tracks(
 
     policy = _ACTIVE_POLICY.get()
     quotas = list(runtime._ACTIVE_RESOLUTION_QUOTAS.get())
+    exact_quotas = list(runtime._ACTIVE_EXACT_ARTIST_QUOTAS.get())
     base_tracks = list(_POLICY_BASE_TRACKS.get())
+    selected = _respect_exact_artist_caps(
+        selected,
+        [*base_tracks, *before],
+        exact_quotas,
+        artist_matches=artist_matches,
+    )
     kept = list(selected)
 
     while kept:
