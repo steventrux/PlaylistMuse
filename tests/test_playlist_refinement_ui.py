@@ -18,8 +18,8 @@ def test_refinement_moves_from_library_to_playlist_editor() -> None:
     assert "PlaylistMuseLibraryRefine" not in library_script
     assert 'id="refine-playlist"' in playlist
     assert '>Playlist Studio</button>' in playlist
-    assert '/static/playlist-refine.css?v=4' in playlist
-    assert '/static/playlist-refine.js?v=4' in playlist
+    assert '/static/playlist-refine.css?v=5' in playlist
+    assert '/static/playlist-refine.js?v=5' in playlist
 
 
 def test_refinement_uses_preview_before_apply_and_flushes_current_draft() -> None:
@@ -51,21 +51,24 @@ def test_playlist_studio_exposes_target_and_lock_controls() -> None:
     assert "max-block-size: min(42vh, 20rem);" in style
 
 
-def test_playlist_studio_lock_is_iconic_and_adjacent_to_track_title() -> None:
+def test_playlist_studio_lock_uses_supplied_icons_at_row_edge() -> None:
     script = _text("playlist-refine.js")
     style = _text("playlist-refine.css")
+    open_icon = _text("lock-open-alt.svg")
+    closed_icon = _text("lock.svg")
 
     assert "function createLockIcon()" in script
-    assert "playlist-studio-lock-open" in script
-    assert "playlist-studio-lock-closed" in script
-    assert "text.append(titleText, lockWrap, artistText);" in script
-    assert "lockLabel.textContent = 'Lock'" not in script
-    assert ".playlist-studio-lock-wrap" in style
+    assert "row.append(targetWrap, text, lockWrap);" in script
+    assert "text.append(titleText, lockWrap, artistText);" not in script
+    assert "icon.innerHTML" not in script
+    assert "grid-template-columns: auto minmax(0, 1fr) auto;" in style
+    assert "url('/static/lock-open-alt.svg')" in style
+    assert "url('/static/lock.svg')" in style
     assert "color: var(--text-muted);" in style
     assert ".playlist-studio-lock-wrap:has(input:checked)" in style
     assert "color: var(--text-primary);" in style
-    assert ".playlist-studio-lock-wrap:has(input:checked) .playlist-studio-lock-open" in style
-    assert ".playlist-studio-lock-wrap:has(input:checked) .playlist-studio-lock-closed" in style
+    assert "<svg" in open_icon
+    assert "<svg" in closed_icon
 
 
 def test_refinement_preview_shows_only_changes_not_full_track_lists() -> None:
