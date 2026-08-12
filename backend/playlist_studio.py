@@ -42,9 +42,12 @@ from backend.recording_variants import (
     reset_recording_policy,
     track_matches_variant,
 )
+from backend.refinement_intent import (
+    studio_addition_guidance,
+    studio_artist_addition_targets,
+)
 from backend.refinement_targets import (
     ArtistAdditionTarget,
-    extract_artist_addition_targets,
     format_artist_addition_mismatches,
     repair_artist_addition_targets,
 )
@@ -397,7 +400,12 @@ async def _build_studio_preview(
     )
     policy = await _effective_recording_policy(record, request.instruction)
     quotas = extract_artist_minimum_quotas(request.instruction)
-    guidance = recording_policy_guidance(policy) + quota_guidance(quotas)
+    addition_targets = studio_artist_addition_targets(request.instruction)
+    guidance = (
+        recording_policy_guidance(policy)
+        + quota_guidance(quotas)
+        + studio_addition_guidance(addition_targets)
+    )
     instruction = f"{request.instruction}{guidance}" if guidance else request.instruction
 
     token = activate_recording_policy(policy)
@@ -469,7 +477,7 @@ async def _validate_studio_apply(
     if remaining:
         raise ValueError(_format_artist_quota_deficits(remaining))
 
-    addition_targets = extract_artist_addition_targets(request.instruction)
+    addition_targets = studio_artist_addition_targets(request.instruction)
     addition_mismatches = _addition_mismatches_or_error(
         source_scope,
         preview_scope,
