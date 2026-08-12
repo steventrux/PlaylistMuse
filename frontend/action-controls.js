@@ -4,6 +4,7 @@
   const PLAYLIST_ACTION_SELECTOR = [
     '#add-track',
     '#refine-playlist',
+    '#playlist-feedback',
     'a.primary.track-action',
     '.replace-track-button',
     '.remove-track-button',
@@ -19,6 +20,7 @@
     down: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14"/><path d="m6.5 13.5 5.5 5.5 5.5-5.5"/></svg>',
     add: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg>',
     refine: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>',
+    feedback: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 5.5h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-8l-5 3v-3H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z"/><path d="M8 10h8M8 13h5"/></svg>',
   });
 
   const ACTIONS = Object.freeze({
@@ -29,6 +31,7 @@
     down: {label: 'Move down', icon: ICONS.down},
     add: {label: 'Add track', icon: ICONS.add},
     refine: {label: 'Playlist Studio', icon: ICONS.refine},
+    feedback: {label: 'Give feedback', icon: ICONS.feedback},
   });
 
   function elementsWithin(root, selector) {
@@ -67,6 +70,7 @@
   function compactActionName(element) {
     if (element.id === 'add-track') return 'add';
     if (element.id === 'refine-playlist') return 'refine';
+    if (element.id === 'playlist-feedback') return 'feedback';
     if (element.classList.contains('replace-track-button')) return 'replace';
     if (element.classList.contains('remove-track-button')) return 'remove';
     if (element.classList.contains('track-move-button')) {
