@@ -219,7 +219,7 @@ def test_library_ui_and_autosave_hooks_are_present() -> None:
     assert 'href="/static/library.html"' in index
     assert 'id="library-list"' in page
     assert 'id="library-pagination"' in page
-    assert '/static/library-pagination.js?v=1' in page
+    assert '/static/library-pagination.js?v=2' in page
     assert "/api/library/playlists" in library_script
     assert "const PAGE_SIZE = paginationTools.DEFAULT_PAGE_SIZE;" in library_script
     assert "method: 'DELETE'" in library_script
