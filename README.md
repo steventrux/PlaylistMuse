@@ -56,10 +56,7 @@ The core application works with an AI provider only. Last.fm and YouTube Music a
 
 ### How it works
 
-1. **Describe the playlist** — enter a prompt or choose a reference song.
-2. **Generate** — PlaylistMuse combines your request with the configured AI provider and optional discovery signals.
-3. **Review and refine** — inspect the playlist and make any changes you want before publishing.
-4. **Save or publish** — keep the playlist in the local library or publish it to YouTube Music when the integration is connected.
+PlaylistMuse starts from the musical direction you provide, either as a natural-language request or a reference song. The configured AI provider interprets that intent and, when enabled, optional discovery signals help broaden the selection. PlaylistMuse then resolves the proposed tracks against real catalogue data and presents the result for review. You can refine the playlist before keeping it in the local library or publishing it to YouTube Music when that integration is connected.
 
 ## Installation
 
