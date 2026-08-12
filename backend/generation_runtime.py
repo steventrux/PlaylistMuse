@@ -260,6 +260,13 @@ async def generate_playlist_draft(
         quota_guidance,
         user_request_text,
     )
+    from backend.creative_intent import (
+        CreativeIntent,
+        activate_creative_intent,
+        assess_creative_fit,
+        creative_repair_prompt,
+        interpret_creative_intent,
+    )
     from backend.entity_resolution import canonicalize_interpretation
     from backend.llm import generate_playlist_draft as raw_generate_playlist_draft
     from backend.metadata_validation import (
@@ -297,6 +304,7 @@ async def generate_playlist_draft(
         _REPLACEMENT_MODE.set(False)
         _REPLACEMENT_FINAL_COUNT.set(0)
         activate_recording_policy(RecordingVariantPolicy())
+        activate_creative_intent(CreativeIntent())
     elif stage == "llm_replacement":
         base_tracks, final_count = parse_replacement_tracks(optimized_prompt)
         _ACTIVE_POLICY.set(None)
@@ -304,6 +312,7 @@ async def generate_playlist_draft(
         _REPLACEMENT_MODE.set(True)
         _REPLACEMENT_FINAL_COUNT.set(final_count)
         activate_recording_policy(RecordingVariantPolicy())
+        activate_creative_intent(CreativeIntent())
 
     started_at = time.perf_counter()
     should_interpret = stage in {"llm_initial", "llm_replacement"}
@@ -336,11 +345,13 @@ async def generate_playlist_draft(
     assessment = None
     try:
         if should_interpret:
-            assessment, recording_policy = await asyncio.gather(
+            assessment, recording_policy, creative_intent = await asyncio.gather(
                 assess_prompt(config, source_prompt),
                 interpret_recording_policy(config, source_prompt),
+                interpret_creative_intent(config, source_prompt),
             )
             activate_recording_policy(recording_policy)
+            activate_creative_intent(creative_intent)
             if assessment.status == "impossible":
                 reason = " ".join(assessment.reasons)
                 raise ValueError(
@@ -352,44 +363,119 @@ async def generate_playlist_draft(
             )
             assessment = assess_interpretation(interpreted)
 
+        async def repair_quota_deficits(
+            current: dict[str, Any],
+        ) -> tuple[dict[str, Any], list[Any]]:
+            deficits = quota_deficits(
+                [
+                    track
+                    for track in current.get("tracks", [])
+                    if isinstance(track, dict)
+                ],
+                generation_quotas,
+            )
+            for _ in range(2):
+                if not deficits:
+                    break
+                repaired = await raw_generate_playlist_draft(
+                    config,
+                    _repair_quota_prompt(
+                        user_request,
+                        optimized_count,
+                        generation_quotas,
+                        current,
+                    ),
+                    optimized_count,
+                )
+                repaired_deficits = quota_deficits(
+                    [
+                        track
+                        for track in repaired.get("tracks", [])
+                        if isinstance(track, dict)
+                    ],
+                    generation_quotas,
+                )
+                if sum(item.minimum for item in repaired_deficits) >= sum(
+                    item.minimum for item in deficits
+                ):
+                    break
+                current = repaired
+                deficits = repaired_deficits
+            return current, deficits
+
         draft = await raw_generate_playlist_draft(
             config, submitted_prompt, optimized_count
         )
-        generation_deficits = quota_deficits(
+        draft, generation_deficits = await repair_quota_deficits(draft)
+
+        creative_conflicts = await assess_creative_fit(
+            config,
             [
                 track
                 for track in draft.get("tracks", [])
                 if isinstance(track, dict)
             ],
-            generation_quotas,
         )
         for _ in range(2):
-            if not generation_deficits:
+            if not creative_conflicts:
                 break
             repaired = await raw_generate_playlist_draft(
                 config,
-                _repair_quota_prompt(
+                creative_repair_prompt(
                     user_request,
                     optimized_count,
-                    generation_quotas,
                     draft,
+                    creative_conflicts,
                 ),
                 optimized_count,
             )
-            repaired_deficits = quota_deficits(
+            repaired, repaired_deficits = await repair_quota_deficits(repaired)
+            repaired_conflicts = await assess_creative_fit(
+                config,
                 [
                     track
                     for track in repaired.get("tracks", [])
                     if isinstance(track, dict)
                 ],
-                generation_quotas,
             )
-            if sum(item.minimum for item in repaired_deficits) >= sum(
-                item.minimum for item in generation_deficits
-            ):
+            if len(repaired_conflicts) >= len(creative_conflicts):
                 break
             draft = repaired
             generation_deficits = repaired_deficits
+            creative_conflicts = repaired_conflicts
+
+        if creative_conflicts:
+            conflict_by_index = {
+                conflict.index: conflict for conflict in creative_conflicts
+            }
+            accepted_tracks: list[dict[str, Any]] = []
+            rejected_tracks: list[dict[str, Any]] = []
+            for index, track in enumerate(
+                [
+                    item
+                    for item in draft.get("tracks", [])
+                    if isinstance(item, dict)
+                ],
+                start=1,
+            ):
+                conflict = conflict_by_index.get(index)
+                if conflict is None:
+                    accepted_tracks.append(track)
+                    continue
+                rejected_tracks.append(
+                    {
+                        **track,
+                        "unresolved_reason": "creative_intent_validation",
+                        "creative_intent_reason": conflict.reason,
+                        "creative_intent_confidence": conflict.confidence,
+                    }
+                )
+            draft["tracks"] = accepted_tracks
+            draft["creative_intent_rejected"] = rejected_tracks
+            generation_deficits = quota_deficits(
+                accepted_tracks,
+                generation_quotas,
+            )
 
         effective_deficits = quota_deficits(
             [
@@ -404,10 +490,20 @@ async def generate_playlist_draft(
                 interpreted, fallback=fallback
             )
             explicit_open_range = open_ended_year_range(source_prompt)
-            if explicit_open_range is not None:
-                constraints.release_year = None
-                constraints.release_year_from = explicit_open_range[0]
-                constraints.release_year_to = explicit_open_range[1]
+            if explicit_open_range is not None and constraints.release_year is None:
+                lower, upper = explicit_open_range
+                constraints.release_year_from = max(
+                    lower,
+                    constraints.release_year_from
+                    if constraints.release_year_from is not None
+                    else lower,
+                )
+                constraints.release_year_to = min(
+                    upper,
+                    constraints.release_year_to
+                    if constraints.release_year_to is not None
+                    else upper,
+                )
             policy = policy_from_payload(interpreted, prompt=source_prompt)
             _ACTIVE_POLICY.set(policy)
             constraints.allowed_artists = hard_allowed_artists(
@@ -522,6 +618,7 @@ async def resolve_candidates(
         active_recording_policy,
         effective_resolver_options,
         filter_resolved_recording_variants,
+        policy_with_option_exclusions,
         recording_filter_conflicts,
     )
 
@@ -539,9 +636,13 @@ async def resolve_candidates(
             candidates,
             effective_exclusions,
         )
+        validation_policy = policy_with_option_exclusions(
+            effective_exclusions,
+            recording_policy,
+        )
         resolved, variant_rejected = filter_resolved_recording_variants(
             resolved,
-            recording_policy,
+            validation_policy,
         )
         unresolved.extend(variant_rejected)
         selected = _select_resolved_tracks(
