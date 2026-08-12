@@ -1,6 +1,7 @@
 name: Playlist result feedback
 description: Report a generated or refined playlist that did not match your request
 title: "[Playlist feedback] "
+labels: ["playlist feedback"]
 body:
   - type: markdown
     attributes:
