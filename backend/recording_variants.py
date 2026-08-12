@@ -6,9 +6,10 @@ import hashlib
 import json
 import re
 import time
+from collections.abc import Iterable
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, replace
-from typing import Any, Iterable
+from typing import Any
 
 from backend.config import AppConfig
 from backend.constraint_interpreter import request_structured_json
@@ -79,7 +80,7 @@ class RecordingVariantPolicy:
     def active(self) -> bool:
         return bool(self.required or self.included or self.excluded)
 
-    def for_refinement(self) -> "RecordingVariantPolicy":
+    def for_refinement(self) -> RecordingVariantPolicy:
         """Let a new explicit refinement override inherited UI exclusion switches."""
         return replace(self, override_exclusions=True)
 
@@ -91,9 +92,9 @@ class RecordingFilterConflict:
     message: str
 
 
-_ACTIVE_POLICY: ContextVar[RecordingVariantPolicy] = ContextVar(
+_ACTIVE_POLICY: ContextVar[RecordingVariantPolicy | None] = ContextVar(
     "playlistmuse_recording_variant_policy",
-    default=RecordingVariantPolicy(),
+    default=None,
 )
 _CACHE: dict[str, tuple[float, RecordingVariantPolicy]] = {}
 
@@ -102,7 +103,7 @@ def _cache_key(config: AppConfig, prompt: str) -> str:
     source = (
         f"provider={config.provider}|model={config.model}|"
         f"fallbacks={','.join(config.model_chain)}|request={' '.join(prompt.split())}"
-    ).encode("utf-8")
+    ).encode()
     return hashlib.sha256(source).hexdigest()
 
 
@@ -200,7 +201,7 @@ async def interpret_recording_policy(
             )
             policy = policy_from_payload(_extract_json(raw))
             break
-        except (ValueError, TypeError, json.JSONDecodeError, Exception):
+        except Exception:
             continue
 
     remember_recording_policy(config, normalized, policy)
@@ -208,16 +209,16 @@ async def interpret_recording_policy(
 
 
 def active_recording_policy() -> RecordingVariantPolicy:
-    return _ACTIVE_POLICY.get()
+    return _ACTIVE_POLICY.get() or RecordingVariantPolicy()
 
 
 def activate_recording_policy(
     policy: RecordingVariantPolicy,
-) -> Token[RecordingVariantPolicy]:
+) -> Token[RecordingVariantPolicy | None]:
     return _ACTIVE_POLICY.set(policy)
 
 
-def reset_recording_policy(token: Token[RecordingVariantPolicy]) -> None:
+def reset_recording_policy(token: Token[RecordingVariantPolicy | None]) -> None:
     _ACTIVE_POLICY.reset(token)
 
 
