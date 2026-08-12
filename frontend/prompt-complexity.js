@@ -2,6 +2,8 @@
   'use strict';
 
   const DEBOUNCE_MS = 500;
+  const FILTER_CONFLICT_PREFIX = 'FILTER_CONFLICT::';
+  let latestFilterConflicts = [];
 
   function complexityHue(value) {
     const score = Math.max(0, Math.min(100, Number(value) || 0));
@@ -12,10 +14,35 @@
     return level === 'Detailed' ? 'Simple' : level;
   }
 
+  function parseFilterConflict(issue) {
+    const text = String(issue || '');
+    if (!text.startsWith(FILTER_CONFLICT_PREFIX)) return null;
+    const remainder = text.slice(FILTER_CONFLICT_PREFIX.length);
+    const separator = remainder.indexOf('::');
+    if (separator < 0) return null;
+    const option = remainder.slice(0, separator).trim();
+    const message = remainder.slice(separator + 2).trim();
+    if (!option || !message) return null;
+    return {option, message};
+  }
+
+  function filterConflicts(result) {
+    const issues = Array.isArray(result?.issues) ? result.issues : [];
+    return issues.map(parseFilterConflict).filter(Boolean);
+  }
+
+  function visibleIssues(result) {
+    const issues = Array.isArray(result?.issues) ? result.issues : [];
+    return issues.map((issue) => {
+      const conflict = parseFilterConflict(issue);
+      return conflict ? conflict.message : String(issue || '').trim();
+    }).filter(Boolean);
+  }
+
   function clarityText(result) {
     const level = String(result.clarity_level || '');
     if (['excellent', 'good'].includes(level.toLowerCase())) return `Clarity: ${level}`;
-    const issues = Array.isArray(result.issues) ? result.issues : [];
+    const issues = visibleIssues(result);
     const issueSummary = issues.length ? ` · ${issues.join(' · ')}` : '';
     return `Clarity: ${level}${issueSummary}`;
   }
@@ -30,6 +57,38 @@
         exclude_remixes: Boolean(settings.excludeRemixes),
       },
     };
+  }
+
+  function conflictWarningNode() {
+    let node = document.getElementById('prompt-filter-conflict-warning');
+    if (node) return node;
+    node = document.createElement('div');
+    node.id = 'prompt-filter-conflict-warning';
+    node.className = 'generation-feedback generation-feedback-incomplete hidden';
+    node.setAttribute('role', 'alert');
+    node.setAttribute('aria-live', 'polite');
+    node.dataset.feedbackIcon = '⚠';
+    const controls = document.getElementById('generation-controls');
+    const aiWarning = document.getElementById('ai-generation-warning');
+    if (controls && aiWarning) controls.insertBefore(node, aiWarning);
+    else controls?.append(node);
+    return node;
+  }
+
+  function renderFilterConflicts(conflicts) {
+    latestFilterConflicts = Array.isArray(conflicts) ? conflicts : [];
+    const node = conflictWarningNode();
+    if (!latestFilterConflicts.length) {
+      node.textContent = '';
+      node.classList.add('hidden');
+      return;
+    }
+    node.textContent = latestFilterConflicts.map((item) => item.message).join(' ');
+    node.classList.remove('hidden');
+  }
+
+  function activeFilterConflicts() {
+    return latestFilterConflicts.map((item) => ({...item}));
   }
 
   function init() {
@@ -64,6 +123,7 @@
       controller?.abort();
       component.classList.add('hidden');
       setPopoverOpen(false);
+      renderFilterConflicts([]);
     };
 
     const render = (result) => {
@@ -80,6 +140,7 @@
         `${result.structures} structural ${result.structures === 1 ? 'rule' : 'rules'}`,
       ].join(' · ');
       clarity.textContent = clarityText(result);
+      renderFilterConflicts(filterConflicts(result));
       component.classList.remove('hidden');
     };
 
@@ -138,10 +199,13 @@
   }
 
   window.PlaylistMusePromptComplexity = {
+    activeFilterConflicts,
     analysisPayload,
     clarityText,
     complexityHue,
     displayLevel,
+    filterConflicts,
+    parseFilterConflict,
     debounceMs: DEBOUNCE_MS,
   };
   if (typeof document !== 'undefined') init();
