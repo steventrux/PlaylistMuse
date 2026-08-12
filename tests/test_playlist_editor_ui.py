@@ -34,7 +34,7 @@ def test_playlist_page_centralizes_draft_editing_controls() -> None:
     assert 'id="refine-playlist"' in html
     assert '>Playlist Studio</button>' in html
     assert '/static/playlist-header.css?v=12' in html
-    assert '/static/playlist-editor.css?v=2' in html
+    assert '/static/playlist-editor.css?v=3' in html
     assert '/static/playlist-add-track.js?v=2' in html
     assert '/static/playlist-refine.js?v=7' in html
 
