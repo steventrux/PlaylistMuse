@@ -10,7 +10,12 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from backend.artist_quota_detection import (
+    ArtistExactQuota,
     ArtistMinimumQuota,
+    artist_matches,
+    exact_quota_guidance,
+    exact_quota_mismatches,
+    extract_artist_exact_quotas,
     extract_artist_minimum_quotas,
     quota_deficits,
     quota_guidance,
@@ -267,6 +272,73 @@ def _format_artist_quota_deficits(deficits: list[ArtistMinimumQuota]) -> str:
     return "Playlist Studio could not satisfy the requested artist quotas: " + details + "."
 
 
+def _format_exact_artist_quota_mismatches(
+    mismatches: list[tuple[ArtistExactQuota, int]],
+) -> str:
+    details = "; ".join(
+        f"{quota.artist} must be exactly {quota.count}, resolved {actual}"
+        for quota, actual in mismatches
+    )
+    return "Playlist Studio could not satisfy the exact artist counts: " + details + "."
+
+
+def _validate_exact_artist_quotas(
+    tracks: list[dict[str, Any]],
+    quotas: list[ArtistExactQuota],
+) -> None:
+    mismatches = exact_quota_mismatches(tracks, quotas)
+    if mismatches:
+        raise ValueError(_format_exact_artist_quota_mismatches(mismatches))
+
+
+def _protected_artist_count(
+    tracks: list[dict[str, Any]],
+    editable_positions: list[int],
+    artist: str,
+) -> int:
+    editable = set(editable_positions)
+    return sum(
+        1
+        for position, track in enumerate(tracks, start=1)
+        if position not in editable
+        and artist_matches(
+            str(track.get("artists") or track.get("artist") or ""),
+            artist,
+        )
+    )
+
+
+def _scope_artist_quotas(
+    tracks: list[dict[str, Any]],
+    editable_positions: list[int],
+    minimums: list[ArtistMinimumQuota],
+    exacts: list[ArtistExactQuota],
+) -> tuple[list[ArtistMinimumQuota], list[ArtistExactQuota]]:
+    """Translate final-playlist counts into what the editable subset must contribute."""
+    scoped_minimums: list[ArtistMinimumQuota] = []
+    for quota in minimums:
+        protected = _protected_artist_count(tracks, editable_positions, quota.artist)
+        needed = max(0, quota.minimum - protected)
+        if needed:
+            scoped_minimums.append(ArtistMinimumQuota(quota.artist, needed))
+
+    scoped_exacts: list[ArtistExactQuota] = []
+    for quota in exacts:
+        protected = _protected_artist_count(tracks, editable_positions, quota.artist)
+        needed = quota.count - protected
+        if needed < 0:
+            raise ValueError(
+                f"Protected tracks already exceed the exact count for {quota.artist}: "
+                f"requested {quota.count}, protected {protected}. Unlock or select more tracks."
+            )
+        if needed > len(editable_positions):
+            raise ValueError(
+                f"The editable selection is too small to reach the exact count for {quota.artist}."
+            )
+        scoped_exacts.append(ArtistExactQuota(quota.artist, needed))
+    return scoped_minimums, scoped_exacts
+
+
 async def _repair_artist_quota_deficits(
     record: dict[str, Any],
     result: dict[str, Any],
@@ -400,10 +472,18 @@ async def _build_studio_preview(
     )
     policy = await _effective_recording_policy(record, request.instruction)
     quotas = extract_artist_minimum_quotas(request.instruction)
+    exact_quotas = extract_artist_exact_quotas(request.instruction)
+    scoped_quotas, scoped_exacts = _scope_artist_quotas(
+        source_tracks,
+        editable_positions,
+        quotas,
+        exact_quotas,
+    )
     addition_targets = studio_artist_addition_targets(request.instruction)
     guidance = (
         recording_policy_guidance(policy)
-        + quota_guidance(quotas)
+        + quota_guidance(scoped_quotas)
+        + exact_quota_guidance(scoped_exacts)
         + studio_addition_guidance(addition_targets)
     )
     instruction = f"{request.instruction}{guidance}" if guidance else request.instruction
@@ -438,6 +518,7 @@ async def _build_studio_preview(
     remaining = quota_deficits(preview_tracks, quotas)
     if remaining:
         raise ValueError(_format_artist_quota_deficits(remaining))
+    _validate_exact_artist_quotas(preview_tracks, exact_quotas)
     return result
 
 
@@ -476,6 +557,8 @@ async def _validate_studio_apply(
     remaining = quota_deficits(preview_tracks, quotas)
     if remaining:
         raise ValueError(_format_artist_quota_deficits(remaining))
+    exact_quotas = extract_artist_exact_quotas(request.instruction)
+    _validate_exact_artist_quotas(preview_tracks, exact_quotas)
 
     addition_targets = studio_artist_addition_targets(request.instruction)
     addition_mismatches = _addition_mismatches_or_error(
