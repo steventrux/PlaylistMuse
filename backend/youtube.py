@@ -456,13 +456,14 @@ async def _metadata_filter(
         )
     return accepted, rejected
 
+
 async def resolve_candidates(
     candidates: list[dict[str, str]], exclusions: dict[str, bool]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    validated_candidates, metadata_rejected = await _metadata_filter(candidates)
+    """Resolve on YouTube Music first, then validate the canonical catalogue identity."""
     unique_candidates: list[dict[str, str]] = []
     seen_candidate_keys: set[str] = set()
-    for candidate in validated_candidates:
+    for candidate in candidates:
         candidate_key = track_identity_key(candidate["title"], candidate["artist"])
         if not candidate_key or candidate_key in seen_candidate_keys:
             continue
@@ -471,7 +472,9 @@ async def resolve_candidates(
 
     semaphore = asyncio.Semaphore(_youtube_resolution_concurrency())
 
-    async def resolve(candidate: dict[str, str]) -> tuple[dict[str, str], dict[str, Any] | None]:
+    async def resolve(
+        candidate: dict[str, str],
+    ) -> tuple[dict[str, str], dict[str, Any] | None]:
         async with semaphore:
             track = await asyncio.to_thread(_resolve_one, candidate, exclusions)
             return candidate, track
@@ -480,20 +483,67 @@ async def resolve_candidates(
         *(resolve(candidate) for candidate in unique_candidates)
     )
 
-    resolved: list[dict[str, Any]] = []
-    unresolved: list[dict[str, Any]] = list(metadata_rejected)
-    seen_video_ids: set[str] = set()
-    seen_track_keys: set[str] = set()
+    unresolved: list[dict[str, Any]] = []
+    catalogue_matches: dict[str, tuple[dict[str, str], dict[str, Any]]] = {}
+    canonical_candidates: list[dict[str, str]] = []
     for candidate, track in resolution_results:
         if not track:
             unresolved.append(candidate)
+            continue
+        canonical_key = track_identity_key(track["title"], track["artists"])
+        if not canonical_key or canonical_key in catalogue_matches:
+            continue
+        catalogue_matches[canonical_key] = (candidate, track)
+        canonical_candidates.append(
+            {
+                **candidate,
+                "artist": str(track["artists"]),
+                "title": str(track["title"]),
+            }
+        )
+
+    validated_candidates, metadata_rejected = await _metadata_filter(
+        canonical_candidates
+    )
+    accepted_by_key = {
+        track_identity_key(candidate["title"], candidate["artist"]): candidate
+        for candidate in validated_candidates
+    }
+    rejected_by_key = {
+        track_identity_key(candidate["title"], candidate["artist"]): candidate
+        for candidate in metadata_rejected
+    }
+
+    resolved: list[dict[str, Any]] = []
+    seen_video_ids: set[str] = set()
+    seen_track_keys: set[str] = set()
+    for canonical_key, (candidate, track) in catalogue_matches.items():
+        accepted = accepted_by_key.get(canonical_key)
+        if accepted is None:
+            rejection = rejected_by_key.get(canonical_key)
+            if rejection is not None:
+                unresolved.append(
+                    {
+                        **candidate,
+                        "unresolved_reason": rejection.get(
+                            "unresolved_reason", "metadata_validation"
+                        ),
+                        "metadata_validation": rejection.get(
+                            "metadata_validation", {}
+                        ),
+                        "resolved_catalogue": {
+                            "title": track.get("title"),
+                            "artists": track.get("artists"),
+                            "video_id": track.get("video_id"),
+                        },
+                    }
+                )
             continue
 
         track_key = track_identity_key(track["title"], track["artists"])
         if track["video_id"] in seen_video_ids or track_key in seen_track_keys:
             continue
-
-        metadata = candidate.get("metadata_validation")
+        metadata = accepted.get("metadata_validation")
         if isinstance(metadata, dict):
             track["metadata_validation"] = metadata
         seen_video_ids.add(track["video_id"])
