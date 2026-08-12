@@ -134,7 +134,7 @@ async def interpret_creative_intent(
 ) -> CreativeIntent:
     """Interpret explicit creative intent, failing safely to an inactive intent."""
     normalized = " ".join(str(prompt).split()).strip()
-    if not normalized or not config.configured:
+    if not normalized or not bool(getattr(config, "configured", False)):
         return CreativeIntent(confidence=0.0)
 
     now = time.monotonic()
@@ -236,7 +236,11 @@ async def assess_creative_fit(
 ) -> list[CreativeConflict]:
     """Return only high-confidence creative conflicts; provider failures fail open."""
     active = intent or active_creative_intent()
-    if not active.active or not tracks or not config.configured:
+    if (
+        not active.active
+        or not tracks
+        or not bool(getattr(config, "configured", False))
+    ):
         return []
 
     request = _assessment_payload(active, tracks)
