@@ -8,13 +8,13 @@
 
   const trigger = $('refine-playlist');
   const host = $('playlist-refine-host');
-  if (!trigger || !host) return;
+  const trackList = $('track-list');
+  if (!trigger || !host || !trackList) return;
 
   let currentRecord = null;
   let previewPlaylist = null;
   let previewInstruction = '';
   let previewScope = null;
-  let scopeMode = 'all';
 
   function sessionPlaylist() {
     try {
@@ -126,72 +126,29 @@
     setStatus('');
   }
 
-  function closePanel() {
-    host.replaceChildren();
-    currentRecord = null;
-    previewPlaylist = null;
-    previewInstruction = '';
-    previewScope = null;
-    scopeMode = 'all';
-    trigger.setAttribute('aria-expanded', 'false');
-    trigger.focus();
-  }
-
-  function studioRows() {
-    return [...host.querySelectorAll('.playlist-studio-track')];
-  }
-
-  function setScopeMode(mode) {
-    scopeMode = mode === 'selected' ? 'selected' : 'all';
-    host.querySelectorAll('.playlist-studio-mode').forEach((button) => {
-      const active = button.dataset.mode === scopeMode;
-      button.classList.toggle('active', active);
-      button.setAttribute('aria-pressed', String(active));
-    });
-    const selectedTools = host.querySelector('.playlist-studio-selection-tools');
-    selectedTools?.classList.toggle('hidden', scopeMode !== 'selected');
-    studioRows().forEach((row) => {
-      row.querySelector('.playlist-studio-target-wrap')?.classList.toggle(
-        'hidden',
-        scopeMode !== 'selected',
-      );
-    });
-    resetPreview();
+  function studioCards() {
+    return [...trackList.querySelectorAll('.track-result-card[data-track-index]')];
   }
 
   function selectedPositions(selector) {
-    return studioRows()
-      .filter((row) => row.querySelector(selector)?.checked)
-      .map((row) => Number(row.dataset.position))
+    return studioCards()
+      .filter((card) => card.querySelector(selector)?.checked)
+      .map((card) => Number(card.dataset.trackIndex) + 1)
       .filter((position) => Number.isInteger(position) && position > 0);
   }
 
   function currentStudioScope() {
     const lockedPositions = selectedPositions('.playlist-studio-lock');
-    let targetPositions = [];
-    if (scopeMode === 'selected') {
-      targetPositions = selectedPositions('.playlist-studio-target').filter(
-        (position) => !lockedPositions.includes(position),
-      );
-      if (!targetPositions.length) {
-        throw new Error('Select at least one unlocked track to refine.');
-      }
+    const targetPositions = selectedPositions('.playlist-studio-target').filter(
+      (position) => !lockedPositions.includes(position),
+    );
+    if (!targetPositions.length) {
+      throw new Error('Select at least one unlocked track to refine.');
     }
     return {
       target_positions: targetPositions,
       locked_positions: lockedPositions,
     };
-  }
-
-  function createToggleButton(label, mode) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'secondary playlist-studio-mode';
-    button.dataset.mode = mode;
-    button.textContent = label;
-    button.setAttribute('aria-pressed', 'false');
-    button.addEventListener('click', () => setScopeMode(mode));
-    return button;
   }
 
   function syncLockControl(lock, lockWrap, position) {
@@ -207,106 +164,128 @@
     return icon;
   }
 
-  function renderStudioScope() {
-    const container = host.querySelector('.playlist-studio-scope');
-    if (!container || !currentRecord) return;
-    const tracks = Array.isArray(currentRecord.playlist?.tracks)
-      ? currentRecord.playlist.tracks
-      : [];
+  function createCardControls(card) {
+    const position = Number(card.dataset.trackIndex) + 1;
+    if (!Number.isInteger(position) || position < 1) return;
 
-    const intro = document.createElement('div');
-    intro.className = 'playlist-studio-scope-head';
-    const title = document.createElement('strong');
-    title.textContent = 'Editing scope';
-    const copy = document.createElement('span');
-    copy.textContent = 'Edit the whole draft or only selected tracks. Locked tracks stay unchanged.';
-    intro.append(title, copy);
+    card.dataset.studioWasExpanded = String(card.classList.contains('expanded'));
+    card.classList.remove('expanded');
+    card.setAttribute('aria-expanded', 'false');
 
-    const modes = document.createElement('div');
-    modes.className = 'playlist-studio-modes';
-    modes.setAttribute('role', 'group');
-    modes.setAttribute('aria-label', 'Playlist Studio editing scope');
-    modes.append(
-      createToggleButton('All tracks', 'all'),
-      createToggleButton('Selected tracks', 'selected'),
-    );
+    const targetWrap = document.createElement('label');
+    targetWrap.className = 'playlist-studio-target-wrap';
+    targetWrap.title = `Edit track ${position}`;
+    const target = document.createElement('input');
+    target.type = 'checkbox';
+    target.className = 'playlist-studio-target';
+    target.checked = true;
+    target.setAttribute('aria-label', `Edit track ${position}`);
+    const targetLabel = document.createElement('span');
+    targetLabel.className = 'visually-hidden';
+    targetLabel.textContent = `Edit track ${position}`;
+    targetWrap.append(target, targetLabel);
 
-    const selectionTools = document.createElement('div');
-    selectionTools.className = 'playlist-studio-selection-tools hidden';
+    const lockWrap = document.createElement('label');
+    lockWrap.className = 'playlist-studio-lock-wrap';
+    const lock = document.createElement('input');
+    lock.type = 'checkbox';
+    lock.className = 'playlist-studio-lock';
+    lockWrap.append(lock, createLockIcon());
+    syncLockControl(lock, lockWrap, position);
+
+    target.addEventListener('change', () => {
+      if (target.checked && lock.checked) {
+        lock.checked = false;
+        syncLockControl(lock, lockWrap, position);
+      }
+      resetPreview();
+    });
+    lock.addEventListener('change', () => {
+      if (lock.checked) target.checked = false;
+      syncLockControl(lock, lockWrap, position);
+      resetPreview();
+    });
+
+    card.append(targetWrap, lockWrap);
+  }
+
+  function blockCardInteraction(event) {
+    if (!document.body.classList.contains('playlist-studio-active')) return;
+    const card = event.target.closest?.('.track-result-card');
+    if (!card) return;
+    if (event.target.closest('.playlist-studio-target-wrap, .playlist-studio-lock-wrap')) return;
+    if (event.type === 'keydown' && !['Enter', ' '].includes(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function createSelectionToolbar() {
+    const toolbar = document.createElement('div');
+    toolbar.className = 'playlist-studio-selection-tools';
+    toolbar.setAttribute('aria-label', 'Playlist Studio selection');
+
     const selectAll = document.createElement('button');
     selectAll.type = 'button';
     selectAll.className = 'playlist-studio-text-action';
     selectAll.textContent = 'Select all';
     selectAll.addEventListener('click', () => {
-      studioRows().forEach((row) => {
-        const target = row.querySelector('.playlist-studio-target');
-        const lock = row.querySelector('.playlist-studio-lock');
+      studioCards().forEach((card) => {
+        const target = card.querySelector('.playlist-studio-target');
+        const lock = card.querySelector('.playlist-studio-lock');
         if (target && !lock?.checked) target.checked = true;
       });
       resetPreview();
     });
-    const clear = document.createElement('button');
-    clear.type = 'button';
-    clear.className = 'playlist-studio-text-action';
-    clear.textContent = 'Clear selection';
-    clear.addEventListener('click', () => {
-      studioRows().forEach((row) => {
-        const target = row.querySelector('.playlist-studio-target');
+
+    const selectNone = document.createElement('button');
+    selectNone.type = 'button';
+    selectNone.className = 'playlist-studio-text-action';
+    selectNone.textContent = 'None';
+    selectNone.addEventListener('click', () => {
+      studioCards().forEach((card) => {
+        const target = card.querySelector('.playlist-studio-target');
         if (target) target.checked = false;
       });
       resetPreview();
     });
-    selectionTools.append(selectAll, clear);
 
-    const list = document.createElement('div');
-    list.className = 'playlist-studio-track-list';
-    tracks.forEach((track, index) => {
-      const position = index + 1;
-      const row = document.createElement('div');
-      row.className = 'playlist-studio-track';
-      row.dataset.position = String(position);
+    toolbar.append(selectAll, selectNone);
+    return toolbar;
+  }
 
-      const targetWrap = document.createElement('label');
-      targetWrap.className = 'playlist-studio-target-wrap hidden';
-      const target = document.createElement('input');
-      target.type = 'checkbox';
-      target.className = 'playlist-studio-target';
-      target.setAttribute('aria-label', `Edit track ${position}`);
-      const targetLabel = document.createElement('span');
-      targetLabel.textContent = 'Edit';
-      targetWrap.append(target, targetLabel);
+  function enterStudioCards() {
+    document.body.classList.add('playlist-studio-active');
+    studioCards().forEach(createCardControls);
+    trackList.before(createSelectionToolbar());
+    trackList.addEventListener('click', blockCardInteraction, true);
+    trackList.addEventListener('keydown', blockCardInteraction, true);
+  }
 
-      const text = document.createElement('span');
-      text.className = 'playlist-studio-track-text';
-      text.textContent = `${position}. ${trackText(track)}`;
-
-      const lockWrap = document.createElement('label');
-      lockWrap.className = 'playlist-studio-lock-wrap';
-      const lock = document.createElement('input');
-      lock.type = 'checkbox';
-      lock.className = 'playlist-studio-lock';
-      lockWrap.append(lock, createLockIcon());
-      syncLockControl(lock, lockWrap, position);
-
-      target.addEventListener('change', () => {
-        if (target.checked && lock.checked) {
-          lock.checked = false;
-          syncLockControl(lock, lockWrap, position);
-        }
-        resetPreview();
-      });
-      lock.addEventListener('change', () => {
-        if (lock.checked) target.checked = false;
-        syncLockControl(lock, lockWrap, position);
-        resetPreview();
-      });
-
-      row.append(targetWrap, text, lockWrap);
-      list.append(row);
+  function exitStudioCards() {
+    trackList.removeEventListener('click', blockCardInteraction, true);
+    trackList.removeEventListener('keydown', blockCardInteraction, true);
+    document.querySelector('.playlist-studio-selection-tools')?.remove();
+    studioCards().forEach((card) => {
+      card.querySelector('.playlist-studio-target-wrap')?.remove();
+      card.querySelector('.playlist-studio-lock-wrap')?.remove();
+      if (card.dataset.studioWasExpanded === 'true') {
+        card.classList.add('expanded');
+        card.setAttribute('aria-expanded', 'true');
+      }
+      delete card.dataset.studioWasExpanded;
     });
+    document.body.classList.remove('playlist-studio-active');
+  }
 
-    container.replaceChildren(intro, modes, selectionTools, list);
-    setScopeMode('all');
+  function closePanel() {
+    exitStudioCards();
+    host.replaceChildren();
+    currentRecord = null;
+    previewPlaylist = null;
+    previewInstruction = '';
+    previewScope = null;
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.focus();
   }
 
   async function loadCurrentPlaylist() {
@@ -319,7 +298,6 @@
     ));
     if (record.status !== 'draft') throw new Error('Published playlists cannot be refined.');
     currentRecord = record;
-    renderStudioScope();
   }
 
   async function buildPreview() {
@@ -447,15 +425,7 @@
 
     const hint = document.createElement('p');
     hint.className = 'playlist-refine-hint';
-    hint.textContent = 'Target only the tracks you want the AI to edit. Locked tracks remain exactly unchanged.';
-
-    const scope = document.createElement('section');
-    scope.className = 'playlist-studio-scope';
-    scope.setAttribute('aria-label', 'Playlist Studio track scope');
-    const loadingScope = document.createElement('p');
-    loadingScope.className = 'playlist-refine-hint';
-    loadingScope.textContent = 'Loading track scope…';
-    scope.append(loadingScope);
+    hint.textContent = 'Select the tracks to edit with the checkboxes. Locked tracks remain exactly unchanged.';
 
     const status = document.createElement('p');
     status.className = 'playlist-refine-status hidden';
@@ -485,8 +455,9 @@
     cancelButton.addEventListener('click', closePanel);
     actions.append(previewButton, applyButton, cancelButton);
 
-    panel.append(head, label, hint, scope, status, changes, actions);
+    panel.append(head, label, hint, status, changes, actions);
     host.append(panel);
+    enterStudioCards();
     trigger.setAttribute('aria-expanded', 'true');
     textarea.focus();
 
