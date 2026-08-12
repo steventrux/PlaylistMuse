@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="/static/layout.css?v=5">
   <link rel="stylesheet" href="/static/controls.css?v=7">
   <link rel="stylesheet" href="/static/library.css?v=10">
+  <link rel="stylesheet" href="/static/library-pagination.css?v=1">
   <link rel="stylesheet" href="/static/library-tags.css?v=3">
   <link rel="stylesheet" href="/static/library-refinement-history.css?v=1">
   <link rel="stylesheet" href="/static/library-heading.css?v=3">
@@ -64,17 +65,61 @@
         No saved playlists yet. Create one and it will appear here automatically.
       </div>
       <nav id="library-pagination" class="library-pagination hidden" aria-label="Playlist pages">
-        <button id="library-page-previous" class="secondary library-page-nav" type="button">Previous</button>
+        <button
+          id="library-page-first"
+          class="secondary library-page-nav"
+          type="button"
+          aria-label="Go to first page"
+          title="Go to first page"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M6 5v14"/>
+            <path d="m18 6-7 6 7 6"/>
+          </svg>
+        </button>
+        <button
+          id="library-page-previous"
+          class="secondary library-page-nav"
+          type="button"
+          aria-label="Go to previous page"
+          title="Go to previous page"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="m15 6-6 6 6 6"/>
+          </svg>
+        </button>
         <div id="library-page-numbers" class="library-page-numbers"></div>
-        <button id="library-page-next" class="secondary library-page-nav" type="button">Next</button>
+        <button
+          id="library-page-next"
+          class="secondary library-page-nav"
+          type="button"
+          aria-label="Go to next page"
+          title="Go to next page"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="m9 6 6 6-6 6"/>
+          </svg>
+        </button>
+        <button
+          id="library-page-last"
+          class="secondary library-page-nav"
+          type="button"
+          aria-label="Go to last page"
+          title="Go to last page"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M18 5v14"/>
+            <path d="m6 6 7 6-7 6"/>
+          </svg>
+        </button>
       </nav>
     </section>
   </main>
 
   <script src="/static/common.js?v=1"></script>
   <script src="/static/library-tags.js?v=3"></script>
-  <script src="/static/library-pagination.js?v=1"></script>
-  <script src="/static/library.js?v=11"></script>
+  <script src="/static/library-pagination.js?v=2"></script>
+  <script src="/static/library.js?v=12"></script>
   <script src="/static/action-controls.js?v=2"></script>
   <script src="/static/settings-overlay.js?v=1"></script>
   <script src="/static/home-status.js?v=18"></script>
