@@ -4,6 +4,7 @@
   const STORAGE_KEY = 'playlistmuse-generated-playlist';
   const REQUEST_KEY = 'playlistmuse-generation-request';
   const ISSUE_URL = 'https://github.com/steventrux/PlaylistMuse/issues/new';
+  const FEEDBACK_LABEL = 'playlist feedback';
   const MAX_BODY_LENGTH = 7500;
   const button = document.getElementById('playlist-feedback');
   if (!button) return;
@@ -125,6 +126,7 @@
     const titleName = clean(playlist.name || 'playlist result', 80);
     const params = new URLSearchParams({
       title: `[Playlist feedback] ${titleName}`,
+      labels: FEEDBACK_LABEL,
       body: issueBody(playlist, generationRequest),
     });
     window.open(`${ISSUE_URL}?${params.toString()}`, '_blank', 'noopener,noreferrer');
