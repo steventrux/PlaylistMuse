@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from backend.artist_quota_detection import extract_artist_minimum_quotas
+from backend.artist_quota_detection import (
+    extract_artist_exact_quotas,
+    extract_artist_minimum_quotas,
+)
 from backend.prompt_quality_memory import (
     approved_prompt_quality_cases,
     load_prompt_quality_memory,
@@ -36,7 +39,7 @@ def test_only_approved_cases_are_available_for_future_runtime_guidance() -> None
     assert all(case.status == "approved" for case in approved)
 
 
-def test_approved_artist_quota_regressions_remain_supported() -> None:
+def test_approved_artist_minimum_regressions_remain_supported() -> None:
     cases = [
         case
         for case in approved_prompt_quality_cases()
@@ -47,6 +50,20 @@ def test_approved_artist_quota_regressions_remain_supported() -> None:
     for case in cases:
         expected = case.expectations["artist_minimum_quotas"]
         actual = _as_dicts(extract_artist_minimum_quotas(case.prompt))
+        assert actual == expected, case.id
+
+
+def test_approved_artist_exact_count_regressions_remain_supported() -> None:
+    cases = [
+        case
+        for case in approved_prompt_quality_cases()
+        if "artist_exact_quotas" in case.expectations
+    ]
+    assert cases
+
+    for case in cases:
+        expected = case.expectations["artist_exact_quotas"]
+        actual = _as_dicts(extract_artist_exact_quotas(case.prompt))
         assert actual == expected, case.id
 
 
