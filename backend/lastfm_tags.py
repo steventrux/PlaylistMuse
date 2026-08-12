@@ -146,7 +146,7 @@ async def track_tag_evidence(
         track_tags = await _request_tags(
             active_client,
             key,
-            "track.getTopTags",
+            "track.gettoptags",
             artist=normalized_artist,
             title=normalized_title,
         )
@@ -158,7 +158,7 @@ async def track_tag_evidence(
             fallback = await _request_tags(
                 active_client,
                 key,
-                "artist.getTopTags",
+                "artist.gettoptags",
                 artist=normalized_artist,
             )
             if fallback is None:
