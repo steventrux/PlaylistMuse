@@ -65,6 +65,13 @@
     return Array.isArray(conflicts) ? conflicts : [];
   }
 
+  function renderFilterConflicts(conflicts) {
+    render({
+      status: 'impossible',
+      reasons: conflicts.map((item) => item.message).filter(Boolean),
+    });
+  }
+
   async function intercept(event) {
     const button = event.target.closest?.('#generate');
     if (!button) return;
@@ -78,20 +85,19 @@
 
     event.preventDefault();
     event.stopImmediatePropagation();
-
-    const conflicts = filterConflicts();
-    if (conflicts.length) {
-      render({
-        status: 'impossible',
-        reasons: conflicts.map((item) => item.message).filter(Boolean),
-      });
-      return;
-    }
-
     validating = true;
     const submittedPrompt = promptText();
 
     try {
+      await window.PlaylistMusePromptComplexity?.ensureCurrentAnalysis?.();
+      if (submittedPrompt !== promptText()) return;
+
+      const conflicts = filterConflicts();
+      if (conflicts.length) {
+        renderFilterConflicts(conflicts);
+        return;
+      }
+
       const result = await validate();
       if (submittedPrompt !== promptText()) return;
       render(result);
@@ -114,5 +120,11 @@
     render({status: 'valid'});
   });
 
-  window.PlaylistMusePromptValidationGuard = {filterConflicts, promptText, render, validate};
+  window.PlaylistMusePromptValidationGuard = {
+    filterConflicts,
+    promptText,
+    render,
+    renderFilterConflicts,
+    validate,
+  };
 })();
