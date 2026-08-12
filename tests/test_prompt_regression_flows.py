@@ -220,3 +220,29 @@ def test_studio_inherits_original_recording_policy_until_explicitly_superseded(m
     assert superseded.required == frozenset()
     assert superseded.override_exclusions is True
     assert calls == ["use only studio versions"]
+
+
+def test_studio_does_not_resurrect_unsatisfied_legacy_recording_policy(monkeypatch) -> None:
+    original = "Create a playlist of rock music with only live versions"
+    instruction = "must have 2 metallica, 2 guns n roses and 2 ac/dc songs"
+    record = _record(original, [_track("Artist", "Studio Song")])
+    calls: list[str] = []
+
+    async def fake_interpret(config, request: str) -> RecordingVariantPolicy:
+        calls.append(request)
+        if request == instruction:
+            return RecordingVariantPolicy()
+        if request == original:
+            return RecordingVariantPolicy(required=frozenset({"live"}))
+        raise AssertionError(request)
+
+    import backend.playlist_studio as studio
+
+    monkeypatch.setattr(studio, "load_config", lambda: object())
+    monkeypatch.setattr(studio, "interpret_recording_policy", fake_interpret)
+
+    inherited = asyncio.run(_effective_recording_policy(record, instruction))
+
+    assert inherited.active is False
+    assert inherited.override_exclusions is True
+    assert calls == [instruction, original]
