@@ -131,7 +131,7 @@ async def _effective_recording_policy(
     record: dict[str, Any],
     instruction: str,
 ) -> RecordingVariantPolicy:
-    """Keep original recording constraints unless the new instruction supersedes them."""
+    """Preserve only recording constraints already established by the current draft."""
     config = load_config()
     refinement_policy = await interpret_recording_policy(config, instruction)
     if refinement_policy.active:
@@ -140,7 +140,15 @@ async def _effective_recording_policy(
     original_prompt = _record_prompt(record)
     if not original_prompt:
         return refinement_policy.for_refinement()
+
     original_policy = await interpret_recording_policy(config, original_prompt)
+    if not original_policy.active:
+        return original_policy.for_refinement()
+
+    current_tracks = _playlist_tracks(record)
+    if not current_tracks or _recording_scope_violations(current_tracks, original_policy):
+        return refinement_policy.for_refinement()
+
     return original_policy.for_refinement()
 
 
