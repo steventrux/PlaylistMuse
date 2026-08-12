@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from backend.metadata_validation import (
     TrackMetadata,
     constraints_from_payload,
@@ -62,3 +64,51 @@ def test_ai_temporal_range_is_used_when_prompt_has_no_local_range() -> None:
         2000,
         2009,
     )
+
+
+def test_local_year_to_present_range_overrides_ai_exact_year_misread() -> None:
+    prompt = (
+        "Crea una playlist di musica italiana dal 2000 ad oggi adatta per un party. "
+        "il mood deve essere festoso."
+    )
+    current_year = datetime.now(UTC).year
+    fallback = extract_metadata_constraints(prompt)
+
+    constraints = constraints_from_payload(
+        {
+            "release_year": 2000,
+            "release_year_from": None,
+            "release_year_to": None,
+            "field_confidence": {
+                "release_year": 0.99,
+                "release_year_from": 0.0,
+                "release_year_to": 0.0,
+            },
+        },
+        fallback=fallback,
+    )
+
+    assert fallback.release_year is None
+    assert (fallback.release_year_from, fallback.release_year_to) == (
+        2000,
+        current_year,
+    )
+    assert constraints.release_year is None
+    assert (constraints.release_year_from, constraints.release_year_to) == (
+        2000,
+        current_year,
+    )
+
+    result = validate_metadata(
+        TrackMetadata(
+            artist="Example Artist",
+            title="Example Track",
+            original_release_year=2023,
+            matched_artist="Example Artist",
+            match_score=0.98,
+            confidence="high",
+        ),
+        constraints,
+    )
+
+    assert result.status == "valid"
