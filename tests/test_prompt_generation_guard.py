@@ -42,6 +42,16 @@ def test_prompt_validation_guard_blocks_impossible_status_before_generation():
     assert "/api/playlists/validate-prompt" in script
 
 
+def test_prompt_validation_guard_waits_for_filter_conflict_analysis():
+    guard = (FRONTEND / "prompt-validation-guard.js").read_text(encoding="utf-8")
+    complexity = (FRONTEND / "prompt-complexity.js").read_text(encoding="utf-8")
+
+    assert "await window.PlaylistMusePromptComplexity?.ensureCurrentAnalysis?.();" in guard
+    assert "const conflicts = filterConflicts();" in guard
+    assert "renderFilterConflicts(conflicts);" in guard
+    assert "ensureCurrentAnalysis: () => ensureCurrentAnalysisImpl()" in complexity
+
+
 def test_prompt_feedback_is_inserted_after_shell_not_inside_textarea_shell():
     script = (FRONTEND / "prompt-validation-guard.js").read_text(encoding="utf-8")
 
