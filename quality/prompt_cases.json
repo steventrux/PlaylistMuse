@@ -169,6 +169,31 @@
         "selection_priority": "explicit_soft_intent_before_generic_preferences"
       },
       "tags": ["generation", "mood", "listening-context", "soft-constraints", "user-feedback", "regression", "multilingual"]
+    },
+    {
+      "id": "generation-open-range-and-live-filter-it",
+      "status": "approved",
+      "origin": "user_feedback",
+      "flows": ["generation"],
+      "prompt": "Crea una playlist di musica italiana dal 2000 ad oggi adatta per un party. il mood deve essere festoso.",
+      "context": {
+        "options": {
+          "exclude_live": true,
+          "exclude_covers": true,
+          "exclude_remixes": false
+        }
+      },
+      "failure": "A later generation still admitted songs released before the explicit 2000-to-present range and a resolved track marked Live25 even though live tracks were excluded; the playlist-wide creative brief also remained vulnerable to drift.",
+      "desired_behavior": "Interpret explicit year-to-present wording deterministically, re-check UI recording exclusions after catalogue resolution, and keep explicit creative intent active while repairing or replenishing candidates.",
+      "guidance": "Year-to-present wording must resolve to the stated lower year through the current year in supported languages. Recording exclusions must be validated again on resolved catalogue metadata, including compact version markers. Creative-intent repair must never relax factual constraints.",
+      "expectations": {
+        "open_ended_year_from": 2000,
+        "open_ended_year_to": "present",
+        "excluded_recording_variants": ["live"],
+        "compact_live_marker": "Live25",
+        "creative_intent_scope": "playlist_wide"
+      },
+      "tags": ["generation", "temporal-range", "live", "recording-version", "mood", "user-feedback", "regression", "multilingual"]
     }
   ]
 }
