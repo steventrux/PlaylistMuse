@@ -157,6 +157,21 @@
     lockWrap.title = `${action} track ${position}`;
   }
 
+  function syncSelectAllControl() {
+    const master = document.querySelector('.playlist-studio-select-all');
+    if (!master) return;
+
+    const eligibleTargets = studioCards()
+      .filter((card) => !card.querySelector('.playlist-studio-lock')?.checked)
+      .map((card) => card.querySelector('.playlist-studio-target'))
+      .filter(Boolean);
+    const selectedCount = eligibleTargets.filter((target) => target.checked).length;
+
+    master.disabled = eligibleTargets.length === 0;
+    master.checked = eligibleTargets.length > 0 && selectedCount === eligibleTargets.length;
+    master.indeterminate = selectedCount > 0 && selectedCount < eligibleTargets.length;
+  }
+
   function createLockIcon() {
     const icon = document.createElement('span');
     icon.className = 'playlist-studio-lock-icon';
@@ -200,11 +215,13 @@
         lock.checked = false;
         syncLockControl(lock, lockWrap, position);
       }
+      syncSelectAllControl();
       resetPreview();
     });
     lock.addEventListener('change', () => {
       if (lock.checked) target.checked = false;
       syncLockControl(lock, lockWrap, position);
+      syncSelectAllControl();
       resetPreview();
     });
 
@@ -226,32 +243,29 @@
     toolbar.className = 'playlist-studio-selection-tools';
     toolbar.setAttribute('aria-label', 'Playlist Studio selection');
 
-    const selectAll = document.createElement('button');
-    selectAll.type = 'button';
-    selectAll.className = 'playlist-studio-text-action';
-    selectAll.textContent = 'Select all';
-    selectAll.addEventListener('click', () => {
+    const selectAllWrap = document.createElement('label');
+    selectAllWrap.className = 'playlist-studio-select-all-wrap';
+    const selectAll = document.createElement('input');
+    selectAll.type = 'checkbox';
+    selectAll.className = 'playlist-studio-select-all';
+    selectAll.checked = true;
+    const selectAllLabel = document.createElement('span');
+    selectAllLabel.textContent = 'Select all';
+    selectAllWrap.append(selectAll, selectAllLabel);
+
+    selectAll.addEventListener('change', () => {
+      const shouldSelect = selectAll.checked;
       studioCards().forEach((card) => {
         const target = card.querySelector('.playlist-studio-target');
         const lock = card.querySelector('.playlist-studio-lock');
-        if (target && !lock?.checked) target.checked = true;
+        if (target && !lock?.checked) target.checked = shouldSelect;
       });
+      selectAll.indeterminate = false;
+      syncSelectAllControl();
       resetPreview();
     });
 
-    const selectNone = document.createElement('button');
-    selectNone.type = 'button';
-    selectNone.className = 'playlist-studio-text-action';
-    selectNone.textContent = 'None';
-    selectNone.addEventListener('click', () => {
-      studioCards().forEach((card) => {
-        const target = card.querySelector('.playlist-studio-target');
-        if (target) target.checked = false;
-      });
-      resetPreview();
-    });
-
-    toolbar.append(selectAll, selectNone);
+    toolbar.append(selectAllWrap);
     return toolbar;
   }
 
@@ -259,6 +273,7 @@
     document.body.classList.add('playlist-studio-active');
     studioCards().forEach(createCardControls);
     trackList.before(createSelectionToolbar());
+    syncSelectAllControl();
     trackList.addEventListener('click', blockCardInteraction, true);
     trackList.addEventListener('keydown', blockCardInteraction, true);
   }
