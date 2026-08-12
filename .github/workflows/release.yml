@@ -55,8 +55,22 @@ jobs:
           fi
 
           VERSION="$(python - <<'PY'
-          from backend.version import APP_VERSION
-          print(APP_VERSION)
+          import ast
+          from pathlib import Path
+
+          tree = ast.parse(Path("backend/version.py").read_text(encoding="utf-8"))
+          for node in tree.body:
+              if not isinstance(node, ast.Assign):
+                  continue
+              if not any(isinstance(target, ast.Name) and target.id == "APP_VERSION" for target in node.targets):
+                  continue
+              value = ast.literal_eval(node.value)
+              if not isinstance(value, str):
+                  raise SystemExit("APP_VERSION must be a string literal")
+              print(value)
+              break
+          else:
+              raise SystemExit("APP_VERSION was not found in backend/version.py")
           PY
           )"
 
