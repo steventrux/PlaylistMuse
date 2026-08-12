@@ -9,6 +9,12 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from backend.artist_quota_detection import (
+    ArtistMinimumQuota,
+    extract_artist_minimum_quotas,
+    quota_deficits,
+    quota_guidance,
+)
 from backend.config import load_config
 from backend.llm import safe_error_message
 from backend.playlist_library import (
@@ -19,6 +25,7 @@ from backend.playlist_library import (
 from backend.playlist_refinement import (
     _addition_mismatches_or_error,
     _build_preview,
+    _generation_options,
     _interpret_refinement_constraints,
     _record_or_404,
     _refinement_summary,
@@ -36,8 +43,10 @@ from backend.recording_variants import (
     track_matches_variant,
 )
 from backend.refinement_targets import (
+    ArtistAdditionTarget,
     extract_artist_addition_targets,
     format_artist_addition_mismatches,
+    repair_artist_addition_targets,
 )
 
 router = APIRouter(prefix="/library/playlists", tags=["playlist-studio"])
@@ -99,6 +108,32 @@ def _resolve_scope(
     if not editable:
         raise ValueError("Select at least one unlocked track for Playlist Studio.")
     return editable, sorted(locked)
+
+
+def _record_prompt(record: dict[str, Any]) -> str:
+    playlist = record.get("playlist")
+    if isinstance(playlist, dict):
+        prompt = str(playlist.get("prompt") or "").strip()
+        if prompt:
+            return prompt
+    return str(record.get("prompt") or "").strip()
+
+
+async def _effective_recording_policy(
+    record: dict[str, Any],
+    instruction: str,
+) -> RecordingVariantPolicy:
+    """Keep original recording constraints unless the new instruction supersedes them."""
+    config = load_config()
+    refinement_policy = await interpret_recording_policy(config, instruction)
+    if refinement_policy.active:
+        return refinement_policy.for_refinement()
+
+    original_prompt = _record_prompt(record)
+    if not original_prompt:
+        return refinement_policy.for_refinement()
+    original_policy = await interpret_recording_policy(config, original_prompt)
+    return original_policy.for_refinement()
 
 
 def _reserved_prompt(record: dict[str, Any], editable_positions: list[int]) -> str:
@@ -222,6 +257,77 @@ def _validate_recording_scope(
         )
 
 
+def _format_artist_quota_deficits(deficits: list[ArtistMinimumQuota]) -> str:
+    details = "; ".join(
+        f"{quota.artist} still needs {quota.minimum} track(s)" for quota in deficits
+    )
+    return "Playlist Studio could not satisfy the requested artist quotas: " + details + "."
+
+
+async def _repair_artist_quota_deficits(
+    record: dict[str, Any],
+    result: dict[str, Any],
+    instruction: str,
+    editable_positions: list[int],
+    quotas: list[ArtistMinimumQuota],
+) -> dict[str, Any]:
+    if not quotas:
+        return result
+
+    playlist = result.get("playlist")
+    if not isinstance(playlist, dict):
+        raise ValueError("Playlist Studio returned an invalid preview.")
+    preview_tracks = [
+        dict(track) for track in playlist.get("tracks", []) if isinstance(track, dict)
+    ]
+    deficits = quota_deficits(preview_tracks, quotas)
+    if not deficits:
+        return result
+    if sum(deficit.minimum for deficit in deficits) > len(editable_positions):
+        raise ValueError(_format_artist_quota_deficits(deficits))
+
+    source_tracks = _playlist_tracks(record)
+    source_scope = [source_tracks[position - 1] for position in editable_positions]
+    preview_scope = [preview_tracks[position - 1] for position in editable_positions]
+    constraints = await _interpret_refinement_constraints(
+        load_config(),
+        instruction,
+        source_scope,
+    )
+    targets = [
+        ArtistAdditionTarget(deficit.artist, deficit.minimum) for deficit in deficits
+    ]
+    repaired_scope, unresolved = await repair_artist_addition_targets(
+        source_scope,
+        preview_scope,
+        preview_scope,
+        targets,
+        exclusions=_generation_options(record).model_dump(),
+        metadata_constraints=constraints.metadata,
+    )
+    _validate_direct_constraints(repaired_scope, constraints)
+    merged_tracks = _merge_scoped_tracks(
+        source_tracks,
+        repaired_scope,
+        editable_positions,
+    )
+    remaining = quota_deficits(merged_tracks, quotas)
+    if remaining:
+        raise ValueError(_format_artist_quota_deficits(remaining))
+
+    playlist["tracks"] = merged_tracks
+    playlist["requested_count"] = len(merged_tracks)
+    playlist["resolved_count"] = len(merged_tracks)
+    existing_unresolved = list(playlist.get("unresolved") or [])
+    playlist["unresolved"] = [*existing_unresolved, *unresolved]
+    result["summary"] = _refinement_summary(source_tracks, merged_tracks)
+    result["summary"]["targeted"] = len(editable_positions)
+    studio = result.get("studio")
+    if isinstance(studio, dict):
+        result["summary"]["locked"] = len(studio.get("locked_positions") or [])
+    return result
+
+
 async def _build_studio_preview_core(
     record: dict[str, Any],
     request: StudioRefinementInstruction,
@@ -289,10 +395,9 @@ async def _build_studio_preview(
         request.target_positions,
         request.locked_positions,
     )
-    policy = (
-        await interpret_recording_policy(load_config(), request.instruction)
-    ).for_refinement()
-    guidance = recording_policy_guidance(policy)
+    policy = await _effective_recording_policy(record, request.instruction)
+    quotas = extract_artist_minimum_quotas(request.instruction)
+    guidance = recording_policy_guidance(policy) + quota_guidance(quotas)
     instruction = f"{request.instruction}{guidance}" if guidance else request.instruction
 
     token = activate_recording_policy(policy)
@@ -303,6 +408,13 @@ async def _build_studio_preview(
             instruction,
             editable_positions,
             locked_positions,
+        )
+        result = await _repair_artist_quota_deficits(
+            record,
+            result,
+            request.instruction,
+            editable_positions,
+            quotas,
         )
     finally:
         reset_recording_policy(token)
@@ -315,6 +427,9 @@ async def _build_studio_preview(
     ]
     editable_scope = [preview_tracks[position - 1] for position in editable_positions]
     _validate_recording_scope(editable_scope, policy)
+    remaining = quota_deficits(preview_tracks, quotas)
+    if remaining:
+        raise ValueError(_format_artist_quota_deficits(remaining))
     return result
 
 
@@ -346,10 +461,13 @@ async def _validate_studio_apply(
         source_scope,
     )
     _validate_direct_constraints(preview_scope, constraints)
-    recording_policy = (
-        await interpret_recording_policy(load_config(), request.instruction)
-    ).for_refinement()
+    recording_policy = await _effective_recording_policy(record, request.instruction)
     _validate_recording_scope(preview_scope, recording_policy)
+
+    quotas = extract_artist_minimum_quotas(request.instruction)
+    remaining = quota_deficits(preview_tracks, quotas)
+    if remaining:
+        raise ValueError(_format_artist_quota_deficits(remaining))
 
     addition_targets = extract_artist_addition_targets(request.instruction)
     addition_mismatches = _addition_mismatches_or_error(
