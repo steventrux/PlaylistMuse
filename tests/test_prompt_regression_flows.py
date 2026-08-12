@@ -69,6 +69,9 @@ def test_generation_runtime_activates_compact_independent_artist_quotas(monkeypa
     async def fake_generate(config, submitted: str, count: int) -> dict:
         captured["prompt"] = submitted
         captured["count"] = count
+        captured["active_quotas"] = list(
+            generation_runtime._ACTIVE_RESOLUTION_QUOTAS.get()
+        )
         return {
             "title": "Quota test",
             "description": "",
@@ -93,7 +96,7 @@ def test_generation_runtime_activates_compact_independent_artist_quotas(monkeypa
 
     result = asyncio.run(generation_runtime.generate_playlist_draft(object(), prompt, 6))
 
-    active = list(generation_runtime._ACTIVE_RESOLUTION_QUOTAS.get())
+    active = list(captured["active_quotas"])
     assert [(item.artist, item.minimum) for item in active] == [
         ("metallica", 2),
         ("guns n' roses", 2),
@@ -114,7 +117,11 @@ def test_studio_repairs_a_preview_that_ignores_compact_artist_quotas(monkeypatch
     result = {
         "playlist": deepcopy(record["playlist"]),
         "summary": {"tracks": 6, "kept": 6, "changed": 0, "reordered": 0},
-        "studio": {"target_positions": [], "locked_positions": [], "editable_positions": list(range(1, 7))},
+        "studio": {
+            "target_positions": [],
+            "locked_positions": [],
+            "editable_positions": list(range(1, 7)),
+        },
     }
     quotas = extract_artist_minimum_quotas(instruction)
 
@@ -150,7 +157,11 @@ def test_studio_repairs_a_preview_that_ignores_compact_artist_quotas(monkeypatch
 
     monkeypatch.setattr(studio, "_interpret_refinement_constraints", fake_constraints)
     monkeypatch.setattr(studio, "repair_artist_addition_targets", fake_repair)
-    monkeypatch.setattr(studio, "_validate_direct_constraints", lambda tracks, constraints: None)
+    monkeypatch.setattr(
+        studio,
+        "_validate_direct_constraints",
+        lambda tracks, constraints: None,
+    )
     monkeypatch.setattr(
         studio,
         "_generation_options",
