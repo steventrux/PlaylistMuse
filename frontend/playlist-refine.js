@@ -184,6 +184,7 @@
     targetLabel.className = 'visually-hidden';
     targetLabel.textContent = `Edit track ${position}`;
     targetWrap.append(target, targetLabel);
+    targetWrap.addEventListener('click', (event) => event.stopPropagation());
 
     const lockWrap = document.createElement('label');
     lockWrap.className = 'playlist-studio-lock-wrap';
@@ -191,6 +192,7 @@
     lock.type = 'checkbox';
     lock.className = 'playlist-studio-lock';
     lockWrap.append(lock, createLockIcon());
+    lockWrap.addEventListener('click', (event) => event.stopPropagation());
     syncLockControl(lock, lockWrap, position);
 
     target.addEventListener('change', () => {
@@ -268,10 +270,9 @@
     studioCards().forEach((card) => {
       card.querySelector('.playlist-studio-target-wrap')?.remove();
       card.querySelector('.playlist-studio-lock-wrap')?.remove();
-      if (card.dataset.studioWasExpanded === 'true') {
-        card.classList.add('expanded');
-        card.setAttribute('aria-expanded', 'true');
-      }
+      const wasExpanded = card.dataset.studioWasExpanded === 'true';
+      card.classList.toggle('expanded', wasExpanded);
+      card.setAttribute('aria-expanded', String(wasExpanded));
       delete card.dataset.studioWasExpanded;
     });
     document.body.classList.remove('playlist-studio-active');
