@@ -36,7 +36,7 @@ def test_playlist_page_centralizes_draft_editing_controls() -> None:
     assert '/static/playlist-header.css?v=12' in html
     assert '/static/playlist-editor.css?v=2' in html
     assert '/static/playlist-add-track.js?v=2' in html
-    assert '/static/playlist-refine.js?v=4' in html
+    assert '/static/playlist-refine.js?v=5' in html
 
 
 def test_playlist_autosave_status_tracks_persistent_library_writes() -> None:
