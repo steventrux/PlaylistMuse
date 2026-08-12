@@ -9,7 +9,7 @@ from backend.recording_variants import (
     RecordingVariantPolicy,
     recording_filter_conflicts,
 )
-from backend.refinement_targets import extract_artist_addition_targets
+from backend.refinement_intent import studio_artist_addition_targets
 
 
 def _as_dicts(items: list[object]) -> list[dict[str, object]]:
@@ -60,7 +60,7 @@ def test_approved_incremental_addition_regressions_remain_supported() -> None:
 
     for case in cases:
         expected = case.expectations["artist_addition_targets"]
-        actual = _as_dicts(extract_artist_addition_targets(case.prompt))
+        actual = _as_dicts(studio_artist_addition_targets(case.prompt))
         assert actual == expected, case.id
 
 
