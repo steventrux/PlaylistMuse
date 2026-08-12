@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import pytest
 
+from backend.artist_quota_detection import ArtistExactQuota, ArtistMinimumQuota
 from backend.playlist_studio import (
     _assert_immutable_positions,
     _merge_scoped_tracks,
     _resolve_scope,
+    _scope_artist_quotas,
     _scoped_record,
+    _validate_exact_artist_quotas,
 )
 
 
@@ -94,3 +97,50 @@ def test_immutable_position_validation_rejects_out_of_scope_change() -> None:
     preview[0] = {"video_id": "changed", "title": "Changed", "artists": "Someone"}
     with pytest.raises(ValueError, match="outside the Playlist Studio editing scope"):
         _assert_immutable_positions(source, preview, [2])
+
+
+def test_exact_artist_quota_subtracts_protected_tracks_from_editable_scope() -> None:
+    source = [
+        {"video_id": "m1", "title": "One", "artists": "Metallica"},
+        _track(2),
+        _track(3),
+        _track(4),
+    ]
+
+    minimums, exacts = _scope_artist_quotas(
+        source,
+        [2, 3, 4],
+        [ArtistMinimumQuota("Metallica", 2)],
+        [ArtistExactQuota("Metallica", 2)],
+    )
+
+    assert minimums == [ArtistMinimumQuota("Metallica", 1)]
+    assert exacts == [ArtistExactQuota("Metallica", 1)]
+
+
+def test_exact_artist_quota_rejects_protected_surplus() -> None:
+    source = [
+        {"video_id": "m1", "title": "One", "artists": "Metallica"},
+        {"video_id": "m2", "title": "Two", "artists": "Metallica"},
+        {"video_id": "m3", "title": "Three", "artists": "Metallica"},
+        _track(4),
+    ]
+
+    with pytest.raises(ValueError, match="Protected tracks already exceed"):
+        _scope_artist_quotas(
+            source,
+            [4],
+            [ArtistMinimumQuota("Metallica", 2)],
+            [ArtistExactQuota("Metallica", 2)],
+        )
+
+
+def test_exact_artist_quota_validation_rejects_surplus() -> None:
+    tracks = [
+        {"video_id": "m1", "title": "One", "artists": "Metallica"},
+        {"video_id": "m2", "title": "Two", "artists": "Metallica"},
+        {"video_id": "m3", "title": "Three", "artists": "Metallica"},
+    ]
+
+    with pytest.raises(ValueError, match="must be exactly 2, resolved 3"):
+        _validate_exact_artist_quotas(tracks, [ArtistExactQuota("Metallica", 2)])
