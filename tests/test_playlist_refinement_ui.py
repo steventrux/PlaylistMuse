@@ -18,8 +18,8 @@ def test_refinement_moves_from_library_to_playlist_editor() -> None:
     assert "PlaylistMuseLibraryRefine" not in library_script
     assert 'id="refine-playlist"' in playlist
     assert '>Playlist Studio</button>' in playlist
-    assert '/static/playlist-refine.css?v=5' in playlist
-    assert '/static/playlist-refine.js?v=5' in playlist
+    assert '/static/playlist-refine.css?v=6' in playlist
+    assert '/static/playlist-refine.js?v=6' in playlist
 
 
 def test_refinement_uses_preview_before_apply_and_flushes_current_draft() -> None:
@@ -28,7 +28,7 @@ def test_refinement_uses_preview_before_apply_and_flushes_current_draft() -> Non
     assert "editor.flushPersistence()" in script
     assert "/studio-preview`" in script
     assert "/studio-apply`" in script
-    assert "Target only the tracks you want the AI to edit." in script
+    assert "Select the tracks to edit with the checkboxes." in script
     assert "previewPlaylist = payload.playlist;" in script
     assert "Apply changes" in script
     assert "textarea.addEventListener('input', resetPreview);" in script
@@ -36,32 +36,47 @@ def test_refinement_uses_preview_before_apply_and_flushes_current_draft() -> Non
     assert "`${reordered} repositioned`" in script
 
 
-def test_playlist_studio_exposes_target_and_lock_controls() -> None:
+def test_playlist_studio_reuses_existing_track_cards() -> None:
     script = _text("playlist-refine.js")
     style = _text("playlist-refine.css")
 
-    assert "All tracks" in script
-    assert "Selected tracks" in script
-    assert "playlist-studio-target" in script
-    assert "playlist-studio-lock" in script
+    assert "trackList.querySelectorAll('.track-result-card[data-track-index]')" in script
+    assert "function createCardControls(card)" in script
+    assert "card.append(targetWrap, lockWrap);" in script
+    assert "target.checked = true;" in script
+    assert "Select all" in script
+    assert "None" in script
     assert "target_positions: targetPositions" in script
     assert "locked_positions: lockedPositions" in script
     assert "Select at least one unlocked track to refine." in script
-    assert ".playlist-studio-track-list" in style
-    assert "max-block-size: min(42vh, 20rem);" in style
+    assert "playlist-studio-track-list" not in script
+    assert "renderStudioScope" not in script
+    assert "All tracks" not in script
+    assert "Selected tracks" not in script
+    assert ".playlist-studio-track-list" not in style
+    assert ".playlist-studio-scope" not in style
 
 
-def test_playlist_studio_lock_uses_supplied_icons_at_row_edge() -> None:
+def test_playlist_studio_cards_are_fixed_with_checkbox_and_lock_on_right() -> None:
     script = _text("playlist-refine.js")
     style = _text("playlist-refine.css")
     open_icon = _text("lock-open-alt.svg")
     closed_icon = _text("lock.svg")
 
+    assert "card.classList.remove('expanded');" in script
+    assert "blockCardInteraction" in script
+    assert "trackList.addEventListener('click', blockCardInteraction, true);" in script
+    assert "card.append(targetWrap, lockWrap);" in script
     assert "function createLockIcon()" in script
-    assert "row.append(targetWrap, text, lockWrap);" in script
-    assert "text.append(titleText, lockWrap, artistText);" not in script
-    assert "icon.innerHTML" not in script
-    assert "grid-template-columns: auto minmax(0, 1fr) auto;" in style
+    assert "body.playlist-studio-active .track-result-card.reorderable" in style
+    assert "grid-template-columns: 58px minmax(0, 1fr) 28px 28px;" in style
+    assert ".playlist-studio-target-wrap" in style
+    assert "grid-column: 3;" in style
+    assert ".playlist-studio-lock-wrap" in style
+    assert "grid-column: 4;" in style
+    assert "body.playlist-studio-active .track-reorder-handle" in style
+    assert "body.playlist-studio-active .track-expand-icon" in style
+    assert "body.playlist-studio-active .track-details" in style
     assert "url('/static/lock-open-alt.svg')" in style
     assert "url('/static/lock.svg')" in style
     assert "color: var(--text-muted);" in style
@@ -69,6 +84,16 @@ def test_playlist_studio_lock_uses_supplied_icons_at_row_edge() -> None:
     assert "color: var(--text-primary);" in style
     assert "<svg" in open_icon
     assert "<svg" in closed_icon
+
+
+def test_playlist_studio_restores_existing_cards_when_closed() -> None:
+    script = _text("playlist-refine.js")
+
+    assert "card.dataset.studioWasExpanded" in script
+    assert "card.querySelector('.playlist-studio-target-wrap')?.remove();" in script
+    assert "card.querySelector('.playlist-studio-lock-wrap')?.remove();" in script
+    assert "document.body.classList.remove('playlist-studio-active');" in script
+    assert "exitStudioCards();" in script
 
 
 def test_refinement_preview_shows_only_changes_not_full_track_lists() -> None:
@@ -101,4 +126,4 @@ def test_refinement_panel_remains_compact() -> None:
     assert "padding: 14px;" in editor_style
     assert "border-radius: 14px;" in editor_style
     assert "max-height: 300px;" not in style
-    assert "max-block-size: min(42vh, 20rem);" in style
+    assert ".playlist-studio-selection-tools" in style
