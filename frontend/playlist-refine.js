@@ -194,6 +194,29 @@
     return button;
   }
 
+  function syncLockControl(lock, lockWrap, position) {
+    const action = lock.checked ? 'Unlock' : 'Lock';
+    lock.setAttribute('aria-label', `${action} track ${position}`);
+    lockWrap.title = `${action} track ${position}`;
+  }
+
+  function createLockIcon() {
+    const icon = document.createElement('span');
+    icon.className = 'playlist-studio-lock-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.innerHTML = [
+      '<svg class="playlist-studio-lock-open" viewBox="0 0 24 24" focusable="false">',
+      '<rect x="5" y="10" width="14" height="10" rx="2"/>',
+      '<path d="M9 10V7a4 4 0 0 1 7.2-2.4"/>',
+      '</svg>',
+      '<svg class="playlist-studio-lock-closed" viewBox="0 0 24 24" focusable="false">',
+      '<rect x="5" y="10" width="14" height="10" rx="2"/>',
+      '<path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
+      '</svg>',
+    ].join('');
+    return icon;
+  }
+
   function renderStudioScope() {
     const container = host.querySelector('.playlist-studio-scope');
     if (!container || !currentRecord) return;
@@ -259,36 +282,42 @@
       target.type = 'checkbox';
       target.className = 'playlist-studio-target';
       target.setAttribute('aria-label', `Edit track ${position}`);
-      target.addEventListener('change', () => {
-        if (target.checked) {
-          const lock = row.querySelector('.playlist-studio-lock');
-          if (lock) lock.checked = false;
-        }
-        resetPreview();
-      });
       const targetLabel = document.createElement('span');
       targetLabel.textContent = 'Edit';
       targetWrap.append(target, targetLabel);
 
       const text = document.createElement('span');
       text.className = 'playlist-studio-track-text';
-      text.textContent = `${position}. ${trackText(track)}`;
+      const titleText = document.createElement('span');
+      titleText.className = 'playlist-studio-track-title';
+      titleText.textContent = `${position}. ${String(track?.title || 'Unknown track').trim()}`;
+      const artistText = document.createElement('span');
+      artistText.className = 'playlist-studio-track-artist';
+      artistText.textContent = `— ${String(track?.artists || track?.artist || 'Unknown artist').trim()}`;
 
       const lockWrap = document.createElement('label');
       lockWrap.className = 'playlist-studio-lock-wrap';
       const lock = document.createElement('input');
       lock.type = 'checkbox';
       lock.className = 'playlist-studio-lock';
-      lock.setAttribute('aria-label', `Lock track ${position}`);
-      lock.addEventListener('change', () => {
-        if (lock.checked) target.checked = false;
+      lockWrap.append(lock, createLockIcon());
+      syncLockControl(lock, lockWrap, position);
+
+      target.addEventListener('change', () => {
+        if (target.checked && lock.checked) {
+          lock.checked = false;
+          syncLockControl(lock, lockWrap, position);
+        }
         resetPreview();
       });
-      const lockLabel = document.createElement('span');
-      lockLabel.textContent = 'Lock';
-      lockWrap.append(lock, lockLabel);
+      lock.addEventListener('change', () => {
+        if (lock.checked) target.checked = false;
+        syncLockControl(lock, lockWrap, position);
+        resetPreview();
+      });
 
-      row.append(targetWrap, text, lockWrap);
+      text.append(titleText, lockWrap, artistText);
+      row.append(targetWrap, text);
       list.append(row);
     });
 
