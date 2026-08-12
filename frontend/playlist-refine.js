@@ -204,16 +204,6 @@
     const icon = document.createElement('span');
     icon.className = 'playlist-studio-lock-icon';
     icon.setAttribute('aria-hidden', 'true');
-    icon.innerHTML = [
-      '<svg class="playlist-studio-lock-open" viewBox="0 0 24 24" focusable="false">',
-      '<rect x="5" y="10" width="14" height="10" rx="2"/>',
-      '<path d="M9 10V7a4 4 0 0 1 7.2-2.4"/>',
-      '</svg>',
-      '<svg class="playlist-studio-lock-closed" viewBox="0 0 24 24" focusable="false">',
-      '<rect x="5" y="10" width="14" height="10" rx="2"/>',
-      '<path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
-      '</svg>',
-    ].join('');
     return icon;
   }
 
@@ -288,12 +278,7 @@
 
       const text = document.createElement('span');
       text.className = 'playlist-studio-track-text';
-      const titleText = document.createElement('span');
-      titleText.className = 'playlist-studio-track-title';
-      titleText.textContent = `${position}. ${String(track?.title || 'Unknown track').trim()}`;
-      const artistText = document.createElement('span');
-      artistText.className = 'playlist-studio-track-artist';
-      artistText.textContent = `— ${String(track?.artists || track?.artist || 'Unknown artist').trim()}`;
+      text.textContent = `${position}. ${trackText(track)}`;
 
       const lockWrap = document.createElement('label');
       lockWrap.className = 'playlist-studio-lock-wrap';
@@ -316,8 +301,7 @@
         resetPreview();
       });
 
-      text.append(titleText, lockWrap, artistText);
-      row.append(targetWrap, text);
+      row.append(targetWrap, text, lockWrap);
       list.append(row);
     });
 
