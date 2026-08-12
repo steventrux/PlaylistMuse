@@ -66,6 +66,8 @@ def test_playlist_studio_cards_are_fixed_with_checkbox_and_lock_on_right() -> No
     assert "card.classList.remove('expanded');" in script
     assert "blockCardInteraction" in script
     assert "trackList.addEventListener('click', blockCardInteraction, true);" in script
+    assert "targetWrap.addEventListener('click', (event) => event.stopPropagation());" in script
+    assert "lockWrap.addEventListener('click', (event) => event.stopPropagation());" in script
     assert "card.append(targetWrap, lockWrap);" in script
     assert "function createLockIcon()" in script
     assert "body.playlist-studio-active .track-result-card.reorderable" in style
@@ -92,6 +94,8 @@ def test_playlist_studio_restores_existing_cards_when_closed() -> None:
     assert "card.dataset.studioWasExpanded" in script
     assert "card.querySelector('.playlist-studio-target-wrap')?.remove();" in script
     assert "card.querySelector('.playlist-studio-lock-wrap')?.remove();" in script
+    assert "card.classList.toggle('expanded', wasExpanded);" in script
+    assert "card.setAttribute('aria-expanded', String(wasExpanded));" in script
     assert "document.body.classList.remove('playlist-studio-active');" in script
     assert "exitStudioCards();" in script
 
