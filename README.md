@@ -62,7 +62,7 @@ PlaylistMuse starts from the musical direction you provide, either as a natural-
 
 PlaylistMuse can be installed with Docker or run directly with Python. The published Docker image is the recommended method because it provides a self-contained environment and straightforward upgrades, while the native Python installation is available for users who prefer to run the application directly on the host.
 
-### Docker installation — recommended
+### Docker installation **(Recommended)**
 
 #### Requirements
 
