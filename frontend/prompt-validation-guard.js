@@ -66,6 +66,11 @@
   }
 
   function renderFilterConflicts(conflicts) {
+    const visibleConflict = document.getElementById('prompt-filter-conflict-warning');
+    if (visibleConflict && !visibleConflict.classList.contains('hidden')) {
+      render({status: 'valid'});
+      return;
+    }
     render({
       status: 'impossible',
       reasons: conflicts.map((item) => item.message).filter(Boolean),
