@@ -28,6 +28,9 @@ _STRICT_MAJORITY_ARTIST_RE = re.compile(
 _ACTIVE_RESOLUTION_QUOTAS: ContextVar[tuple[Any, ...]] = ContextVar(
     "playlistmuse_resolution_quotas", default=()
 )
+_ACTIVE_EXACT_ARTIST_QUOTAS: ContextVar[tuple[Any, ...]] = ContextVar(
+    "playlistmuse_exact_artist_quotas", default=()
+)
 _RESOLVED_SESSION_TRACKS: ContextVar[tuple[dict[str, Any], ...]] = ContextVar(
     "playlistmuse_resolved_session_tracks", default=()
 )
@@ -150,11 +153,42 @@ def _repair_quota_prompt(
     )
 
 
-def _reset_resolution_session(quotas: list[Any], count: int) -> None:
+def _reset_resolution_session(
+    quotas: list[Any],
+    count: int,
+    exact_quotas: list[Any] | None = None,
+) -> None:
     """Start a clean catalogue-selection session for one generation request."""
     _ACTIVE_RESOLUTION_QUOTAS.set(tuple(quotas))
+    _ACTIVE_EXACT_ARTIST_QUOTAS.set(tuple(exact_quotas or ()))
     _RESOLVED_SESSION_TRACKS.set(())
     _REQUESTED_SESSION_COUNT.set(max(0, int(count)))
+
+
+def _cap_buffered_quotas_at_exact_counts(
+    quotas: list[Any],
+    exact_quotas: list[Any],
+) -> list[Any]:
+    if not exact_quotas:
+        return quotas
+
+    from backend.artist_quota_detection import ArtistMinimumQuota, artist_matches
+
+    capped: list[Any] = []
+    for quota in quotas:
+        exact = next(
+            (
+                item
+                for item in exact_quotas
+                if artist_matches(quota.artist, item.artist)
+                or artist_matches(item.artist, quota.artist)
+            ),
+            None,
+        )
+        capped.append(
+            ArtistMinimumQuota(quota.artist, exact.count) if exact is not None else quota
+        )
+    return capped
 
 
 def _album_key(track: dict[str, Any]) -> str:
@@ -219,6 +253,8 @@ async def generate_playlist_draft(
 ) -> dict[str, Any]:
     """Generate and validate one draft without mutating imported modules."""
     from backend.artist_quota_detection import (
+        exact_quota_guidance,
+        extract_artist_exact_quotas,
         extract_artist_minimum_quotas,
         quota_deficits,
         quota_guidance,
@@ -274,12 +310,18 @@ async def generate_playlist_draft(
     source_prompt = _constraint_source(optimized_prompt, stage)
     user_request = user_request_text(optimized_prompt)
     artist_quotas = extract_artist_minimum_quotas(user_request)
+    exact_artist_quotas = extract_artist_exact_quotas(user_request)
     if should_interpret:
-        _reset_resolution_session(artist_quotas, count)
+        _reset_resolution_session(artist_quotas, count, exact_artist_quotas)
     generation_quotas = buffered_artist_quotas(
         artist_quotas, optimized_count
     )
+    generation_quotas = _cap_buffered_quotas_at_exact_counts(
+        generation_quotas,
+        exact_artist_quotas,
+    )
     submitted_prompt = optimized_prompt + quota_guidance(generation_quotas)
+    submitted_prompt += exact_quota_guidance(exact_artist_quotas)
     submitted_prompt += (
         "\n\nALBUM DIVERSITY: when several compliant tracks are available, prefer "
         "different original albums. Avoid selecting many tracks from the same "
@@ -390,13 +432,14 @@ async def generate_playlist_draft(
             logger.info(
                 "playlist_constraints stage=%s constraints=%s policy=%s "
                 "issues=%s artist_quota_deficits=%s "
-                "buffered_quota_deficits=%s assessment=%s",
+                "buffered_quota_deficits=%s exact_artist_quotas=%s assessment=%s",
                 stage,
                 asdict(constraints),
                 asdict(policy),
                 policy_issues,
                 [asdict(item) for item in effective_deficits],
                 [asdict(item) for item in generation_deficits],
+                [asdict(item) for item in exact_artist_quotas],
                 draft["prompt_assessment"],
             )
         else:
