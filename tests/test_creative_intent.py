@@ -69,11 +69,13 @@ def test_interpret_creative_intent_is_semantic_and_provider_neutral(monkeypatch)
     assert intent.requirements == ("celebratory social atmosphere",)
 
 
-def test_creative_fit_rejects_only_high_confidence_conflicts(monkeypatch) -> None:
+def test_creative_fit_rejects_high_confidence_conflicts_and_weak_fit(monkeypatch) -> None:
     async def fake_request(config, prompt, *, system_prompt, max_tokens, model):
         payload = json.loads(prompt)
         assert payload["creative_requirements"] == ["energetic social setting"]
-        assert len(payload["tracks"]) == 3
+        assert len(payload["tracks"]) == 5
+        assert "positively contribute" in system_prompt
+        assert 'verdict="weak_fit"' in system_prompt
         return json.dumps(
             {
                 "assessments": [
@@ -85,15 +87,27 @@ def test_creative_fit_rejects_only_high_confidence_conflicts(monkeypatch) -> Non
                     },
                     {
                         "index": 2,
-                        "verdict": "conflict",
+                        "verdict": "weak_fit",
+                        "confidence": 0.94,
+                        "reason": "Recognizable song, but only marginally supports the requested setting.",
+                    },
+                    {
+                        "index": 3,
+                        "verdict": "weak_fit",
                         "confidence": 0.7,
                         "reason": "Possible mismatch, but uncertain.",
                     },
                     {
-                        "index": 3,
+                        "index": 4,
                         "verdict": "unknown",
                         "confidence": 0.99,
-                        "reason": "Insufficient certainty.",
+                        "reason": "Insufficient certainty about the song.",
+                    },
+                    {
+                        "index": 5,
+                        "verdict": "fit",
+                        "confidence": 0.98,
+                        "reason": "Clearly supports the requested setting.",
                     },
                 ]
             }
@@ -107,15 +121,47 @@ def test_creative_fit_rejects_only_high_confidence_conflicts(monkeypatch) -> Non
         conflicts = asyncio.run(
             assess_creative_fit(
                 _config(),
-                [_track("Track 1"), _track("Track 2"), _track("Track 3")],
+                [
+                    _track("Track 1"),
+                    _track("Track 2"),
+                    _track("Track 3"),
+                    _track("Track 4"),
+                    _track("Track 5"),
+                ],
             )
         )
     finally:
         reset_creative_intent(token)
 
-    assert len(conflicts) == 1
-    assert conflicts[0].index == 1
-    assert conflicts[0].confidence == 0.97
+    assert [item.index for item in conflicts] == [1, 2]
+    assert [item.confidence for item in conflicts] == [0.97, 0.94]
+
+
+def test_unknown_creative_fit_never_becomes_rejection(monkeypatch) -> None:
+    async def fake_request(config, prompt, *, system_prompt, max_tokens, model):
+        return json.dumps(
+            {
+                "assessments": [
+                    {
+                        "index": 1,
+                        "verdict": "unknown",
+                        "confidence": 1.0,
+                        "reason": "The evaluator does not know the song well enough.",
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(creative_intent, "request_structured_json", fake_request)
+    token = activate_creative_intent(
+        CreativeIntent(("focused low-distraction atmosphere",), confidence=0.95)
+    )
+    try:
+        conflicts = asyncio.run(assess_creative_fit(_config(), [_track("Obscure Track")]))
+    finally:
+        reset_creative_intent(token)
+
+    assert conflicts == []
 
 
 def test_creative_fit_is_noop_without_explicit_intent(monkeypatch) -> None:
@@ -149,7 +195,7 @@ def test_creative_repair_prompt_preserves_hard_constraints_and_replaces_conflict
         creative_intent.CreativeConflict(
             index=1,
             confidence=0.96,
-            reason="Clearly conflicts with the requested atmosphere.",
+            reason="Only marginally supports the requested atmosphere.",
         )
     ]
 
@@ -166,3 +212,4 @@ def test_creative_repair_prompt_preserves_hard_constraints_and_replaces_conflict
     assert "focused low-distraction atmosphere" in prompt
     assert "Distracting Track" in prompt
     assert "must be replaced" in prompt
+    assert "positively supports" in prompt
