@@ -4,6 +4,7 @@ from backend.artist_quota_detection import (
     extract_artist_exact_quotas,
     extract_artist_minimum_quotas,
 )
+from backend.llm import SYSTEM_PROMPT
 from backend.prompt_quality_memory import (
     approved_prompt_quality_cases,
     load_prompt_quality_memory,
@@ -100,3 +101,34 @@ def test_recording_filter_conflict_cases_remain_blocking() -> None:
             conflict.option == case.expectations["conflicting_option"]
             for conflict in conflicts
         ), case.id
+
+
+def test_explicit_soft_curation_intent_is_playlist_wide_and_generalized() -> None:
+    guidance = SYSTEM_PROMPT.casefold()
+
+    assert "core musical brief" in guidance
+    assert "mood, energy, activity or listening context" in guidance
+    assert "playlist-wide selection objective" in guidance
+    assert "generic popularity, variety, novelty or discovery" in guidance
+    assert "party" not in guidance
+    assert "festive" not in guidance
+
+
+def test_mood_context_feedback_case_preserves_reported_options() -> None:
+    cases = {
+        case.id: case
+        for case in approved_prompt_quality_cases(flow="generation")
+    }
+    case = cases["generation-preserves-explicit-mood-context-it"]
+
+    assert case.origin == "user_feedback"
+    assert case.context["options"] == {
+        "exclude_live": True,
+        "exclude_covers": False,
+        "exclude_remixes": False,
+    }
+    assert case.expectations["release_year_from"] == 2000
+    assert case.expectations["creative_intent"]["scope"] == "playlist_wide"
+    assert case.expectations["selection_priority"] == (
+        "explicit_soft_intent_before_generic_preferences"
+    )
