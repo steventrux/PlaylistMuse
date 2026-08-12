@@ -64,5 +64,5 @@ def test_support_documents_feedback_as_quality_input_not_technical_bug() -> None
     support = _text(ROOT / "SUPPORT.md")
 
     assert "**Playlist result feedback**" in support
+    assert "Use **Playlist result feedback** when PlaylistMuse completes the operation" in support
     assert "A diagnostic ZIP is normally unnecessary for playlist-result feedback" in support
-    assert "prompt-quality regression corpus" in support
