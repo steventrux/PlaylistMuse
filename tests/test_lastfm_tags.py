@@ -56,7 +56,7 @@ def test_track_tags_are_preferred_and_cached() -> None:
     assert first.track_tags == ("dance", "pop", "party")
     assert first.artist_tags == ()
     assert second == first
-    assert calls == ["track.getTopTags"]
+    assert calls == ["track.gettoptags"]
 
 
 def test_artist_tags_are_only_a_fallback_when_track_tags_are_absent() -> None:
@@ -65,9 +65,9 @@ def test_artist_tags_are_only_a_fallback_when_track_tags_are_absent() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         method = request.url.params["method"]
         calls.append(method)
-        if method == "track.getTopTags":
+        if method == "track.gettoptags":
             return httpx.Response(200, json={"toptags": {"tag": []}})
-        assert method == "artist.getTopTags"
+        assert method == "artist.gettoptags"
         return httpx.Response(
             200,
             json={
@@ -95,7 +95,7 @@ def test_artist_tags_are_only_a_fallback_when_track_tags_are_absent() -> None:
 
     assert evidence.track_tags == ()
     assert evidence.artist_tags == ("electropop", "italian")
-    assert calls == ["track.getTopTags", "artist.getTopTags"]
+    assert calls == ["track.gettoptags", "artist.gettoptags"]
 
 
 def test_lastfm_tag_api_failure_fails_open_without_artist_retry() -> None:
