@@ -168,6 +168,110 @@ def test_creative_fit_uses_external_tags_without_self_justification(monkeypatch)
     assert [item.confidence for item in conflicts] == [0.94, 0.97]
 
 
+def test_conflict_and_weak_fit_use_distinct_calibrated_thresholds(monkeypatch) -> None:
+    async def fake_request(config, prompt, *, system_prompt, max_tokens, model):
+        return json.dumps(
+            {
+                "assessments": [
+                    {
+                        "index": 1,
+                        "verdict": "conflict",
+                        "confidence": 0.75,
+                        "reason": "Credible contradiction.",
+                    },
+                    {
+                        "index": 2,
+                        "verdict": "conflict",
+                        "confidence": 0.74,
+                        "reason": "Too uncertain.",
+                    },
+                    {
+                        "index": 3,
+                        "verdict": "weak_fit",
+                        "confidence": 0.80,
+                        "reason": "Credibly marginal fit.",
+                    },
+                    {
+                        "index": 4,
+                        "verdict": "weak_fit",
+                        "confidence": 0.79,
+                        "reason": "Still uncertain.",
+                    },
+                    {
+                        "index": 5,
+                        "verdict": "unknown",
+                        "confidence": 1.0,
+                        "reason": "Unknown must never reject.",
+                    },
+                ]
+            }
+        )
+
+    monkeypatch.setattr(creative_intent, "tag_evidence_for_tracks", _empty_tag_evidence)
+    monkeypatch.setattr(creative_intent, "request_structured_json", fake_request)
+
+    conflicts = asyncio.run(
+        assess_creative_fit(
+            _config(),
+            [_track(f"Track {index}") for index in range(1, 6)],
+            intent=CreativeIntent(("festive party atmosphere",), confidence=0.95),
+        )
+    )
+
+    assert [item.index for item in conflicts] == [1, 3]
+
+
+def test_full_evaluation_failure_retries_in_smaller_batches(monkeypatch) -> None:
+    calls: list[int] = []
+
+    async def fake_request(config, prompt, *, system_prompt, max_tokens, model):
+        payload = json.loads(prompt)
+        count = len(payload["tracks"])
+        calls.append(count)
+        if count > creative_intent.EVALUATION_BATCH_SIZE:
+            raise RuntimeError("full response unavailable")
+        if count == creative_intent.EVALUATION_BATCH_SIZE:
+            return json.dumps(
+                {
+                    "assessments": [
+                        {
+                            "index": 1,
+                            "verdict": "conflict",
+                            "confidence": 0.80,
+                            "reason": "First batch conflict.",
+                        }
+                    ]
+                }
+            )
+        return json.dumps(
+            {
+                "assessments": [
+                    {
+                        "index": 1,
+                        "verdict": "weak_fit",
+                        "confidence": 0.80,
+                        "reason": "Final batch weak fit.",
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(creative_intent, "tag_evidence_for_tracks", _empty_tag_evidence)
+    monkeypatch.setattr(creative_intent, "request_structured_json", fake_request)
+
+    tracks = [_track(f"Track {index}") for index in range(1, 10)]
+    conflicts = asyncio.run(
+        assess_creative_fit(
+            _config(),
+            tracks,
+            intent=CreativeIntent(("festive party atmosphere",), confidence=0.95),
+        )
+    )
+
+    assert calls == [9, 8, 1]
+    assert [item.index for item in conflicts] == [1, 9]
+
+
 def test_lastfm_tag_failure_fails_open_to_identity_only_evaluation(monkeypatch) -> None:
     async def broken_tags(tracks):
         raise RuntimeError("Last.fm unavailable")
