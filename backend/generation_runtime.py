@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -240,6 +241,11 @@ async def generate_playlist_draft(
         parse_replacement_tracks,
     )
     from backend.prompt_validation import assess_interpretation, assess_prompt
+    from backend.recording_variants import (
+        RecordingVariantPolicy,
+        activate_recording_policy,
+        interpret_recording_policy,
+    )
     from backend.request_constraints import (
         buffered_artist_quotas,
         open_ended_year_range,
@@ -254,12 +260,14 @@ async def generate_playlist_draft(
         _POLICY_BASE_TRACKS.set(())
         _REPLACEMENT_MODE.set(False)
         _REPLACEMENT_FINAL_COUNT.set(0)
+        activate_recording_policy(RecordingVariantPolicy())
     elif stage == "llm_replacement":
         base_tracks, final_count = parse_replacement_tracks(optimized_prompt)
         _ACTIVE_POLICY.set(None)
         _POLICY_BASE_TRACKS.set(tuple(base_tracks))
         _REPLACEMENT_MODE.set(True)
         _REPLACEMENT_FINAL_COUNT.set(final_count)
+        activate_recording_policy(RecordingVariantPolicy())
 
     started_at = time.perf_counter()
     should_interpret = stage in {"llm_initial", "llm_replacement"}
@@ -286,7 +294,11 @@ async def generate_playlist_draft(
     assessment = None
     try:
         if should_interpret:
-            assessment = await assess_prompt(config, source_prompt)
+            assessment, recording_policy = await asyncio.gather(
+                assess_prompt(config, source_prompt),
+                interpret_recording_policy(config, source_prompt),
+            )
+            activate_recording_policy(recording_policy)
             if assessment.status == "impossible":
                 reason = " ".join(assessment.reasons)
                 raise ValueError(
@@ -460,16 +472,35 @@ async def resolve_candidates(
     candidates: list[dict[str, str]],
     exclusions: dict[str, bool],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Resolve catalogue candidates and apply the integrated selection guard."""
+    """Resolve catalogue candidates and enforce recording-version policy before selection."""
     from backend import youtube
     from backend.artist_quota_detection import artist_matches, quota_deficits
+    from backend.recording_variants import (
+        active_recording_policy,
+        effective_resolver_options,
+        filter_resolved_recording_variants,
+        recording_filter_conflicts,
+    )
 
     started_at = time.perf_counter()
     try:
+        recording_policy = active_recording_policy()
+        conflicts = recording_filter_conflicts(exclusions, recording_policy)
+        if conflicts and not recording_policy.override_exclusions:
+            raise ValueError(conflicts[0].message)
+        effective_exclusions = effective_resolver_options(
+            exclusions,
+            recording_policy,
+        )
         resolved, unresolved = await youtube.resolve_candidates(
             candidates,
-            exclusions,
+            effective_exclusions,
         )
+        resolved, variant_rejected = filter_resolved_recording_variants(
+            resolved,
+            recording_policy,
+        )
+        unresolved.extend(variant_rejected)
         selected = _select_resolved_tracks(
             resolved,
             youtube=youtube,
