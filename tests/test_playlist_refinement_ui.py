@@ -18,8 +18,8 @@ def test_refinement_moves_from_library_to_playlist_editor() -> None:
     assert "PlaylistMuseLibraryRefine" not in library_script
     assert 'id="refine-playlist"' in playlist
     assert '>Playlist Studio</button>' in playlist
-    assert '/static/playlist-refine.css?v=6' in playlist
-    assert '/static/playlist-refine.js?v=6' in playlist
+    assert '/static/playlist-refine.css?v=7' in playlist
+    assert '/static/playlist-refine.js?v=7' in playlist
 
 
 def test_refinement_uses_preview_before_apply_and_flushes_current_draft() -> None:
@@ -44,8 +44,11 @@ def test_playlist_studio_reuses_existing_track_cards() -> None:
     assert "function createCardControls(card)" in script
     assert "card.append(targetWrap, lockWrap);" in script
     assert "target.checked = true;" in script
-    assert "Select all" in script
-    assert "None" in script
+    assert "playlist-studio-select-all" in script
+    assert "selectAllLabel.textContent = 'Select all';" in script
+    assert "master.indeterminate" in script
+    assert "selectNone" not in script
+    assert "selectAll.textContent" not in script
     assert "target_positions: targetPositions" in script
     assert "locked_positions: lockedPositions" in script
     assert "Select at least one unlocked track to refine." in script
@@ -55,9 +58,10 @@ def test_playlist_studio_reuses_existing_track_cards() -> None:
     assert "Selected tracks" not in script
     assert ".playlist-studio-track-list" not in style
     assert ".playlist-studio-scope" not in style
+    assert ".playlist-studio-select-all-wrap" in style
 
 
-def test_playlist_studio_cards_are_fixed_with_checkbox_and_lock_on_right() -> None:
+def test_playlist_studio_cards_are_fixed_with_checkbox_before_cover_and_lock_right() -> None:
     script = _text("playlist-refine.js")
     style = _text("playlist-refine.css")
     open_icon = _text("lock-open-alt.svg")
@@ -71,8 +75,12 @@ def test_playlist_studio_cards_are_fixed_with_checkbox_and_lock_on_right() -> No
     assert "card.append(targetWrap, lockWrap);" in script
     assert "function createLockIcon()" in script
     assert "body.playlist-studio-active .track-result-card.reorderable" in style
-    assert "grid-template-columns: 58px minmax(0, 1fr) 28px 28px;" in style
+    assert "grid-template-columns: 28px 58px minmax(0, 1fr) 28px;" in style
     assert ".playlist-studio-target-wrap" in style
+    assert "grid-column: 1;" in style
+    assert "body.playlist-studio-active .track-result-card .track-artwork" in style
+    assert "grid-column: 2;" in style
+    assert "body.playlist-studio-active .track-result-card .track-copy" in style
     assert "grid-column: 3;" in style
     assert ".playlist-studio-lock-wrap" in style
     assert "grid-column: 4;" in style
@@ -86,6 +94,21 @@ def test_playlist_studio_cards_are_fixed_with_checkbox_and_lock_on_right() -> No
     assert "color: var(--text-primary);" in style
     assert "<svg" in open_icon
     assert "<svg" in closed_icon
+
+
+def test_playlist_studio_master_checkbox_tracks_selection_state() -> None:
+    script = _text("playlist-refine.js")
+    style = _text("playlist-refine.css")
+
+    assert "function syncSelectAllControl()" in script
+    assert "master.checked = eligibleTargets.length > 0" in script
+    assert "master.indeterminate = selectedCount > 0" in script
+    assert "master.disabled = eligibleTargets.length === 0;" in script
+    assert "const shouldSelect = selectAll.checked;" in script
+    assert "if (target && !lock?.checked) target.checked = shouldSelect;" in script
+    assert "syncSelectAllControl();" in script
+    assert ".playlist-studio-select-all" in style
+    assert "accent-color: var(--cyan-light);" in style
 
 
 def test_playlist_studio_restores_existing_cards_when_closed() -> None:
