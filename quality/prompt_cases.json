@@ -99,6 +99,25 @@
         ]
       },
       "tags": ["playlist-studio", "artist-addition", "regression"]
+    },
+    {
+      "id": "studio-compact-addition-list-en",
+      "status": "approved",
+      "origin": "user_feedback",
+      "flows": ["studio"],
+      "prompt": "insert 2 metallica, 2 guns n' roses and 2 ac/dc tracks",
+      "context": {},
+      "failure": "A compact multi-artist insertion could be interpreted as a vague refinement and return unrelated replacement artists.",
+      "desired_behavior": "Add exactly two new distinct tracks for each named artist, independently, while preserving the playlist size.",
+      "guidance": "When an add/insert verb governs a compact list of count-and-artist pairs, every pair is an exact incremental addition target.",
+      "expectations": {
+        "artist_addition_targets": [
+          {"artist": "metallica", "count": 2},
+          {"artist": "guns n' roses", "count": 2},
+          {"artist": "ac/dc", "count": 2}
+        ]
+      },
+      "tags": ["playlist-studio", "artist-addition", "shorthand", "user-feedback", "regression"]
     }
   ]
 }
