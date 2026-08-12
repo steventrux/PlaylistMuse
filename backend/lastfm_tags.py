@@ -23,7 +23,7 @@ MAX_TRACK_TAGS = 8
 MAX_ARTIST_TAGS = 6
 MAX_CONCURRENT_REQUESTS = 8
 
-_CACHE: dict[tuple[str, str, str], tuple[float, "LastfmTagEvidence"]] = {}
+_CACHE: dict[tuple[str, str, str], tuple[float, LastfmTagEvidence]] = {}
 
 
 @dataclass(frozen=True, slots=True)
