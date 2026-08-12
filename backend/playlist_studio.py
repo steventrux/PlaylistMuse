@@ -26,6 +26,15 @@ from backend.playlist_refinement import (
     _track_key,
     _validate_direct_constraints,
 )
+from backend.recording_variants import (
+    RecordingVariantPolicy,
+    activate_recording_policy,
+    interpret_recording_policy,
+    recording_policy_guidance,
+    recording_variant_violations,
+    reset_recording_policy,
+    track_matches_variant,
+)
 from backend.refinement_targets import (
     extract_artist_addition_targets,
     format_artist_addition_mismatches,
@@ -188,19 +197,41 @@ def _assert_immutable_positions(
             )
 
 
-async def _build_studio_preview(
+def _recording_scope_violations(
+    tracks: list[dict[str, Any]],
+    policy: RecordingVariantPolicy,
+) -> list[str]:
+    violations = recording_variant_violations(tracks, policy)
+    for variant in sorted(policy.included - policy.required):
+        if not any(track_matches_variant(track, variant) for track in tracks):
+            violations.append(
+                f"the editable selection does not include the requested {variant} version"
+            )
+    return violations
+
+
+def _validate_recording_scope(
+    tracks: list[dict[str, Any]],
+    policy: RecordingVariantPolicy,
+) -> None:
+    violations = _recording_scope_violations(tracks, policy)
+    if violations:
+        raise ValueError(
+            "Playlist Studio could not satisfy the requested recording-version constraint: "
+            + "; ".join(violations[:8])
+        )
+
+
+async def _build_studio_preview_core(
     record: dict[str, Any],
     request: StudioRefinementInstruction,
+    instruction: str,
+    editable_positions: list[int],
+    locked_positions: list[int],
 ) -> dict[str, Any]:
     source_tracks = _playlist_tracks(record)
-    editable_positions, locked_positions = _resolve_scope(
-        len(source_tracks),
-        request.target_positions,
-        request.locked_positions,
-    )
-
     if len(editable_positions) == len(source_tracks):
-        result = await _build_preview(record, request.instruction)
+        result = await _build_preview(record, instruction)
         result["summary"]["targeted"] = len(editable_positions)
         result["summary"]["locked"] = 0
         result["studio"] = {
@@ -211,7 +242,7 @@ async def _build_studio_preview(
         return result
 
     scoped = _scoped_record(record, editable_positions)
-    scoped_result = await _build_preview(scoped, request.instruction)
+    scoped_result = await _build_preview(scoped, instruction)
     scoped_playlist = scoped_result.get("playlist")
     if not isinstance(scoped_playlist, dict):
         raise ValueError("Playlist Studio returned an invalid preview.")
@@ -248,6 +279,45 @@ async def _build_studio_preview(
     }
 
 
+async def _build_studio_preview(
+    record: dict[str, Any],
+    request: StudioRefinementInstruction,
+) -> dict[str, Any]:
+    source_tracks = _playlist_tracks(record)
+    editable_positions, locked_positions = _resolve_scope(
+        len(source_tracks),
+        request.target_positions,
+        request.locked_positions,
+    )
+    policy = (
+        await interpret_recording_policy(load_config(), request.instruction)
+    ).for_refinement()
+    guidance = recording_policy_guidance(policy)
+    instruction = f"{request.instruction}{guidance}" if guidance else request.instruction
+
+    token = activate_recording_policy(policy)
+    try:
+        result = await _build_studio_preview_core(
+            record,
+            request,
+            instruction,
+            editable_positions,
+            locked_positions,
+        )
+    finally:
+        reset_recording_policy(token)
+
+    playlist = result.get("playlist")
+    if not isinstance(playlist, dict):
+        raise ValueError("Playlist Studio returned an invalid preview.")
+    preview_tracks = [
+        dict(track) for track in playlist.get("tracks", []) if isinstance(track, dict)
+    ]
+    editable_scope = [preview_tracks[position - 1] for position in editable_positions]
+    _validate_recording_scope(editable_scope, policy)
+    return result
+
+
 async def _validate_studio_apply(
     record: dict[str, Any],
     request: ApplyStudioRefinementRequest,
@@ -276,6 +346,11 @@ async def _validate_studio_apply(
         source_scope,
     )
     _validate_direct_constraints(preview_scope, constraints)
+    recording_policy = (
+        await interpret_recording_policy(load_config(), request.instruction)
+    ).for_refinement()
+    _validate_recording_scope(preview_scope, recording_policy)
+
     addition_targets = extract_artist_addition_targets(request.instruction)
     addition_mismatches = _addition_mismatches_or_error(
         source_scope,
