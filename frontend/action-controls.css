@@ -75,6 +75,14 @@
     align-items: center;
   }
 
+  .playlist-toolbar-actions {
+    width: auto;
+    margin-left: auto;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+  }
+
   .playlist-draft-actions {
     width: auto;
     flex-wrap: nowrap;
