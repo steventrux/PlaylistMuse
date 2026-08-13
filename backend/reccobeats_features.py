@@ -17,6 +17,7 @@ from backend.version import USER_AGENT
 
 API_ROOT = "https://api.reccobeats.com/v1"
 DEFAULT_TIMEOUT_SECONDS = 4.0
+BATCH_TIMEOUT_SECONDS = 6.0
 CACHE_TTL_SECONDS = 6 * 60 * 60
 MAX_CACHE_ENTRIES = 512
 MAX_CONCURRENT_REQUESTS = 5
@@ -336,7 +337,7 @@ async def audio_evidence_for_track(
 async def audio_evidence_for_tracks(
     tracks: list[dict[str, Any]],
 ) -> list[ReccoBeatsAudioEvidence]:
-    """Fetch optional ReccoBeats evidence concurrently; all failures are neutral."""
+    """Fetch optional evidence with a hard batch budget; unfinished work is neutral."""
     if not tracks:
         return []
 
@@ -359,17 +360,37 @@ async def audio_evidence_for_tracks(
         timeout=httpx.Timeout(DEFAULT_TIMEOUT_SECONDS),
         headers={"Accept": "application/json", "User-Agent": USER_AGENT},
     ) as client:
-        results = await asyncio.gather(
-            *(one(client, track) for track in tracks),
-            return_exceptions=True,
+        tasks = [asyncio.create_task(one(client, track)) for track in tracks]
+        done, pending = await asyncio.wait(
+            tasks,
+            timeout=BATCH_TIMEOUT_SECONDS,
         )
+        if pending:
+            LOGGER.info(
+                "ReccoBeats audio batch budget reached completed=%s total=%s timeout_seconds=%s",
+                len(done),
+                len(tasks),
+                BATCH_TIMEOUT_SECONDS,
+            )
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
 
-    return [
-        result
-        if isinstance(result, ReccoBeatsAudioEvidence)
-        else ReccoBeatsAudioEvidence()
-        for result in results
-    ]
+        results: list[ReccoBeatsAudioEvidence] = []
+        for task in tasks:
+            if task.cancelled() or not task.done():
+                results.append(ReccoBeatsAudioEvidence())
+                continue
+            try:
+                result = task.result()
+            except Exception:  # noqa: BLE001 - third-party enrichment is intentionally fail-open.
+                result = ReccoBeatsAudioEvidence()
+            results.append(
+                result
+                if isinstance(result, ReccoBeatsAudioEvidence)
+                else ReccoBeatsAudioEvidence()
+            )
+        return results
 
 
 def _clear_cache() -> None:
