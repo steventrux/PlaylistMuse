@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -22,11 +23,9 @@ from backend.config import (
 from backend.constraint_interpreter import interpret_constraints
 from backend.generation_runtime import (
     discover_for_seed as similar_track_candidates,
-    discover_from_anchors,
     generate_playlist_draft,
     resolve_candidates,
 )
-from backend.lastfm_discovery import select_prompt_anchors
 from backend.llm import safe_error_message
 from backend.playlist_ordering import (
     chronological_order_from_payload,
@@ -39,6 +38,7 @@ from backend.youtube_routes import router as youtube_router
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND = ROOT / "frontend"
+logger = logging.getLogger("playlistmuse.performance")
 
 AI_PROVIDERS = (
     "gemini",
@@ -347,6 +347,122 @@ def _candidate_key(candidate: dict) -> str:
     )
 
 
+def _increment_counter(counter: dict[str, int], key: str) -> None:
+    counter[key] = counter.get(key, 0) + 1
+
+
+def _metadata_reason_labels(
+    item: dict[str, Any],
+    *,
+    temporal_required: bool,
+    artist_country_required: bool,
+) -> set[str]:
+    validation = item.get("metadata_validation")
+    if not isinstance(validation, dict):
+        return set()
+
+    labels: set[str] = set()
+    violations = validation.get("violations")
+    if isinstance(violations, list):
+        for violation in violations:
+            text = str(violation).casefold()
+            if "release year" in text:
+                labels.add("release_year")
+            elif "artist country" in text:
+                labels.add("artist_country")
+            elif "album" in text:
+                labels.add("album")
+            elif "artist" in text:
+                labels.add("artist")
+            else:
+                labels.add("metadata_violation")
+
+    warnings = validation.get("warnings")
+    if isinstance(warnings, list):
+        for warning in warnings:
+            text = str(warning).casefold()
+            if "no musicbrainz match" in text:
+                labels.add("no_musicbrainz_match")
+            elif "match confidence is too low" in text:
+                labels.add("low_musicbrainz_confidence")
+            elif "lookup budget exceeded" in text:
+                labels.add("lookup_budget")
+            elif "metadata lookup unavailable" in text:
+                labels.add("metadata_service_unavailable")
+
+    status = str(validation.get("status", "")).strip().casefold()
+    if not labels and status == "unknown":
+        if temporal_required and validation.get("original_release_year") is None:
+            labels.add("missing_release_year")
+        if artist_country_required and not validation.get("artist_country"):
+            labels.add("missing_artist_country")
+        if not labels:
+            labels.add("metadata_unknown")
+    elif not labels and status:
+        labels.add(f"metadata_{status}")
+    return labels
+
+
+def _log_catalogue_diagnostics(
+    stage: str,
+    candidates: list[dict[str, Any]],
+    selected: list[dict[str, Any]],
+    unresolved: list[dict[str, Any]],
+    *,
+    accepted: int | None = None,
+    playlist_before: int = 0,
+) -> None:
+    from backend.metadata_validation import active_constraints
+
+    constraints = active_constraints()
+    temporal_required = any(
+        value is not None
+        for value in (
+            constraints.release_year,
+            constraints.release_year_from,
+            constraints.release_year_to,
+        )
+    )
+    artist_country_required = constraints.artist_country is not None
+    unresolved_reasons: dict[str, int] = {}
+    metadata_reasons: dict[str, int] = {}
+
+    for item in unresolved:
+        if not isinstance(item, dict):
+            _increment_counter(unresolved_reasons, "unknown")
+            continue
+        validation = item.get("metadata_validation")
+        reason = str(item.get("unresolved_reason") or "").strip()
+        if isinstance(validation, dict):
+            _increment_counter(
+                unresolved_reasons,
+                reason or "metadata_validation",
+            )
+            for label in _metadata_reason_labels(
+                item,
+                temporal_required=temporal_required,
+                artist_country_required=artist_country_required,
+            ):
+                _increment_counter(metadata_reasons, label)
+        elif reason:
+            _increment_counter(unresolved_reasons, reason)
+        else:
+            _increment_counter(unresolved_reasons, "youtube_resolution")
+
+    logger.info(
+        "catalogue_diagnostics stage=%s candidates=%s selected=%s accepted=%s "
+        "playlist_before=%s unresolved=%s unresolved_reasons=%s metadata_reasons=%s",
+        stage,
+        len(candidates),
+        len(selected),
+        len(selected) if accepted is None else accepted,
+        playlist_before,
+        len(unresolved),
+        dict(sorted(unresolved_reasons.items())),
+        dict(sorted(metadata_reasons.items())),
+    )
+
+
 def _artist_key(candidate: dict) -> str:
     return track_identity_key(
         "",
@@ -397,10 +513,9 @@ def _discovery_prompt(
         f"{seed_instruction}\n"
         "You have two complementary inputs:\n"
         "1. Your own first-pass musical ideas.\n"
-        "2. Last.fm collaborative-listening evidence derived from the seed or from "
-        "representative tracks in the first pass.\n\n"
+        "2. Last.fm collaborative-listening evidence derived from the seed.\n\n"
         f"First-pass ideas:\n{first_pass or '- None'}\n\n"
-        f"Last.fm evidence:\n{evidence or '- None'}\n\n"
+        f"Last.fm seed evidence:\n{evidence or '- None'}\n\n"
         f"Return a final playlist of up to {count} tracks. Use Last.fm evidence only when "
         "it satisfies the original request and the selected seed mode. You may select "
         "tracks not listed above only when they satisfy every mandatory constraint and "
@@ -623,21 +738,6 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
 
     lastfm_anchors = list(_SEED_ANCHORS.get())
     lastfm_candidates = list(_SEED_RECOMMENDATIONS.get())
-    if not lastfm_candidates:
-        prompt_anchors = select_prompt_anchors(first_draft.get("tracks", []))
-        lastfm_anchors.extend(
-            {
-                "artist": anchor["artist"],
-                "title": anchor["title"],
-                "kind": "ai_draft",
-            }
-            for anchor in prompt_anchors
-        )
-        lastfm_candidates = await discover_from_anchors(
-            prompt_anchors,
-            limit=min(MAX_LASTFM_CONTEXT_TRACKS, max(20, count * 2)),
-        )
-
     draft = first_draft
     guidance_applied = False
     if lastfm_candidates:
@@ -660,6 +760,13 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     )
     exclusions = options.model_dump()
     tracks, unresolved = await resolve_candidates(draft_tracks, exclusions)
+    _log_catalogue_diagnostics(
+        "initial",
+        draft_tracks,
+        tracks,
+        unresolved,
+        playlist_before=0,
+    )
 
     attempted_candidates = list(draft_tracks)
     attempted_keys = {_candidate_key(candidate) for candidate in attempted_candidates}
@@ -670,7 +777,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     resolved_ids = {track.get("video_id") for track in tracks if track.get("video_id")}
 
     stalled_rounds = 0
-    for _ in range(MAX_REPLENISHMENT_ROUNDS):
+    for round_index in range(MAX_REPLENISHMENT_ROUNDS):
         missing = count - len(tracks)
         if missing <= 0:
             break
@@ -707,6 +814,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
                 break
             continue
 
+        playlist_before = len(tracks)
         newly_resolved, newly_unresolved = await resolve_candidates(
             fresh_candidates,
             exclusions,
@@ -729,6 +837,14 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
             if len(tracks) >= count:
                 break
 
+        _log_catalogue_diagnostics(
+            f"replenishment_{round_index + 1}",
+            fresh_candidates,
+            newly_resolved,
+            newly_unresolved,
+            accepted=added,
+            playlist_before=playlist_before,
+        )
         stalled_rounds = 0 if added else stalled_rounds + 1
         if stalled_rounds >= MAX_STALLED_ROUNDS:
             break
