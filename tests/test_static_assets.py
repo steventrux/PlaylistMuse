@@ -52,7 +52,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     assert generation_state in index
     assert index.index(generation_state) < index.index(app)
     assert index.index(common) < index.index(app)
-    assert '<script src="/static/prompt-complexity.js?v=7"></script>' in index
+    assert '<script src="/static/prompt-complexity.js?v=8"></script>' in index
     assert index.index(home_status) < index.index(app)
 
     playlist_home_status = (
@@ -91,7 +91,7 @@ def test_prompt_complexity_uses_compact_icon_popover() -> None:
 
     assert '<link rel="stylesheet" href="/static/style.css?v=10">' in index
     assert '<link rel="stylesheet" href="/static/prompt-complexity.css?v=3">' in index
-    assert '<script src="/static/prompt-complexity.js?v=7"></script>' in index
+    assert '<script src="/static/prompt-complexity.js?v=8"></script>' in index
     assert 'id="prompt-complexity-trigger"' in index
     assert '<div class="prompt-label-row">' in index
     assert 'class="prompt-complexity-info-dot"' in index
