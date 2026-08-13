@@ -326,7 +326,8 @@ async def recommendation_candidates_from_tracks(
             *(
                 _resolve_track_candidate(active_client, artist, title)
                 for artist, title in anchors
-            )
+            ),
+            return_exceptions=True,
         )
         seed_ids = list(
             dict.fromkeys(
@@ -450,19 +451,18 @@ async def audio_evidence_for_track(
         headers={"Accept": "application/json", "User-Agent": USER_AGENT},
     )
     try:
-        candidate = await _resolve_track_candidate(
+        candidate = await _search_track(
             active_client,
             normalized_artist,
             normalized_title,
         )
         match_source = "track_search"
-        if candidate is not None and not _strict_track_match(
-            candidate,
-            artist=normalized_artist,
-            title=normalized_title,
-        ):
-            match_source = "artist_catalog"
-        elif candidate is None:
+        if candidate is None:
+            candidate = await _search_artist_catalog(
+                active_client,
+                normalized_artist,
+                normalized_title,
+            )
             match_source = "artist_catalog"
 
         if candidate is None or not candidate.get("id"):
@@ -470,15 +470,6 @@ async def audio_evidence_for_track(
             _prune_cache(current_time)
             _CACHE[cache_key] = (now() + CACHE_TTL_SECONDS, evidence)
             return evidence
-
-        if match_source == "track_search":
-            searched = await _search_track(
-                active_client,
-                normalized_artist,
-                normalized_title,
-            )
-            if searched is None or str(searched.get("id")) != str(candidate.get("id")):
-                match_source = "artist_catalog"
 
         payload = await _request_json(
             active_client,
