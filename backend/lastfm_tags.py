@@ -1,4 +1,4 @@
-"""Optional Last.fm tag evidence for playlist-wide creative-fit evaluation."""
+"""Optional Last.fm track-tag evidence for playlist-wide creative-fit evaluation."""
 
 from __future__ import annotations
 
@@ -20,7 +20,6 @@ LOGGER = logging.getLogger(__name__)
 CACHE_TTL_SECONDS = 6 * 60 * 60
 MAX_CACHE_ENTRIES = 512
 MAX_TRACK_TAGS = 8
-MAX_ARTIST_TAGS = 6
 MAX_CONCURRENT_REQUESTS = 8
 
 _CACHE: dict[tuple[str, str, str], tuple[float, LastfmTagEvidence]] = {}
@@ -28,14 +27,18 @@ _CACHE: dict[tuple[str, str, str], tuple[float, LastfmTagEvidence]] = {}
 
 @dataclass(frozen=True, slots=True)
 class LastfmTagEvidence:
-    """Community tag evidence attached to one resolved catalogue track."""
+    """Track-specific community tag evidence for one catalogue identity.
+
+    ``artist_tags`` is retained as a compatibility field but is intentionally never
+    populated. Artist-level Last.fm tags proved too noisy for song-level creative fit.
+    """
 
     track_tags: tuple[str, ...] = ()
     artist_tags: tuple[str, ...] = ()
 
     @property
     def available(self) -> bool:
-        return bool(self.track_tags or self.artist_tags)
+        return bool(self.track_tags)
 
 
 def _normalize(value: str) -> str:
@@ -54,7 +57,7 @@ def _cache_key(api_key: str, artist: str, title: str) -> tuple[str, str, str]:
     )
 
 
-def _clean_tags(payload: Any, *, limit: int) -> tuple[str, ...]:
+def _clean_tags(payload: Any, *, limit: int = MAX_TRACK_TAGS) -> tuple[str, ...]:
     if not isinstance(payload, dict):
         return ()
     top_tags = payload.get("toptags")
@@ -88,32 +91,29 @@ def _prune_cache(now: float) -> None:
         _CACHE.pop(next(iter(_CACHE)))
 
 
-async def _request_tags(
+async def _request_track_tags(
     client: httpx.AsyncClient,
     api_key: str,
-    method: str,
     *,
     artist: str,
-    title: str = "",
+    title: str,
 ) -> tuple[str, ...] | None:
-    params = {
-        "method": method,
-        "api_key": api_key,
-        "artist": artist,
-        "autocorrect": "1",
-        "format": "json",
-    }
-    if title:
-        params["track"] = title
-    response = await client.get(API_ROOT, params=params)
+    response = await client.get(
+        API_ROOT,
+        params={
+            "method": "track.gettoptags",
+            "api_key": api_key,
+            "artist": artist,
+            "track": title,
+            "autocorrect": "1",
+            "format": "json",
+        },
+    )
     response.raise_for_status()
     payload = response.json()
     if not isinstance(payload, dict) or payload.get("error") is not None:
         return None
-    return _clean_tags(
-        payload,
-        limit=MAX_TRACK_TAGS if title else MAX_ARTIST_TAGS,
-    )
+    return _clean_tags(payload)
 
 
 async def track_tag_evidence(
@@ -124,7 +124,7 @@ async def track_tag_evidence(
     client: httpx.AsyncClient | None = None,
     now: Callable[[], float] = time.monotonic,
 ) -> LastfmTagEvidence:
-    """Return track tags, falling back to artist tags only when track tags are absent."""
+    """Return only track-specific Last.fm tags; missing tags remain neutral."""
     normalized_artist = " ".join(str(artist).split()).strip()
     normalized_title = " ".join(str(title).split()).strip()
     key = (api_key if api_key is not None else lastfm_api_key()).strip()
@@ -143,38 +143,22 @@ async def track_tag_evidence(
         headers={"User-Agent": USER_AGENT},
     )
     try:
-        track_tags = await _request_tags(
+        track_tags = await _request_track_tags(
             active_client,
             key,
-            "track.gettoptags",
             artist=normalized_artist,
             title=normalized_title,
         )
         if track_tags is None:
             return LastfmTagEvidence()
 
-        artist_tags: tuple[str, ...] = ()
-        if not track_tags:
-            fallback = await _request_tags(
-                active_client,
-                key,
-                "artist.gettoptags",
-                artist=normalized_artist,
-            )
-            if fallback is None:
-                return LastfmTagEvidence()
-            artist_tags = fallback
-
-        evidence = LastfmTagEvidence(
-            track_tags=track_tags,
-            artist_tags=artist_tags,
-        )
+        evidence = LastfmTagEvidence(track_tags=track_tags)
         _prune_cache(current_time)
         _CACHE[cache_key] = (now() + CACHE_TTL_SECONDS, evidence)
         return evidence
     except (httpx.HTTPError, ValueError, TypeError) as error:
         LOGGER.info(
-            "Last.fm tag evidence unavailable for %s — %s: %s",
+            "Last.fm track-tag evidence unavailable for %s — %s: %s",
             normalized_artist,
             normalized_title,
             error,
@@ -188,7 +172,7 @@ async def track_tag_evidence(
 async def tag_evidence_for_tracks(
     tracks: list[dict[str, Any]],
 ) -> list[LastfmTagEvidence]:
-    """Fetch optional Last.fm evidence for resolved tracks without blocking on failures."""
+    """Fetch optional track-level Last.fm evidence without blocking on failures."""
     key = lastfm_api_key().strip()
     if not key or not tracks:
         return [LastfmTagEvidence() for _ in tracks]
