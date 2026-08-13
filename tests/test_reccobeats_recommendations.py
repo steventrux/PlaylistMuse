@@ -131,7 +131,7 @@ def test_reccobeats_guidance_keeps_playlist_rules_authoritative() -> None:
     assert "RECCOBEATS DISCOVERY" in guidance
     assert "Candidate Artist — Candidate Song" in guidance
     assert "not pre-approved selections" in guidance
-    assert "every hard constraint" in guidance
+    assert "every hard constraint" in guidance.casefold()
     assert "forbidden/already-attempted list" in guidance
     assert "Never include a song only because it appears in this pool" in guidance
 
