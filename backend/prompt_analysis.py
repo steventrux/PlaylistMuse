@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -16,6 +17,9 @@ from backend.recording_variants import (
 )
 
 FILTER_CONFLICT_PREFIX = "FILTER_CONFLICT::"
+REMOTE_MODEL_TIMEOUT_SECONDS = 8.0
+LOCAL_MODEL_TIMEOUT_SECONDS = 20.0
+_PREFERRED_MODELS: dict[tuple[str, tuple[str, ...]], str] = {}
 
 SYSTEM_PROMPT = """You analyze playlist requests written in any language.
 Return JSON only and use exactly the fields described below.
@@ -180,6 +184,29 @@ def parse_analysis(text: str) -> dict[str, Any]:
     }
 
 
+def _model_order(config: AppConfig) -> list[str]:
+    chain = list(config.model_chain)
+    key = (config.provider, tuple(chain))
+    preferred = _PREFERRED_MODELS.get(key)
+    if preferred in chain:
+        return [preferred, *(model for model in chain if model != preferred)]
+    return chain
+
+
+def _remember_successful_model(config: AppConfig, model: str) -> None:
+    chain = tuple(config.model_chain)
+    if model in chain:
+        _PREFERRED_MODELS[(config.provider, chain)] = model
+
+
+def _model_timeout(config: AppConfig) -> float:
+    return (
+        LOCAL_MODEL_TIMEOUT_SECONDS
+        if config.provider in {"ollama", "custom"}
+        else REMOTE_MODEL_TIMEOUT_SECONDS
+    )
+
+
 async def analyze_prompt_semantics(
     config: AppConfig,
     prompt: str,
@@ -195,14 +222,17 @@ async def analyze_prompt_semantics(
         ensure_ascii=False,
     )
     errors: list[Exception] = []
-    for model in config.model_chain:
+    for model in _model_order(config):
         try:
-            response = await request_structured_json(
-                config,
-                request,
-                system_prompt=SYSTEM_PROMPT,
-                max_tokens=1_800,
-                model=model,
+            response = await asyncio.wait_for(
+                request_structured_json(
+                    config,
+                    request,
+                    system_prompt=SYSTEM_PROMPT,
+                    max_tokens=1_800,
+                    model=model,
+                ),
+                timeout=_model_timeout(config),
             )
             analysis = parse_analysis(response)
             policy = policy_from_payload(analysis)
@@ -212,8 +242,15 @@ async def analyze_prompt_semantics(
                 f"{FILTER_CONFLICT_PREFIX}{conflict.option}::{conflict.message}"
                 for conflict in conflicts
             )
+            _remember_successful_model(config, model)
             return analysis
-        except (httpx.HTTPError, TypeError, ValueError, json.JSONDecodeError) as error:
+        except (
+            TimeoutError,
+            httpx.HTTPError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as error:
             errors.append(error)
     if errors:
         raise ValueError("The AI provider returned no valid prompt analysis.") from errors[-1]
