@@ -96,7 +96,7 @@ def test_creative_fit_refines_only_uncertain_tracks_with_audio_evidence(monkeypa
     async def fake_tags(tracks):
         return [
             LastfmTagEvidence(track_tags=("dance", "party")),
-            LastfmTagEvidence(artist_tags=("pop", "electropop")),
+            LastfmTagEvidence(),
             LastfmTagEvidence(),
             LastfmTagEvidence(),
             LastfmTagEvidence(),
@@ -138,7 +138,7 @@ def test_creative_fit_refines_only_uncertain_tracks_with_audio_evidence(monkeypa
         assert "quantitative external evidence" in system_prompt
         assert "single fixed danceability" in system_prompt
         assert "must never be treated as proof" in system_prompt
-        assert "community-generated external evidence" in system_prompt
+        assert "track-specific tags" in system_prompt
 
         if calls == 1:
             assert payload["creative_requirements"] == ["energetic social setting"]
@@ -148,10 +148,8 @@ def test_creative_fit_refines_only_uncertain_tracks_with_audio_evidence(monkeypa
                 for track in payload["tracks"]
             )
             assert payload["tracks"][0]["lastfm_track_tags"] == ["dance", "party"]
-            assert payload["tracks"][1]["lastfm_artist_tags"] == [
-                "pop",
-                "electropop",
-            ]
+            assert "lastfm_artist_tags" not in payload["tracks"][0]
+            assert "lastfm_artist_tags" not in payload["tracks"][1]
             return json.dumps(
                 {
                     "assessments": [
@@ -244,6 +242,79 @@ def test_creative_fit_refines_only_uncertain_tracks_with_audio_evidence(monkeypa
     assert calls == 2
     assert [item.index for item in conflicts] == [2, 3]
     assert [item.confidence for item in conflicts] == [0.94, 0.97]
+
+
+def test_successful_fallback_model_is_reused_for_audio_refinement(monkeypatch) -> None:
+    calls: list[str] = []
+    config = AppConfig(
+        provider="openai",
+        api_key="sk-test",
+        model="primary-model",
+        fallback_1="fallback-one",
+        fallback_2="fallback-two",
+    )
+
+    async def fake_audio(tracks):
+        return [
+            ReccoBeatsAudioEvidence(
+                match_source="track_search",
+                danceability=0.82,
+                energy=0.86,
+                valence=0.74,
+            )
+        ]
+
+    async def fake_request(config, prompt, *, system_prompt, max_tokens, model):
+        calls.append(model)
+        payload = json.loads(prompt)
+        has_audio = bool(payload["tracks"][0]["reccobeats_audio_features"])
+        if model in {"primary-model", "fallback-one"}:
+            raise json.JSONDecodeError("invalid structured output", "x", 0)
+        if not has_audio:
+            return json.dumps(
+                {
+                    "assessments": [
+                        {
+                            "index": 1,
+                            "verdict": "unknown",
+                            "confidence": 0.90,
+                            "reason": "Needs external evidence.",
+                        }
+                    ]
+                }
+            )
+        return json.dumps(
+            {
+                "assessments": [
+                    {
+                        "index": 1,
+                        "verdict": "fit",
+                        "confidence": 0.95,
+                        "reason": "Audio evidence supports the requested experience.",
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(creative_intent, "tag_evidence_for_tracks", _empty_tag_evidence)
+    monkeypatch.setattr(creative_intent, "audio_evidence_for_tracks", fake_audio)
+    monkeypatch.setattr(creative_intent, "request_structured_json", fake_request)
+
+    conflicts = asyncio.run(
+        assess_creative_fit(
+            config,
+            [_track("Track")],
+            intent=CreativeIntent(("festive party atmosphere",), confidence=0.95),
+        )
+    )
+
+    assert conflicts == []
+    assert calls == [
+        "primary-model",
+        "fallback-one",
+        "fallback-two",
+        "fallback-two",
+    ]
 
 
 def test_audio_refinement_is_bounded_and_prioritizes_borderline_decisions() -> None:
@@ -397,7 +468,7 @@ def test_lastfm_failure_can_still_use_targeted_audio_refinement(monkeypatch) -> 
         calls += 1
         payload = json.loads(prompt)
         assert payload["tracks"][0]["lastfm_track_tags"] == []
-        assert payload["tracks"][0]["lastfm_artist_tags"] == []
+        assert "lastfm_artist_tags" not in payload["tracks"][0]
         if calls == 1:
             assert payload["tracks"][0]["reccobeats_audio_features"] == {}
             return json.dumps(
