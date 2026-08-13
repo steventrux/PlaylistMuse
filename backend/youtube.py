@@ -43,6 +43,14 @@ _ARTIST_SPLIT_RE = re.compile(
     r"\s*(?:,|&|×|\bx\b|\bfeat\.?\b|\bfeaturing\b|\bwith\b)\s*",
     re.IGNORECASE,
 )
+_TITLE_FEATURE_SUFFIX_RE = re.compile(
+    r"\s*(?:[-–—]\s*)?(?:\(|\[)?(?:feat\.?|featuring|ft\.?)\s+.*?(?:\)|\])?\s*$",
+    re.IGNORECASE,
+)
+_TITLE_WITH_SUFFIX_RE = re.compile(
+    r"\s*(?:[-–—]\s*|\(|\[)\s*with\s+.*?(?:\)|\])?\s*$",
+    re.IGNORECASE,
+)
 _COLLECTION_TERMS = (
     "medley",
     "full album",
@@ -58,7 +66,7 @@ DEFAULT_YOUTUBE_RESOLUTION_CONCURRENCY = 4
 DEFAULT_YOUTUBE_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60
 DEFAULT_YOUTUBE_NEGATIVE_CACHE_TTL_SECONDS = 24 * 60 * 60
 YOUTUBE_CACHE_VERSION = "2"
-MAX_METADATA_ARTIST_ATTEMPTS = 3
+MAX_METADATA_LOOKUP_ATTEMPTS = 4
 _CACHE_DIAGNOSTIC_KEY = "_playlistmuse_unresolved"
 _THREAD_LOCAL = threading.local()
 
@@ -261,6 +269,8 @@ def _read_youtube_cache_entry(
             decoded = json.loads(str(payload))
             if isinstance(decoded, dict) and _CACHE_DIAGNOSTIC_KEY in decoded:
                 diagnostic = decoded.get(_CACHE_DIAGNOSTIC_KEY)
+                if isinstance(diagnostic, dict) and "best_pair" not in diagnostic:
+                    return False, None, None
                 return True, None, diagnostic if isinstance(diagnostic, dict) else None
             return True, decoded if isinstance(decoded, dict) else None, None
     except (sqlite3.Error, ValueError, TypeError, json.JSONDecodeError):
@@ -363,6 +373,30 @@ def _resolution_failure_reason(stats: dict[str, int]) -> str:
     return "no_acceptable_match"
 
 
+def _pair_diagnostic(
+    result: dict[str, Any],
+    *,
+    title: str,
+    artists: str,
+    album: str,
+    title_score: float,
+    artist_score: float,
+    exclusion_reason: str | None,
+    collection: bool,
+) -> dict[str, Any]:
+    return {
+        "result_title": title,
+        "result_artists": artists,
+        "album": album or None,
+        "video_id": result.get("videoId"),
+        "title_score": round(title_score, 1),
+        "artist_score": round(artist_score, 1),
+        "combined_score": round(title_score * 0.68 + artist_score * 0.32, 1),
+        "exclusion_reason": exclusion_reason,
+        "collection": collection,
+    }
+
+
 def _resolve_one(
     candidate: dict[str, str], exclusions: dict[str, bool]
 ) -> dict[str, Any] | None:
@@ -381,6 +415,8 @@ def _resolve_one(
     query = f"{candidate['artist']} {candidate['title']}"
     results = _thread_client().search(query, filter="songs", limit=12)
     best: tuple[float, dict[str, Any]] | None = None
+    best_pair: dict[str, Any] | None = None
+    best_pair_score = -1.0
     exclude_live = exclusions.get("exclude_live", True)
     exclude_covers = exclusions.get("exclude_covers", True)
     exclude_remixes = exclusions.get("exclude_remixes", True)
@@ -398,6 +434,9 @@ def _resolve_one(
             stats["unusable_result"] = stats.get("unusable_result", 0) + 1
             continue
         stats["usable_results"] += 1
+        title_score = _title_score(candidate["title"], title)
+        artist_score = _artist_score(candidate["artist"], artists)
+        combined_score = title_score * 0.68 + artist_score * 0.32
         exclusion_reason = _exclusion_reason(
             title,
             album=album,
@@ -406,15 +445,26 @@ def _resolve_one(
             covers=exclude_covers,
             remixes=exclude_remixes,
         )
+        collection = _looks_like_collection(candidate["title"], title)
+        if combined_score > best_pair_score:
+            best_pair_score = combined_score
+            best_pair = _pair_diagnostic(
+                result,
+                title=title,
+                artists=artists,
+                album=album,
+                title_score=title_score,
+                artist_score=artist_score,
+                exclusion_reason=exclusion_reason,
+                collection=collection,
+            )
         if exclusion_reason:
             stats[exclusion_reason] = stats.get(exclusion_reason, 0) + 1
             continue
-        if _looks_like_collection(candidate["title"], title):
+        if collection:
             stats["collection"] = stats.get("collection", 0) + 1
             continue
 
-        title_score = _title_score(candidate["title"], title)
-        artist_score = _artist_score(candidate["artist"], artists)
         best_title_score = max(best_title_score, title_score)
         best_artist_score = max(best_artist_score, artist_score)
         if title_score < MIN_TITLE_SCORE:
@@ -424,7 +474,7 @@ def _resolve_one(
             stats["artist_mismatch"] = stats.get("artist_mismatch", 0) + 1
             continue
 
-        score = title_score * 0.68 + artist_score * 0.32
+        score = combined_score
         best_combined_score = max(best_combined_score, score)
         if best is None or score > best[0]:
             best = (score, result)
@@ -434,6 +484,7 @@ def _resolve_one(
             "reason": _resolution_failure_reason(stats),
             "best_title_score": round(best_title_score, 1),
             "best_artist_score": round(best_artist_score, 1),
+            "best_pair": best_pair,
             **stats,
         }
         _write_youtube_cache(
@@ -451,6 +502,7 @@ def _resolve_one(
             "best_title_score": round(best_title_score, 1),
             "best_artist_score": round(best_artist_score, 1),
             "best_combined_score": round(max(best_combined_score, best[0]), 1),
+            "best_pair": best_pair,
             **stats,
         }
         _write_youtube_cache(
@@ -464,7 +516,11 @@ def _resolve_one(
 
     song = _serialize_song(best[1])
     if not song:
-        diagnostic = {"reason": "serialization_failed", **stats}
+        diagnostic = {
+            "reason": "serialization_failed",
+            "best_pair": best_pair,
+            **stats,
+        }
         _write_youtube_cache(
             candidate,
             exclusions,
@@ -584,7 +640,57 @@ def _metadata_artist_aliases(candidate: dict[str, str]) -> list[str]:
             add(parts[0])
         for part in parts[1:]:
             add(part)
-    return aliases[: max(0, MAX_METADATA_ARTIST_ATTEMPTS - 1)]
+    return aliases
+
+
+def _strip_feature_suffix(title: str) -> str:
+    current = " ".join(str(title).split()).strip()
+    stripped = _TITLE_FEATURE_SUFFIX_RE.sub("", current).strip(" -–—()[]")
+    stripped = _TITLE_WITH_SUFFIX_RE.sub("", stripped).strip(" -–—()[]")
+    return stripped
+
+
+def _metadata_title_aliases(candidate: dict[str, str]) -> list[str]:
+    canonical = " ".join(str(candidate.get("title", "")).split())
+    requested = " ".join(str(candidate.get("requested_title", "")).split())
+    aliases: list[str] = []
+    seen = {_normalize_identity(canonical)} if canonical else set()
+
+    def add(value: str) -> None:
+        normalized = " ".join(str(value).split()).strip()
+        key = _normalize_identity(normalized)
+        if normalized and key and key not in seen:
+            seen.add(key)
+            aliases.append(normalized)
+
+    add(requested)
+    add(_strip_feature_suffix(canonical))
+    add(_strip_feature_suffix(requested))
+    return aliases
+
+
+def _metadata_fallback_candidates(candidate: dict[str, str]) -> list[dict[str, str]]:
+    canonical_artist = " ".join(str(candidate.get("artist", "")).split())
+    canonical_title = " ".join(str(candidate.get("title", "")).split())
+    artists = [canonical_artist, *_metadata_artist_aliases(candidate)]
+    titles = [canonical_title, *_metadata_title_aliases(candidate)]
+    variants: list[dict[str, str]] = []
+    seen = {( _normalize_identity(canonical_artist), _normalize_identity(canonical_title) )}
+
+    def add(artist: str, title: str) -> None:
+        key = (_normalize_identity(artist), _normalize_identity(title))
+        if not key[0] or not key[1] or key in seen:
+            return
+        seen.add(key)
+        variants.append({**candidate, "artist": artist, "title": title})
+
+    for title in titles[1:]:
+        add(canonical_artist, title)
+    preferred_title = titles[1] if len(titles) > 1 else canonical_title
+    for artist in artists[1:]:
+        add(artist, preferred_title)
+        add(artist, canonical_title)
+    return variants[: max(0, MAX_METADATA_LOOKUP_ATTEMPTS - 1)]
 
 
 def _prefer_metadata_result(
@@ -604,13 +710,22 @@ def _prefer_metadata_result(
 
 def _canonicalize_fallback_metadata(
     result: ValidationResult,
+    *,
     canonical_artist: str,
-    alias: str,
+    canonical_title: str,
+    alias_artist: str,
+    alias_title: str,
 ) -> ValidationResult:
     result.metadata.artist = canonical_artist
-    marker = f"MusicBrainz artist fallback used: {alias}"
-    if marker not in result.metadata.warnings:
-        result.metadata.warnings.append(marker)
+    result.metadata.title = canonical_title
+    if _normalize_identity(alias_artist) != _normalize_identity(canonical_artist):
+        marker = f"MusicBrainz artist fallback used: {alias_artist}"
+        if marker not in result.metadata.warnings:
+            result.metadata.warnings.append(marker)
+    if _normalize_identity(alias_title) != _normalize_identity(canonical_title):
+        marker = f"MusicBrainz title fallback used: {alias_title}"
+        if marker not in result.metadata.warnings:
+            result.metadata.warnings.append(marker)
     return result
 
 
@@ -665,7 +780,7 @@ async def _metadata_filter(
     accepted: list[dict[str, str]] = []
     rejected: list[dict[str, Any]] = []
     remaining_lookups = metadata_lookup_limit(
-        len(unique_candidates) * MAX_METADATA_ARTIST_ATTEMPTS
+        len(unique_candidates) * MAX_METADATA_LOOKUP_ATTEMPTS
     )
     network_attempts = 0
     temporary_failures = 0
@@ -699,16 +814,18 @@ async def _metadata_filter(
 
         for candidate in unique_candidates:
             canonical_artist = str(candidate.get("artist", "")).strip()
+            canonical_title = str(candidate.get("title", "")).strip()
             result = await evaluate(candidate)
             if _metadata_retryable(result, constraints):
-                for alias in _metadata_artist_aliases(candidate):
-                    alternative_candidate = {**candidate, "artist": alias}
+                for alternative_candidate in _metadata_fallback_candidates(candidate):
                     alternative = await evaluate(alternative_candidate)
                     if _prefer_metadata_result(result, alternative):
                         result = _canonicalize_fallback_metadata(
                             alternative,
-                            canonical_artist,
-                            alias,
+                            canonical_artist=canonical_artist,
+                            canonical_title=canonical_title,
+                            alias_artist=str(alternative_candidate.get("artist", "")),
+                            alias_title=str(alternative_candidate.get("title", "")),
                         )
                     if result.status == "valid":
                         break
