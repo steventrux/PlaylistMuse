@@ -18,7 +18,15 @@ class _SearchClient:
         return list(self.results)
 
 
-def test_youtube_resolution_reports_artist_mismatch(monkeypatch) -> None:
+def _resolution_options() -> dict[str, bool]:
+    return {
+        "exclude_live": True,
+        "exclude_covers": True,
+        "exclude_remixes": True,
+    }
+
+
+def test_youtube_resolution_reports_artist_mismatch_with_paired_candidate(monkeypatch) -> None:
     monkeypatch.setattr(
         youtube,
         "_read_youtube_cache_entry",
@@ -42,11 +50,7 @@ def test_youtube_resolution_reports_artist_mismatch(monkeypatch) -> None:
 
     track, diagnostic = youtube._resolve_one_with_diagnostic(
         {"artist": "Expected Artist", "title": "Right Song"},
-        {
-            "exclude_live": True,
-            "exclude_covers": True,
-            "exclude_remixes": True,
-        },
+        _resolution_options(),
     )
 
     assert track is None
@@ -54,6 +58,57 @@ def test_youtube_resolution_reports_artist_mismatch(monkeypatch) -> None:
     assert diagnostic["reason"] == "artist_mismatch"
     assert diagnostic["best_title_score"] >= youtube.MIN_TITLE_SCORE
     assert diagnostic["best_artist_score"] < youtube.MIN_ARTIST_SCORE
+    assert diagnostic["best_pair"]["result_title"] == "Right Song"
+    assert diagnostic["best_pair"]["result_artists"] == "Wrong Artist"
+
+
+def test_youtube_diagnostic_keeps_scores_from_one_concrete_result(monkeypatch) -> None:
+    monkeypatch.setattr(
+        youtube,
+        "_read_youtube_cache_entry",
+        lambda *args, **kwargs: (False, None, None),
+    )
+    monkeypatch.setattr(youtube, "_write_youtube_cache", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        youtube,
+        "_thread_client",
+        lambda: _SearchClient(
+            [
+                {
+                    "videoId": "title-match",
+                    "title": "Exact Song",
+                    "artists": [{"name": "Completely Different"}],
+                    "album": {"name": "Album A"},
+                },
+                {
+                    "videoId": "artist-match",
+                    "title": "Completely Different Song Name",
+                    "artists": [{"name": "Exact Artist"}],
+                    "album": {"name": "Album B"},
+                },
+            ]
+        ),
+    )
+
+    track, diagnostic = youtube._resolve_one_with_diagnostic(
+        {"artist": "Exact Artist", "title": "Exact Song"},
+        _resolution_options(),
+    )
+
+    assert track is None
+    assert diagnostic is not None
+    pair = diagnostic["best_pair"]
+    assert pair["video_id"] in {"title-match", "artist-match"}
+    if pair["video_id"] == "title-match":
+        assert pair["result_title"] == "Exact Song"
+        assert pair["result_artists"] == "Completely Different"
+    else:
+        assert pair["result_title"] == "Completely Different Song Name"
+        assert pair["result_artists"] == "Exact Artist"
+    assert pair["combined_score"] == round(
+        pair["title_score"] * 0.68 + pair["artist_score"] * 0.32,
+        1,
+    )
 
 
 def test_musicbrainz_retries_primary_artist_after_canonical_credit_miss(monkeypatch) -> None:
@@ -113,6 +168,74 @@ def test_musicbrainz_retries_primary_artist_after_canonical_credit_miss(monkeypa
     assert "MusicBrainz artist fallback used: Artist A" in metadata["warnings"]
 
 
+def test_musicbrainz_retries_requested_title_after_featured_canonical_title(monkeypatch) -> None:
+    activate_constraints_from_prompt("songs from 2000 to 2026")
+    calls: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(youtube, "_read_cache", lambda *args, **kwargs: None)
+
+    async def fake_validate(candidate, constraints, client=None):
+        artist = candidate["artist"]
+        title = candidate["title"]
+        calls.append((artist, title))
+        if title == "Rolls Royce":
+            return ValidationResult(
+                status="valid",
+                violations=[],
+                metadata=TrackMetadata(
+                    artist=artist,
+                    title=title,
+                    matched_artist="Achille Lauro",
+                    original_release_year=2019,
+                    match_score=0.96,
+                    confidence="high",
+                ),
+            )
+        return ValidationResult(
+            status="unknown",
+            violations=[],
+            metadata=TrackMetadata(
+                artist=artist,
+                title=title,
+                match_score=0.0,
+                confidence="low",
+                warnings=["No MusicBrainz match"],
+            ),
+        )
+
+    monkeypatch.setattr(youtube, "validate_candidate", fake_validate)
+
+    canonical_title = "Rolls Royce (feat. Boss Doms & Frenetik&Orang3)"
+    accepted, rejected = asyncio.run(
+        youtube._metadata_filter(
+            [
+                {
+                    "artist": "Achille Lauro",
+                    "title": canonical_title,
+                    "requested_artist": "Achille Lauro",
+                    "requested_title": "Rolls Royce",
+                }
+            ]
+        )
+    )
+
+    assert rejected == []
+    assert calls[:2] == [
+        ("Achille Lauro", canonical_title),
+        ("Achille Lauro", "Rolls Royce"),
+    ]
+    metadata = accepted[0]["metadata_validation"]
+    assert metadata["original_release_year"] == 2019
+    assert metadata["title"] == canonical_title
+    assert "MusicBrainz title fallback used: Rolls Royce" in metadata["warnings"]
+
+
+def test_title_suffix_cleanup_is_limited_to_feature_credits() -> None:
+    assert youtube._strip_feature_suffix("Rolls Royce (feat. Boss Doms)") == "Rolls Royce"
+    assert youtube._strip_feature_suffix("Song Title - ft. Guest") == "Song Title"
+    assert youtube._strip_feature_suffix("Dance With Me") == "Dance With Me"
+
+
 def test_musicbrainz_does_not_retry_verified_constraint_violation(monkeypatch) -> None:
     activate_constraints_from_prompt("songs released in 2026 only")
     calls = 0
@@ -141,8 +264,9 @@ def test_musicbrainz_does_not_retry_verified_constraint_violation(monkeypatch) -
             [
                 {
                     "artist": "Artist A, Guest B",
-                    "title": "Old Song",
+                    "title": "Old Song (feat. Guest B)",
                     "requested_artist": "Artist A",
+                    "requested_title": "Old Song",
                 }
             ]
         )
