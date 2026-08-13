@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
 from backend import generation_runtime_core as _core
 from backend.reccobeats_guidance import reccobeats_guidance
 from backend.reccobeats_runtime import generate as _generate_with_reccobeats
+
+LOGGER = logging.getLogger("playlistmuse.performance")
 
 _ACTIVE_RESOLUTION_QUOTAS = _core._ACTIVE_RESOLUTION_QUOTAS
 _ACTIVE_EXACT_ARTIST_QUOTAS = _core._ACTIVE_EXACT_ARTIST_QUOTAS
@@ -98,6 +101,24 @@ async def resolve_candidates(
             youtube=youtube,
             artist_matches=artist_matches,
             quota_deficits=quota_deficits,
+        )
+        recco_candidates = sum(
+            1
+            for candidate in candidates
+            if str(candidate.get("source", "")).strip() == "reccobeats"
+        )
+        recco_selected = sum(
+            1
+            for track in selected
+            if str(track.get("source", "")).strip() == "reccobeats"
+        )
+        LOGGER.info(
+            "reccobeats_catalogue candidates=%s selected=%s recco_candidates=%s "
+            "recco_selected=%s",
+            len(candidates),
+            len(selected),
+            recco_candidates,
+            recco_selected,
         )
         return selected, unresolved
     finally:
