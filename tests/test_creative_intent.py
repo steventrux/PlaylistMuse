@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 
+import pytest
+
 from backend import creative_intent
 from backend.config import AppConfig
 from backend.creative_intent import (
@@ -15,6 +17,7 @@ from backend.creative_intent import (
     reset_creative_intent,
 )
 from backend.lastfm_tags import LastfmTagEvidence
+from backend.reccobeats_features import ReccoBeatsAudioEvidence
 
 
 def _config() -> AppConfig:
@@ -32,6 +35,19 @@ def _track(title: str) -> dict[str, str]:
 
 async def _empty_tag_evidence(tracks):
     return [LastfmTagEvidence() for _ in tracks]
+
+
+async def _empty_audio_evidence(tracks):
+    return [ReccoBeatsAudioEvidence() for _ in tracks]
+
+
+@pytest.fixture(autouse=True)
+def _disable_live_reccobeats(monkeypatch) -> None:
+    monkeypatch.setattr(
+        creative_intent,
+        "audio_evidence_for_tracks",
+        _empty_audio_evidence,
+    )
 
 
 def test_intent_payload_requires_explicit_high_confidence_requirements() -> None:
@@ -74,7 +90,7 @@ def test_interpret_creative_intent_is_semantic_and_provider_neutral(monkeypatch)
     assert intent.requirements == ("celebratory social atmosphere",)
 
 
-def test_creative_fit_uses_external_tags_without_self_justification(monkeypatch) -> None:
+def test_creative_fit_uses_external_evidence_without_self_justification(monkeypatch) -> None:
     async def fake_tags(tracks):
         return [
             LastfmTagEvidence(track_tags=("dance", "party")),
@@ -82,6 +98,22 @@ def test_creative_fit_uses_external_tags_without_self_justification(monkeypatch)
             LastfmTagEvidence(),
             LastfmTagEvidence(),
             LastfmTagEvidence(),
+        ]
+
+    async def fake_audio(tracks):
+        return [
+            ReccoBeatsAudioEvidence(
+                match_source="track_search",
+                danceability=0.86,
+                energy=0.82,
+                valence=0.77,
+                tempo=124.0,
+                liveness=0.61,
+            ),
+            ReccoBeatsAudioEvidence(),
+            ReccoBeatsAudioEvidence(),
+            ReccoBeatsAudioEvidence(),
+            ReccoBeatsAudioEvidence(),
         ]
 
     async def fake_request(config, prompt, *, system_prompt, max_tokens, model):
@@ -92,17 +124,31 @@ def test_creative_fit_uses_external_tags_without_self_justification(monkeypatch)
             "index",
             "artist",
             "title",
+            "reccobeats_audio_features",
+            "reccobeats_match_source",
             "lastfm_track_tags",
             "lastfm_artist_tags",
         }
+        assert payload["tracks"][0]["reccobeats_audio_features"] == {
+            "danceability": 0.86,
+            "energy": 0.82,
+            "valence": 0.77,
+            "tempo": 124.0,
+            "liveness": 0.61,
+        }
+        assert payload["tracks"][0]["reccobeats_match_source"] == "track_search"
         assert payload["tracks"][0]["lastfm_track_tags"] == ["dance", "party"]
         assert payload["tracks"][0]["lastfm_artist_tags"] == []
+        assert payload["tracks"][1]["reccobeats_audio_features"] == {}
         assert payload["tracks"][1]["lastfm_track_tags"] == []
         assert payload["tracks"][1]["lastfm_artist_tags"] == ["pop", "electropop"]
         assert "Generated description" not in prompt
         assert "Generated reason" not in prompt
         assert "positively contribute" in system_prompt
         assert "self-justifying evidence" in system_prompt
+        assert "quantitative external evidence" in system_prompt
+        assert "single fixed danceability" in system_prompt
+        assert "must never be treated as proof" in system_prompt
         assert "community-generated external evidence" in system_prompt
         assert "stronger evidence than generic artist tags" in system_prompt
         assert 'verdict="weak_fit"' in system_prompt
@@ -113,7 +159,7 @@ def test_creative_fit_uses_external_tags_without_self_justification(monkeypatch)
                         "index": 1,
                         "verdict": "fit",
                         "confidence": 0.98,
-                        "reason": "Track-specific tags support the requested setting.",
+                        "reason": "External evidence supports the requested setting.",
                     },
                     {
                         "index": 2,
@@ -144,6 +190,7 @@ def test_creative_fit_uses_external_tags_without_self_justification(monkeypatch)
         )
 
     monkeypatch.setattr(creative_intent, "tag_evidence_for_tracks", fake_tags)
+    monkeypatch.setattr(creative_intent, "audio_evidence_for_tracks", fake_audio)
     monkeypatch.setattr(creative_intent, "request_structured_json", fake_request)
     token = activate_creative_intent(
         CreativeIntent(("energetic social setting",), confidence=0.95)
@@ -272,14 +319,28 @@ def test_full_evaluation_failure_retries_in_smaller_batches(monkeypatch) -> None
     assert [item.index for item in conflicts] == [1, 9]
 
 
-def test_lastfm_tag_failure_fails_open_to_identity_only_evaluation(monkeypatch) -> None:
+def test_lastfm_tag_failure_fails_open_to_other_available_evidence(monkeypatch) -> None:
     async def broken_tags(tracks):
         raise RuntimeError("Last.fm unavailable")
+
+    async def fake_audio(tracks):
+        return [
+            ReccoBeatsAudioEvidence(
+                match_source="track_search",
+                energy=0.8,
+                danceability=0.75,
+            )
+            for _ in tracks
+        ]
 
     async def fake_request(config, prompt, *, system_prompt, max_tokens, model):
         payload = json.loads(prompt)
         assert payload["tracks"][0]["lastfm_track_tags"] == []
         assert payload["tracks"][0]["lastfm_artist_tags"] == []
+        assert payload["tracks"][0]["reccobeats_audio_features"] == {
+            "danceability": 0.75,
+            "energy": 0.8,
+        }
         return json.dumps(
             {
                 "assessments": [
@@ -294,6 +355,43 @@ def test_lastfm_tag_failure_fails_open_to_identity_only_evaluation(monkeypatch) 
         )
 
     monkeypatch.setattr(creative_intent, "tag_evidence_for_tracks", broken_tags)
+    monkeypatch.setattr(creative_intent, "audio_evidence_for_tracks", fake_audio)
+    monkeypatch.setattr(creative_intent, "request_structured_json", fake_request)
+
+    conflicts = asyncio.run(
+        assess_creative_fit(
+            _config(),
+            [_track("Track")],
+            intent=CreativeIntent(("energetic social setting",), confidence=0.95),
+        )
+    )
+
+    assert conflicts == []
+
+
+def test_reccobeats_failure_fails_open_to_identity_and_tags(monkeypatch) -> None:
+    async def broken_audio(tracks):
+        raise RuntimeError("ReccoBeats unavailable")
+
+    async def fake_request(config, prompt, *, system_prompt, max_tokens, model):
+        payload = json.loads(prompt)
+        assert payload["tracks"][0]["reccobeats_audio_features"] == {}
+        assert payload["tracks"][0]["reccobeats_match_source"] == ""
+        return json.dumps(
+            {
+                "assessments": [
+                    {
+                        "index": 1,
+                        "verdict": "fit",
+                        "confidence": 0.95,
+                        "reason": "Known suitable recording.",
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(creative_intent, "tag_evidence_for_tracks", _empty_tag_evidence)
+    monkeypatch.setattr(creative_intent, "audio_evidence_for_tracks", broken_audio)
     monkeypatch.setattr(creative_intent, "request_structured_json", fake_request)
 
     conflicts = asyncio.run(
@@ -348,7 +446,13 @@ def test_creative_fit_is_noop_without_explicit_intent(monkeypatch) -> None:
         called = True
         return []
 
+    async def fake_audio(*args, **kwargs):
+        nonlocal called
+        called = True
+        return []
+
     monkeypatch.setattr(creative_intent, "tag_evidence_for_tracks", fake_tags)
+    monkeypatch.setattr(creative_intent, "audio_evidence_for_tracks", fake_audio)
     monkeypatch.setattr(creative_intent, "request_structured_json", fake_request)
     token = activate_creative_intent(CreativeIntent())
     try:
