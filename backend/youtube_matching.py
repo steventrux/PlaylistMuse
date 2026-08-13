@@ -15,13 +15,15 @@ _COVER_RE = re.compile(r"\b(cover|tribute|karaoke)\b")
 
 
 def title_score(candidate_title: str, result_title: str) -> float:
-    """Score titles case-insensitively while ignoring trailing collaborator credits."""
-    candidate = base_title(candidate_title).casefold()
-    result = base_title(result_title).casefold()
-    candidate_tokens = set(_TITLE_TOKEN_RE.findall(candidate))
-    result_tokens = set(_TITLE_TOKEN_RE.findall(result))
+    """Score normalized titles while ignoring case, punctuation and collaborator credits."""
+    candidate_tokens_list = _TITLE_TOKEN_RE.findall(base_title(candidate_title).casefold())
+    result_tokens_list = _TITLE_TOKEN_RE.findall(base_title(result_title).casefold())
+    candidate_tokens = set(candidate_tokens_list)
+    result_tokens = set(result_tokens_list)
     extra_tokens = max(0, len(result_tokens - candidate_tokens))
     penalty = min(28, extra_tokens * 2.5)
+    candidate = " ".join(candidate_tokens_list)
+    result = " ".join(result_tokens_list)
     return max(0.0, fuzz.token_set_ratio(candidate, result) - penalty)
 
 
