@@ -9,8 +9,9 @@ from backend.recording_variants import (
     RecordingVariantPolicy,
     recording_variant_violations,
 )
-from backend.text_normalization import normalize_identity
-from backend.youtube_matching import exclusion_reason
+from backend.youtube_matching import exclusion_reason, title_score
+
+MIN_CONTEXT_TITLE_SCORE = 70.0
 
 
 def _candidate_artist(candidate: dict[str, Any]) -> str:
@@ -28,22 +29,25 @@ def _origin_signature(item: dict[str, Any]) -> tuple[str, str]:
     )
 
 
-def _matches_origin(
+def _origin_score(
     track: dict[str, Any],
     candidate: dict[str, Any],
     *,
     artist_matches: Any,
-) -> bool:
+) -> float:
+    """Reuse catalogue title/artist semantics to recover the originating request."""
     track_signature = _origin_signature(track)
     candidate_signature = _origin_signature(candidate)
     if all(track_signature) and track_signature == candidate_signature:
-        return True
+        return 1_000.0
 
-    track_title = normalize_identity(str(track.get("title") or ""))
-    candidate_title = normalize_identity(str(candidate.get("title") or ""))
-    if not track_title or track_title != candidate_title:
-        return False
-    return bool(artist_matches(_track_artist(track), _candidate_artist(candidate)))
+    if not artist_matches(_track_artist(track), _candidate_artist(candidate)):
+        return -1.0
+    score = title_score(
+        str(candidate.get("title") or ""),
+        str(track.get("title") or ""),
+    )
+    return score if score >= MIN_CONTEXT_TITLE_SCORE else -1.0
 
 
 def annotate_resolved_candidate_context(
@@ -56,16 +60,20 @@ def annotate_resolved_candidate_context(
     annotated: list[dict[str, Any]] = []
     for track in resolved:
         copy = dict(track)
-        candidate = next(
+        scored = [
             (
-                item
-                for item in candidates
-                if isinstance(item, dict)
-                and _matches_origin(copy, item, artist_matches=artist_matches)
-            ),
-            None,
-        )
-        if candidate is not None:
+                _origin_score(copy, item, artist_matches=artist_matches),
+                item,
+            )
+            for item in candidates
+            if isinstance(item, dict)
+        ]
+        candidate = max(scored, key=lambda item: item[0], default=(-1.0, None))[1]
+        if candidate is not None and _origin_score(
+            copy,
+            candidate,
+            artist_matches=artist_matches,
+        ) >= 0.0:
             copy["requested_artist"] = _candidate_artist(candidate)
             copy["requested_title"] = str(candidate.get("title") or "").strip()
             for key in ("popularity", "reccobeats_id", "source"):
@@ -101,8 +109,8 @@ def filter_resolved_recording_variants_contextual(
     """Validate positive recording requirements and contextual exclusions.
 
     Exclusions are evaluated against the originally requested title/artist so a song
-    whose canonical title happens to contain words such as "Karaoke" is not mistaken
-    for a cover version. Positive requirements retain the existing semantic validator.
+    whose canonical title happens to contain a variant-like word is not mistaken for
+    an alternate recording. Positive requirements retain the existing semantic validator.
     """
     accepted: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
