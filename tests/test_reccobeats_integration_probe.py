@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 
-from backend.reccobeats_features import audio_evidence_for_tracks
+from backend import reccobeats_features
 
 
 TRACKS = [
@@ -36,7 +37,10 @@ TRACKS = [
 
 
 def test_reccobeats_integrated_live_probe() -> None:
-    evidence = asyncio.run(audio_evidence_for_tracks(TRACKS))
+    reccobeats_features.MAX_CONCURRENT_REQUESTS = 1
+    started = time.perf_counter()
+    evidence = asyncio.run(reccobeats_features.audio_evidence_for_tracks(TRACKS))
+    elapsed = round(time.perf_counter() - started, 3)
     rows = []
     for track, item in zip(TRACKS, evidence, strict=True):
         rows.append(
@@ -52,6 +56,7 @@ def test_reccobeats_integrated_live_probe() -> None:
         "available": sum(1 for row in rows if row["available"]),
         "track_search": sum(1 for row in rows if row["match_source"] == "track_search"),
         "artist_catalog": sum(1 for row in rows if row["match_source"] == "artist_catalog"),
+        "elapsed_seconds": elapsed,
     }
     print("RECCOBEATS_INTEGRATED_PROBE=" + json.dumps({"summary": summary, "tracks": rows}, ensure_ascii=False, sort_keys=True))
     assert False, "intentional live probe; inspect RECCOBEATS_INTEGRATED_PROBE"
