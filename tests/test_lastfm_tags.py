@@ -59,26 +59,12 @@ def test_track_tags_are_preferred_and_cached() -> None:
     assert calls == ["track.gettoptags"]
 
 
-def test_artist_tags_are_only_a_fallback_when_track_tags_are_absent() -> None:
+def test_missing_track_tags_do_not_fallback_to_artist_tags() -> None:
     calls: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        method = request.url.params["method"]
-        calls.append(method)
-        if method == "track.gettoptags":
-            return httpx.Response(200, json={"toptags": {"tag": []}})
-        assert method == "artist.gettoptags"
-        return httpx.Response(
-            200,
-            json={
-                "toptags": {
-                    "tag": [
-                        {"name": "electropop"},
-                        {"name": "italian"},
-                    ]
-                }
-            },
-        )
+        calls.append(request.url.params["method"])
+        return httpx.Response(200, json={"toptags": {"tag": []}})
 
     async def run() -> LastfmTagEvidence:
         transport = httpx.MockTransport(handler)
@@ -86,16 +72,16 @@ def test_artist_tags_are_only_a_fallback_when_track_tags_are_absent() -> None:
             return await track_tag_evidence(
                 "Example Artist",
                 "Obscure Track",
-                api_key="fallback-key",
+                api_key="track-only-key",
                 client=client,
             )
 
     _clear_cache()
     evidence = asyncio.run(run())
 
-    assert evidence.track_tags == ()
-    assert evidence.artist_tags == ("electropop", "italian")
-    assert calls == ["track.gettoptags", "artist.gettoptags"]
+    assert evidence == LastfmTagEvidence()
+    assert evidence.artist_tags == ()
+    assert calls == ["track.gettoptags"]
 
 
 def test_lastfm_tag_api_failure_fails_open_without_artist_retry() -> None:
