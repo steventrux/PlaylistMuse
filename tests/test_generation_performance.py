@@ -1,4 +1,5 @@
 from backend import _optimized_replenishment_request, _stage_name
+from backend.generation_runtime import _creative_repair_rounds
 
 
 def test_replenishment_request_uses_wider_minimum_pool():
@@ -44,3 +45,10 @@ def test_generation_stage_classification():
         == "llm_replacement"
     )
     assert _stage_name("Follow the user's request literally") == "llm_initial"
+
+
+def test_creative_regeneration_is_disabled_for_replenishment() -> None:
+    assert _creative_repair_rounds("llm_replenishment") == 0
+    assert _creative_repair_rounds("llm_initial") == 1
+    assert _creative_repair_rounds("llm_guided") == 1
+    assert _creative_repair_rounds("llm_replacement") == 1
