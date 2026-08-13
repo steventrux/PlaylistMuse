@@ -19,6 +19,7 @@ from backend.reccobeats_guidance import popularity_preference, reccobeats_guidan
 from backend.reccobeats_popularity import (
     canonicalize_reccobeats_matches,
     enrich_recommendation_popularity,
+    popularity_for_tracks,
 )
 from backend.text_normalization import normalize_identity
 
@@ -52,6 +53,16 @@ def _candidate_key(candidate: dict[str, Any]) -> tuple[str, str]:
     return normalize_identity(artist), normalize_identity(title)
 
 
+def _popularity_value(candidate: dict[str, Any]) -> int | None:
+    value = candidate.get("popularity")
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _merge_recommendations(
     batches: list[list[dict[str, Any]]],
     *,
@@ -81,18 +92,35 @@ def _merge_recommendations(
 def _popularity_summary(
     candidates: list[dict[str, Any]],
 ) -> tuple[int, int | None, int | None, float | None]:
-    values: list[int] = []
-    for candidate in candidates:
-        value = candidate.get("popularity")
-        if isinstance(value, bool):
-            continue
-        try:
-            values.append(int(value))
-        except (TypeError, ValueError):
-            continue
+    values = [
+        value
+        for candidate in candidates
+        if (value := _popularity_value(candidate)) is not None
+    ]
     if not values:
         return 0, None, None, None
     return len(values), min(values), max(values), round(sum(values) / len(values), 1)
+
+
+def _generation_count(count: int, intent: PopularityIntent, stage: str) -> int:
+    """Create a bounded comparison pool only when popularity was explicitly requested."""
+    requested = max(1, int(count))
+    if stage != "llm_initial" or not intent.active or requested >= 30:
+        return requested
+    reserve = max(4, (requested + 4) // 5)
+    return min(30, requested + reserve)
+
+
+def _popularity_buffer_guidance(requested: int, generated: int) -> str:
+    if generated <= requested:
+        return ""
+    return (
+        "\n\nINTERNAL POPULARITY CANDIDATE BUFFER: return exactly "
+        f"{generated} distinct, fully eligible candidate tracks. The final playlist still "
+        f"contains exactly {requested}; PlaylistMuse will compare Recco popularity among "
+        "verified candidates before final selection. Do not relax any hard or creative "
+        "requirement to fill this internal reserve."
+    )
 
 
 async def _recommend_raw(
@@ -161,6 +189,42 @@ async def _recommend_with_fallback(
     )
 
 
+async def _score_and_rank_tracks(
+    tracks: list[dict[str, Any]],
+    intent: PopularityIntent,
+) -> list[dict[str, Any]]:
+    """Apply Recco popularity to LLM identities, not only exact recommendation copies."""
+    copied = [dict(track) for track in tracks]
+    if not copied or not intent.active:
+        return copied
+
+    known_scores = {
+        _candidate_key(track): score
+        for track in copied
+        if (score := _popularity_value(track)) is not None
+        and all(_candidate_key(track))
+    }
+    missing = [track for track in copied if _candidate_key(track) not in known_scores]
+    if missing:
+        fetched = await popularity_for_tracks(missing)
+        known_scores.update(fetched)
+
+    for track in copied:
+        score = known_scores.get(_candidate_key(track))
+        if score is not None:
+            track["popularity"] = score
+
+    preference = popularity_preference(intent)
+
+    def key(track: dict[str, Any]) -> tuple[int, int]:
+        score = _popularity_value(track)
+        if score is None:
+            return 1, 0
+        return 0, -score if preference == "popular" else score
+
+    return sorted(copied, key=key)
+
+
 def _log_discovery_stats(
     *,
     stage: str,
@@ -179,12 +243,15 @@ def _log_discovery_stats(
     selected_known, selected_min, selected_max, selected_avg = _popularity_summary(
         recco_tracks
     )
+    draft_known, draft_min, draft_max, draft_avg = _popularity_summary(draft_tracks)
     LOGGER.info(
         "reccobeats_stats stage=%s popularity=%s anchors=%s primary_candidates=%s "
         "fallback_used=%s fallback_candidates=%s candidates=%s popularity_known=%s "
         "popularity_min=%s popularity_max=%s popularity_avg=%s draft_tracks=%s "
-        "draft_recco=%s draft_recco_popularity_known=%s draft_recco_popularity_min=%s "
-        "draft_recco_popularity_max=%s draft_recco_popularity_avg=%s",
+        "draft_popularity_known=%s draft_popularity_min=%s draft_popularity_max=%s "
+        "draft_popularity_avg=%s draft_recco=%s draft_recco_popularity_known=%s "
+        "draft_recco_popularity_min=%s draft_recco_popularity_max=%s "
+        "draft_recco_popularity_avg=%s",
         stage,
         preference,
         len(anchors),
@@ -197,6 +264,10 @@ def _log_discovery_stats(
         maximum,
         average,
         len(draft_tracks),
+        draft_known,
+        draft_min,
+        draft_max,
+        draft_avg,
         len(recco_tracks),
         selected_known,
         selected_min,
@@ -240,14 +311,19 @@ async def generate(core: Any, config: Any, prompt: str, count: int) -> dict[str,
         )
         _ACTIVE_CANDIDATES.set(tuple(map(dict, candidates)))
         guidance = reccobeats_guidance(candidates, popularity_preference(intent))
+        generated_count = _generation_count(count, intent, stage)
+        guidance += _popularity_buffer_guidance(count, generated_count)
         enhanced = _add_guidance(prompt, guidance, stage)
         LOGGER.info(
-            "reccobeats_initial anchors=%s candidates=%s applied=%s popularity=%s fallback=%s",
+            "reccobeats_initial anchors=%s candidates=%s applied=%s popularity=%s fallback=%s "
+            "requested=%s generated=%s",
             len(discovery_anchors),
             len(candidates),
             bool(guidance),
             popularity_preference(intent),
             discovery_metadata.get("fallback_used", False),
+            count,
+            generated_count,
         )
         LOGGER.info(
             "popularity_intent stage=%s preference=%s confidence=%.2f active=%s",
@@ -256,8 +332,11 @@ async def generate(core: Any, config: Any, prompt: str, count: int) -> dict[str,
             intent.confidence,
             intent.active,
         )
-    elif stage == "llm_guided":
+    else:
         intent = active_popularity_intent()
+        generated_count = count
+
+    if stage == "llm_guided":
         candidates = [dict(item) for item in _ACTIVE_CANDIDATES.get()]
         enhanced = _add_guidance(
             prompt,
@@ -265,7 +344,6 @@ async def generate(core: Any, config: Any, prompt: str, count: int) -> dict[str,
             stage,
         )
     elif stage == "llm_replenishment":
-        intent = active_popularity_intent()
         discovery_anchors = [
             dict(track)
             for track in core._RESOLVED_SESSION_TRACKS.get()
@@ -299,11 +377,30 @@ async def generate(core: Any, config: Any, prompt: str, count: int) -> dict[str,
             intent.active,
         )
 
-    draft = await core.generate_playlist_draft(config, enhanced, count)
+    session_token = None
+    if stage == "llm_replenishment":
+        # The outer runtime already performed Recco discovery. Hide the resolved session only
+        # during the legacy nested discovery block so it cannot issue a duplicate Recco call.
+        session_token = core._RESOLVED_SESSION_TRACKS.set(())
+    try:
+        draft = await core.generate_playlist_draft(
+            config,
+            enhanced,
+            generated_count,
+        )
+    finally:
+        if session_token is not None:
+            core._RESOLVED_SESSION_TRACKS.reset(session_token)
+
+    if stage == "llm_initial" and generated_count != count:
+        # Candidate buffering must never change the final requested playlist capacity.
+        core._REQUESTED_SESSION_COUNT.set(max(0, int(count)))
+
     tracks = [dict(item) for item in draft.get("tracks", []) if isinstance(item, dict)]
     if candidates and tracks:
-        draft["tracks"] = canonicalize_reccobeats_matches(tracks, candidates)
-        tracks = [dict(item) for item in draft["tracks"] if isinstance(item, dict)]
+        tracks = canonicalize_reccobeats_matches(tracks, candidates)
+    tracks = await _score_and_rank_tracks(tracks, active_popularity_intent())
+    draft["tracks"] = tracks
 
     if stage in {"llm_initial", "llm_replenishment"}:
         _log_discovery_stats(
