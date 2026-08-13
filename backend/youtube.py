@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -33,10 +34,15 @@ from backend.metadata_runtime import (
 )
 from backend.text_normalization import normalize_identity as _normalize_identity
 
+LOGGER = logging.getLogger("playlistmuse.performance")
 _TITLE_TOKEN_RE = re.compile(r"[a-z0-9]+")
 _LIVE_RE = re.compile(r"\b(live|concert|session)\b")
 _REMIX_RE = re.compile(r"\b(remix|mix|edit|mashup)\b")
 _COVER_RE = re.compile(r"\b(cover|tribute|karaoke)\b")
+_ARTIST_SPLIT_RE = re.compile(
+    r"\s*(?:,|&|×|\bx\b|\bfeat\.?\b|\bfeaturing\b|\bwith\b)\s*",
+    re.IGNORECASE,
+)
 _COLLECTION_TERMS = (
     "medley",
     "full album",
@@ -51,6 +57,9 @@ MIN_COMBINED_SCORE = 72.0
 DEFAULT_YOUTUBE_RESOLUTION_CONCURRENCY = 4
 DEFAULT_YOUTUBE_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60
 DEFAULT_YOUTUBE_NEGATIVE_CACHE_TTL_SECONDS = 24 * 60 * 60
+YOUTUBE_CACHE_VERSION = "2"
+MAX_METADATA_ARTIST_ATTEMPTS = 3
+_CACHE_DIAGNOSTIC_KEY = "_playlistmuse_unresolved"
 _THREAD_LOCAL = threading.local()
 
 
@@ -107,6 +116,28 @@ def _serialize_song(result: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _exclusion_reason(
+    title: str,
+    *,
+    album: str = "",
+    artists: str = "",
+    live: bool,
+    covers: bool,
+    remixes: bool,
+) -> str | None:
+    title_and_album = f"{title} {album}".casefold()
+    normalized_artists = artists.casefold()
+    if live and _LIVE_RE.search(title_and_album):
+        return "excluded_live"
+    if remixes and _REMIX_RE.search(title_and_album):
+        return "excluded_remix"
+    if covers and (
+        _COVER_RE.search(title_and_album) or _COVER_RE.search(normalized_artists)
+    ):
+        return "excluded_cover"
+    return None
+
+
 def _is_excluded(
     title: str,
     *,
@@ -117,19 +148,14 @@ def _is_excluded(
     remixes: bool,
 ) -> bool:
     """Reject unwanted versions using all catalogue metadata, not only the title."""
-    title_and_album = f"{title} {album}".casefold()
-    normalized_artists = artists.casefold()
-    if live and _LIVE_RE.search(title_and_album):
-        return True
-    if remixes and _REMIX_RE.search(title_and_album):
-        return True
-    return bool(
-        covers
-        and (
-            _COVER_RE.search(title_and_album)
-            or _COVER_RE.search(normalized_artists)
-        )
-    )
+    return _exclusion_reason(
+        title,
+        album=album,
+        artists=artists,
+        live=live,
+        covers=covers,
+        remixes=remixes,
+    ) is not None
 
 
 def _looks_like_collection(candidate_title: str, result_title: str) -> bool:
@@ -192,7 +218,10 @@ def _youtube_cache_key(candidate: dict[str, str], exclusions: dict[str, bool]) -
         "1" if exclusions.get(name, True) else "0"
         for name in ("exclude_live", "exclude_covers", "exclude_remixes")
     )
-    return f"{track_identity_key(candidate.get('title', ''), candidate.get('artist', ''))}|{flags}"
+    identity = track_identity_key(
+        candidate.get("title", ""), candidate.get("artist", "")
+    )
+    return f"{YOUTUBE_CACHE_VERSION}|{identity}|{flags}"
 
 
 def _youtube_cache_connect(path: Path | None = None) -> sqlite3.Connection:
@@ -212,12 +241,12 @@ def _youtube_cache_connect(path: Path | None = None) -> sqlite3.Connection:
     return connection
 
 
-def _read_youtube_cache(
+def _read_youtube_cache_entry(
     candidate: dict[str, str],
     exclusions: dict[str, bool],
     *,
     path: Path | None = None,
-) -> tuple[bool, dict[str, Any] | None]:
+) -> tuple[bool, dict[str, Any] | None, dict[str, Any] | None]:
     try:
         with _youtube_cache_connect(path) as connection:
             row = connection.execute(
@@ -225,11 +254,31 @@ def _read_youtube_cache(
                 (_youtube_cache_key(candidate, exclusions),),
             ).fetchone()
             if not row or float(row["expires_at"]) <= time.time():
-                return False, None
+                return False, None, None
             payload = row["payload"]
-            return True, json.loads(str(payload)) if payload else None
+            if not payload:
+                return True, None, None
+            decoded = json.loads(str(payload))
+            if isinstance(decoded, dict) and _CACHE_DIAGNOSTIC_KEY in decoded:
+                diagnostic = decoded.get(_CACHE_DIAGNOSTIC_KEY)
+                return True, None, diagnostic if isinstance(diagnostic, dict) else None
+            return True, decoded if isinstance(decoded, dict) else None, None
     except (sqlite3.Error, ValueError, TypeError, json.JSONDecodeError):
-        return False, None
+        return False, None, None
+
+
+def _read_youtube_cache(
+    candidate: dict[str, str],
+    exclusions: dict[str, bool],
+    *,
+    path: Path | None = None,
+) -> tuple[bool, dict[str, Any] | None]:
+    hit, track, _ = _read_youtube_cache_entry(
+        candidate,
+        exclusions,
+        path=path,
+    )
+    return hit, track
 
 
 def _write_youtube_cache(
@@ -237,6 +286,7 @@ def _write_youtube_cache(
     exclusions: dict[str, bool],
     track: dict[str, Any] | None,
     *,
+    diagnostic: dict[str, Any] | None = None,
     path: Path | None = None,
 ) -> None:
     ttl = (
@@ -244,6 +294,9 @@ def _write_youtube_cache(
         if track is not None
         else DEFAULT_YOUTUBE_NEGATIVE_CACHE_TTL_SECONDS
     )
+    payload: dict[str, Any] | None = track
+    if track is None and diagnostic:
+        payload = {_CACHE_DIAGNOSTIC_KEY: diagnostic}
     try:
         with _youtube_cache_connect(path) as connection:
             connection.execute(
@@ -256,7 +309,7 @@ def _write_youtube_cache(
                 """,
                 (
                     _youtube_cache_key(candidate, exclusions),
-                    json.dumps(track, ensure_ascii=False) if track is not None else None,
+                    json.dumps(payload, ensure_ascii=False) if payload is not None else None,
                     time.time() + ttl,
                 ),
             )
@@ -279,10 +332,51 @@ def _decorate_resolved_track(
     return decorated
 
 
-def _resolve_one(candidate: dict[str, str], exclusions: dict[str, bool]) -> dict[str, Any] | None:
-    cache_hit, cached = _read_youtube_cache(candidate, exclusions)
+def _set_resolution_diagnostic(diagnostic: dict[str, Any] | None) -> None:
+    _THREAD_LOCAL.last_resolution_diagnostic = diagnostic
+
+
+def _take_resolution_diagnostic() -> dict[str, Any] | None:
+    diagnostic = getattr(_THREAD_LOCAL, "last_resolution_diagnostic", None)
+    _THREAD_LOCAL.last_resolution_diagnostic = None
+    return diagnostic if isinstance(diagnostic, dict) else None
+
+
+def _resolution_failure_reason(stats: dict[str, int]) -> str:
+    usable = stats.get("usable_results", 0)
+    if stats.get("results", 0) == 0:
+        return "no_results"
+    if usable == 0:
+        return "no_usable_results"
+    excluded = sum(
+        stats.get(name, 0)
+        for name in ("excluded_live", "excluded_cover", "excluded_remix")
+    )
+    if excluded >= usable:
+        return "recording_excluded"
+    if stats.get("collection", 0) >= usable:
+        return "collection_result"
+    if stats.get("artist_mismatch", 0) > stats.get("title_mismatch", 0):
+        return "artist_mismatch"
+    if stats.get("title_mismatch", 0):
+        return "title_mismatch"
+    return "no_acceptable_match"
+
+
+def _resolve_one(
+    candidate: dict[str, str], exclusions: dict[str, bool]
+) -> dict[str, Any] | None:
+    _set_resolution_diagnostic(None)
+    cache_hit, cached, cached_diagnostic = _read_youtube_cache_entry(
+        candidate, exclusions
+    )
     if cache_hit:
-        return _decorate_resolved_track(cached, candidate) if cached is not None else None
+        if cached is not None:
+            return _decorate_resolved_track(cached, candidate)
+        _set_resolution_diagnostic(
+            cached_diagnostic or {"reason": "cached_no_match"}
+        )
+        return None
 
     query = f"{candidate['artist']} {candidate['title']}"
     results = _thread_client().search(query, filter="songs", limit=12)
@@ -290,6 +384,10 @@ def _resolve_one(candidate: dict[str, str], exclusions: dict[str, bool]) -> dict
     exclude_live = exclusions.get("exclude_live", True)
     exclude_covers = exclusions.get("exclude_covers", True)
     exclude_remixes = exclusions.get("exclude_remixes", True)
+    stats: dict[str, int] = {"results": len(results), "usable_results": 0}
+    best_title_score = 0.0
+    best_artist_score = 0.0
+    best_combined_score = 0.0
 
     for result in results:
         video_id = result.get("videoId")
@@ -297,39 +395,95 @@ def _resolve_one(candidate: dict[str, str], exclusions: dict[str, bool]) -> dict
         artists = _artist_text(result)
         album = _album_name(result)
         if not video_id or not title or not artists:
+            stats["unusable_result"] = stats.get("unusable_result", 0) + 1
             continue
-        if _is_excluded(
+        stats["usable_results"] += 1
+        exclusion_reason = _exclusion_reason(
             title,
             album=album,
             artists=artists,
             live=exclude_live,
             covers=exclude_covers,
             remixes=exclude_remixes,
-        ):
+        )
+        if exclusion_reason:
+            stats[exclusion_reason] = stats.get(exclusion_reason, 0) + 1
             continue
         if _looks_like_collection(candidate["title"], title):
+            stats["collection"] = stats.get("collection", 0) + 1
             continue
 
         title_score = _title_score(candidate["title"], title)
         artist_score = _artist_score(candidate["artist"], artists)
-        if title_score < MIN_TITLE_SCORE or artist_score < MIN_ARTIST_SCORE:
+        best_title_score = max(best_title_score, title_score)
+        best_artist_score = max(best_artist_score, artist_score)
+        if title_score < MIN_TITLE_SCORE:
+            stats["title_mismatch"] = stats.get("title_mismatch", 0) + 1
+            continue
+        if artist_score < MIN_ARTIST_SCORE:
+            stats["artist_mismatch"] = stats.get("artist_mismatch", 0) + 1
             continue
 
         score = title_score * 0.68 + artist_score * 0.32
+        best_combined_score = max(best_combined_score, score)
         if best is None or score > best[0]:
             best = (score, result)
 
-    if best is None or best[0] < MIN_COMBINED_SCORE:
-        _write_youtube_cache(candidate, exclusions, None)
+    if best is None:
+        diagnostic = {
+            "reason": _resolution_failure_reason(stats),
+            "best_title_score": round(best_title_score, 1),
+            "best_artist_score": round(best_artist_score, 1),
+            **stats,
+        }
+        _write_youtube_cache(
+            candidate,
+            exclusions,
+            None,
+            diagnostic=diagnostic,
+        )
+        _set_resolution_diagnostic(diagnostic)
+        return None
+
+    if best[0] < MIN_COMBINED_SCORE:
+        diagnostic = {
+            "reason": "combined_score_below_threshold",
+            "best_title_score": round(best_title_score, 1),
+            "best_artist_score": round(best_artist_score, 1),
+            "best_combined_score": round(max(best_combined_score, best[0]), 1),
+            **stats,
+        }
+        _write_youtube_cache(
+            candidate,
+            exclusions,
+            None,
+            diagnostic=diagnostic,
+        )
+        _set_resolution_diagnostic(diagnostic)
         return None
 
     song = _serialize_song(best[1])
     if not song:
-        _write_youtube_cache(candidate, exclusions, None)
+        diagnostic = {"reason": "serialization_failed", **stats}
+        _write_youtube_cache(
+            candidate,
+            exclusions,
+            None,
+            diagnostic=diagnostic,
+        )
+        _set_resolution_diagnostic(diagnostic)
         return None
     song["match_score"] = round(best[0], 1)
     _write_youtube_cache(candidate, exclusions, song)
     return _decorate_resolved_track(song, candidate)
+
+
+def _resolve_one_with_diagnostic(
+    candidate: dict[str, str], exclusions: dict[str, bool]
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    _set_resolution_diagnostic(None)
+    track = _resolve_one(candidate, exclusions)
+    return track, _take_resolution_diagnostic()
 
 
 def _metadata_rejection(candidate: dict[str, str], result: Any) -> dict[str, Any]:
@@ -350,6 +504,7 @@ def _metadata_rejection(candidate: dict[str, str], result: Any) -> dict[str, Any
             "original_release_year": metadata.original_release_year,
             "artist_country": metadata.artist_country,
             "artist_area": metadata.artist_area,
+            "matched_artist": metadata.matched_artist,
             "warnings": list(metadata.warnings),
         },
     }
@@ -388,6 +543,106 @@ def _temporarily_unavailable(result: Any) -> bool:
     )
 
 
+def _metadata_retryable(result: ValidationResult, constraints: Any) -> bool:
+    if _temporarily_unavailable(result):
+        return False
+    warnings = " ".join(str(item).casefold() for item in result.metadata.warnings)
+    if "no musicbrainz match" in warnings or "match confidence is too low" in warnings:
+        return True
+    temporal_required = any(
+        value is not None
+        for value in (
+            constraints.release_year,
+            constraints.release_year_from,
+            constraints.release_year_to,
+        )
+    )
+    return (
+        result.status == "unknown"
+        and temporal_required
+        and result.metadata.original_release_year is None
+    )
+
+
+def _metadata_artist_aliases(candidate: dict[str, str]) -> list[str]:
+    canonical = " ".join(str(candidate.get("artist", "")).split())
+    requested = " ".join(str(candidate.get("requested_artist", "")).split())
+    aliases: list[str] = []
+    seen = {_normalize_identity(canonical)} if canonical else set()
+
+    def add(value: str) -> None:
+        normalized = " ".join(str(value).split()).strip(" ,&-")
+        key = _normalize_identity(normalized)
+        if normalized and key and key not in seen:
+            seen.add(key)
+            aliases.append(normalized)
+
+    add(requested)
+    for source in (canonical, requested):
+        parts = [part for part in _ARTIST_SPLIT_RE.split(source) if part]
+        if parts:
+            add(parts[0])
+        for part in parts[1:]:
+            add(part)
+    return aliases[: max(0, MAX_METADATA_ARTIST_ATTEMPTS - 1)]
+
+
+def _prefer_metadata_result(
+    current: ValidationResult,
+    alternative: ValidationResult,
+) -> bool:
+    if alternative.status == "valid" and current.status != "valid":
+        return True
+    if current.status == "valid":
+        return False
+    current_year = current.metadata.original_release_year
+    alternative_year = alternative.metadata.original_release_year
+    if current_year is None and alternative_year is not None:
+        return True
+    return alternative.metadata.match_score > current.metadata.match_score
+
+
+def _canonicalize_fallback_metadata(
+    result: ValidationResult,
+    canonical_artist: str,
+    alias: str,
+) -> ValidationResult:
+    result.metadata.artist = canonical_artist
+    marker = f"MusicBrainz artist fallback used: {alias}"
+    if marker not in result.metadata.warnings:
+        result.metadata.warnings.append(marker)
+    return result
+
+
+def _log_unresolved_candidate(item: dict[str, Any]) -> None:
+    artist = " ".join(str(item.get("artist", "")).split())[:180]
+    title = " ".join(str(item.get("title", "")).split())[:220]
+    reason = str(item.get("unresolved_reason") or "youtube_resolution")
+    if reason == "youtube_resolution":
+        details = item.get("youtube_resolution")
+        LOGGER.info(
+            "catalogue_candidate outcome=rejected layer=youtube artist=%r title=%r "
+            "reason=%s details=%s",
+            artist,
+            title,
+            str(details.get("reason", "unknown")) if isinstance(details, dict) else "unknown",
+            details if isinstance(details, dict) else {},
+        )
+        return
+    if reason in {"metadata_validation", "metadata_service_unavailable"}:
+        validation = item.get("metadata_validation")
+        catalogue = item.get("resolved_catalogue")
+        LOGGER.info(
+            "catalogue_candidate outcome=rejected layer=metadata artist=%r title=%r "
+            "reason=%s resolved_catalogue=%s validation=%s",
+            artist,
+            title,
+            reason,
+            catalogue if isinstance(catalogue, dict) else {},
+            validation if isinstance(validation, dict) else {},
+        )
+
+
 async def _metadata_filter(
     candidates: list[dict[str, str]],
 ) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
@@ -409,7 +664,9 @@ async def _metadata_filter(
 
     accepted: list[dict[str, str]] = []
     rejected: list[dict[str, Any]] = []
-    remaining_lookups = metadata_lookup_limit(len(unique_candidates))
+    remaining_lookups = metadata_lookup_limit(
+        len(unique_candidates) * MAX_METADATA_ARTIST_ATTEMPTS
+    )
     network_attempts = 0
     temporary_failures = 0
     async with httpx.AsyncClient(
@@ -419,24 +676,42 @@ async def _metadata_filter(
             "Accept": "application/json",
         },
     ) as client:
-        for candidate in unique_candidates:
+
+        async def evaluate(candidate: dict[str, str]) -> ValidationResult:
+            nonlocal remaining_lookups, network_attempts, temporary_failures
             artist = str(candidate.get("artist", "")).strip()
             title = str(candidate.get("title", "")).strip()
             cached = _read_cache(artist, title)
             if cached is not None:
-                result = validate_metadata(cached, constraints)
-            elif remaining_lookups > 0:
-                remaining_lookups -= 1
-                network_attempts += 1
-                result = await validate_candidate(
-                    candidate,
-                    constraints,
-                    client=client,
-                )
-                if _temporarily_unavailable(result):
-                    temporary_failures += 1
-            else:
-                result = _budget_exceeded_result(candidate)
+                return validate_metadata(cached, constraints)
+            if remaining_lookups <= 0:
+                return _budget_exceeded_result(candidate)
+            remaining_lookups -= 1
+            network_attempts += 1
+            result = await validate_candidate(
+                candidate,
+                constraints,
+                client=client,
+            )
+            if _temporarily_unavailable(result):
+                temporary_failures += 1
+            return result
+
+        for candidate in unique_candidates:
+            canonical_artist = str(candidate.get("artist", "")).strip()
+            result = await evaluate(candidate)
+            if _metadata_retryable(result, constraints):
+                for alias in _metadata_artist_aliases(candidate):
+                    alternative_candidate = {**candidate, "artist": alias}
+                    alternative = await evaluate(alternative_candidate)
+                    if _prefer_metadata_result(result, alternative):
+                        result = _canonicalize_fallback_metadata(
+                            alternative,
+                            canonical_artist,
+                            alias,
+                        )
+                    if result.status == "valid":
+                        break
 
             if result.status == "valid":
                 copy = dict(candidate)
@@ -445,9 +720,7 @@ async def _metadata_filter(
             else:
                 rejection = _metadata_rejection(candidate, result)
                 if _temporarily_unavailable(result):
-                    rejection["unresolved_reason"] = (
-                        "metadata_service_unavailable"
-                    )
+                    rejection["unresolved_reason"] = "metadata_service_unavailable"
                 rejected.append(rejection)
 
     if network_attempts > 0 and temporary_failures == network_attempts:
@@ -474,10 +747,18 @@ async def resolve_candidates(
 
     async def resolve(
         candidate: dict[str, str],
-    ) -> tuple[dict[str, str], dict[str, Any] | None]:
+    ) -> tuple[
+        dict[str, str],
+        dict[str, Any] | None,
+        dict[str, Any] | None,
+    ]:
         async with semaphore:
-            track = await asyncio.to_thread(_resolve_one, candidate, exclusions)
-            return candidate, track
+            track, diagnostic = await asyncio.to_thread(
+                _resolve_one_with_diagnostic,
+                candidate,
+                exclusions,
+            )
+            return candidate, track, diagnostic
 
     resolution_results = await asyncio.gather(
         *(resolve(candidate) for candidate in unique_candidates)
@@ -486,9 +767,15 @@ async def resolve_candidates(
     unresolved: list[dict[str, Any]] = []
     catalogue_matches: dict[str, tuple[dict[str, str], dict[str, Any]]] = {}
     canonical_candidates: list[dict[str, str]] = []
-    for candidate, track in resolution_results:
+    for candidate, track, diagnostic in resolution_results:
         if not track:
-            unresolved.append(candidate)
+            rejection = {
+                **candidate,
+                "unresolved_reason": "youtube_resolution",
+                "youtube_resolution": diagnostic or {"reason": "unknown"},
+            }
+            unresolved.append(rejection)
+            _log_unresolved_candidate(rejection)
             continue
         canonical_key = track_identity_key(track["title"], track["artists"])
         if not canonical_key or canonical_key in catalogue_matches:
@@ -497,6 +784,8 @@ async def resolve_candidates(
         canonical_candidates.append(
             {
                 **candidate,
+                "requested_artist": str(candidate.get("artist", "")),
+                "requested_title": str(candidate.get("title", "")),
                 "artist": str(track["artists"]),
                 "title": str(track["title"]),
             }
@@ -522,22 +811,22 @@ async def resolve_candidates(
         if accepted is None:
             rejection = rejected_by_key.get(canonical_key)
             if rejection is not None:
-                unresolved.append(
-                    {
-                        **candidate,
-                        "unresolved_reason": rejection.get(
-                            "unresolved_reason", "metadata_validation"
-                        ),
-                        "metadata_validation": rejection.get(
-                            "metadata_validation", {}
-                        ),
-                        "resolved_catalogue": {
-                            "title": track.get("title"),
-                            "artists": track.get("artists"),
-                            "video_id": track.get("video_id"),
-                        },
-                    }
-                )
+                unresolved_item = {
+                    **candidate,
+                    "unresolved_reason": rejection.get(
+                        "unresolved_reason", "metadata_validation"
+                    ),
+                    "metadata_validation": rejection.get(
+                        "metadata_validation", {}
+                    ),
+                    "resolved_catalogue": {
+                        "title": track.get("title"),
+                        "artists": track.get("artists"),
+                        "video_id": track.get("video_id"),
+                    },
+                }
+                unresolved.append(unresolved_item)
+                _log_unresolved_candidate(unresolved_item)
             continue
 
         track_key = track_identity_key(track["title"], track["artists"])
