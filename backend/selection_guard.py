@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from backend.policy_enforcement import (
@@ -13,6 +14,8 @@ from backend.policy_enforcement import (
     quota_artist_match,
     select_resolved_tracks,
 )
+
+logger = logging.getLogger("playlistmuse.performance")
 
 
 def _missing_capacity(
@@ -79,6 +82,31 @@ def _respect_exact_artist_caps(
     return kept
 
 
+def _exclude_remembered_creative_rejections(
+    tracks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Prevent a generation-scoped creative rejection from reaching final selection."""
+    if not tracks:
+        return tracks
+
+    from backend.creative_intent import _remembered_creative_conflicts
+
+    conflicts = _remembered_creative_conflicts(tracks)
+    if not conflicts:
+        return tracks
+
+    rejected_indexes = {conflict.index for conflict in conflicts}
+    logger.info(
+        "creative_fit phase=rejection_memory_catalogue hits=%s",
+        sorted(rejected_indexes),
+    )
+    return [
+        track
+        for index, track in enumerate(tracks, start=1)
+        if index not in rejected_indexes
+    ]
+
+
 def guarded_select_resolved_tracks(
     resolved: list[dict[str, Any]],
     *,
@@ -90,6 +118,7 @@ def guarded_select_resolved_tracks(
     from backend import generation_runtime as runtime
 
     before = list(runtime._RESOLVED_SESSION_TRACKS.get())
+    resolved = _exclude_remembered_creative_rejections(resolved)
     selected = select_resolved_tracks(
         resolved,
         youtube=youtube,
