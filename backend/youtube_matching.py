@@ -9,7 +9,7 @@ from rapidfuzz import fuzz
 from backend.youtube_title_normalization import base_title
 
 _TITLE_TOKEN_RE = re.compile(r"[a-z0-9]+")
-_LIVE_RE = re.compile(r"\b(live|concert|session)\b")
+_LIVE_RE = re.compile(r"(?:\blive(?=\b|\d)|\b(?:concert|session)\b)")
 _REMIX_RE = re.compile(r"\b(remix|mix|edit|mashup)\b")
 _COVER_RE = re.compile(r"\b(cover|tribute|karaoke)\b")
 
