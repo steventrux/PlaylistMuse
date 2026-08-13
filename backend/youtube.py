@@ -16,13 +16,13 @@ from typing import Any
 
 import httpx
 
+from backend import youtube_core as _core
 from backend.metadata_runtime import (
     MetadataServiceUnavailableError,
     metadata_lookup_limit,
 )
 from backend.metadata_validation import (
     USER_AGENT as METADATA_USER_AGENT,
-    TrackMetadata,
     ValidationResult,
     _read_cache,
     active_constraints,
@@ -32,7 +32,6 @@ from backend.metadata_validation import (
 from backend.youtube_core import (
     DEFAULT_YOUTUBE_CACHE_TTL_SECONDS,
     DEFAULT_YOUTUBE_NEGATIVE_CACHE_TTL_SECONDS,
-    DEFAULT_YOUTUBE_RESOLUTION_CONCURRENCY,
     LOGGER,
     MAX_METADATA_LOOKUP_ATTEMPTS,
     MIN_ARTIST_SCORE,
@@ -44,36 +43,39 @@ from backend.youtube_core import (
     _artist_text,
     _budget_exceeded_result,
     _canonicalize_fallback_metadata,
-    _client,
     _decorate_resolved_track,
     _log_unresolved_candidate,
     _looks_like_collection,
-    _metadata_artist_aliases,
     _metadata_fallback_candidates,
     _metadata_rejection,
     _metadata_retryable,
-    _metadata_title_aliases,
     _pair_diagnostic,
     _prefer_metadata_result,
     _resolution_failure_reason,
-    _search_songs,
     _serialize_song,
     _set_resolution_diagnostic,
-    _strip_feature_suffix,
     _take_resolution_diagnostic,
     _temporarily_unavailable,
-    _thumbnail,
     _thread_client,
     _youtube_cache_connect,
-    _youtube_cache_path,
     _youtube_resolution_concurrency,
-    search_songs,
     track_identity_key,
 )
 from backend.youtube_matching import (
     exclusion_reason as _contextual_exclusion_reason,
     title_score as _case_insensitive_title_score,
 )
+
+# Preserve the existing module-level helper surface without runtime patching.
+DEFAULT_YOUTUBE_RESOLUTION_CONCURRENCY = _core.DEFAULT_YOUTUBE_RESOLUTION_CONCURRENCY
+_client = _core._client
+_metadata_artist_aliases = _core._metadata_artist_aliases
+_metadata_title_aliases = _core._metadata_title_aliases
+_search_songs = _core._search_songs
+_strip_feature_suffix = _core._strip_feature_suffix
+_thumbnail = _core._thumbnail
+_youtube_cache_path = _core._youtube_cache_path
+search_songs = _core.search_songs
 
 YOUTUBE_CACHE_VERSION = "3"
 
