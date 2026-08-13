@@ -79,11 +79,11 @@ def test_reccobeats_strict_artist_probe() -> None:
 
             found = None
             pages_checked = 0
-            for page in range(6):
+            for page in range(20):
                 tracks_response = _get(
                     client,
                     f"{BASE}/artist/{exact_artist['id']}/track",
-                    params={"size": 100, "page": page},
+                    params={"size": 20, "page": page},
                 )
                 pages_checked += 1
                 row["tracks_status"] = tracks_response.status_code
@@ -98,7 +98,7 @@ def test_reccobeats_strict_artist_probe() -> None:
                     if _norm(candidate_title) == _norm(title):
                         found = item
                         break
-                if found or len(tracks) < 100:
+                if found or len(tracks) < 20:
                     break
                 time.sleep(0.1)
             row["pages_checked"] = pages_checked
