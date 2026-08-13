@@ -2,10 +2,8 @@
 from __future__ import annotations
 from typing import Any
 
-
 def popularity_preference(intent: Any) -> str:
     return str(intent.preference) if getattr(intent, "active", False) else "neutral"
-
 
 def reccobeats_guidance(candidates: list[dict[str, Any]], preference: str = "neutral") -> str:
     usable = [item for item in candidates[:24] if str(item.get("artist", "")).strip() and str(item.get("title", "")).strip()]
@@ -22,4 +20,5 @@ def reccobeats_guidance(candidates: list[dict[str, Any]], preference: str = "neu
         score = item.get("popularity")
         suffix = f" [Recco popularity: {score}]" if score is not None else ""
         lines.append(f"- {item.get('artist')} — {item.get('title')}{suffix}")
-    return "\n\nRECCOBEATS DISCOVERY: the following catalogue-backed candidates are discovery suggestions, not pre-approved selections. When selecting one, preserve the supplied artist and title. Every hard constraint, artist quota, recording rule, creative requirement and forbidden/already-attempted list remains authoritative. Never include a song only because it appears in this pool. Popularity is a soft preference and never overrides eligibility or creative fit." + rule + "\n" + "\n".join(lines)
+    base = "\n\nRECCOBEATS DISCOVERY: the following catalogue-backed candidates are discovery suggestions, not pre-approved selections; every hard constraint, artist quota, recording rule, creative requirement and forbidden/already-attempted list remains authoritative. When selecting one, preserve the supplied artist and title. Never include a song only because it appears in this pool. Popularity is a soft preference and never overrides eligibility or creative fit."
+    return base + rule + "\n" + "\n".join(lines)
