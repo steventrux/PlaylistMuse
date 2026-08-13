@@ -10,12 +10,30 @@ _TITLE_TOKEN_RE = re.compile(r"[a-z0-9]+")
 _LIVE_RE = re.compile(r"\b(live|concert|session)\b")
 _REMIX_RE = re.compile(r"\b(remix|mix|edit|mashup)\b")
 _COVER_RE = re.compile(r"\b(cover|tribute|karaoke)\b")
+_FEATURE_MARKER_RE = re.compile(r"\b(feat\.?|ft\.?|featuring)\b", re.IGNORECASE)
+_WITH_SUFFIX_RE = re.compile(r"[\(\[]\s*with\s+", re.IGNORECASE)
+
+
+def _strip_feature_credit(value: str) -> str:
+    """Strip only trailing collaborator credits, preserving the actual song title."""
+    normalized = " ".join(str(value).split())
+    match = _FEATURE_MARKER_RE.search(normalized)
+    if match and match.start() > 0:
+        prefix = normalized[: match.start()].rstrip(" -([")
+        if prefix:
+            return prefix
+    match = _WITH_SUFFIX_RE.search(normalized)
+    if match and match.start() > 0:
+        prefix = normalized[: match.start()].rstrip(" -([")
+        if prefix:
+            return prefix
+    return normalized
 
 
 def title_score(candidate_title: str, result_title: str) -> float:
-    """Score titles case-insensitively while penalizing noisy extra tokens."""
-    candidate = " ".join(str(candidate_title).casefold().split())
-    result = " ".join(str(result_title).casefold().split())
+    """Score titles case-insensitively while ignoring trailing featuring credits."""
+    candidate = _strip_feature_credit(candidate_title).casefold()
+    result = _strip_feature_credit(result_title).casefold()
     candidate_tokens = set(_TITLE_TOKEN_RE.findall(candidate))
     result_tokens = set(_TITLE_TOKEN_RE.findall(result))
     extra_tokens = max(0, len(result_tokens - candidate_tokens))
