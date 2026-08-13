@@ -1,329 +1,181 @@
-"""Explicit request-scoped generation orchestration and catalogue selection."""
+"""Request-scoped generation runtime with ReccoBeats discovery orchestration."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import re
-import time
 from contextvars import ContextVar
-from dataclasses import asdict
 from typing import Any
+
+from backend import generation_runtime_core as _core
+from backend.popularity_intent import (
+    PopularityIntent,
+    activate_popularity_intent,
+    active_popularity_intent,
+    interpret_popularity_intent,
+)
+from backend.reccobeats_anchors import interpret_reccobeats_anchors
+from backend.reccobeats_features import recommendation_candidates_from_tracks
+from backend.reccobeats_popularity import (
+    canonicalize_reccobeats_matches,
+    enrich_recommendation_popularity,
+)
 
 logger = logging.getLogger("playlistmuse.performance")
 
-MAX_CREATIVE_REPAIR_ROUNDS = 1
+# Re-export the request-scoped state used by catalogue selection and existing callers.
+_ACTIVE_RESOLUTION_QUOTAS = _core._ACTIVE_RESOLUTION_QUOTAS
+_ACTIVE_EXACT_ARTIST_QUOTAS = _core._ACTIVE_EXACT_ARTIST_QUOTAS
+_RESOLVED_SESSION_TRACKS = _core._RESOLVED_SESSION_TRACKS
+_REQUESTED_SESSION_COUNT = _core._REQUESTED_SESSION_COUNT
 
-_REPLENISHMENT_MISSING_RE = re.compile(
-    r"still needs\s+(\d+)\s+resolvable songs", re.IGNORECASE
+# Preserve the established helper surface.
+MAX_CREATIVE_REPAIR_ROUNDS = _core.MAX_CREATIVE_REPAIR_ROUNDS
+_stage_name = _core._stage_name
+_creative_repair_rounds = _core._creative_repair_rounds
+_constraint_source = _core._constraint_source
+_quota_replenishment_guidance = _core._quota_replenishment_guidance
+_numeric_quota_replenishment_guidance = _core._numeric_quota_replenishment_guidance
+_hard_constraint_guidance = _core._hard_constraint_guidance
+_optimized_replenishment_request = _core._optimized_replenishment_request
+_repair_quota_prompt = _core._repair_quota_prompt
+_reset_resolution_session = _core._reset_resolution_session
+_cap_buffered_quotas_at_exact_counts = _core._cap_buffered_quotas_at_exact_counts
+_album_key = _core._album_key
+_diversity_rank = _core._diversity_rank
+_log_stage = _core._log_stage
+_select_resolved_tracks = _core._select_resolved_tracks
+
+discover_from_anchors = _core.discover_from_anchors
+discover_for_seed = _core.discover_for_seed
+resolve_candidates = _core.resolve_candidates
+
+_ACTIVE_RECCOBEATS_CANDIDATES: ContextVar[tuple[dict[str, Any], ...]] = ContextVar(
+    "playlistmuse_reccobeats_candidates",
+    default=(),
 )
-_REPLENISHMENT_COUNT_RE = re.compile(
-    r"Suggest exactly\s+\d+\s+NEW", re.IGNORECASE
-)
-_STRICT_MAJORITY_ARTIST_RE = re.compile(
-    r"\bpi[uù]\s+della\s+met[aà]\s+(?:dei|degli|delle)?\s*"
-    r"(?:brani|canzoni|tracce|pezzi)?\s*(?:deve|devono)?\s*"
-    r"(?:essere|provenire)?\s*(?:di|dei|degli|delle)\s+([^,;.!\n]{1,120})",
-    re.IGNORECASE,
-)
-
-_ACTIVE_RESOLUTION_QUOTAS: ContextVar[tuple[Any, ...]] = ContextVar(
-    "playlistmuse_resolution_quotas", default=()
-)
-_ACTIVE_EXACT_ARTIST_QUOTAS: ContextVar[tuple[Any, ...]] = ContextVar(
-    "playlistmuse_exact_artist_quotas", default=()
-)
-_RESOLVED_SESSION_TRACKS: ContextVar[tuple[dict[str, Any], ...]] = ContextVar(
-    "playlistmuse_resolved_session_tracks", default=()
-)
-_REQUESTED_SESSION_COUNT: ContextVar[int] = ContextVar(
-    "playlistmuse_requested_session_count", default=0
-)
 
 
-def _stage_name(prompt: str) -> str:
-    normalized = prompt.lstrip()
-    if normalized.startswith("The original playlist request is:"):
-        return "llm_replenishment"
-    if normalized.startswith("Create the final playlist for this request:"):
-        return "llm_guided"
-    if normalized.startswith("Suggest exactly 6 strong replacement candidates"):
-        return "llm_replacement"
-    return "llm_initial"
+def _popularity_preference() -> str:
+    intent = active_popularity_intent()
+    return intent.preference if intent.active else "neutral"
 
 
-def _creative_repair_rounds(stage: str) -> int:
-    """Avoid regenerating refill pools; one repair is enough for full drafts."""
-    return 0 if stage == "llm_replenishment" else MAX_CREATIVE_REPAIR_ROUNDS
-
-
-def _constraint_source(prompt: str, stage: str) -> str:
-    """Extract only the original user request from internal instructions."""
-    if "User request:\n" in prompt:
-        return prompt.split("User request:\n", 1)[1].strip()
-    if stage == "llm_replacement" and "Original playlist request:" in prompt:
-        tail = prompt.split("Original playlist request:", 1)[1]
-        return tail.split("\n", 1)[0].strip()
-    return prompt.strip()
-
-
-def _quota_replenishment_guidance(prompt: str) -> str:
-    if not prompt.lstrip().startswith("The original playlist request is:"):
-        return ""
-    request = prompt.split("The original playlist request is:\n", 1)[1].split(
-        "\n", 1
-    )[0]
-    match = _STRICT_MAJORITY_ARTIST_RE.search(request)
-    if not match:
-        return ""
-    artist = " ".join(match.group(1).split()).strip(" .,-")
-    if not artist:
-        return ""
-    return (
-        "\n\nQUOTA REPLENISHMENT: the original request requires a strict majority of "
-        f"tracks by {artist}. Prioritize distinct, normal studio tracks by {artist} that "
-        "also satisfy every era, genre and exclusion constraint. At least three quarters "
-        "of the replacement candidates in this round should be by that artist until the "
-        "playlist can satisfy the requested majority. Do not repeat previously attempted songs."
-    )
-
-
-def _numeric_quota_replenishment_guidance(prompt: str, pool_size: int) -> str:
-    """Request independent reserves for every explicit numeric artist quota."""
-    if not prompt.lstrip().startswith("The original playlist request is:"):
-        return ""
-
-    from backend.artist_quota_detection import extract_artist_minimum_quotas
-
-    quotas = extract_artist_minimum_quotas(prompt)
-    if not quotas:
-        return ""
-
-    per_artist = max(6, min(10, pool_size // max(1, len(quotas))))
-    requirements = "; ".join(
-        f"at least {per_artist} distinct candidates by {quota.artist}"
-        for quota in quotas
-    )
-    return (
-        "\n\nNUMERIC QUOTA REPLENISHMENT: catalogue resolution may reject or deduplicate "
-        "some suggestions, so provide a generous independent reserve for every quota "
-        f"artist in this round: {requirements}. Use normal studio recordings with canonical "
-        "released titles, preserve every era, genre and exclusion constraint, and do not "
-        "repeat any previously attempted song. Prefer songs from different original albums "
-        "when several valid alternatives exist. Fill any remaining candidate positions with "
-        "other fully compliant artists."
-    )
+def _candidate_line(candidate: dict[str, Any]) -> str:
+    artist = str(candidate.get("artist", "Unknown artist"))
+    title = str(candidate.get("title", "Unknown track"))
+    popularity = candidate.get("popularity")
+    suffix = f" [Recco popularity: {popularity}]" if popularity is not None else ""
+    return f"- {artist} — {title}{suffix}"
 
 
 def _reccobeats_replenishment_guidance(
-    candidates: list[dict[str, str]],
+    candidates: list[dict[str, Any]],
+    popularity_preference: str = "neutral",
 ) -> str:
-    """Prefer real ReccoBeats identities without weakening authoritative constraints."""
-    lines = [
-        f"- {candidate.get('artist', 'Unknown artist')} — "
-        f"{candidate.get('title', 'Unknown track')}"
+    """Expose verified Recco identities and optional relative popularity evidence."""
+    usable = [
+        candidate
         for candidate in candidates[:24]
         if str(candidate.get("artist", "")).strip()
         and str(candidate.get("title", "")).strip()
     ]
-    if not lines:
-        return ""
-    return (
-        "\n\nRECCOBEATS DISCOVERY: the following catalogue-backed recommendations were "
-        "derived from tracks already verified in this playlist. Prefer them as a source "
-        "of real song identities when they satisfy the original request. They are discovery "
-        "candidates, not pre-approved selections: every hard constraint, artist quota, "
-        "recording-version rule, creative requirement and forbidden/already-attempted list "
-        "remains authoritative. Never include a song only because it appears in this pool. "
-        "If the pool is insufficient, propose other canonical released tracks rather than "
-        "relaxing a requirement.\n"
-        + "\n".join(lines)
-    )
-
-
-def _hard_constraint_guidance(constraints: Any) -> str:
-    """Describe only constraints that the downstream validator will actually enforce."""
-    if constraints is None or not getattr(constraints, "active", False):
+    if not usable:
         return ""
 
-    rules: list[str] = []
-    release_year = getattr(constraints, "release_year", None)
-    release_from = getattr(constraints, "release_year_from", None)
-    release_to = getattr(constraints, "release_year_to", None)
-    if release_year is not None:
-        rules.append(f"original release year must be exactly {release_year}")
-    elif release_from is not None and release_to is not None:
-        rules.append(
-            f"original release year must be between {release_from} and {release_to}, inclusive"
+    preference = str(popularity_preference).strip().casefold()
+    popularity_rule = ""
+    if preference == "popular":
+        popularity_rule = (
+            " The user explicitly prefers more popular or recognizable songs. Among "
+            "otherwise equally compliant candidates, prefer higher Recco popularity values."
         )
-    elif release_from is not None:
-        rules.append(f"original release year must be {release_from} or later")
-    elif release_to is not None:
-        rules.append(f"original release year must be {release_to} or earlier")
-
-    allowed_artists = list(getattr(constraints, "allowed_artists", []) or [])
-    excluded_artists = list(getattr(constraints, "excluded_artists", []) or [])
-    allowed_albums = list(getattr(constraints, "allowed_albums", []) or [])
-    excluded_albums = list(getattr(constraints, "excluded_albums", []) or [])
-    artist_country = getattr(constraints, "artist_country", None)
-    if allowed_artists:
-        rules.append("allowed artists: " + ", ".join(allowed_artists))
-    if excluded_artists:
-        rules.append("excluded artists: " + ", ".join(excluded_artists))
-    if allowed_albums:
-        rules.append("allowed albums: " + ", ".join(allowed_albums))
-    if excluded_albums:
-        rules.append("excluded albums: " + ", ".join(excluded_albums))
-    if artist_country:
-        rules.append(f"artist country must be {artist_country}")
-    if not rules:
-        return ""
+    elif preference == "less_known":
+        popularity_rule = (
+            " The user explicitly prefers lesser-known songs. Among otherwise equally "
+            "compliant candidates, prefer lower known Recco popularity values. A missing "
+            "popularity value is neutral and must not be treated as proof of obscurity."
+        )
 
     return (
-        "\n\nENFORCED HARD CONSTRAINTS: the catalogue validator will reject candidates "
-        "that do not satisfy these rules. Do not spend candidate slots on known violations. "
-        "Use canonical released song titles and original-release chronology, not reissue or "
-        "remaster dates.\n- "
-        + "\n- ".join(rules)
+        "\n\nRECCOBEATS DISCOVERY: the following catalogue-backed recommendations are "
+        "real ReccoBeats identities. If you select one of them, copy its artist and title "
+        "exactly as written; do not rewrite, translate or reattribute the identity. They are "
+        "discovery candidates, not pre-approved selections: every hard constraint, artist "
+        "quota, recording-version rule, creative requirement and forbidden/already-attempted "
+        "list remains authoritative. Never include a song only because it appears in this "
+        "pool. Popularity is always a soft preference and never overrides eligibility or "
+        "creative fit."
+        f"{popularity_rule}\n"
+        + "\n".join(_candidate_line(candidate) for candidate in usable)
     )
 
 
-def _optimized_replenishment_request(prompt: str, count: int) -> tuple[str, int]:
-    if not prompt.lstrip().startswith("The original playlist request is:"):
-        return prompt, count
-    match = _REPLENISHMENT_MISSING_RE.search(prompt)
-    if not match:
-        return prompt, count
-    missing = max(1, int(match.group(1)))
-    optimized_count = min(30, max(12, missing * 4, count))
-    optimized_prompt = _REPLENISHMENT_COUNT_RE.sub(
-        f"Suggest exactly {optimized_count} NEW", prompt, count=1
-    )
-    optimized_prompt += _quota_replenishment_guidance(optimized_prompt)
-    optimized_prompt += _numeric_quota_replenishment_guidance(
-        optimized_prompt, optimized_count
-    )
-    return optimized_prompt, optimized_count
-
-
-def _repair_quota_prompt(
-    request: str,
-    count: int,
-    quotas: list[Any],
-    draft: dict[str, Any],
+def _initial_reccobeats_guidance(
+    candidates: list[dict[str, Any]],
+    popularity_preference: str,
 ) -> str:
-    requirements = "; ".join(
-        f"at least {quota.minimum} tracks by {quota.artist}" for quota in quotas
+    guidance = _reccobeats_replenishment_guidance(
+        candidates,
+        popularity_preference,
     )
-    current = "\n".join(
-        f"- {track.get('artist', 'Unknown artist')} — {track.get('title', 'Unknown track')}"
-        for track in draft.get("tracks", [])
-        if isinstance(track, dict)
-    )
-    return (
-        f"Repair this playlist for the original request:\n{request}\n\n"
-        f"Return exactly {count} distinct tracks. These are independent mandatory artist "
-        f"targets with a catalogue-resolution safety margin: {requirements}. Each target "
-        "must be satisfied separately; do not combine the artists into one shared quota. "
-        "Preserve every other original constraint, including era, genre, exclusions, live, "
-        "cover and remix restrictions. Replace unsuitable tracks rather than relaxing a "
-        "requirement. Prefer tracks from different original albums whenever possible and "
-        "avoid concentrating an artist's selections on one album. Use canonical released "
-        f"song titles likely to be found on YouTube Music.\n\nCurrent draft:\n{current or '- None'}"
+    if not guidance:
+        return ""
+    return guidance.replace(
+        "derived from tracks already verified in this playlist. ",
+        "",
     )
 
 
-def _reset_resolution_session(
-    quotas: list[Any],
-    count: int,
-    exact_quotas: list[Any] | None = None,
-) -> None:
-    """Start a clean catalogue-selection session for one generation request."""
-    _ACTIVE_RESOLUTION_QUOTAS.set(tuple(quotas))
-    _ACTIVE_EXACT_ARTIST_QUOTAS.set(tuple(exact_quotas or ()))
-    _RESOLVED_SESSION_TRACKS.set(())
-    _REQUESTED_SESSION_COUNT.set(max(0, int(count)))
-
-
-def _cap_buffered_quotas_at_exact_counts(
-    quotas: list[Any],
-    exact_quotas: list[Any],
-) -> list[Any]:
-    if not exact_quotas:
-        return quotas
-
-    from backend.artist_quota_detection import ArtistMinimumQuota, artist_matches
-
-    capped: list[Any] = []
-    for quota in quotas:
-        exact = next(
-            (
-                item
-                for item in exact_quotas
-                if artist_matches(quota.artist, item.artist)
-                or artist_matches(item.artist, quota.artist)
-            ),
-            None,
-        )
-        capped.append(
-            ArtistMinimumQuota(quota.artist, exact.count) if exact is not None else quota
-        )
-    return capped
-
-
-def _album_key(track: dict[str, Any]) -> str:
-    from backend.text_normalization import normalize_identity
-
-    album = str(track.get("album") or "").strip()
-    return normalize_identity(album) if album else ""
-
-
-def _diversity_rank(
-    track: dict[str, Any], existing: list[dict[str, Any]]
-) -> tuple[int, int, str]:
-    """Prefer less represented albums, then less represented artists."""
-    from backend.text_normalization import normalize_identity
-
-    album = _album_key(track)
-    artist = normalize_identity(
-        str(track.get("artists", track.get("artist", "")))
-    )
-    album_count = sum(1 for item in existing if album and _album_key(item) == album)
-    artist_count = sum(
-        1
-        for item in existing
-        if normalize_identity(
-            str(item.get("artists", item.get("artist", "")))
-        )
-        == artist
-    )
-    return album_count, artist_count, album
-
-
-def _log_stage(stage: str, started_at: float, **details: Any) -> None:
-    elapsed_ms = round((time.perf_counter() - started_at) * 1000)
-    suffix = " ".join(f"{key}={value}" for key, value in details.items())
-    logger.info(
-        "playlist_stage stage=%s elapsed_ms=%s %s", stage, elapsed_ms, suffix
-    )
-
-
-def _select_resolved_tracks(
-    resolved: list[dict[str, Any]],
+async def _recommendations_from_anchors(
+    anchors: list[dict[str, Any]],
     *,
-    youtube: Any,
-    artist_matches: Any,
-    quota_deficits: Any,
+    limit: int,
+    preference: str,
 ) -> list[dict[str, Any]]:
-    """Apply the integrated policy-aware catalogue selection guard."""
-    from backend.selection_guard import guarded_select_resolved_tracks
+    if not anchors:
+        return []
+    try:
+        candidates = await recommendation_candidates_from_tracks(
+            anchors,
+            limit=limit,
+            max_anchors=3,
+        )
+        return await enrich_recommendation_popularity(
+            [dict(candidate) for candidate in candidates],
+            preference=preference,
+        )
+    except Exception as error:  # noqa: BLE001 - optional discovery is fail-open.
+        logger.info(
+            "reccobeats_discovery unavailable anchors=%s error=%s",
+            len(anchors),
+            type(error).__name__,
+        )
+        return []
 
-    return guarded_select_resolved_tracks(
-        resolved,
-        youtube=youtube,
-        artist_matches=artist_matches,
-        quota_deficits=quota_deficits,
+
+async def _initial_discovery(
+    config: Any,
+    source_prompt: str,
+    count: int,
+) -> tuple[PopularityIntent, list[dict[str, Any]], list[dict[str, Any]]]:
+    popularity_result, anchors_result = await asyncio.gather(
+        interpret_popularity_intent(config, source_prompt),
+        interpret_reccobeats_anchors(config, source_prompt),
     )
+    intent = (
+        popularity_result
+        if isinstance(popularity_result, PopularityIntent)
+        else PopularityIntent(confidence=0.0)
+    )
+    anchors = [dict(anchor) for anchor in anchors_result if isinstance(anchor, dict)]
+    preference = intent.preference if intent.active else "neutral"
+    candidates = await _recommendations_from_anchors(
+        anchors,
+        limit=min(24, max(12, int(count))),
+        preference=preference,
+    )
+    return intent, anchors, candidates
 
 
 async def generate_playlist_draft(
@@ -331,459 +183,111 @@ async def generate_playlist_draft(
     prompt: str,
     count: int,
 ) -> dict[str, Any]:
-    """Generate and validate one draft without mutating imported modules."""
-    from backend.artist_quota_detection import (
-        exact_quota_guidance,
-        extract_artist_exact_quotas,
-        extract_artist_minimum_quotas,
-        quota_deficits,
-        quota_guidance,
-        user_request_text,
-    )
-    from backend.creative_intent import (
-        CreativeIntent,
-        activate_creative_intent,
-        assess_creative_fit,
-        creative_repair_prompt,
-        interpret_creative_intent,
-    )
-    from backend.entity_resolution import canonicalize_interpretation
-    from backend.llm import generate_playlist_draft as raw_generate_playlist_draft
-    from backend.metadata_validation import (
-        activate_constraints,
-        active_constraints,
-        constraints_from_payload,
-        extract_metadata_constraints,
-    )
-    from backend.playlist_policy import hard_allowed_artists, policy_from_payload
-    from backend.policy_consistency import apply_playlist_policy
-    from backend.policy_enforcement import (
-        _ACTIVE_POLICY,
-        _POLICY_BASE_TRACKS,
-        _REPLACEMENT_FINAL_COUNT,
-        _REPLACEMENT_MODE,
-        parse_replacement_tracks,
-    )
-    from backend.prompt_validation import assess_interpretation, assess_prompt
-    from backend.recording_variants import (
-        RecordingVariantPolicy,
-        activate_recording_policy,
-        interpret_recording_policy,
-    )
-    from backend.request_constraints import (
-        buffered_artist_quotas,
-        open_ended_year_range,
-    )
-
-    optimized_prompt, optimized_count = _optimized_replenishment_request(
-        prompt, count
-    )
+    """Generate one draft while adding fail-open Recco discovery before the main LLM call."""
+    optimized_prompt, optimized_count = _optimized_replenishment_request(prompt, count)
     stage = _stage_name(optimized_prompt)
-    if stage == "llm_initial":
-        _ACTIVE_POLICY.set(None)
-        _POLICY_BASE_TRACKS.set(())
-        _REPLACEMENT_MODE.set(False)
-        _REPLACEMENT_FINAL_COUNT.set(0)
-        activate_recording_policy(RecordingVariantPolicy())
-        activate_creative_intent(CreativeIntent())
-    elif stage == "llm_replacement":
-        base_tracks, final_count = parse_replacement_tracks(optimized_prompt)
-        _ACTIVE_POLICY.set(None)
-        _POLICY_BASE_TRACKS.set(tuple(base_tracks))
-        _REPLACEMENT_MODE.set(True)
-        _REPLACEMENT_FINAL_COUNT.set(final_count)
-        activate_recording_policy(RecordingVariantPolicy())
-        activate_creative_intent(CreativeIntent())
-
-    started_at = time.perf_counter()
-    should_interpret = stage in {"llm_initial", "llm_replacement"}
     source_prompt = _constraint_source(optimized_prompt, stage)
-    user_request = user_request_text(optimized_prompt)
-    artist_quotas = extract_artist_minimum_quotas(user_request)
-    exact_artist_quotas = extract_artist_exact_quotas(user_request)
-    if should_interpret:
-        _reset_resolution_session(artist_quotas, count, exact_artist_quotas)
-    generation_quotas = buffered_artist_quotas(
-        artist_quotas, optimized_count
-    )
-    generation_quotas = _cap_buffered_quotas_at_exact_counts(
-        generation_quotas,
-        exact_artist_quotas,
-    )
-    submitted_prompt = optimized_prompt + quota_guidance(generation_quotas)
-    submitted_prompt += exact_quota_guidance(exact_artist_quotas)
-    submitted_prompt += (
-        "\n\nALBUM DIVERSITY: when several compliant tracks are available, prefer "
-        "different original albums. Avoid selecting many tracks from the same "
-        "album unless the user explicitly asks for that album."
-    )
-    fallback = (
-        extract_metadata_constraints(source_prompt)
-        if should_interpret
-        else None
-    )
-    interpreted: dict[str, Any] | None = None
-    assessment = None
-    enforced_constraints = None
-    try:
-        if should_interpret:
-            assessment, recording_policy, creative_intent = await asyncio.gather(
-                assess_prompt(config, source_prompt),
-                interpret_recording_policy(config, source_prompt),
-                interpret_creative_intent(config, source_prompt),
-            )
-            activate_recording_policy(recording_policy)
-            activate_creative_intent(creative_intent)
-            if assessment.status == "impossible":
-                reason = " ".join(assessment.reasons)
-                raise ValueError(
-                    reason
-                    or "The request contains incompatible constraints."
-                )
-            interpreted = await canonicalize_interpretation(
-                assessment.interpretation
-            )
-            assessment = assess_interpretation(interpreted)
-            enforced_constraints = constraints_from_payload(
-                interpreted, fallback=fallback
-            )
-            explicit_open_range = open_ended_year_range(source_prompt)
-            if (
-                explicit_open_range is not None
-                and enforced_constraints.release_year is None
-            ):
-                lower, upper = explicit_open_range
-                enforced_constraints.release_year_from = max(
-                    lower,
-                    enforced_constraints.release_year_from
-                    if enforced_constraints.release_year_from is not None
-                    else lower,
-                )
-                enforced_constraints.release_year_to = min(
-                    upper,
-                    enforced_constraints.release_year_to
-                    if enforced_constraints.release_year_to is not None
-                    else upper,
-                )
-        else:
-            enforced_constraints = active_constraints()
 
-        hard_guidance = _hard_constraint_guidance(enforced_constraints)
-        submitted_prompt += hard_guidance
+    reccobeats_candidates: list[dict[str, Any]] = []
+    discovery_anchors: list[dict[str, Any]] = []
+    enhanced_prompt = prompt
 
-        reccobeats_guidance = ""
-        if stage == "llm_replenishment":
-            verified_anchors = [
-                dict(track)
-                for track in _RESOLVED_SESSION_TRACKS.get()
-                if isinstance(track, dict)
-            ]
-            reccobeats_candidates: list[dict[str, str]] = []
-            if verified_anchors:
-                try:
-                    from backend.reccobeats_features import (
-                        recommendation_candidates_from_tracks,
-                    )
+    if stage in {"llm_initial", "llm_replacement"}:
+        activate_popularity_intent(PopularityIntent())
+        _ACTIVE_RECCOBEATS_CANDIDATES.set(())
 
-                    reccobeats_candidates = await recommendation_candidates_from_tracks(
-                        verified_anchors,
-                        limit=min(24, max(12, optimized_count)),
-                        max_anchors=3,
-                    )
-                except Exception as error:  # noqa: BLE001 - optional discovery is fail-open.
-                    logger.info(
-                        "reccobeats_replenishment unavailable error=%s",
-                        type(error).__name__,
-                    )
-            reccobeats_guidance = _reccobeats_replenishment_guidance(
-                reccobeats_candidates
-            )
-            submitted_prompt += reccobeats_guidance
-            logger.info(
-                "reccobeats_replenishment anchors=%s candidates=%s applied=%s",
-                len(verified_anchors),
-                len(reccobeats_candidates),
-                bool(reccobeats_guidance),
-            )
-
-        async def repair_quota_deficits(
-            current: dict[str, Any],
-        ) -> tuple[dict[str, Any], list[Any]]:
-            deficits = quota_deficits(
-                [
-                    track
-                    for track in current.get("tracks", [])
-                    if isinstance(track, dict)
-                ],
-                generation_quotas,
-            )
-            for _ in range(2):
-                if not deficits:
-                    break
-                repair_prompt = _repair_quota_prompt(
-                    user_request,
-                    optimized_count,
-                    generation_quotas,
-                    current,
-                )
-                repaired = await raw_generate_playlist_draft(
-                    config,
-                    repair_prompt + hard_guidance + reccobeats_guidance,
-                    optimized_count,
-                )
-                repaired_deficits = quota_deficits(
-                    [
-                        track
-                        for track in repaired.get("tracks", [])
-                        if isinstance(track, dict)
-                    ],
-                    generation_quotas,
-                )
-                if sum(item.minimum for item in repaired_deficits) >= sum(
-                    item.minimum for item in deficits
-                ):
-                    break
-                current = repaired
-                deficits = repaired_deficits
-            return current, deficits
-
-        draft = await raw_generate_playlist_draft(
-            config, submitted_prompt, optimized_count
+    if stage == "llm_initial":
+        popularity_intent, discovery_anchors, reccobeats_candidates = (
+            await _initial_discovery(config, source_prompt, optimized_count)
         )
-        draft, generation_deficits = await repair_quota_deficits(draft)
-
-        creative_conflicts = await assess_creative_fit(
-            config,
-            [
-                track
-                for track in draft.get("tracks", [])
-                if isinstance(track, dict)
-            ],
+        activate_popularity_intent(popularity_intent)
+        _ACTIVE_RECCOBEATS_CANDIDATES.set(
+            tuple(dict(candidate) for candidate in reccobeats_candidates)
         )
-        for _ in range(_creative_repair_rounds(stage)):
-            if not creative_conflicts:
-                break
-            repaired = await raw_generate_playlist_draft(
-                config,
-                creative_repair_prompt(
-                    user_request,
-                    optimized_count,
-                    draft,
-                    creative_conflicts,
-                )
-                + hard_guidance,
-                optimized_count,
-            )
-            repaired, repaired_deficits = await repair_quota_deficits(repaired)
-            repaired_conflicts = await assess_creative_fit(
-                config,
-                [
-                    track
-                    for track in repaired.get("tracks", [])
-                    if isinstance(track, dict)
-                ],
-            )
-            if len(repaired_conflicts) >= len(creative_conflicts):
-                break
-            draft = repaired
-            generation_deficits = repaired_deficits
-            creative_conflicts = repaired_conflicts
-
-        if creative_conflicts:
-            conflict_by_index = {
-                conflict.index: conflict for conflict in creative_conflicts
-            }
-            accepted_tracks: list[dict[str, Any]] = []
-            rejected_tracks: list[dict[str, Any]] = []
-            for index, track in enumerate(
-                [
-                    item
-                    for item in draft.get("tracks", [])
-                    if isinstance(item, dict)
-                ],
-                start=1,
-            ):
-                conflict = conflict_by_index.get(index)
-                if conflict is None:
-                    accepted_tracks.append(track)
-                    continue
-                rejected_tracks.append(
-                    {
-                        **track,
-                        "unresolved_reason": "creative_intent_validation",
-                        "creative_intent_reason": conflict.reason,
-                        "creative_intent_confidence": conflict.confidence,
-                    }
-                )
-            draft["tracks"] = accepted_tracks
-            draft["creative_intent_rejected"] = rejected_tracks
-            generation_deficits = quota_deficits(
-                accepted_tracks,
-                generation_quotas,
-            )
-
-        effective_deficits = quota_deficits(
-            [
-                track
-                for track in draft.get("tracks", [])
-                if isinstance(track, dict)
-            ],
-            artist_quotas,
+        guidance = _initial_reccobeats_guidance(
+            reccobeats_candidates,
+            _popularity_preference(),
         )
-        if should_interpret:
-            constraints = enforced_constraints
-            policy = policy_from_payload(interpreted, prompt=source_prompt)
-            _ACTIVE_POLICY.set(policy)
-            constraints.allowed_artists = hard_allowed_artists(
-                constraints.allowed_artists,
-                policy,
-                prompt=source_prompt,
-            )
-            constraints.artist_name = (
-                constraints.allowed_artists[0]
-                if len(constraints.allowed_artists) == 1
-                else None
-            )
-            activate_constraints(constraints)
-            draft, policy_issues = apply_playlist_policy(
-                draft, policy, requested_count=optimized_count
-            )
-            draft["prompt_assessment"] = (
-                assessment.as_dict()
-                if assessment
-                else {"status": "valid", "reasons": []}
-            )
-            logger.info(
-                "playlist_constraints stage=%s constraints=%s policy=%s "
-                "issues=%s artist_quota_deficits=%s "
-                "buffered_quota_deficits=%s exact_artist_quotas=%s assessment=%s",
-                stage,
-                asdict(constraints),
-                asdict(policy),
-                policy_issues,
-                [asdict(item) for item in effective_deficits],
-                [asdict(item) for item in generation_deficits],
-                [asdict(item) for item in exact_artist_quotas],
-                draft["prompt_assessment"],
-            )
-        else:
-            active_policy = _ACTIVE_POLICY.get()
-            if active_policy is not None:
-                draft, _ = apply_playlist_policy(
-                    draft,
-                    active_policy,
-                    requested_count=max(
-                        optimized_count,
-                        len(draft.get("tracks", [])),
-                    ),
-                )
-        return draft
-    finally:
-        _log_stage(
+        if guidance:
+            enhanced_prompt += guidance
+        logger.info(
+            "reccobeats_initial anchors=%s candidates=%s applied=%s popularity=%s",
+            len(discovery_anchors),
+            len(reccobeats_candidates),
+            bool(guidance),
+            _popularity_preference(),
+        )
+        logger.info(
+            "popularity_intent stage=%s preference=%s confidence=%.2f active=%s",
             stage,
-            started_at,
-            requested=count,
-            submitted=optimized_count,
-            creative_repair_limit=_creative_repair_rounds(stage),
+            popularity_intent.preference,
+            popularity_intent.confidence,
+            popularity_intent.active,
+        )
+    elif stage == "llm_guided":
+        reccobeats_candidates = [
+            dict(candidate) for candidate in _ACTIVE_RECCOBEATS_CANDIDATES.get()
+        ]
+        guidance = _initial_reccobeats_guidance(
+            reccobeats_candidates,
+            _popularity_preference(),
+        )
+        if guidance:
+            enhanced_prompt += guidance
+    elif stage == "llm_replenishment":
+        discovery_anchors = [
+            dict(track)
+            for track in _RESOLVED_SESSION_TRACKS.get()
+            if isinstance(track, dict)
+        ]
+        reccobeats_candidates = await _recommendations_from_anchors(
+            discovery_anchors,
+            limit=min(24, max(12, optimized_count)),
+            preference=_popularity_preference(),
+        )
+        _ACTIVE_RECCOBEATS_CANDIDATES.set(
+            tuple(dict(candidate) for candidate in reccobeats_candidates)
+        )
+        # Core already supplies the identity list during replenishment. Add only the richer
+        # popularity/identity instruction here; its recommendation lookup is cache-backed.
+        guidance = _reccobeats_replenishment_guidance(
+            reccobeats_candidates,
+            _popularity_preference(),
+        )
+        if guidance:
+            enhanced_prompt += guidance
+        logger.info(
+            "reccobeats_enhanced_replenishment anchors=%s candidates=%s applied=%s popularity=%s",
+            len(discovery_anchors),
+            len(reccobeats_candidates),
+            bool(guidance),
+            _popularity_preference(),
+        )
+    elif stage == "llm_replacement":
+        popularity_intent = await interpret_popularity_intent(config, source_prompt)
+        activate_popularity_intent(popularity_intent)
+        logger.info(
+            "popularity_intent stage=%s preference=%s confidence=%.2f active=%s",
+            stage,
+            popularity_intent.preference,
+            popularity_intent.confidence,
+            popularity_intent.active,
         )
 
-
-async def discover_from_anchors(
-    anchors: list[dict[str, str]],
-    *,
-    limit: int = 40,
-    max_anchors: int = 3,
-) -> list[dict[str, str]]:
-    """Run prompt-anchor discovery with explicit timing instrumentation."""
-    from backend.lastfm_discovery import (
-        discover_from_anchors as raw_discover_from_anchors,
-    )
-
-    started_at = time.perf_counter()
-    try:
-        return await raw_discover_from_anchors(
-            anchors,
-            limit=limit,
-            max_anchors=max_anchors,
+    draft = await _core.generate_playlist_draft(config, enhanced_prompt, count)
+    tracks = [
+        dict(track)
+        for track in draft.get("tracks", [])
+        if isinstance(track, dict)
+    ]
+    if reccobeats_candidates and tracks:
+        draft["tracks"] = canonicalize_reccobeats_matches(
+            tracks,
+            reccobeats_candidates,
         )
-    finally:
-        _log_stage("lastfm_prompt_discovery", started_at)
+    return draft
 
 
-async def discover_for_seed(
-    artist: str,
-    title: str,
-    *,
-    limit: int = 40,
-    api_key: str | None = None,
-    client: Any | None = None,
-) -> list[dict[str, str]]:
-    """Run seed discovery with explicit timing instrumentation."""
-    from backend.lastfm_discovery import (
-        discover_for_seed as raw_discover_for_seed,
-    )
-
-    started_at = time.perf_counter()
-    try:
-        return await raw_discover_for_seed(
-            artist,
-            title,
-            limit=limit,
-            api_key=api_key,
-            client=client,
-        )
-    finally:
-        _log_stage("lastfm_seed_discovery", started_at)
-
-
-async def resolve_candidates(
-    candidates: list[dict[str, str]],
-    exclusions: dict[str, bool],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Resolve catalogue candidates and enforce recording-version policy before selection."""
-    from backend import youtube
-    from backend.artist_quota_detection import artist_matches, quota_deficits
-    from backend.recording_variants import (
-        active_recording_policy,
-        effective_resolver_options,
-        filter_resolved_recording_variants,
-        policy_with_option_exclusions,
-        recording_filter_conflicts,
-    )
-
-    started_at = time.perf_counter()
-    try:
-        recording_policy = active_recording_policy()
-        conflicts = recording_filter_conflicts(exclusions, recording_policy)
-        if conflicts and not recording_policy.override_exclusions:
-            raise ValueError(conflicts[0].message)
-        effective_exclusions = effective_resolver_options(
-            exclusions,
-            recording_policy,
-        )
-        resolved, unresolved = await youtube.resolve_candidates(
-            candidates,
-            effective_exclusions,
-        )
-        validation_policy = policy_with_option_exclusions(
-            effective_exclusions,
-            recording_policy,
-        )
-        resolved, variant_rejected = filter_resolved_recording_variants(
-            resolved,
-            validation_policy,
-        )
-        unresolved.extend(variant_rejected)
-        selected = _select_resolved_tracks(
-            resolved,
-            youtube=youtube,
-            artist_matches=artist_matches,
-            quota_deficits=quota_deficits,
-        )
-        return selected, unresolved
-    finally:
-        _log_stage(
-            "catalogue_resolution",
-            started_at,
-            candidates=len(candidates),
-        )
+def __getattr__(name: str) -> Any:
+    """Delegate less-common private helpers to the stable runtime implementation."""
+    return getattr(_core, name)
