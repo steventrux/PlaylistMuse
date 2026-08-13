@@ -122,52 +122,12 @@ def test_select_prompt_anchors_deduplicates_and_limits() -> None:
     ]
 
 
-def test_prompt_discovery_uses_distinct_ai_anchors(monkeypatch) -> None:
-    calls: list[tuple[str, str, int]] = []
-
-    monkeypatch.setattr(discovery, "lastfm_api_key", lambda: "saved-key")
-
-    async def fake_discover_for_seed(
-        artist,
-        title,
-        *,
-        limit=40,
-        api_key=None,
-        client=None,
-    ):
-        calls.append((artist, title, limit))
-        return [
-            {
-                "artist": f"Related to {artist}",
-                "title": f"Signal for {title}",
-                "source": "lastfm",
-                "lastfm_strategy": "similar_track",
-                "lastfm_match": "0.8",
-                "anchor_artist": artist,
-                "anchor_title": title,
-            }
-        ]
-
-    monkeypatch.setattr(discovery, "discover_for_seed", fake_discover_for_seed)
-
+def test_prompt_anchor_discovery_is_disabled() -> None:
     anchors = [
         {"artist": "Artist A", "title": "Track A"},
-        {"artist": "Artist A", "title": "Track A"},
         {"artist": "Artist B", "title": "Track B"},
-        {"artist": "Artist C", "title": "Track C"},
-        {"artist": "Artist D", "title": "Track D"},
     ]
 
     signals = asyncio.run(discovery.discover_from_anchors(anchors, limit=12))
 
-    assert [(artist, title) for artist, title, _ in calls] == [
-        ("Artist A", "Track A"),
-        ("Artist B", "Track B"),
-        ("Artist C", "Track C"),
-    ]
-    assert len(signals) == 3
-    assert [signal["anchor_title"] for signal in signals] == [
-        "Track A",
-        "Track B",
-        "Track C",
-    ]
+    assert signals == []
