@@ -104,19 +104,10 @@ def test_creative_fit_refines_only_uncertain_tracks_with_audio_evidence(monkeypa
 
     async def fake_audio(tracks):
         assert [track["title"] for track in tracks] == [
-            "Track 2",
             "Track 4",
             "Track 5",
         ]
         return [
-            ReccoBeatsAudioEvidence(
-                match_source="track_search",
-                danceability=0.86,
-                energy=0.82,
-                valence=0.77,
-                tempo=124.0,
-                liveness=0.61,
-            ),
             ReccoBeatsAudioEvidence(
                 match_source="track_search",
                 energy=0.52,
@@ -138,6 +129,7 @@ def test_creative_fit_refines_only_uncertain_tracks_with_audio_evidence(monkeypa
         assert "quantitative external evidence" in system_prompt
         assert "single fixed danceability" in system_prompt
         assert "must never be treated as proof" in system_prompt
+        assert "Audio features describe acoustic character" in system_prompt
         assert "track-specific tags" in system_prompt
 
         if calls == 1:
@@ -189,36 +181,26 @@ def test_creative_fit_refines_only_uncertain_tracks_with_audio_evidence(monkeypa
 
         assert calls == 2
         assert [track["title"] for track in payload["tracks"]] == [
-            "Track 2",
             "Track 4",
             "Track 5",
         ]
         assert payload["tracks"][0]["reccobeats_audio_features"] == {
-            "danceability": 0.86,
-            "energy": 0.82,
-            "valence": 0.77,
-            "tempo": 124.0,
-            "liveness": 0.61,
+            "energy": 0.52,
+            "valence": 0.44,
         }
         assert payload["tracks"][0]["reccobeats_match_source"] == "track_search"
-        assert payload["tracks"][2]["reccobeats_match_source"] == "artist_catalog"
+        assert payload["tracks"][1]["reccobeats_match_source"] == "artist_catalog"
         return json.dumps(
             {
                 "assessments": [
                     {
                         "index": 1,
-                        "verdict": "weak_fit",
-                        "confidence": 0.94,
-                        "reason": "Still only marginally supports the setting.",
-                    },
-                    {
-                        "index": 2,
                         "verdict": "fit",
                         "confidence": 0.90,
                         "reason": "Audio evidence supports a role in the setting.",
                     },
                     {
-                        "index": 3,
+                        "index": 2,
                         "verdict": "fit",
                         "confidence": 0.88,
                         "reason": "Audio evidence supports the setting.",
@@ -241,7 +223,55 @@ def test_creative_fit_refines_only_uncertain_tracks_with_audio_evidence(monkeypa
 
     assert calls == 2
     assert [item.index for item in conflicts] == [2, 3]
-    assert [item.confidence for item in conflicts] == [0.94, 0.97]
+    assert [item.confidence for item in conflicts] == [0.79, 0.97]
+
+
+def test_semantic_weak_fit_is_not_reopened_by_audio_features(monkeypatch) -> None:
+    audio_called = False
+
+    async def fake_audio(tracks):
+        nonlocal audio_called
+        audio_called = True
+        return [
+            ReccoBeatsAudioEvidence(
+                match_source="track_search",
+                danceability=0.90,
+                energy=0.95,
+                valence=0.95,
+                tempo=128.0,
+            )
+            for _ in tracks
+        ]
+
+    async def fake_request(config, prompt, *, system_prompt, max_tokens, model):
+        return json.dumps(
+            {
+                "assessments": [
+                    {
+                        "index": 1,
+                        "verdict": "weak_fit",
+                        "confidence": 0.60,
+                        "reason": "The song is emotionally reflective rather than celebratory.",
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(creative_intent, "tag_evidence_for_tracks", _empty_tag_evidence)
+    monkeypatch.setattr(creative_intent, "audio_evidence_for_tracks", fake_audio)
+    monkeypatch.setattr(creative_intent, "request_structured_json", fake_request)
+
+    conflicts = asyncio.run(
+        assess_creative_fit(
+            _config(),
+            [_track("Semantically weak party fit")],
+            intent=CreativeIntent(("festive party atmosphere",), confidence=0.95),
+        )
+    )
+
+    assert [item.index for item in conflicts] == [1]
+    assert conflicts[0].confidence == 0.60
+    assert audio_called is False
 
 
 def test_successful_fallback_model_is_reused_for_audio_refinement(monkeypatch) -> None:
@@ -317,7 +347,7 @@ def test_successful_fallback_model_is_reused_for_audio_refinement(monkeypatch) -
     ]
 
 
-def test_audio_refinement_is_bounded_and_prioritizes_borderline_decisions() -> None:
+def test_audio_refinement_is_bounded_and_uses_only_unresolved_or_uncertain_positive_decisions() -> None:
     diagnostics = [
         {"index": 1, "verdict": "fit", "confidence": 0.95},
         {"index": 2, "verdict": "weak_fit", "confidence": 0.79},
@@ -339,8 +369,10 @@ def test_audio_refinement_is_bounded_and_prioritizes_borderline_decisions() -> N
 
     selected = creative_intent._audio_refinement_indexes(diagnostics, conflicts)
 
-    assert selected == [2, 8, 4, 5, 9, 6]
-    assert len(selected) == creative_intent.MAX_AUDIO_REFINEMENT_TRACKS
+    assert selected == [4, 5, 9, 6, 7]
+    assert 2 not in selected
+    assert 8 not in selected
+    assert len(selected) <= creative_intent.MAX_AUDIO_REFINEMENT_TRACKS
 
 
 def test_conflict_and_weak_fit_use_distinct_calibrated_thresholds(monkeypatch) -> None:
@@ -363,14 +395,14 @@ def test_conflict_and_weak_fit_use_distinct_calibrated_thresholds(monkeypatch) -
                     {
                         "index": 3,
                         "verdict": "weak_fit",
-                        "confidence": 0.80,
+                        "confidence": 0.60,
                         "reason": "Credibly marginal fit.",
                     },
                     {
                         "index": 4,
                         "verdict": "weak_fit",
-                        "confidence": 0.79,
-                        "reason": "Still uncertain.",
+                        "confidence": 0.59,
+                        "reason": "Still too uncertain.",
                     },
                     {
                         "index": 5,
