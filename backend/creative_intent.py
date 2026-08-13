@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import logging
@@ -24,7 +23,9 @@ logger = logging.getLogger("playlistmuse.performance")
 INTENT_CONFIDENCE = 0.82
 CONFLICT_CONFIDENCE = 0.75
 WEAK_FIT_CONFIDENCE = 0.80
+LOW_FIT_CONFIDENCE = 0.75
 EVALUATION_BATCH_SIZE = 8
+MAX_AUDIO_REFINEMENT_TRACKS = 6
 _CACHE_TTL_SECONDS = 30 * 60
 _CACHE_MAX_ITEMS = 256
 
@@ -202,7 +203,9 @@ def _tag_evidence_for_index(
     index: int,
 ) -> LastfmTagEvidence:
     if 0 <= index < len(tag_evidence):
-        return tag_evidence[index]
+        value = tag_evidence[index]
+        if isinstance(value, LastfmTagEvidence):
+            return value
     return LastfmTagEvidence()
 
 
@@ -211,7 +214,9 @@ def _audio_evidence_for_index(
     index: int,
 ) -> ReccoBeatsAudioEvidence:
     if 0 <= index < len(audio_evidence):
-        return audio_evidence[index]
+        value = audio_evidence[index]
+        if isinstance(value, ReccoBeatsAudioEvidence):
+            return value
     return ReccoBeatsAudioEvidence()
 
 
@@ -293,7 +298,7 @@ def _assessment_diagnostics(
     tag_evidence: list[LastfmTagEvidence] | None = None,
     audio_evidence: list[ReccoBeatsAudioEvidence] | None = None,
 ) -> list[dict[str, Any]]:
-    """Return compact, non-secret creative decisions for diagnostic logs."""
+    """Return compact, non-secret creative decisions for diagnostics and refinement."""
     payload = _extract_json(text)
     raw = payload.get("assessments")
     if not isinstance(raw, list):
@@ -387,58 +392,38 @@ def _offset_diagnostics(
     return adjusted
 
 
-async def assess_creative_fit(
+async def _evaluate_with_fallback(
     config: AppConfig,
+    intent: CreativeIntent,
     tracks: list[dict[str, Any]],
+    tag_evidence: list[LastfmTagEvidence],
+    audio_evidence: list[ReccoBeatsAudioEvidence],
     *,
-    intent: CreativeIntent | None = None,
-) -> list[CreativeConflict]:
-    """Return credible creative drift; all optional evidence failures fail open."""
-    active = intent or active_creative_intent()
-    if (
-        not active.active
-        or not tracks
-        or not bool(getattr(config, "configured", False))
-    ):
-        return []
-
-    tag_result, audio_result = await asyncio.gather(
-        tag_evidence_for_tracks(tracks),
-        audio_evidence_for_tracks(tracks),
-        return_exceptions=True,
-    )
-    tag_evidence = (
-        tag_result
-        if isinstance(tag_result, list)
-        else [LastfmTagEvidence() for _ in tracks]
-    )
-    audio_evidence = (
-        audio_result
-        if isinstance(audio_result, list)
-        else [ReccoBeatsAudioEvidence() for _ in tracks]
-    )
-
+    phase: str,
+) -> tuple[list[CreativeConflict], list[dict[str, Any]]]:
     models = tuple(config.model_chain)
     for model in models:
         try:
             conflicts, diagnostics = await _evaluate_tracks(
                 config,
-                active,
+                intent,
                 tracks,
                 tag_evidence,
                 audio_evidence,
                 model=model,
             )
             logger.info(
-                "creative_fit mode=full requirements=%s assessments=%s rejected=%s",
-                list(active.requirements),
+                "creative_fit phase=%s mode=full requirements=%s assessments=%s rejected=%s",
+                phase,
+                list(intent.requirements),
                 diagnostics,
                 [item.index for item in conflicts],
             )
-            return conflicts
+            return conflicts, diagnostics
         except Exception as error:
             logger.info(
-                "creative_fit mode=full unavailable model=%s error=%s",
+                "creative_fit phase=%s mode=full unavailable model=%s error=%s",
+                phase,
                 model,
                 type(error).__name__,
             )
@@ -446,19 +431,17 @@ async def assess_creative_fit(
     all_conflicts: list[CreativeConflict] = []
     all_diagnostics: list[dict[str, Any]] = []
     unavailable_batches: list[str] = []
-
     for start in range(0, len(tracks), EVALUATION_BATCH_SIZE):
         end = min(len(tracks), start + EVALUATION_BATCH_SIZE)
         batch_tracks = tracks[start:end]
         batch_tags = tag_evidence[start:end]
         batch_audio = audio_evidence[start:end]
         evaluated = False
-
         for model in models:
             try:
                 conflicts, diagnostics = await _evaluate_tracks(
                     config,
-                    active,
+                    intent,
                     batch_tracks,
                     batch_tags,
                     batch_audio,
@@ -470,25 +453,184 @@ async def assess_creative_fit(
                 break
             except Exception as error:
                 logger.info(
-                    "creative_fit mode=batch unavailable range=%s-%s model=%s error=%s",
+                    "creative_fit phase=%s mode=batch unavailable range=%s-%s model=%s error=%s",
+                    phase,
                     start + 1,
                     end,
                     model,
                     type(error).__name__,
                 )
-
         if not evaluated:
             unavailable_batches.append(f"{start + 1}-{end}")
 
     logger.info(
-        "creative_fit mode=batched requirements=%s assessments=%s "
+        "creative_fit phase=%s mode=batched requirements=%s assessments=%s "
         "unavailable_batches=%s rejected=%s",
-        list(active.requirements),
+        phase,
+        list(intent.requirements),
         all_diagnostics if all_diagnostics else "unavailable",
         unavailable_batches,
         [item.index for item in all_conflicts],
     )
-    return all_conflicts
+    return all_conflicts, all_diagnostics
+
+
+def _audio_refinement_indexes(
+    diagnostics: list[dict[str, Any]],
+    conflicts: list[CreativeConflict],
+) -> list[int]:
+    """Select only unresolved or uncertain first-pass decisions for audio enrichment."""
+    rejected = {item.index for item in conflicts}
+    borderline: list[tuple[float, int]] = []
+    unknown: list[tuple[float, int]] = []
+    uncertain_fit: list[tuple[float, int]] = []
+
+    for row in diagnostics:
+        try:
+            index = int(row.get("index"))
+            confidence = float(row.get("confidence", 0.0))
+        except (TypeError, ValueError):
+            continue
+        if index < 1 or index in rejected:
+            continue
+        verdict = str(row.get("verdict", "")).strip().casefold()
+        if verdict in {"weak_fit", "conflict"}:
+            borderline.append((confidence, index))
+        elif verdict == "unknown":
+            unknown.append((confidence, index))
+        elif verdict == "fit" and confidence < LOW_FIT_CONFIDENCE:
+            uncertain_fit.append((confidence, index))
+
+    ordered = (
+        [index for _, index in sorted(borderline, reverse=True)]
+        + [index for _, index in sorted(unknown, reverse=True)]
+        + [index for _, index in sorted(uncertain_fit)]
+    )
+    selected: list[int] = []
+    for index in ordered:
+        if index in selected:
+            continue
+        selected.append(index)
+        if len(selected) >= MAX_AUDIO_REFINEMENT_TRACKS:
+            break
+    return selected
+
+
+def _map_refined_conflicts(
+    conflicts: list[CreativeConflict],
+    original_indexes: list[int],
+) -> list[CreativeConflict]:
+    mapped: list[CreativeConflict] = []
+    for item in conflicts:
+        if item.index < 1 or item.index > len(original_indexes):
+            continue
+        mapped.append(
+            CreativeConflict(
+                original_indexes[item.index - 1],
+                item.confidence,
+                item.reason,
+            )
+        )
+    return mapped
+
+
+def _merge_conflicts(
+    primary: list[CreativeConflict],
+    refined: list[CreativeConflict],
+) -> list[CreativeConflict]:
+    by_index = {item.index: item for item in primary}
+    for item in refined:
+        by_index[item.index] = item
+    return [by_index[index] for index in sorted(by_index)]
+
+
+async def assess_creative_fit(
+    config: AppConfig,
+    tracks: list[dict[str, Any]],
+    *,
+    intent: CreativeIntent | None = None,
+) -> list[CreativeConflict]:
+    """Return credible creative drift; optional external evidence always fails open."""
+    active = intent or active_creative_intent()
+    if (
+        not active.active
+        or not tracks
+        or not bool(getattr(config, "configured", False))
+    ):
+        return []
+
+    try:
+        tag_evidence = await tag_evidence_for_tracks(tracks)
+    except Exception:
+        tag_evidence = [LastfmTagEvidence() for _ in tracks]
+    tag_evidence = [
+        item if isinstance(item, LastfmTagEvidence) else LastfmTagEvidence()
+        for item in tag_evidence[: len(tracks)]
+    ]
+    if len(tag_evidence) < len(tracks):
+        tag_evidence.extend(
+            LastfmTagEvidence() for _ in range(len(tracks) - len(tag_evidence))
+        )
+
+    empty_audio = [ReccoBeatsAudioEvidence() for _ in tracks]
+    base_conflicts, base_diagnostics = await _evaluate_with_fallback(
+        config,
+        active,
+        tracks,
+        tag_evidence,
+        empty_audio,
+        phase="base",
+    )
+
+    refinement_indexes = _audio_refinement_indexes(
+        base_diagnostics,
+        base_conflicts,
+    )
+    if not refinement_indexes:
+        return base_conflicts
+
+    refinement_tracks = [tracks[index - 1] for index in refinement_indexes]
+    try:
+        refinement_audio = await audio_evidence_for_tracks(refinement_tracks)
+    except Exception:
+        refinement_audio = [ReccoBeatsAudioEvidence() for _ in refinement_tracks]
+
+    available: list[tuple[int, dict[str, Any], LastfmTagEvidence, ReccoBeatsAudioEvidence]] = []
+    for position, original_index in enumerate(refinement_indexes):
+        audio = _audio_evidence_for_index(refinement_audio, position)
+        if not audio.available:
+            continue
+        available.append(
+            (
+                original_index,
+                tracks[original_index - 1],
+                _tag_evidence_for_index(tag_evidence, original_index - 1),
+                audio,
+            )
+        )
+
+    logger.info(
+        "creative_fit phase=audio_refinement selected=%s available=%s",
+        refinement_indexes,
+        [item[0] for item in available],
+    )
+    if not available:
+        return base_conflicts
+
+    refined_indexes = [item[0] for item in available]
+    refined_tracks = [item[1] for item in available]
+    refined_tags = [item[2] for item in available]
+    refined_audio = [item[3] for item in available]
+    refined_conflicts, _ = await _evaluate_with_fallback(
+        config,
+        active,
+        refined_tracks,
+        refined_tags,
+        refined_audio,
+        phase="audio_refinement",
+    )
+    mapped = _map_refined_conflicts(refined_conflicts, refined_indexes)
+    return _merge_conflicts(base_conflicts, mapped)
 
 
 def creative_repair_prompt(
