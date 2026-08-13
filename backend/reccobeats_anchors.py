@@ -54,7 +54,7 @@ def anchors_from_payload(payload: dict[str, Any] | None) -> list[ReccoAnchor]:
         return []
     anchors: list[ReccoAnchor] = []
     seen: set[tuple[str, str]] = set()
-    for item in raw[:3]:
+    for item in raw:
         if not isinstance(item, dict):
             continue
         artist = " ".join(str(item.get("artist", "")).split()).strip()
@@ -64,6 +64,8 @@ def anchors_from_payload(payload: dict[str, Any] | None) -> list[ReccoAnchor]:
             continue
         seen.add(key)
         anchors.append(ReccoAnchor(artist, title))
+        if len(anchors) >= 3:
+            break
     return anchors
 
 
