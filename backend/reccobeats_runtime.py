@@ -28,6 +28,17 @@ _ACTIVE_CANDIDATES: ContextVar[tuple[dict[str, Any], ...]] = ContextVar(
 )
 
 
+def _add_guidance(prompt: str, guidance: str, stage: str) -> str:
+    if not guidance:
+        return prompt
+    if stage == "llm_initial":
+        marker = "\n\nUser request:\n"
+        if marker in prompt:
+            return prompt.replace(marker, guidance + marker, 1)
+        return guidance + "\n\nUser request:\n" + prompt
+    return prompt + guidance
+
+
 async def _recommend(
     anchors: list[dict[str, Any]], count: int, preference: str
 ) -> list[dict[str, Any]]:
@@ -40,20 +51,14 @@ async def _recommend(
             max_anchors=3,
         )
         return await enrich_recommendation_popularity(
-            [dict(item) for item in raw],
-            preference=preference,
+            [dict(item) for item in raw], preference=preference
         )
     except Exception as error:  # noqa: BLE001 - optional discovery is fail-open.
         LOGGER.info("reccobeats_runtime unavailable error=%s", type(error).__name__)
         return []
 
 
-async def generate(
-    core: Any,
-    config: Any,
-    prompt: str,
-    count: int,
-) -> dict[str, Any]:
+async def generate(core: Any, config: Any, prompt: str, count: int) -> dict[str, Any]:
     optimized, optimized_count = core._optimized_replenishment_request(prompt, count)
     stage = core._stage_name(optimized)
     source = core._constraint_source(optimized, stage)
@@ -76,15 +81,21 @@ async def generate(
         )
         _ACTIVE_CANDIDATES.set(tuple(map(dict, candidates)))
         guidance = reccobeats_guidance(candidates, popularity_preference(intent))
-        enhanced += guidance
+        enhanced = _add_guidance(prompt, guidance, stage)
         LOGGER.info(
             "reccobeats_initial anchors=%s candidates=%s applied=%s popularity=%s",
             len(anchor_tracks), len(candidates), bool(guidance), popularity_preference(intent)
         )
+        LOGGER.info(
+            "popularity_intent stage=%s preference=%s confidence=%.2f active=%s",
+            stage, intent.preference, intent.confidence, intent.active
+        )
     elif stage == "llm_guided":
         intent = active_popularity_intent()
         candidates = [dict(item) for item in _ACTIVE_CANDIDATES.get()]
-        enhanced += reccobeats_guidance(candidates, popularity_preference(intent))
+        enhanced = _add_guidance(
+            prompt, reccobeats_guidance(candidates, popularity_preference(intent)), stage
+        )
     elif stage == "llm_replenishment":
         intent = active_popularity_intent()
         anchors = [
@@ -97,7 +108,7 @@ async def generate(
         )
         _ACTIVE_CANDIDATES.set(tuple(map(dict, candidates)))
         guidance = reccobeats_guidance(candidates, popularity_preference(intent))
-        enhanced += guidance
+        enhanced = _add_guidance(prompt, guidance, stage)
         LOGGER.info(
             "reccobeats_enhanced_replenishment anchors=%s candidates=%s applied=%s popularity=%s",
             len(anchors), len(candidates), bool(guidance), popularity_preference(intent)
@@ -105,6 +116,10 @@ async def generate(
     elif stage == "llm_replacement":
         intent = await interpret_popularity_intent(config, source)
         activate_popularity_intent(intent)
+        LOGGER.info(
+            "popularity_intent stage=%s preference=%s confidence=%.2f active=%s",
+            stage, intent.preference, intent.confidence, intent.active
+        )
 
     draft = await core.generate_playlist_draft(config, enhanced, count)
     tracks = [dict(item) for item in draft.get("tracks", []) if isinstance(item, dict)]
