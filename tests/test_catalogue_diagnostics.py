@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from types import SimpleNamespace
 
 import backend.main as main_module
@@ -56,7 +55,7 @@ def test_metadata_reason_labels_group_validation_failures() -> None:
     ) == {"no_musicbrainz_match"}
 
 
-def test_catalogue_diagnostics_separate_resolution_layers(monkeypatch, caplog) -> None:
+def test_catalogue_diagnostics_separate_resolution_layers(monkeypatch) -> None:
     monkeypatch.setattr(
         metadata_validation,
         "active_constraints",
@@ -99,21 +98,21 @@ def test_catalogue_diagnostics_separate_resolution_layers(monkeypatch, caplog) -
             "unresolved_reason": "recording_variant",
         },
     ]
+    messages: list[str] = []
 
-    with caplog.at_level(logging.INFO, logger="playlistmuse.performance"):
-        main_module._log_catalogue_diagnostics(
-            "initial",
-            [{"artist": str(index), "title": "Track"} for index in range(5)],
-            [{"artists": "E", "title": "Selected"}],
-            unresolved,
-            playlist_before=0,
-        )
+    def capture_log(template: str, *args) -> None:
+        messages.append(template % args)
 
-    message = next(
-        record.getMessage()
-        for record in caplog.records
-        if record.getMessage().startswith("catalogue_diagnostics ")
+    monkeypatch.setattr(main_module.logger, "info", capture_log)
+    main_module._log_catalogue_diagnostics(
+        "initial",
+        [{"artist": str(index), "title": "Track"} for index in range(5)],
+        [{"artists": "E", "title": "Selected"}],
+        unresolved,
+        playlist_before=0,
     )
+
+    message = messages[0]
     assert "stage=initial" in message
     assert "candidates=5" in message
     assert "selected=1" in message
