@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 import httpx
 
@@ -239,7 +240,10 @@ def test_batch_network_failure_is_neutral(monkeypatch) -> None:
         async def get(self, *args, **kwargs):
             raise httpx.ConnectError("offline")
 
-    monkeypatch.setattr("backend.reccobeats_features.httpx.AsyncClient", lambda *args, **kwargs: BrokenClient())
+    monkeypatch.setattr(
+        "backend.reccobeats_features.httpx.AsyncClient",
+        lambda *args, **kwargs: BrokenClient(),
+    )
     _clear_cache()
 
     tracks = [
@@ -250,3 +254,33 @@ def test_batch_network_failure_is_neutral(monkeypatch) -> None:
         ReccoBeatsAudioEvidence(),
         ReccoBeatsAudioEvidence(),
     ]
+
+
+def test_batch_budget_preserves_completed_results_and_cancels_slow_work(monkeypatch) -> None:
+    fast = ReccoBeatsAudioEvidence(match_source="test", energy=0.8)
+
+    async def fake_evidence(artist, title, *, client=None, now=time.monotonic):
+        if title == "Fast":
+            return fast
+        await asyncio.sleep(0.2)
+        return ReccoBeatsAudioEvidence(match_source="too-late", energy=0.9)
+
+    monkeypatch.setattr(
+        "backend.reccobeats_features.audio_evidence_for_track",
+        fake_evidence,
+    )
+    monkeypatch.setattr("backend.reccobeats_features.BATCH_TIMEOUT_SECONDS", 0.02)
+
+    started = time.perf_counter()
+    results = asyncio.run(
+        audio_evidence_for_tracks(
+            [
+                {"artist": "Artist A", "title": "Fast"},
+                {"artist": "Artist B", "title": "Slow"},
+            ]
+        )
+    )
+    elapsed = time.perf_counter() - started
+
+    assert results == [fast, ReccoBeatsAudioEvidence()]
+    assert elapsed < 0.15
