@@ -8,6 +8,7 @@ from backend.popularity_intent import PopularityIntent, intent_from_payload
 from backend.reccobeats_anchors import anchors_from_payload
 from backend.reccobeats_popularity import (
     canonicalize_reccobeats_matches,
+    enrich_recommendation_popularity,
     rank_by_popularity,
 )
 
@@ -54,7 +55,7 @@ def test_recco_popularity_ranking_is_relative_and_missing_is_neutral() -> None:
     assert [item["title"] for item in neutral] == ["Medium", "Unknown", "Popular", "Deep"]
 
 
-def test_popularity_guidance_never_turns_score_into_hard_constraint() -> None:
+def test_popularity_guidance_uses_ranked_pool_without_becoming_hard_constraint() -> None:
     candidates = [
         _candidate("Artist A", "Hit", 90),
         _candidate("Artist B", "Deep Cut", 12),
@@ -63,11 +64,15 @@ def test_popularity_guidance_never_turns_score_into_hard_constraint() -> None:
     popular = _reccobeats_replenishment_guidance(candidates, "popular")
     less_known = _reccobeats_replenishment_guidance(candidates, "less_known")
 
-    assert "higher Recco popularity values" in popular
-    assert "lower known Recco popularity values" in less_known
+    assert "broader ReccoBeats pool" in popular
+    assert "higher known popularity values" in popular
+    assert "lower known popularity values" in less_known
+    assert "primary source of song identities" in popular
+    assert "primary source of song identities" in less_known
     assert "soft preference" in popular
     assert "never overrides eligibility or creative fit" in popular
     assert "missing popularity value is neutral" in less_known
+    assert "more familiar unlisted song" in less_known
 
 
 def test_canonical_recco_identity_keeps_llm_explanations() -> None:
@@ -135,7 +140,7 @@ def test_anchor_payload_deduplicates_identity_and_caps_at_six() -> None:
     ]
 
 
-def test_recco_fallback_uses_secondary_anchors_when_primary_returns_nothing(
+def test_neutral_recco_fallback_uses_secondary_anchors_when_primary_returns_nothing(
     monkeypatch,
 ) -> None:
     anchors = [
@@ -152,7 +157,7 @@ def test_recco_fallback_uses_secondary_anchors_when_primary_returns_nothing(
         return []
 
     async def fake_enrich(candidates, *, preference):
-        assert preference == "less_known"
+        assert preference == "neutral"
         return list(candidates)
 
     monkeypatch.setattr(
@@ -167,7 +172,7 @@ def test_recco_fallback_uses_secondary_anchors_when_primary_returns_nothing(
     )
 
     result, metadata = asyncio.run(
-        reccobeats_runtime._recommend_with_fallback(anchors, 25, "less_known")
+        reccobeats_runtime._recommend_with_fallback(anchors, 25, "neutral")
     )
 
     assert result == [fallback_candidate]
@@ -175,9 +180,10 @@ def test_recco_fallback_uses_secondary_anchors_when_primary_returns_nothing(
     assert metadata["fallback_used"] is True
     assert metadata["fallback_candidates"] == 1
     assert metadata["fallback_result_counts"] == (0, 0, 0, 1)
+    assert metadata["expanded_pool"] is False
 
 
-def test_recco_primary_success_does_not_trigger_fallback(monkeypatch) -> None:
+def test_neutral_primary_success_keeps_single_recommendation_call(monkeypatch) -> None:
     anchors = [
         {"artist": f"Artist {letter}", "title": f"Song {letter}"}
         for letter in "ABCDEF"
@@ -187,6 +193,7 @@ def test_recco_primary_success_does_not_trigger_fallback(monkeypatch) -> None:
 
     async def fake_recommend(tracks, *, limit, max_anchors):
         calls.append([track["artist"] for track in tracks])
+        assert limit == 24
         return [primary_candidate]
 
     async def fake_enrich(candidates, *, preference):
@@ -204,12 +211,158 @@ def test_recco_primary_success_does_not_trigger_fallback(monkeypatch) -> None:
     )
 
     result, metadata = asyncio.run(
-        reccobeats_runtime._recommend_with_fallback(anchors, 25, "popular")
+        reccobeats_runtime._recommend_with_fallback(anchors, 25, "neutral")
     )
 
     assert result == [primary_candidate]
     assert calls == [["Artist A", "Artist B", "Artist C"]]
     assert metadata["fallback_used"] is False
+    assert metadata["expanded_pool"] is False
+
+
+def test_explicit_popularity_builds_large_pool_then_keeps_requested_extreme(
+    monkeypatch,
+) -> None:
+    anchors = [
+        {"artist": f"Artist {letter}", "title": f"Song {letter}"}
+        for letter in "ABCDEF"
+    ]
+    calls: list[list[str]] = []
+    counter = 0
+
+    async def fake_recommend(tracks, *, limit, max_anchors):
+        nonlocal counter
+        assert limit == 30
+        assert max_anchors == 3
+        calls.append([track["artist"] for track in tracks])
+        batch: list[dict] = []
+        for _ in range(20):
+            counter += 1
+            batch.append(_candidate(f"Candidate {counter}", f"Song {counter}", counter))
+        return batch
+
+    async def fake_enrich(candidates, *, preference):
+        reverse = preference == "popular"
+        return sorted(candidates, key=lambda item: item["popularity"], reverse=reverse)
+
+    monkeypatch.setattr(
+        reccobeats_runtime,
+        "recommendation_candidates_from_tracks",
+        fake_recommend,
+    )
+    monkeypatch.setattr(
+        reccobeats_runtime,
+        "enrich_recommendation_popularity",
+        fake_enrich,
+    )
+
+    popular, metadata = asyncio.run(
+        reccobeats_runtime._recommend_with_fallback(anchors, 25, "popular")
+    )
+
+    assert len(calls) == 4
+    assert all(1 <= len(call) <= 3 for call in calls)
+    assert len(popular) == 24
+    assert [item["popularity"] for item in popular] == list(range(72, 48, -1))
+    assert metadata["expanded_pool"] is True
+    assert metadata["discovery_batches"] == 4
+    assert metadata["pool_candidates"] == 72
+    assert metadata["context_candidates"] == 24
+    assert metadata["pool_popularity_min"] == 1
+    assert metadata["pool_popularity_max"] == 72
+
+
+def test_explicit_less_known_keeps_low_end_of_aggregate_pool(monkeypatch) -> None:
+    anchors = [
+        {"artist": f"Artist {letter}", "title": f"Song {letter}"}
+        for letter in "ABCDEF"
+    ]
+    counter = 0
+
+    async def fake_recommend(tracks, *, limit, max_anchors):
+        nonlocal counter
+        batch: list[dict] = []
+        for _ in range(18):
+            counter += 1
+            batch.append(_candidate(f"Candidate {counter}", f"Song {counter}", counter))
+        return batch
+
+    async def fake_enrich(candidates, *, preference):
+        return sorted(candidates, key=lambda item: item["popularity"])
+
+    monkeypatch.setattr(
+        reccobeats_runtime,
+        "recommendation_candidates_from_tracks",
+        fake_recommend,
+    )
+    monkeypatch.setattr(
+        reccobeats_runtime,
+        "enrich_recommendation_popularity",
+        fake_enrich,
+    )
+
+    less_known, metadata = asyncio.run(
+        reccobeats_runtime._recommend_with_fallback(anchors, 25, "less_known")
+    )
+
+    assert [item["popularity"] for item in less_known] == list(range(1, 25))
+    assert metadata["pool_candidates"] == 72
+    assert metadata["context_popularity_min"] == 1
+    assert metadata["context_popularity_max"] == 24
+
+
+def test_large_popularity_enrichment_is_split_into_bounded_detail_batches(
+    monkeypatch,
+) -> None:
+    calls: list[list[str]] = []
+
+    class FakeResponse:
+        def __init__(self, ids: list[str]) -> None:
+            self.ids = ids
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self):
+            return {
+                "content": [
+                    {"id": value, "popularity": index}
+                    for index, value in enumerate(self.ids, start=1)
+                ]
+            }
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, params):
+            ids = str(params["ids"]).split(",")
+            calls.append(ids)
+            return FakeResponse(ids)
+
+    monkeypatch.setattr(
+        "backend.reccobeats_popularity.httpx.AsyncClient",
+        lambda *args, **kwargs: FakeClient(),
+    )
+
+    candidates = [
+        {
+            "artist": f"Artist {index}",
+            "title": f"Song {index}",
+            "reccobeats_id": f"id-{index}",
+        }
+        for index in range(65)
+    ]
+    result = asyncio.run(
+        enrich_recommendation_popularity(candidates, preference="popular")
+    )
+
+    assert sorted(len(batch) for batch in calls) == [5, 30, 30]
+    assert len(result) == 65
+    assert all("popularity" in item for item in result)
 
 
 def test_popularity_summary_reports_only_known_values() -> None:
