@@ -53,7 +53,7 @@ Judge only the creative requirements supplied in the JSON. Do not re-evaluate re
 The requirements are explicit playlist-wide selection objectives, so a selected song should positively contribute to them rather than merely avoid an obvious contradiction.
 Judge the actual song from its artist and title and from your reliable knowledge of that recording. The input intentionally does not include generated playlist descriptions or selection reasons because those would be self-justifying evidence. Do not invent missing musical characteristics.
 Optional ReccoBeats audio features are quantitative external evidence, not hard constraints. Interpret the combination of relevant features in the context of the explicit request; never use a single fixed danceability, energy, valence, tempo or other threshold as proof that a song fits or fails. Missing ReccoBeats evidence is neutral. The ReccoBeats liveness value is an acoustic characteristic and must never be treated as proof that the selected recording is a live version; recording-version rules are validated elsewhere.
-Optional Last.fm tags are community-generated external evidence, not hard constraints. Track-specific Last.fm tags are stronger evidence than generic artist tags when they are clearly relevant to the requested experience. Directly relevant track tags may strengthen confidence in a fit, weak fit or conflict judgment. Artist tags are only broad fallback context and must never make a specific song fit or fail by themselves. Missing tags are neutral. Ignore noisy, joke, identity, nationality or unrelated genre tags unless they genuinely help assess the supplied creative requirements.
+Optional Last.fm track tags are community-generated semantic evidence, not hard constraints. Use only track-specific tags when they are clearly relevant to the requested experience. Missing tags are neutral. Ignore noisy, joke, identity, nationality or unrelated genre tags unless they genuinely help assess the supplied creative requirements.
 Use verdict="fit" when the song has a clear, defensible role in the requested mood, energy, activity, occasion, atmosphere or listening context.
 Use verdict="weak_fit" when you know the song well enough to judge it and it is not clearly contrary, but it only marginally supports the requested experience and would weaken the playlist-wide brief if selected instead of clearly suitable alternatives.
 Use verdict="conflict" only when the song is clearly contrary to the requested experience.
@@ -95,6 +95,10 @@ class CreativeConflict:
 
 _ACTIVE_INTENT: ContextVar[CreativeIntent | None] = ContextVar(
     "playlistmuse_creative_intent",
+    default=None,
+)
+_PREFERRED_EVALUATOR_MODEL: ContextVar[str | None] = ContextVar(
+    "playlistmuse_preferred_creative_evaluator_model",
     default=None,
 )
 _CACHE: dict[str, tuple[float, CreativeIntent]] = {}
@@ -241,7 +245,6 @@ def _assessment_payload(
                 "reccobeats_audio_features": audio.features,
                 "reccobeats_match_source": audio.match_source if audio.available else "",
                 "lastfm_track_tags": list(tags.track_tags),
-                "lastfm_artist_tags": list(tags.artist_tags),
             }
         )
     return json.dumps(
@@ -334,8 +337,6 @@ def _assessment_diagnostics(
             row["reccobeats_match_source"] = audio.match_source
         if tags.track_tags:
             row["lastfm_track_tags"] = list(tags.track_tags)
-        elif tags.artist_tags:
-            row["lastfm_artist_tags"] = list(tags.artist_tags)
         if verdict in {"weak_fit", "conflict"}:
             row["reason"] = " ".join(str(item.get("reason", "")).split()).strip()[:200]
         rows.append(row)
@@ -392,6 +393,46 @@ def _offset_diagnostics(
     return adjusted
 
 
+def _preferred_model_order(models: tuple[str, ...]) -> tuple[str, ...]:
+    preferred = _PREFERRED_EVALUATOR_MODEL.get()
+    if not preferred or preferred not in models:
+        return models
+    return (preferred, *(model for model in models if model != preferred))
+
+
+def _error_status(error: Exception) -> int | None:
+    response = getattr(error, "response", None)
+    status = getattr(response, "status_code", None)
+    return int(status) if isinstance(status, int) else None
+
+
+def _batch_retry_is_useful(error: Exception) -> bool:
+    status = _error_status(error)
+    if status is None:
+        return True
+    return status in {408, 413, 429, 500, 502, 503, 504}
+
+
+def _log_unavailable(
+    *,
+    phase: str,
+    mode: str,
+    model: str,
+    error: Exception,
+    range_text: str = "",
+) -> None:
+    status = _error_status(error)
+    logger.info(
+        "creative_fit phase=%s mode=%s unavailable%s model=%s error=%s status=%s",
+        phase,
+        mode,
+        f" range={range_text}" if range_text else "",
+        model,
+        type(error).__name__,
+        status if status is not None else "n/a",
+    )
+
+
 async def _evaluate_with_fallback(
     config: AppConfig,
     intent: CreativeIntent,
@@ -401,7 +442,8 @@ async def _evaluate_with_fallback(
     *,
     phase: str,
 ) -> tuple[list[CreativeConflict], list[dict[str, Any]]]:
-    models = tuple(config.model_chain)
+    models = _preferred_model_order(tuple(config.model_chain))
+    batch_models: list[str] = []
     for model in models:
         try:
             conflicts, diagnostics = await _evaluate_tracks(
@@ -412,32 +454,44 @@ async def _evaluate_with_fallback(
                 audio_evidence,
                 model=model,
             )
+            _PREFERRED_EVALUATOR_MODEL.set(model)
             logger.info(
-                "creative_fit phase=%s mode=full requirements=%s assessments=%s rejected=%s",
+                "creative_fit phase=%s mode=full model=%s requirements=%s assessments=%s rejected=%s",
                 phase,
+                model,
                 list(intent.requirements),
                 diagnostics,
                 [item.index for item in conflicts],
             )
             return conflicts, diagnostics
         except Exception as error:
-            logger.info(
-                "creative_fit phase=%s mode=full unavailable model=%s error=%s",
-                phase,
-                model,
-                type(error).__name__,
+            if _batch_retry_is_useful(error):
+                batch_models.append(model)
+            _log_unavailable(
+                phase=phase,
+                mode="full",
+                model=model,
+                error=error,
             )
+
+    if not batch_models:
+        logger.info(
+            "creative_fit phase=%s mode=batched assessments=unavailable reason=no_retryable_models",
+            phase,
+        )
+        return [], []
 
     all_conflicts: list[CreativeConflict] = []
     all_diagnostics: list[dict[str, Any]] = []
     unavailable_batches: list[str] = []
+    batch_model_tuple = tuple(batch_models)
     for start in range(0, len(tracks), EVALUATION_BATCH_SIZE):
         end = min(len(tracks), start + EVALUATION_BATCH_SIZE)
         batch_tracks = tracks[start:end]
         batch_tags = tag_evidence[start:end]
         batch_audio = audio_evidence[start:end]
         evaluated = False
-        for model in models:
+        for model in _preferred_model_order(batch_model_tuple):
             try:
                 conflicts, diagnostics = await _evaluate_tracks(
                     config,
@@ -447,26 +501,27 @@ async def _evaluate_with_fallback(
                     batch_audio,
                     model=model,
                 )
+                _PREFERRED_EVALUATOR_MODEL.set(model)
                 all_conflicts.extend(_offset_conflicts(conflicts, start))
                 all_diagnostics.extend(_offset_diagnostics(diagnostics, start))
                 evaluated = True
                 break
             except Exception as error:
-                logger.info(
-                    "creative_fit phase=%s mode=batch unavailable range=%s-%s model=%s error=%s",
-                    phase,
-                    start + 1,
-                    end,
-                    model,
-                    type(error).__name__,
+                _log_unavailable(
+                    phase=phase,
+                    mode="batch",
+                    model=model,
+                    error=error,
+                    range_text=f"{start + 1}-{end}",
                 )
         if not evaluated:
             unavailable_batches.append(f"{start + 1}-{end}")
 
     logger.info(
-        "creative_fit phase=%s mode=batched requirements=%s assessments=%s "
+        "creative_fit phase=%s mode=batched model=%s requirements=%s assessments=%s "
         "unavailable_batches=%s rejected=%s",
         phase,
+        _PREFERRED_EVALUATOR_MODEL.get() or "none",
         list(intent.requirements),
         all_diagnostics if all_diagnostics else "unavailable",
         unavailable_batches,
