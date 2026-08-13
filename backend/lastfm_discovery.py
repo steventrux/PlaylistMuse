@@ -1,10 +1,8 @@
-"""Last.fm discovery signals used as evidence by the playlist AI."""
+"""Last.fm discovery signals used as evidence by seed-based playlist generation."""
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import math
 import re
 import unicodedata
 from typing import Any
@@ -95,7 +93,7 @@ def select_prompt_anchors(
     *,
     max_anchors: int = MAX_PROMPT_ANCHORS,
 ) -> list[dict[str, str]]:
-    """Return the distinct first-pass songs used to query Last.fm for a prompt."""
+    """Return distinct first-pass songs for diagnostics and compatibility."""
     selected: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
     normalized_max = max(1, min(MAX_PROMPT_ANCHORS, int(max_anchors)))
@@ -267,40 +265,12 @@ async def discover_from_anchors(
     limit: int = 40,
     max_anchors: int = MAX_PROMPT_ANCHORS,
 ) -> list[dict[str, str]]:
-    """Use AI first-pass songs as Last.fm anchors for free-text prompts."""
-    key = lastfm_api_key().strip()
-    normalized_limit = max(1, min(MAX_CONTEXT_SIGNALS, int(limit)))
-    if not key:
-        return []
+    """Skip prompt-anchor expansion; ReccoBeats now handles prompt creative evidence.
 
-    selected = select_prompt_anchors(anchors, max_anchors=max_anchors)
-    if not selected:
-        return []
-
-    per_anchor = max(6, math.ceil(normalized_limit / len(selected)))
-    async with httpx.AsyncClient(
-        timeout=httpx.Timeout(_environment_timeout()),
-        headers={"User-Agent": USER_AGENT},
-    ) as client:
-        groups = await asyncio.gather(
-            *(
-                discover_for_seed(
-                    anchor["artist"],
-                    anchor["title"],
-                    limit=per_anchor,
-                    api_key=key,
-                    client=client,
-                )
-                for anchor in selected
-            ),
-            return_exceptions=True,
-        )
-
-    signals: list[dict[str, str]] = []
-    excluded = {_key(anchor["artist"], anchor["title"]) for anchor in selected}
-    for group in groups:
-        if isinstance(group, Exception):
-            LOGGER.info("Last.fm prompt-anchor discovery unavailable: %s", group)
-            continue
-        signals.extend(group)
-    return _deduplicate(signals, excluded=excluded, limit=normalized_limit)
+    Last.fm discovery remains enabled for explicit seed playlists through
+    :func:`discover_for_seed`. Expanding AI-generated prompt anchors caused a second full
+    playlist generation while adding broad collaborative signals after the creative guard
+    had already validated the first draft.
+    """
+    _ = anchors, limit, max_anchors
+    return []
