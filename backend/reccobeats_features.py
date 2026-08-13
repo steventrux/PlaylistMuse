@@ -1,4 +1,4 @@
-"""Optional ReccoBeats audio-feature evidence for creative-fit evaluation."""
+"""Optional ReccoBeats evidence and catalogue-backed recommendation discovery."""
 
 from __future__ import annotations
 
@@ -18,14 +18,23 @@ from backend.version import USER_AGENT
 API_ROOT = "https://api.reccobeats.com/v1"
 DEFAULT_TIMEOUT_SECONDS = 4.0
 BATCH_TIMEOUT_SECONDS = 6.0
+RECOMMENDATION_TIMEOUT_SECONDS = 5.0
 CACHE_TTL_SECONDS = 6 * 60 * 60
+RECOMMENDATION_CACHE_TTL_SECONDS = 30 * 60
 MAX_CACHE_ENTRIES = 512
+MAX_RECOMMENDATION_CACHE_ENTRIES = 128
 MAX_CONCURRENT_REQUESTS = 5
+MAX_RECOMMENDATION_SEEDS = 3
+MAX_RECOMMENDATION_SIZE = 30
 SEARCH_SIZE = 20
 ARTIST_FALLBACK_PAGES = 3
 
 LOGGER = logging.getLogger(__name__)
 _CACHE: dict[tuple[str, str], tuple[float, ReccoBeatsAudioEvidence]] = {}
+_RECOMMENDATION_CACHE: dict[
+    tuple[tuple[tuple[str, str], ...], int],
+    tuple[float, tuple[dict[str, str], ...]],
+] = {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +82,16 @@ def _prune_cache(now: float) -> None:
         _CACHE.pop(key, None)
     while len(_CACHE) >= MAX_CACHE_ENTRIES:
         _CACHE.pop(next(iter(_CACHE)))
+
+
+def _prune_recommendation_cache(now: float) -> None:
+    expired = [
+        key for key, value in _RECOMMENDATION_CACHE.items() if value[0] <= now
+    ]
+    for key in expired:
+        _RECOMMENDATION_CACHE.pop(key, None)
+    while len(_RECOMMENDATION_CACHE) >= MAX_RECOMMENDATION_CACHE_ENTRIES:
+        _RECOMMENDATION_CACHE.pop(next(iter(_RECOMMENDATION_CACHE)))
 
 
 def _content(payload: Any) -> list[dict[str, Any]]:
@@ -225,6 +244,144 @@ async def _search_artist_catalog(
     return None
 
 
+async def _resolve_track_candidate(
+    client: httpx.AsyncClient,
+    artist: str,
+    title: str,
+) -> dict[str, Any] | None:
+    candidate = await _search_track(client, artist, title)
+    if candidate is not None:
+        return candidate
+    return await _search_artist_catalog(client, artist, title)
+
+
+def _recommendation_candidate(candidate: dict[str, Any]) -> dict[str, str] | None:
+    title = _track_title(candidate)
+    artists = _track_artists(candidate)
+    if not title or not artists:
+        return None
+    result = {
+        "artist": ", ".join(artists),
+        "title": title,
+        "source": "reccobeats",
+    }
+    reccobeats_id = str(candidate.get("id", "")).strip()
+    if reccobeats_id:
+        result["reccobeats_id"] = reccobeats_id
+    return result
+
+
+def _normalized_anchor_tracks(
+    tracks: list[dict[str, Any]],
+    *,
+    max_anchors: int,
+) -> list[tuple[str, str]]:
+    anchors: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for track in tracks:
+        artist = " ".join(
+            str(track.get("artists") or track.get("artist") or "").split()
+        ).strip()
+        title = " ".join(str(track.get("title") or "").split()).strip()
+        key = _cache_key(artist, title)
+        if not all(key) or key in seen:
+            continue
+        seen.add(key)
+        anchors.append((artist, title))
+        if len(anchors) >= max_anchors:
+            break
+    return anchors
+
+
+async def recommendation_candidates_from_tracks(
+    tracks: list[dict[str, Any]],
+    *,
+    limit: int = 20,
+    max_anchors: int = MAX_RECOMMENDATION_SEEDS,
+    client: httpx.AsyncClient | None = None,
+    now: Callable[[], float] = time.monotonic,
+) -> list[dict[str, str]]:
+    """Return fail-open ReccoBeats recommendations from already verified playlist tracks."""
+    bounded_limit = max(1, min(MAX_RECOMMENDATION_SIZE, int(limit)))
+    bounded_anchors = max(1, min(MAX_RECOMMENDATION_SEEDS, int(max_anchors)))
+    anchors = _normalized_anchor_tracks(tracks, max_anchors=bounded_anchors)
+    if not anchors:
+        return []
+
+    current_time = now()
+    anchor_keys = tuple(_cache_key(artist, title) for artist, title in anchors)
+    cache_key = (anchor_keys, bounded_limit)
+    cached = _RECOMMENDATION_CACHE.get(cache_key)
+    if cached and cached[0] > current_time:
+        return [dict(candidate) for candidate in cached[1]]
+
+    owns_client = client is None
+    active_client = client or httpx.AsyncClient(
+        timeout=httpx.Timeout(DEFAULT_TIMEOUT_SECONDS),
+        headers={"Accept": "application/json", "User-Agent": USER_AGENT},
+    )
+
+    async def discover() -> list[dict[str, str]]:
+        matched = await asyncio.gather(
+            *(
+                _resolve_track_candidate(active_client, artist, title)
+                for artist, title in anchors
+            )
+        )
+        seed_ids = list(
+            dict.fromkeys(
+                str(candidate.get("id", "")).strip()
+                for candidate in matched
+                if isinstance(candidate, dict) and candidate.get("id")
+            )
+        )
+        if not seed_ids:
+            return []
+
+        payload = await _request_json(
+            active_client,
+            "/track/recommendation",
+            params={"seeds": ",".join(seed_ids), "size": bounded_limit},
+        )
+        anchor_identity = set(anchor_keys)
+        seen: set[tuple[str, str]] = set()
+        recommendations: list[dict[str, str]] = []
+        for raw_candidate in _content(payload):
+            candidate = _recommendation_candidate(raw_candidate)
+            if candidate is None:
+                continue
+            key = _cache_key(candidate["artist"], candidate["title"])
+            if not all(key) or key in anchor_identity or key in seen:
+                continue
+            seen.add(key)
+            recommendations.append(candidate)
+            if len(recommendations) >= bounded_limit:
+                break
+        return recommendations
+
+    try:
+        recommendations = await asyncio.wait_for(
+            discover(),
+            timeout=RECOMMENDATION_TIMEOUT_SECONDS,
+        )
+        _prune_recommendation_cache(current_time)
+        _RECOMMENDATION_CACHE[cache_key] = (
+            now() + RECOMMENDATION_CACHE_TTL_SECONDS,
+            tuple(dict(candidate) for candidate in recommendations),
+        )
+        return recommendations
+    except (asyncio.TimeoutError, httpx.HTTPError, ValueError, TypeError) as error:
+        LOGGER.info(
+            "ReccoBeats recommendation discovery unavailable anchors=%s error=%s",
+            len(anchors),
+            type(error).__name__,
+        )
+        return []
+    finally:
+        if owns_client:
+            await active_client.aclose()
+
+
 def _finite_number(value: Any) -> float | None:
     try:
         number = float(value)
@@ -293,18 +450,19 @@ async def audio_evidence_for_track(
         headers={"Accept": "application/json", "User-Agent": USER_AGENT},
     )
     try:
-        candidate = await _search_track(
+        candidate = await _resolve_track_candidate(
             active_client,
             normalized_artist,
             normalized_title,
         )
         match_source = "track_search"
-        if candidate is None:
-            candidate = await _search_artist_catalog(
-                active_client,
-                normalized_artist,
-                normalized_title,
-            )
+        if candidate is not None and not _strict_track_match(
+            candidate,
+            artist=normalized_artist,
+            title=normalized_title,
+        ):
+            match_source = "artist_catalog"
+        elif candidate is None:
             match_source = "artist_catalog"
 
         if candidate is None or not candidate.get("id"):
@@ -312,6 +470,15 @@ async def audio_evidence_for_track(
             _prune_cache(current_time)
             _CACHE[cache_key] = (now() + CACHE_TTL_SECONDS, evidence)
             return evidence
+
+        if match_source == "track_search":
+            searched = await _search_track(
+                active_client,
+                normalized_artist,
+                normalized_title,
+            )
+            if searched is None or str(searched.get("id")) != str(candidate.get("id")):
+                match_source = "artist_catalog"
 
         payload = await _request_json(
             active_client,
@@ -394,5 +561,6 @@ async def audio_evidence_for_tracks(
 
 
 def _clear_cache() -> None:
-    """Clear the in-memory evidence cache for tests."""
+    """Clear the in-memory ReccoBeats caches for tests."""
     _CACHE.clear()
+    _RECOMMENDATION_CACHE.clear()
