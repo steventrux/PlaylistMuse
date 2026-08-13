@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 from backend import generation_runtime_core as _core
+from backend.popularity_intent import active_popularity_intent
 from backend.reccobeats_guidance import reccobeats_guidance
 from backend.reccobeats_runtime import generate as _generate_with_reccobeats
 
@@ -29,12 +30,35 @@ _repair_quota_prompt = _core._repair_quota_prompt
 _reset_resolution_session = _core._reset_resolution_session
 _cap_buffered_quotas_at_exact_counts = _core._cap_buffered_quotas_at_exact_counts
 _album_key = _core._album_key
-_diversity_rank = _core._diversity_rank
 _log_stage = _core._log_stage
 _reccobeats_replenishment_guidance = reccobeats_guidance
 
 discover_from_anchors = _core.discover_from_anchors
 discover_for_seed = _core.discover_for_seed
+
+
+def _popularity_value(track: dict[str, Any]) -> int | None:
+    value = track.get("popularity")
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _diversity_rank(track: dict[str, Any], existing: list[dict[str, Any]]) -> tuple[Any, ...]:
+    """Honor explicit popularity preference before ordinary diversity tie-breaking."""
+    base = _core._diversity_rank(track, existing)
+    intent = active_popularity_intent()
+    if not intent.active:
+        return base
+    score = _popularity_value(track)
+    if score is None:
+        return (1, 0, *base)
+    preference = str(intent.preference).casefold()
+    popularity_rank = -score if preference == "popular" else score
+    return (0, popularity_rank, *base)
 
 
 async def generate_playlist_draft(
@@ -63,18 +87,23 @@ def _select_resolved_tracks(
 
 
 async def resolve_candidates(
-    candidates: list[dict[str, str]],
+    candidates: list[dict[str, Any]],
     exclusions: dict[str, bool],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     from backend import youtube
     from backend.artist_quota_detection import artist_matches, quota_deficits
+    from backend.candidate_context import (
+        annotate_resolved_candidate_context,
+        filter_resolved_recording_variants_contextual,
+    )
+    from backend.metadata_validation import active_constraints
     from backend.recording_variants import (
         active_recording_policy,
         effective_resolver_options,
-        filter_resolved_recording_variants,
         policy_with_option_exclusions,
         recording_filter_conflicts,
     )
+    from backend.temporal_alias_guard import filter_temporal_artist_aliases
 
     started_at = time.perf_counter()
     try:
@@ -87,11 +116,22 @@ async def resolve_candidates(
             candidates,
             effective_exclusions,
         )
+        resolved = annotate_resolved_candidate_context(
+            resolved,
+            candidates,
+            artist_matches=artist_matches,
+        )
+        resolved, temporal_rejected = await filter_temporal_artist_aliases(
+            resolved,
+            active_constraints(),
+        )
+        unresolved.extend(temporal_rejected)
+
         validation_policy = policy_with_option_exclusions(
             effective_exclusions,
             recording_policy,
         )
-        resolved, variant_rejected = filter_resolved_recording_variants(
+        resolved, variant_rejected = filter_resolved_recording_variants_contextual(
             resolved,
             validation_policy,
         )
@@ -112,13 +152,27 @@ async def resolve_candidates(
             for track in selected
             if str(track.get("source", "")).strip() == "reccobeats"
         )
+        popularity_candidates = sum(
+            _popularity_value(candidate) is not None for candidate in candidates
+        )
+        selected_scores = [
+            score
+            for track in selected
+            if (score := _popularity_value(track)) is not None
+        ]
         LOGGER.info(
             "reccobeats_catalogue candidates=%s selected=%s recco_candidates=%s "
-            "recco_selected=%s",
+            "recco_selected=%s popularity_candidates=%s popularity_selected=%s "
+            "popularity_selected_avg=%s",
             len(candidates),
             len(selected),
             recco_candidates,
             recco_selected,
+            popularity_candidates,
+            len(selected_scores),
+            round(sum(selected_scores) / len(selected_scores), 1)
+            if selected_scores
+            else None,
         )
         return selected, unresolved
     finally:
