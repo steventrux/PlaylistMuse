@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+
+from backend import reccobeats_runtime
 from backend.generation_runtime import _reccobeats_replenishment_guidance
 from backend.popularity_intent import PopularityIntent, intent_from_payload
 from backend.reccobeats_anchors import anchors_from_payload
@@ -106,7 +109,7 @@ def test_canonical_recco_identity_keeps_llm_explanations() -> None:
     assert result[1] == tracks[1]
 
 
-def test_anchor_payload_deduplicates_normalized_identity_and_caps_at_three() -> None:
+def test_anchor_payload_deduplicates_identity_and_caps_at_six() -> None:
     anchors = anchors_from_payload(
         {
             "anchors": [
@@ -115,6 +118,9 @@ def test_anchor_payload_deduplicates_normalized_identity_and_caps_at_three() -> 
                 {"artist": "Artist B", "title": "Song Two"},
                 {"artist": "Artist C", "title": "Song Three"},
                 {"artist": "Artist D", "title": "Song Four"},
+                {"artist": "Artist E", "title": "Song Five"},
+                {"artist": "Artist F", "title": "Song Six"},
+                {"artist": "Artist G", "title": "Song Seven"},
             ]
         }
     )
@@ -123,4 +129,94 @@ def test_anchor_payload_deduplicates_normalized_identity_and_caps_at_three() -> 
         ("Artist A", "Song One"),
         ("Artist B", "Song Two"),
         ("Artist C", "Song Three"),
+        ("Artist D", "Song Four"),
+        ("Artist E", "Song Five"),
+        ("Artist F", "Song Six"),
     ]
+
+
+def test_recco_fallback_uses_secondary_anchors_when_primary_returns_nothing(
+    monkeypatch,
+) -> None:
+    anchors = [
+        {"artist": f"Artist {letter}", "title": f"Song {letter}"}
+        for letter in "ABCDEF"
+    ]
+    fallback_candidate = _candidate("Fallback Artist", "Fallback Song", 32)
+
+    async def fake_recommend(tracks, *, limit, max_anchors):
+        assert limit == 24
+        assert max_anchors == 3
+        if tracks and tracks[0]["artist"] == "Artist D":
+            return [fallback_candidate]
+        return []
+
+    async def fake_enrich(candidates, *, preference):
+        assert preference == "less_known"
+        return list(candidates)
+
+    monkeypatch.setattr(
+        reccobeats_runtime,
+        "recommendation_candidates_from_tracks",
+        fake_recommend,
+    )
+    monkeypatch.setattr(
+        reccobeats_runtime,
+        "enrich_recommendation_popularity",
+        fake_enrich,
+    )
+
+    result, metadata = asyncio.run(
+        reccobeats_runtime._recommend_with_fallback(anchors, 25, "less_known")
+    )
+
+    assert result == [fallback_candidate]
+    assert metadata["primary_candidates"] == 0
+    assert metadata["fallback_used"] is True
+    assert metadata["fallback_candidates"] == 1
+    assert metadata["fallback_result_counts"] == (0, 0, 0, 1)
+
+
+def test_recco_primary_success_does_not_trigger_fallback(monkeypatch) -> None:
+    anchors = [
+        {"artist": f"Artist {letter}", "title": f"Song {letter}"}
+        for letter in "ABCDEF"
+    ]
+    primary_candidate = _candidate("Primary Artist", "Primary Song", 88)
+    calls = []
+
+    async def fake_recommend(tracks, *, limit, max_anchors):
+        calls.append([track["artist"] for track in tracks])
+        return [primary_candidate]
+
+    async def fake_enrich(candidates, *, preference):
+        return list(candidates)
+
+    monkeypatch.setattr(
+        reccobeats_runtime,
+        "recommendation_candidates_from_tracks",
+        fake_recommend,
+    )
+    monkeypatch.setattr(
+        reccobeats_runtime,
+        "enrich_recommendation_popularity",
+        fake_enrich,
+    )
+
+    result, metadata = asyncio.run(
+        reccobeats_runtime._recommend_with_fallback(anchors, 25, "popular")
+    )
+
+    assert result == [primary_candidate]
+    assert calls == [["Artist A", "Artist B", "Artist C"]]
+    assert metadata["fallback_used"] is False
+
+
+def test_popularity_summary_reports_only_known_values() -> None:
+    assert reccobeats_runtime._popularity_summary(
+        [
+            _candidate("A", "One", 10),
+            _candidate("B", "Two"),
+            _candidate("C", "Three", 70),
+        ]
+    ) == (2, 10, 70, 40.0)
