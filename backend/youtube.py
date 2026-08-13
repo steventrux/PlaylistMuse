@@ -77,7 +77,7 @@ _thumbnail = _core._thumbnail
 _youtube_cache_path = _core._youtube_cache_path
 search_songs = _core.search_songs
 
-YOUTUBE_CACHE_VERSION = "3"
+YOUTUBE_CACHE_VERSION = "4"
 
 
 def _youtube_cache_key(candidate: dict[str, str], exclusions: dict[str, bool]) -> str:
