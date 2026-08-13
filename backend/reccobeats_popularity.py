@@ -18,6 +18,7 @@ from backend.text_normalization import normalize_identity
 from backend.version import USER_AGENT
 
 TIMEOUT_SECONDS = 5.0
+TRACK_DETAIL_BATCH_SIZE = 30
 LOGGER = logging.getLogger(__name__)
 
 
@@ -64,25 +65,61 @@ async def enrich_recommendation_popularity(
     if not candidates:
         return []
 
-    ids = [
-        str(candidate.get("reccobeats_id", "")).strip()
-        for candidate in candidates
-        if str(candidate.get("reccobeats_id", "")).strip()
-    ]
+    ids = list(
+        dict.fromkeys(
+            str(candidate.get("reccobeats_id", "")).strip()
+            for candidate in candidates
+            if str(candidate.get("reccobeats_id", "")).strip()
+        )
+    )
     if not ids:
         return rank_by_popularity(candidates, preference)
+
+    batches = [
+        ids[start : start + TRACK_DETAIL_BATCH_SIZE]
+        for start in range(0, len(ids), TRACK_DETAIL_BATCH_SIZE)
+    ]
+
+    async def fetch_batch(
+        client: httpx.AsyncClient,
+        batch: list[str],
+    ) -> list[dict[str, Any]]:
+        response = await client.get(
+            f"{API_ROOT}/track",
+            params={"ids": ",".join(batch)},
+        )
+        response.raise_for_status()
+        return _content(response.json())
 
     try:
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(DEFAULT_TIMEOUT_SECONDS),
             headers={"Accept": "application/json", "User-Agent": USER_AGENT},
         ) as client:
-            response = await asyncio.wait_for(
-                client.get(f"{API_ROOT}/track", params={"ids": ",".join(ids)}),
-                timeout=TIMEOUT_SECONDS,
+            tasks = [
+                asyncio.create_task(fetch_batch(client, batch))
+                for batch in batches
+            ]
+            done, pending = await asyncio.wait(tasks, timeout=TIMEOUT_SECONDS)
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+
+        details: list[dict[str, Any]] = []
+        failed = 0
+        for task in done:
+            try:
+                details.extend(task.result())
+            except Exception:  # noqa: BLE001 - partial optional enrichment is useful.
+                failed += 1
+        if failed:
+            LOGGER.info(
+                "ReccoBeats popularity enrichment partial batches=%s failed=%s",
+                len(batches),
+                failed,
             )
-            response.raise_for_status()
-        details = _content(response.json())
+
         scores = {
             str(item.get("id", "")).strip(): score
             for item in details
@@ -97,7 +134,7 @@ async def enrich_recommendation_popularity(
                 copy["popularity"] = score
             enriched.append(copy)
         return rank_by_popularity(enriched, preference)
-    except (asyncio.TimeoutError, httpx.HTTPError, ValueError, TypeError) as error:
+    except (httpx.HTTPError, ValueError, TypeError) as error:
         LOGGER.info(
             "ReccoBeats popularity enrichment unavailable candidates=%s error=%s",
             len(candidates),
