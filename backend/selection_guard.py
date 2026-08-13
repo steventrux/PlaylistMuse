@@ -82,6 +82,22 @@ def _respect_exact_artist_caps(
     return kept
 
 
+def _requested_identity_tracks(tracks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Expose exact pre-catalogue identities without fuzzy artist matching."""
+    proxies: list[dict[str, Any]] = []
+    for track in tracks:
+        requested_artist = str(track.get("requested_artist") or "").strip()
+        requested_title = str(track.get("requested_title") or "").strip()
+        proxies.append(
+            {
+                "artist": requested_artist
+                or str(track.get("artists") or track.get("artist") or ""),
+                "title": requested_title or str(track.get("title") or ""),
+            }
+        )
+    return proxies
+
+
 def _exclude_remembered_creative_rejections(
     tracks: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -91,11 +107,16 @@ def _exclude_remembered_creative_rejections(
 
     from backend.creative_intent import _remembered_creative_conflicts
 
-    conflicts = _remembered_creative_conflicts(tracks)
-    if not conflicts:
+    canonical_conflicts = _remembered_creative_conflicts(tracks)
+    requested_conflicts = _remembered_creative_conflicts(
+        _requested_identity_tracks(tracks)
+    )
+    rejected_indexes = {
+        conflict.index for conflict in [*canonical_conflicts, *requested_conflicts]
+    }
+    if not rejected_indexes:
         return tracks
 
-    rejected_indexes = {conflict.index for conflict in conflicts}
     logger.info(
         "creative_fit phase=rejection_memory_catalogue hits=%s",
         sorted(rejected_indexes),
