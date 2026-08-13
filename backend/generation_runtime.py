@@ -115,6 +115,53 @@ def _numeric_quota_replenishment_guidance(prompt: str, pool_size: int) -> str:
     )
 
 
+def _hard_constraint_guidance(constraints: Any) -> str:
+    """Describe only constraints that the downstream validator will actually enforce."""
+    if constraints is None or not getattr(constraints, "active", False):
+        return ""
+
+    rules: list[str] = []
+    release_year = getattr(constraints, "release_year", None)
+    release_from = getattr(constraints, "release_year_from", None)
+    release_to = getattr(constraints, "release_year_to", None)
+    if release_year is not None:
+        rules.append(f"original release year must be exactly {release_year}")
+    elif release_from is not None and release_to is not None:
+        rules.append(
+            f"original release year must be between {release_from} and {release_to}, inclusive"
+        )
+    elif release_from is not None:
+        rules.append(f"original release year must be {release_from} or later")
+    elif release_to is not None:
+        rules.append(f"original release year must be {release_to} or earlier")
+
+    allowed_artists = list(getattr(constraints, "allowed_artists", []) or [])
+    excluded_artists = list(getattr(constraints, "excluded_artists", []) or [])
+    allowed_albums = list(getattr(constraints, "allowed_albums", []) or [])
+    excluded_albums = list(getattr(constraints, "excluded_albums", []) or [])
+    artist_country = getattr(constraints, "artist_country", None)
+    if allowed_artists:
+        rules.append("allowed artists: " + ", ".join(allowed_artists))
+    if excluded_artists:
+        rules.append("excluded artists: " + ", ".join(excluded_artists))
+    if allowed_albums:
+        rules.append("allowed albums: " + ", ".join(allowed_albums))
+    if excluded_albums:
+        rules.append("excluded albums: " + ", ".join(excluded_albums))
+    if artist_country:
+        rules.append(f"artist country must be {artist_country}")
+    if not rules:
+        return ""
+
+    return (
+        "\n\nENFORCED HARD CONSTRAINTS: the catalogue validator will reject candidates "
+        "that do not satisfy these rules. Do not spend candidate slots on known violations. "
+        "Use canonical released song titles and original-release chronology, not reissue or "
+        "remaster dates.\n- "
+        + "\n- ".join(rules)
+    )
+
+
 def _optimized_replenishment_request(prompt: str, count: int) -> tuple[str, int]:
     if not prompt.lstrip().startswith("The original playlist request is:"):
         return prompt, count
@@ -278,6 +325,7 @@ async def generate_playlist_draft(
     from backend.llm import generate_playlist_draft as raw_generate_playlist_draft
     from backend.metadata_validation import (
         activate_constraints,
+        active_constraints,
         constraints_from_payload,
         extract_metadata_constraints,
     )
@@ -350,6 +398,7 @@ async def generate_playlist_draft(
     )
     interpreted: dict[str, Any] | None = None
     assessment = None
+    enforced_constraints = None
     try:
         if should_interpret:
             assessment, recording_policy, creative_intent = await asyncio.gather(
@@ -369,6 +418,32 @@ async def generate_playlist_draft(
                 assessment.interpretation
             )
             assessment = assess_interpretation(interpreted)
+            enforced_constraints = constraints_from_payload(
+                interpreted, fallback=fallback
+            )
+            explicit_open_range = open_ended_year_range(source_prompt)
+            if (
+                explicit_open_range is not None
+                and enforced_constraints.release_year is None
+            ):
+                lower, upper = explicit_open_range
+                enforced_constraints.release_year_from = max(
+                    lower,
+                    enforced_constraints.release_year_from
+                    if enforced_constraints.release_year_from is not None
+                    else lower,
+                )
+                enforced_constraints.release_year_to = min(
+                    upper,
+                    enforced_constraints.release_year_to
+                    if enforced_constraints.release_year_to is not None
+                    else upper,
+                )
+        else:
+            enforced_constraints = active_constraints()
+
+        hard_guidance = _hard_constraint_guidance(enforced_constraints)
+        submitted_prompt += hard_guidance
 
         async def repair_quota_deficits(
             current: dict[str, Any],
@@ -384,14 +459,15 @@ async def generate_playlist_draft(
             for _ in range(2):
                 if not deficits:
                     break
+                repair_prompt = _repair_quota_prompt(
+                    user_request,
+                    optimized_count,
+                    generation_quotas,
+                    current,
+                )
                 repaired = await raw_generate_playlist_draft(
                     config,
-                    _repair_quota_prompt(
-                        user_request,
-                        optimized_count,
-                        generation_quotas,
-                        current,
-                    ),
+                    repair_prompt + hard_guidance,
                     optimized_count,
                 )
                 repaired_deficits = quota_deficits(
@@ -433,7 +509,8 @@ async def generate_playlist_draft(
                     optimized_count,
                     draft,
                     creative_conflicts,
-                ),
+                )
+                + hard_guidance,
                 optimized_count,
             )
             repaired, repaired_deficits = await repair_quota_deficits(repaired)
@@ -493,24 +570,7 @@ async def generate_playlist_draft(
             artist_quotas,
         )
         if should_interpret:
-            constraints = constraints_from_payload(
-                interpreted, fallback=fallback
-            )
-            explicit_open_range = open_ended_year_range(source_prompt)
-            if explicit_open_range is not None and constraints.release_year is None:
-                lower, upper = explicit_open_range
-                constraints.release_year_from = max(
-                    lower,
-                    constraints.release_year_from
-                    if constraints.release_year_from is not None
-                    else lower,
-                )
-                constraints.release_year_to = min(
-                    upper,
-                    constraints.release_year_to
-                    if constraints.release_year_to is not None
-                    else upper,
-                )
+            constraints = enforced_constraints
             policy = policy_from_payload(interpreted, prompt=source_prompt)
             _ACTIVE_POLICY.set(policy)
             constraints.allowed_artists = hard_allowed_artists(
