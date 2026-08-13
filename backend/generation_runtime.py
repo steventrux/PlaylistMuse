@@ -115,6 +115,32 @@ def _numeric_quota_replenishment_guidance(prompt: str, pool_size: int) -> str:
     )
 
 
+def _reccobeats_replenishment_guidance(
+    candidates: list[dict[str, str]],
+) -> str:
+    """Prefer real ReccoBeats identities without weakening authoritative constraints."""
+    lines = [
+        f"- {candidate.get('artist', 'Unknown artist')} — "
+        f"{candidate.get('title', 'Unknown track')}"
+        for candidate in candidates[:24]
+        if str(candidate.get("artist", "")).strip()
+        and str(candidate.get("title", "")).strip()
+    ]
+    if not lines:
+        return ""
+    return (
+        "\n\nRECCOBEATS DISCOVERY: the following catalogue-backed recommendations were "
+        "derived from tracks already verified in this playlist. Prefer them as a source "
+        "of real song identities when they satisfy the original request. They are discovery "
+        "candidates, not pre-approved selections: every hard constraint, artist quota, "
+        "recording-version rule, creative requirement and forbidden/already-attempted list "
+        "remains authoritative. Never include a song only because it appears in this pool. "
+        "If the pool is insufficient, propose other canonical released tracks rather than "
+        "relaxing a requirement.\n"
+        + "\n".join(lines)
+    )
+
+
 def _hard_constraint_guidance(constraints: Any) -> str:
     """Describe only constraints that the downstream validator will actually enforce."""
     if constraints is None or not getattr(constraints, "active", False):
@@ -445,6 +471,41 @@ async def generate_playlist_draft(
         hard_guidance = _hard_constraint_guidance(enforced_constraints)
         submitted_prompt += hard_guidance
 
+        reccobeats_guidance = ""
+        if stage == "llm_replenishment":
+            verified_anchors = [
+                dict(track)
+                for track in _RESOLVED_SESSION_TRACKS.get()
+                if isinstance(track, dict)
+            ]
+            reccobeats_candidates: list[dict[str, str]] = []
+            if verified_anchors:
+                try:
+                    from backend.reccobeats_features import (
+                        recommendation_candidates_from_tracks,
+                    )
+
+                    reccobeats_candidates = await recommendation_candidates_from_tracks(
+                        verified_anchors,
+                        limit=min(24, max(12, optimized_count)),
+                        max_anchors=3,
+                    )
+                except Exception as error:  # noqa: BLE001 - optional discovery is fail-open.
+                    logger.info(
+                        "reccobeats_replenishment unavailable error=%s",
+                        type(error).__name__,
+                    )
+            reccobeats_guidance = _reccobeats_replenishment_guidance(
+                reccobeats_candidates
+            )
+            submitted_prompt += reccobeats_guidance
+            logger.info(
+                "reccobeats_replenishment anchors=%s candidates=%s applied=%s",
+                len(verified_anchors),
+                len(reccobeats_candidates),
+                bool(reccobeats_guidance),
+            )
+
         async def repair_quota_deficits(
             current: dict[str, Any],
         ) -> tuple[dict[str, Any], list[Any]]:
@@ -467,7 +528,7 @@ async def generate_playlist_draft(
                 )
                 repaired = await raw_generate_playlist_draft(
                     config,
-                    repair_prompt + hard_guidance,
+                    repair_prompt + hard_guidance + reccobeats_guidance,
                     optimized_count,
                 )
                 repaired_deficits = quota_deficits(
