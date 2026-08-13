@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
+import backend.lastfm_discovery as lastfm_discovery
 import backend.main as main_module
 
 
@@ -41,9 +42,8 @@ def _resolved(candidate: dict[str, str], index: int) -> dict:
     }
 
 
-def test_free_prompt_skips_lastfm_guided_second_generation(monkeypatch) -> None:
+def test_free_prompt_skips_lastfm_discovery_and_second_generation(monkeypatch) -> None:
     generation_calls: list[str] = []
-    discovery_calls = 0
 
     monkeypatch.setattr(
         main_module,
@@ -55,10 +55,8 @@ def test_free_prompt_skips_lastfm_guided_second_generation(monkeypatch) -> None:
         generation_calls.append(prompt)
         return _draft()
 
-    async def disabled_prompt_discovery(anchors, *, limit=40, max_anchors=3):
-        nonlocal discovery_calls
-        discovery_calls += 1
-        return []
+    async def forbidden_prompt_discovery(*args, **kwargs):
+        raise AssertionError("Free prompts must not enter Last.fm prompt discovery")
 
     async def fake_resolve(candidates, exclusions):
         return [
@@ -70,7 +68,7 @@ def test_free_prompt_skips_lastfm_guided_second_generation(monkeypatch) -> None:
         return None
 
     monkeypatch.setattr(main_module, "generate_playlist_draft", fake_generate)
-    monkeypatch.setattr(main_module, "discover_from_anchors", disabled_prompt_discovery)
+    monkeypatch.setattr(lastfm_discovery, "discover_from_anchors", forbidden_prompt_discovery)
     monkeypatch.setattr(main_module, "resolve_candidates", fake_resolve)
     monkeypatch.setattr(main_module, "interpret_constraints", no_ordering)
 
@@ -82,7 +80,6 @@ def test_free_prompt_skips_lastfm_guided_second_generation(monkeypatch) -> None:
         )
     )
 
-    assert discovery_calls == 1
     assert len(generation_calls) == 1
     assert result["name"] == "Single Pass Playlist"
     assert result["lastfm"]["available"] is False
