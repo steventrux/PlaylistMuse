@@ -52,9 +52,6 @@ def test_prompt_generation_applies_explicit_chronological_order(monkeypatch) -> 
             "tracks": _draft_tracks(),
         }
 
-    async def no_lastfm(anchors, *, limit=40, max_anchors=3):
-        return []
-
     async def fake_resolve(candidates, exclusions):
         return [
             _resolved(track, index)
@@ -72,7 +69,6 @@ def test_prompt_generation_applies_explicit_chronological_order(monkeypatch) -> 
         return list(reversed(tracks))
 
     monkeypatch.setattr(main_module, "generate_playlist_draft", fake_generate)
-    monkeypatch.setattr(main_module, "discover_from_anchors", no_lastfm)
     monkeypatch.setattr(main_module, "resolve_candidates", fake_resolve)
     monkeypatch.setattr(main_module, "interpret_constraints", fake_interpret)
     monkeypatch.setattr(main_module, "order_tracks_by_release_date", fake_order)
