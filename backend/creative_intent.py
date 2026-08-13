@@ -17,6 +17,7 @@ from backend.reccobeats_features import (
     ReccoBeatsAudioEvidence,
     audio_evidence_for_tracks,
 )
+from backend.text_normalization import normalize_identity
 
 logger = logging.getLogger("playlistmuse.performance")
 
@@ -93,6 +94,14 @@ class CreativeConflict:
     reason: str
 
 
+@dataclass(frozen=True, slots=True)
+class CreativeRejection:
+    artist_key: str
+    title_key: str
+    confidence: float
+    reason: str
+
+
 _ACTIVE_INTENT: ContextVar[CreativeIntent | None] = ContextVar(
     "playlistmuse_creative_intent",
     default=None,
@@ -100,6 +109,10 @@ _ACTIVE_INTENT: ContextVar[CreativeIntent | None] = ContextVar(
 _PREFERRED_EVALUATOR_MODEL: ContextVar[str | None] = ContextVar(
     "playlistmuse_preferred_creative_evaluator_model",
     default=None,
+)
+_CREATIVE_REJECTIONS: ContextVar[tuple[CreativeRejection, ...]] = ContextVar(
+    "playlistmuse_creative_rejections",
+    default=(),
 )
 _CACHE: dict[str, tuple[float, CreativeIntent]] = {}
 
@@ -195,11 +208,72 @@ def active_creative_intent() -> CreativeIntent:
 def activate_creative_intent(
     intent: CreativeIntent,
 ) -> Token[CreativeIntent | None]:
+    if not intent.requirements:
+        _CREATIVE_REJECTIONS.set(())
     return _ACTIVE_INTENT.set(intent)
 
 
 def reset_creative_intent(token: Token[CreativeIntent | None]) -> None:
     _ACTIVE_INTENT.reset(token)
+
+
+def _track_identity(track: dict[str, Any]) -> tuple[str, str]:
+    artist = str(track.get("artist") or track.get("artists") or "").strip()
+    title = str(track.get("title") or "").strip()
+    if not artist or not title:
+        return "", ""
+    return normalize_identity(artist), normalize_identity(title)
+
+
+def _remembered_creative_conflicts(
+    tracks: list[dict[str, Any]],
+) -> list[CreativeConflict]:
+    remembered = {
+        (item.artist_key, item.title_key): item
+        for item in _CREATIVE_REJECTIONS.get()
+    }
+    conflicts: list[CreativeConflict] = []
+    for index, track in enumerate(tracks, start=1):
+        rejection = remembered.get(_track_identity(track))
+        if rejection is None:
+            continue
+        conflicts.append(
+            CreativeConflict(index, rejection.confidence, rejection.reason)
+        )
+    return conflicts
+
+
+def _remember_creative_conflicts(
+    tracks: list[dict[str, Any]],
+    conflicts: list[CreativeConflict],
+) -> None:
+    remembered = {
+        (item.artist_key, item.title_key): item
+        for item in _CREATIVE_REJECTIONS.get()
+    }
+    added: list[int] = []
+    for conflict in conflicts:
+        if conflict.index < 1 or conflict.index > len(tracks):
+            continue
+        artist_key, title_key = _track_identity(tracks[conflict.index - 1])
+        key = (artist_key, title_key)
+        if not artist_key or not title_key or key in remembered:
+            continue
+        remembered[key] = CreativeRejection(
+            artist_key,
+            title_key,
+            conflict.confidence,
+            conflict.reason,
+        )
+        added.append(conflict.index)
+    if not added:
+        return
+    _CREATIVE_REJECTIONS.set(tuple(remembered.values()))
+    logger.info(
+        "creative_fit phase=rejection_memory added=%s total=%s",
+        added,
+        len(remembered),
+    )
 
 
 def _tag_evidence_for_index(
@@ -594,13 +668,13 @@ def _merge_conflicts(
     return [by_index[index] for index in sorted(by_index)]
 
 
-async def assess_creative_fit(
+async def _assess_creative_fit_fresh(
     config: AppConfig,
     tracks: list[dict[str, Any]],
     *,
     intent: CreativeIntent | None = None,
 ) -> list[CreativeConflict]:
-    """Return credible creative drift; optional external evidence always fails open."""
+    """Evaluate tracks without consulting generation-scoped rejection memory."""
     active = intent or active_creative_intent()
     if (
         not active.active
@@ -681,6 +755,43 @@ async def assess_creative_fit(
     )
     mapped = _map_refined_conflicts(refined_conflicts, refined_indexes)
     return _merge_conflicts(base_conflicts, mapped)
+
+
+async def assess_creative_fit(
+    config: AppConfig,
+    tracks: list[dict[str, Any]],
+    *,
+    intent: CreativeIntent | None = None,
+) -> list[CreativeConflict]:
+    """Return creative drift while preserving rejections within one generation."""
+    if intent is not None:
+        return await _assess_creative_fit_fresh(
+            config,
+            tracks,
+            intent=intent,
+        )
+
+    remembered = _remembered_creative_conflicts(tracks)
+    remembered_indexes = {item.index for item in remembered}
+    fresh_indexes = [
+        index
+        for index in range(1, len(tracks) + 1)
+        if index not in remembered_indexes
+    ]
+    if remembered:
+        logger.info(
+            "creative_fit phase=rejection_memory hits=%s total=%s",
+            [item.index for item in remembered],
+            len(_CREATIVE_REJECTIONS.get()),
+        )
+    if not fresh_indexes:
+        return remembered
+
+    fresh_tracks = [tracks[index - 1] for index in fresh_indexes]
+    fresh_conflicts = await _assess_creative_fit_fresh(config, fresh_tracks)
+    mapped = _map_refined_conflicts(fresh_conflicts, fresh_indexes)
+    _remember_creative_conflicts(tracks, mapped)
+    return _merge_conflicts(remembered, mapped)
 
 
 def creative_repair_prompt(
