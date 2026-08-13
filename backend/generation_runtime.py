@@ -12,6 +12,8 @@ from typing import Any
 
 logger = logging.getLogger("playlistmuse.performance")
 
+MAX_CREATIVE_REPAIR_ROUNDS = 1
+
 _REPLENISHMENT_MISSING_RE = re.compile(
     r"still needs\s+(\d+)\s+resolvable songs", re.IGNORECASE
 )
@@ -48,6 +50,11 @@ def _stage_name(prompt: str) -> str:
     if normalized.startswith("Suggest exactly 6 strong replacement candidates"):
         return "llm_replacement"
     return "llm_initial"
+
+
+def _creative_repair_rounds(stage: str) -> int:
+    """Avoid regenerating refill pools; one repair is enough for full drafts."""
+    return 0 if stage == "llm_replenishment" else MAX_CREATIVE_REPAIR_ROUNDS
 
 
 def _constraint_source(prompt: str, stage: str) -> str:
@@ -416,7 +423,7 @@ async def generate_playlist_draft(
                 if isinstance(track, dict)
             ],
         )
-        for _ in range(2):
+        for _ in range(_creative_repair_rounds(stage)):
             if not creative_conflicts:
                 break
             repaired = await raw_generate_playlist_draft(
@@ -556,6 +563,7 @@ async def generate_playlist_draft(
             started_at,
             requested=count,
             submitted=optimized_count,
+            creative_repair_limit=_creative_repair_rounds(stage),
         )
 
 
