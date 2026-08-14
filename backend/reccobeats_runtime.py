@@ -13,6 +13,16 @@ from backend.popularity_intent import (
     active_popularity_intent,
     interpret_popularity_intent,
 )
+from backend.popularity_policy import (
+    filter_absolute_popularity,
+    popularity_policy_label,
+    popularity_value,
+)
+from backend.popularity_runtime import (
+    merge_identity_locked_tracks,
+    partition_absolute_popularity,
+    revalidate_creative_and_policy,
+)
 from backend.reccobeats_anchors import interpret_reccobeats_anchors
 from backend.reccobeats_features import recommendation_candidates_from_tracks
 from backend.reccobeats_guidance import popularity_preference, reccobeats_guidance
@@ -21,11 +31,12 @@ from backend.reccobeats_popularity import (
     enrich_recommendation_popularity,
     popularity_for_tracks,
 )
+from backend.reccobeats_selector import select_reccobeats_draft
 from backend.text_normalization import normalize_identity
 
 LOGGER = logging.getLogger("playlistmuse.performance")
-POPULARITY_POOL_LIMIT = 72
-POPULARITY_CONTEXT_LIMIT = 24
+POPULARITY_POOL_LIMIT = 96
+POPULARITY_CONTEXT_LIMIT = 30
 POPULARITY_RECOMMENDATION_SIZE = 30
 _ACTIVE_CANDIDATES: ContextVar[tuple[dict[str, Any], ...]] = ContextVar(
     "playlistmuse_reccobeats_runtime_candidates",
@@ -57,13 +68,7 @@ def _candidate_key(candidate: dict[str, Any]) -> tuple[str, str]:
 
 
 def _popularity_value(candidate: dict[str, Any]) -> int | None:
-    value = candidate.get("popularity")
-    if isinstance(value, bool):
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
+    return popularity_value(candidate)
 
 
 def _merge_recommendations(
@@ -106,7 +111,7 @@ def _popularity_summary(
 
 
 def _generation_count(count: int, intent: PopularityIntent, stage: str) -> int:
-    """Create a bounded comparison pool only when popularity was explicitly requested."""
+    """Create a bounded reserve only when popularity was explicitly requested."""
     requested = max(1, int(count))
     if stage != "llm_initial" or not intent.active or requested >= 30:
         return requested
@@ -120,9 +125,17 @@ def _popularity_buffer_guidance(requested: int, generated: int) -> str:
     return (
         "\n\nINTERNAL POPULARITY CANDIDATE BUFFER: return exactly "
         f"{generated} distinct, fully eligible candidate tracks. The final playlist still "
-        f"contains exactly {requested}; PlaylistMuse will compare Recco popularity among "
-        "verified candidates before final selection. Do not relax any hard or creative "
+        f"contains exactly {requested}. PlaylistMuse will verify the explicit absolute "
+        "Recco popularity policy before final selection. Do not relax any hard or creative "
         "requirement to fill this internal reserve."
+    )
+
+
+def _batch_signature(batch: list[dict[str, Any]]) -> tuple[tuple[str, str], ...]:
+    return tuple(
+        key
+        for anchor in batch
+        if all((key := _candidate_key(anchor)))
     )
 
 
@@ -152,7 +165,7 @@ def _popularity_discovery_batches(
     batches: list[list[dict[str, Any]]] = []
     seen: set[tuple[tuple[str, str], ...]] = set()
     for batch in proposed:
-        signature = tuple(_candidate_key(anchor) for anchor in batch if all(_candidate_key(anchor)))
+        signature = _batch_signature(batch)
         if not signature or signature in seen:
             continue
         seen.add(signature)
@@ -160,6 +173,28 @@ def _popularity_discovery_batches(
         if len(batches) >= 4:
             break
     return batches
+
+
+def _popularity_fallback_batches(
+    anchors: list[dict[str, Any]],
+    existing: list[list[dict[str, Any]]],
+) -> list[list[dict[str, Any]]]:
+    """Recover strict seed-resolution misses without another LLM anchor call."""
+    primary = [dict(anchor) for anchor in anchors[:3] if isinstance(anchor, dict)]
+    secondary = [dict(anchor) for anchor in anchors[3:6] if isinstance(anchor, dict)]
+    proposed: list[list[dict[str, Any]]] = [[anchor] for anchor in primary]
+    if secondary:
+        proposed.append(secondary)
+
+    seen = {_batch_signature(batch) for batch in existing}
+    fallback: list[list[dict[str, Any]]] = []
+    for batch in proposed:
+        signature = _batch_signature(batch)
+        if not signature or signature in seen:
+            continue
+        seen.add(signature)
+        fallback.append(batch)
+    return fallback
 
 
 async def _recommend_raw(
@@ -191,12 +226,24 @@ async def _recommend_raw(
         return []
 
 
+async def _enriched_absolute_pool(
+    raw_results: list[list[dict[str, Any]]],
+    preference: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    merged = _merge_recommendations(raw_results, limit=POPULARITY_POOL_LIMIT)
+    enriched = await enrich_recommendation_popularity(
+        merged,
+        preference=preference,
+    )
+    return enriched, filter_absolute_popularity(enriched, preference)
+
+
 async def _recommend_popularity_pool(
     anchors: list[dict[str, Any]],
     count: int,
     preference: str,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Aggregate several Recco seed views, then keep the requested relative extreme."""
+    """Build a broad pool, enforce an absolute band, then expose immutable candidates."""
     batches = _popularity_discovery_batches(anchors)
     metadata: dict[str, Any] = {
         "anchor_count": len(anchors),
@@ -211,6 +258,8 @@ async def _recommend_popularity_pool(
         "batch_result_counts": (),
         "pool_candidates": 0,
         "context_candidates": 0,
+        "absolute_policy": popularity_policy_label(preference),
+        "absolute_candidates": 0,
     }
     if not batches:
         return [], metadata
@@ -225,15 +274,43 @@ async def _recommend_popularity_pool(
             for batch in batches
         )
     )
+    raw_results = [list(result) for result in raw_results]
     metadata["primary_candidates"] = len(raw_results[0]) if raw_results else 0
     metadata["batch_result_counts"] = tuple(len(result) for result in raw_results)
-    merged = _merge_recommendations(raw_results, limit=POPULARITY_POOL_LIMIT)
-    enriched = await enrich_recommendation_popularity(
-        merged,
-        preference=preference,
-    )
-    context = enriched[:POPULARITY_CONTEXT_LIMIT]
+
+    enriched, absolute = await _enriched_absolute_pool(raw_results, preference)
+    target = min(POPULARITY_CONTEXT_LIMIT, max(12, int(count)))
+    fallback_batches = _popularity_fallback_batches(anchors, batches)
+    if len(absolute) < target and fallback_batches:
+        fallback_results = await asyncio.gather(
+            *(
+                _recommend_raw(
+                    batch,
+                    count,
+                    request_limit=POPULARITY_RECOMMENDATION_SIZE,
+                )
+                for batch in fallback_batches
+            )
+        )
+        fallback_results = [list(result) for result in fallback_results]
+        raw_results.extend(fallback_results)
+        metadata["fallback_used"] = True
+        metadata["fallback_result_counts"] = tuple(
+            len(result) for result in fallback_results
+        )
+        metadata["fallback_candidates"] = sum(
+            len(result) for result in fallback_results
+        )
+        metadata["discovery_batches"] += len(fallback_batches)
+        metadata["batch_result_counts"] = (
+            *metadata["batch_result_counts"],
+            *(len(result) for result in fallback_results),
+        )
+        enriched, absolute = await _enriched_absolute_pool(raw_results, preference)
+
+    context = absolute[:POPULARITY_CONTEXT_LIMIT]
     known, minimum, maximum, average = _popularity_summary(enriched)
+    absolute_known, absolute_min, absolute_max, absolute_avg = _popularity_summary(absolute)
     context_known, context_min, context_max, context_avg = _popularity_summary(context)
     metadata.update(
         {
@@ -242,6 +319,11 @@ async def _recommend_popularity_pool(
             "pool_popularity_min": minimum,
             "pool_popularity_max": maximum,
             "pool_popularity_avg": average,
+            "absolute_candidates": len(absolute),
+            "absolute_popularity_known": absolute_known,
+            "absolute_popularity_min": absolute_min,
+            "absolute_popularity_max": absolute_max,
+            "absolute_popularity_avg": absolute_avg,
             "context_candidates": len(context),
             "context_popularity_known": context_known,
             "context_popularity_min": context_min,
@@ -257,7 +339,7 @@ async def _recommend_with_fallback(
     count: int,
     preference: str,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Use expanded discovery for explicit popularity; retain neutral fallback behavior."""
+    """Use absolute popularity discovery when requested; retain neutral fallback behavior."""
     normalized = str(preference).strip().casefold()
     if normalized in {"popular", "less_known"}:
         return await _recommend_popularity_pool(
@@ -283,6 +365,8 @@ async def _recommend_with_fallback(
         "batch_result_counts": (len(primary_raw),) if primary else (),
         "pool_candidates": len(primary_raw),
         "context_candidates": len(primary_raw),
+        "absolute_policy": "neutral",
+        "absolute_candidates": len(primary_raw),
     }
     if primary_raw:
         return (
@@ -299,7 +383,7 @@ async def _recommend_with_fallback(
     raw_results = await asyncio.gather(
         *(_recommend_raw(batch, count) for batch in fallback_batches)
     )
-    merged = _merge_recommendations(raw_results, limit=limit)
+    merged = _merge_recommendations(list(raw_results), limit=limit)
     metadata["fallback_used"] = True
     metadata["fallback_candidates"] = len(merged)
     metadata["fallback_result_counts"] = tuple(len(result) for result in raw_results)
@@ -307,6 +391,7 @@ async def _recommend_with_fallback(
     metadata["batch_result_counts"] = (0, *(len(result) for result in raw_results))
     metadata["pool_candidates"] = len(merged)
     metadata["context_candidates"] = len(merged)
+    metadata["absolute_candidates"] = len(merged)
     return (
         await enrich_recommendation_popularity(merged, preference=preference),
         metadata,
@@ -317,7 +402,7 @@ async def _score_and_rank_tracks(
     tracks: list[dict[str, Any]],
     intent: PopularityIntent,
 ) -> list[dict[str, Any]]:
-    """Apply Recco popularity to LLM identities, not only exact recommendation copies."""
+    """Attach Recco popularity to free-form LLM fallback identities and rank them."""
     copied = [dict(track) for track in tracks]
     if not copied or not intent.active:
         return copied
@@ -357,6 +442,8 @@ def _log_discovery_stats(
     candidates: list[dict[str, Any]],
     metadata: dict[str, Any],
     draft_tracks: list[dict[str, Any]],
+    selector_tracks: int = 0,
+    popularity_rejected: int = 0,
 ) -> None:
     known, minimum, maximum, average = _popularity_summary(candidates)
     recco_tracks = [
@@ -369,17 +456,20 @@ def _log_discovery_stats(
     )
     draft_known, draft_min, draft_max, draft_avg = _popularity_summary(draft_tracks)
     LOGGER.info(
-        "reccobeats_stats stage=%s popularity=%s anchors=%s expanded_pool=%s "
-        "discovery_batches=%s batch_result_counts=%s primary_candidates=%s "
-        "fallback_used=%s fallback_candidates=%s pool_candidates=%s "
-        "pool_popularity_known=%s pool_popularity_min=%s pool_popularity_max=%s "
-        "pool_popularity_avg=%s candidates=%s popularity_known=%s popularity_min=%s "
-        "popularity_max=%s popularity_avg=%s draft_tracks=%s draft_popularity_known=%s "
+        "reccobeats_stats stage=%s popularity=%s absolute_policy=%s anchors=%s "
+        "expanded_pool=%s discovery_batches=%s batch_result_counts=%s "
+        "primary_candidates=%s fallback_used=%s fallback_candidates=%s "
+        "pool_candidates=%s absolute_candidates=%s pool_popularity_known=%s "
+        "pool_popularity_min=%s pool_popularity_max=%s pool_popularity_avg=%s "
+        "candidates=%s popularity_known=%s popularity_min=%s popularity_max=%s "
+        "popularity_avg=%s draft_tracks=%s draft_popularity_known=%s "
         "draft_popularity_min=%s draft_popularity_max=%s draft_popularity_avg=%s "
         "draft_recco=%s draft_recco_popularity_known=%s draft_recco_popularity_min=%s "
-        "draft_recco_popularity_max=%s draft_recco_popularity_avg=%s",
+        "draft_recco_popularity_max=%s draft_recco_popularity_avg=%s "
+        "selector_tracks=%s popularity_rejected=%s",
         stage,
         preference,
+        metadata.get("absolute_policy", popularity_policy_label(preference)),
         len(anchors),
         metadata.get("expanded_pool", False),
         metadata.get("discovery_batches", 0),
@@ -388,6 +478,7 @@ def _log_discovery_stats(
         metadata.get("fallback_used", False),
         metadata.get("fallback_candidates", 0),
         metadata.get("pool_candidates", len(candidates)),
+        metadata.get("absolute_candidates", len(candidates)),
         metadata.get("pool_popularity_known", known),
         metadata.get("pool_popularity_min", minimum),
         metadata.get("pool_popularity_max", maximum),
@@ -407,6 +498,8 @@ def _log_discovery_stats(
         selected_min,
         selected_max,
         selected_avg,
+        selector_tracks,
+        popularity_rejected,
     )
     if metadata.get("fallback_used"):
         LOGGER.info(
@@ -450,12 +543,13 @@ async def generate(core: Any, config: Any, prompt: str, count: int) -> dict[str,
         enhanced = _add_guidance(prompt, guidance, stage)
         LOGGER.info(
             "reccobeats_initial anchors=%s candidates=%s pool_candidates=%s applied=%s "
-            "popularity=%s expanded_pool=%s requested=%s generated=%s",
+            "popularity=%s absolute_policy=%s expanded_pool=%s requested=%s generated=%s",
             len(discovery_anchors),
             len(candidates),
             discovery_metadata.get("pool_candidates", len(candidates)),
             bool(guidance),
             popularity_preference(intent),
+            discovery_metadata.get("absolute_policy", popularity_policy_label(intent.preference)),
             discovery_metadata.get("expanded_pool", False),
             count,
             generated_count,
@@ -494,12 +588,13 @@ async def generate(core: Any, config: Any, prompt: str, count: int) -> dict[str,
         enhanced = _add_guidance(prompt, guidance, stage)
         LOGGER.info(
             "reccobeats_enhanced_replenishment anchors=%s candidates=%s pool_candidates=%s "
-            "applied=%s popularity=%s expanded_pool=%s",
+            "applied=%s popularity=%s absolute_policy=%s expanded_pool=%s",
             len(discovery_anchors),
             len(candidates),
             discovery_metadata.get("pool_candidates", len(candidates)),
             bool(guidance),
             popularity_preference(intent),
+            discovery_metadata.get("absolute_policy", popularity_policy_label(intent.preference)),
             discovery_metadata.get("expanded_pool", False),
         )
     elif stage == "llm_replacement":
@@ -536,15 +631,80 @@ async def generate(core: Any, config: Any, prompt: str, count: int) -> dict[str,
     if candidates and tracks:
         tracks = canonicalize_reccobeats_matches(tracks, candidates)
     tracks = await _score_and_rank_tracks(tracks, active_popularity_intent())
-    draft["tracks"] = tracks
+
+    selector_tracks = 0
+    popularity_rejected: list[dict[str, Any]] = []
+    active_intent = active_popularity_intent()
+    preference = popularity_preference(active_intent)
+    if active_intent.active:
+        fallback_tracks, popularity_rejected = partition_absolute_popularity(
+            tracks,
+            preference,
+        )
+        selection_target = (
+            optimized_count if stage == "llm_replenishment" else generated_count
+        )
+        locked_draft = None
+        if candidates and stage in {"llm_initial", "llm_replenishment"}:
+            locked_draft = await select_reccobeats_draft(
+                config,
+                source,
+                candidates,
+                count=selection_target,
+                preference=preference,
+            )
+        if locked_draft is not None:
+            locked_tracks = [
+                dict(item)
+                for item in locked_draft.get("tracks", [])
+                if isinstance(item, dict)
+            ]
+            selector_tracks = len(locked_tracks)
+            merged = merge_identity_locked_tracks(
+                locked_tracks,
+                fallback_tracks,
+                limit=selection_target,
+            )
+            draft["tracks"] = merged
+            draft = await revalidate_creative_and_policy(
+                config,
+                draft,
+                requested_count=selection_target,
+            )
+            tracks = [
+                dict(item)
+                for item in draft.get("tracks", [])
+                if isinstance(item, dict)
+            ]
+        else:
+            tracks = fallback_tracks
+            draft["tracks"] = tracks
+
+        if popularity_rejected:
+            draft["popularity_rejected"] = popularity_rejected
+        LOGGER.info(
+            "popularity_enforcement stage=%s preference=%s policy=%s input=%s "
+            "selector_tracks=%s accepted=%s rejected=%s",
+            stage,
+            preference,
+            popularity_policy_label(preference),
+            len(tracks) + len(popularity_rejected),
+            selector_tracks,
+            len(tracks),
+            len(popularity_rejected),
+        )
+    else:
+        draft["tracks"] = tracks
 
     if stage in {"llm_initial", "llm_replenishment"}:
         _log_discovery_stats(
             stage=stage,
-            preference=popularity_preference(active_popularity_intent()),
+            preference=preference,
             anchors=discovery_anchors,
             candidates=candidates,
             metadata=discovery_metadata,
             draft_tracks=tracks,
+            selector_tracks=selector_tracks,
+            popularity_rejected=len(popularity_rejected),
         )
     return draft
