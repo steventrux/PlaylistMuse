@@ -7,8 +7,11 @@ from backend.metadata_validation import (
     TrackMetadata,
     ValidationResult,
     active_constraints,
+    activate_constraints,
     activate_constraints_from_prompt,
+    validate_metadata,
 )
+from backend.reccobeats_selector import deterministic_reccobeats_draft
 from backend.youtube import _metadata_filter
 
 
@@ -200,6 +203,51 @@ def test_metadata_filter_marks_candidates_beyond_budget_unknown(monkeypatch):
     assert rejected[0]["title"] == "Song B"
     assert rejected[0]["metadata_validation"]["status"] == "unknown"
     assert "Metadata lookup budget exceeded" in rejected[0]["metadata_validation"]["warnings"]
+
+
+def test_recco_deterministic_fallback_still_obeys_active_country_constraint(monkeypatch):
+    activate_constraints(MetadataConstraints(artist_country="IT"))
+    draft = deterministic_reccobeats_draft(
+        [
+            {
+                "artist": "Italian Artist",
+                "title": "Italian Song",
+                "source": "reccobeats",
+                "reccobeats_id": "it-1",
+                "popularity": 70,
+            },
+            {
+                "artist": "Foreign Artist",
+                "title": "Foreign Song",
+                "source": "reccobeats",
+                "reccobeats_id": "us-1",
+                "popularity": 80,
+            },
+        ],
+        count=2,
+    )
+    assert draft is not None
+
+    async def fake_validate(candidate, constraints, client=None):
+        country = "IT" if candidate["artist"] == "Italian Artist" else "US"
+        metadata = TrackMetadata(
+            artist=candidate["artist"],
+            title=candidate["title"],
+            artist_country=country,
+            match_score=0.96,
+            confidence="high",
+        )
+        return validate_metadata(metadata, constraints)
+
+    monkeypatch.setattr("backend.youtube._read_cache", lambda *args, **kwargs: None)
+    monkeypatch.setattr("backend.youtube.validate_candidate", fake_validate)
+
+    accepted, rejected = asyncio.run(_metadata_filter(draft["tracks"]))
+
+    assert [candidate["artist"] for candidate in accepted] == ["Italian Artist"]
+    assert [candidate["artist"] for candidate in rejected] == ["Foreign Artist"]
+    assert rejected[0]["metadata_validation"]["status"] == "invalid"
+    assert "artist country US does not match IT" in rejected[0]["metadata_validation"]["violations"]
 
 
 def test_replacement_prompt_shape_preserves_metadata_constraints():
