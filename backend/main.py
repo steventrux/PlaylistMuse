@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
 from backend.config import (
+    FALLBACK_FIELDS,
     AppConfig,
     api_key_matches_provider,
     api_key_slot,
@@ -22,6 +23,7 @@ from backend.config import (
 )
 from backend.constraint_interpreter import interpret_constraints
 from backend.generation_runtime import (
+    _LAST_INTERPRETED_CONSTRAINTS,
     discover_for_seed as similar_track_candidates,
     generate_playlist_draft,
     resolve_candidates,
@@ -133,6 +135,12 @@ class SettingsResponse(BaseModel):
     model: str
     fallback_1: str
     fallback_2: str
+    fallback_3: str
+    fallback_4: str
+    fallback_5: str
+    fallback_6: str
+    fallback_7: str
+    fallback_8: str
     base_url: str
     configured: bool
     api_key_set: bool
@@ -153,6 +161,12 @@ class SettingsUpdate(BaseModel):
     model: str = Field(min_length=1, max_length=120)
     fallback_1: str = Field(default="", max_length=120)
     fallback_2: str = Field(default="", max_length=120)
+    fallback_3: str = Field(default="", max_length=120)
+    fallback_4: str = Field(default="", max_length=120)
+    fallback_5: str = Field(default="", max_length=120)
+    fallback_6: str = Field(default="", max_length=120)
+    fallback_7: str = Field(default="", max_length=120)
+    fallback_8: str = Field(default="", max_length=120)
     base_url: str = ""
 
 
@@ -331,6 +345,12 @@ def _settings_response(config: AppConfig) -> SettingsResponse:
         model=config.model,
         fallback_1=config.fallback_1,
         fallback_2=config.fallback_2,
+        fallback_3=config.fallback_3,
+        fallback_4=config.fallback_4,
+        fallback_5=config.fallback_5,
+        fallback_6=config.fallback_6,
+        fallback_7=config.fallback_7,
+        fallback_8=config.fallback_8,
         base_url=config.base_url,
         configured=config.configured,
         api_key_set=api_key_matches_provider(config.provider, config.api_key),
@@ -863,7 +883,9 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     if active_policy is not None:
         final_tracks = apply_track_positions(final_tracks, active_policy)
 
-    interpretation = await interpret_constraints(config, prompt)
+    interpretation = _LAST_INTERPRETED_CONSTRAINTS.get()
+    if interpretation is None:
+        interpretation = await interpret_constraints(config, prompt)
     chronological_order = chronological_order_from_payload(interpretation, prompt)
     if chronological_order is not None:
         ordered_tracks = await order_tracks_by_release_date(
@@ -929,21 +951,18 @@ async def update_settings(request: SettingsUpdate) -> SettingsResponse:
     active_key = provider_api_keys.get(slot, "")
 
     model = request.model.strip()
-    fallback_1 = request.fallback_1.strip()
-    fallback_2 = request.fallback_2.strip()
+    fallbacks = {name: getattr(request, name).strip() for name in FALLBACK_FIELDS}
     base_url = request.base_url.strip()
     if request.provider in OPENROUTER_MODELS:
         model = OPENROUTER_MODELS[request.provider]
-        fallback_1 = ""
-        fallback_2 = ""
+        fallbacks = dict.fromkeys(FALLBACK_FIELDS, "")
         base_url = ""
 
     config = AppConfig(
         provider=request.provider,
         api_key=active_key,
         model=model,
-        fallback_1=fallback_1,
-        fallback_2=fallback_2,
+        **fallbacks,
         base_url=base_url,
         provider_api_keys=provider_api_keys,
     )

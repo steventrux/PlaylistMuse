@@ -3,60 +3,41 @@
 
   const $ = (id) => document.getElementById(id);
   const {readJson} = window.PlaylistMuseCommon;
+  // Model choices always come from live provider discovery (see loadAvailableModels /
+  // renderAvailableModels) -- this table only carries per-provider labels and help links.
   const providerDefaults = {
     gemini: {
       label: 'Google Gemini',
-      primary: 'gemini-3.5-flash',
-      fallback1: 'gemini-3.1-flash-lite',
-      fallback2: 'gemini-flash-latest',
       help: 'Create or manage a Gemini API key',
       href: 'https://aistudio.google.com/app/apikey',
     },
     openai: {
       label: 'OpenAI',
-      primary: 'gpt-5-mini',
-      fallback1: 'gpt-5-nano',
-      fallback2: 'gpt-4.1-mini',
       help: 'Create or manage an OpenAI API key',
       href: 'https://platform.openai.com/api-keys',
     },
     anthropic: {
       label: 'Anthropic',
-      primary: 'claude-sonnet-4-5',
-      fallback1: 'claude-haiku-4-5',
-      fallback2: '',
       help: 'Create or manage an Anthropic API key',
       href: 'https://console.anthropic.com/settings/keys',
     },
     openrouter_auto: {
       label: 'OpenRouter Auto',
-      primary: 'openrouter/auto',
-      fallback1: '',
-      fallback2: '',
       help: 'Create or manage an OpenRouter API key',
       href: 'https://openrouter.ai/settings/keys',
     },
     openrouter_free: {
       label: 'OpenRouter Free',
-      primary: 'openrouter/free',
-      fallback1: '',
-      fallback2: '',
       help: 'Create or manage an OpenRouter API key',
       href: 'https://openrouter.ai/settings/keys',
     },
     ollama: {
       label: 'Ollama',
-      primary: 'qwen3:8b',
-      fallback1: 'llama3.1:8b',
-      fallback2: '',
       help: 'Ollama runs models on your own server',
       href: 'https://ollama.com/library',
     },
     custom: {
       label: 'OpenAI-compatible endpoint',
-      primary: '',
-      fallback1: '',
-      fallback2: '',
       help: 'Use any OpenAI-compatible chat-completions endpoint',
       href: 'https://platform.openai.com/docs/api-reference/chat',
     },
@@ -66,6 +47,11 @@
   let providerProfiles = {};
   let providerKeysSet = {};
   let modelRequestSequence = 0;
+
+  // Fallbacks cascade automatically (no manual editing, see reconcileHiddenFallbacks) --
+  // 8 slots comfortably cover every stable model a provider like Gemini currently reports.
+  const MAX_FALLBACKS = 8;
+  const fallbackFieldId = (index) => `ai-fallback-${index}`;
 
   function ensureModelControls() {
     const model = $('ai-model');
@@ -85,6 +71,21 @@
     }
     model.setAttribute('list', options.id);
 
+    // Browsers filter datalist suggestions against the text already in the field, so a
+    // pre-filled value hides every option except the exact match. Clearing the value on
+    // focus lets the popup show the complete list; restore it on blur if nothing was chosen.
+    let valueBeforeFocus = '';
+    model.addEventListener('focus', () => {
+      if (model.readOnly) return;
+      valueBeforeFocus = model.value;
+      model.value = '';
+    });
+    model.addEventListener('blur', () => {
+      if (!model.value.trim()) {
+        model.value = valueBeforeFocus;
+      }
+    });
+
     let hint = $('ai-model-hint');
     if (!hint) {
       hint = document.createElement('span');
@@ -94,25 +95,23 @@
       options.insertAdjacentElement('afterend', hint);
     }
 
-    let fallback1 = $('ai-fallback-1');
-    let fallback2 = $('ai-fallback-2');
     const fallbackRow = $('fallback-row');
     if (fallbackRow) {
       fallbackRow.classList.add('hidden');
       fallbackRow.hidden = true;
       fallbackRow.setAttribute('aria-hidden', 'true');
     }
-    if (!fallback1) {
-      fallback1 = document.createElement('input');
-      fallback1.id = 'ai-fallback-1';
-      fallback1.type = 'hidden';
-      modelLabel.insertAdjacentElement('afterend', fallback1);
-    }
-    if (!fallback2) {
-      fallback2 = document.createElement('input');
-      fallback2.id = 'ai-fallback-2';
-      fallback2.type = 'hidden';
-      fallback1.insertAdjacentElement('afterend', fallback2);
+    let previousFallback = modelLabel;
+    for (let index = 1; index <= MAX_FALLBACKS; index += 1) {
+      const id = fallbackFieldId(index);
+      let fallback = $(id);
+      if (!fallback) {
+        fallback = document.createElement('input');
+        fallback.id = id;
+        fallback.type = 'hidden';
+        previousFallback.insertAdjacentElement('afterend', fallback);
+      }
+      previousFallback = fallback;
     }
 
     let refresh = $('refresh-ai-models');
@@ -157,16 +156,18 @@
   }
 
   function profileFor(provider) {
-    const defaults = providerDefaults[provider] || providerDefaults.custom;
     const saved = providerProfiles[provider] || {};
-    return {
-      model: saved.model || defaults.primary,
-      fallback_1: saved.fallback_1 || '',
-      fallback_2: saved.fallback_2 || '',
+    const profile = {
+      model: saved.model || '',
       base_url: saved.base_url || '',
       configured: Boolean(saved.configured),
       active: provider === activeProvider,
     };
+    for (let index = 1; index <= MAX_FALLBACKS; index += 1) {
+      const key = `fallback_${index}`;
+      profile[key] = saved[key] || '';
+    }
+    return profile;
   }
 
   function rememberProfiles(data) {
@@ -190,11 +191,11 @@
   }
 
   function applyProviderValues(provider) {
-    const defaults = providerDefaults[provider] || providerDefaults.custom;
     const profile = profileFor(provider);
-    $('ai-model').value = profile.model || defaults.primary;
-    $('ai-fallback-1').value = profile.fallback_1 || '';
-    $('ai-fallback-2').value = profile.fallback_2 || '';
+    $('ai-model').value = profile.model || '';
+    for (let index = 1; index <= MAX_FALLBACKS; index += 1) {
+      $(fallbackFieldId(index)).value = profile[`fallback_${index}`] || '';
+    }
     $('ai-base-url').value = profile.base_url || '';
     $('ai-key').value = '';
     $('ai-model-options').replaceChildren();
@@ -294,39 +295,38 @@
     return versioned[0] || '';
   }
 
-  function reconcileHiddenFallbacks(provider, models) {
+  function reconcileHiddenFallbacks(provider, models, fallbackOrder = []) {
     const primary = $('ai-model').value.trim();
+    const setFallbacks = (values) => {
+      for (let index = 1; index <= MAX_FALLBACKS; index += 1) {
+        $(fallbackFieldId(index)).value = values[index - 1] || '';
+      }
+    };
+
     if (provider === 'openrouter_auto' || provider === 'openrouter_free') {
-      $('ai-fallback-1').value = '';
-      $('ai-fallback-2').value = '';
+      setFallbacks([]);
       return;
     }
 
-    const defaults = providerDefaults[provider] || providerDefaults.custom;
-    const profile = profileFor(provider);
-    const preferred = [
-      profile.fallback_1,
-      profile.fallback_2,
-      defaults.fallback1,
-      defaults.fallback2,
-    ];
+    // The chain always cascades through fallbackOrder (the provider's own verified
+    // recency order, already filtered to stable models) -- no manual editing, no stale
+    // carried-over values from a previous save.
     const chosen = [];
-
-    preferred.forEach((candidate) => {
+    fallbackOrder.forEach((candidate) => {
       const match = bestAvailableMatch(models, candidate);
       if (match && match !== primary && !chosen.includes(match)) chosen.push(match);
     });
 
     if (provider === 'ollama' || provider === 'custom') {
+      // No verified recency signal for these -- cascade through whatever else is available.
       models.forEach((model) => {
-        if (model !== primary && !chosen.includes(model) && chosen.length < 2) {
+        if (model !== primary && !chosen.includes(model) && chosen.length < MAX_FALLBACKS) {
           chosen.push(model);
         }
       });
     }
 
-    $('ai-fallback-1').value = chosen[0] || '';
-    $('ai-fallback-2').value = chosen[1] || '';
+    setFallbacks(chosen.slice(0, MAX_FALLBACKS));
   }
 
   function renderAvailableModels(data) {
@@ -341,17 +341,34 @@
       options.append(option);
     });
 
+    const recommended =
+      typeof data.recommended_model === 'string' ? data.recommended_model.trim() : '';
+    const fallbackOrder = Array.isArray(data.fallback_order)
+      ? data.fallback_order.filter(Boolean)
+      : [];
+
     if (data.fixed && models[0]) {
       $('ai-model').value = models[0];
       $('ai-model').readOnly = true;
       $('ai-model-hint').textContent = 'This OpenRouter mode uses a fixed automatic router.';
+    } else if (!current && recommended) {
+      // Only a verified recency signal (a provider's own alias or a real creation date)
+      // ever pre-selects a model -- never a guess based on a model's name.
+      $('ai-model').value = recommended;
+      $('ai-model-hint').textContent =
+        `${models.length} compatible models reported by this API. ` +
+        `Pre-selected the most recent: ${recommended}.`;
+    } else if (!current) {
+      $('ai-model-hint').textContent = models.length
+        ? `${models.length} compatible models reported by this API. Select one to continue.`
+        : 'No compatible models reported by this API. Select one to continue.';
     } else if (current && !models.includes(current)) {
       $('ai-model-hint').textContent = `${models.length} models reported by this API. The saved model is not currently listed.`;
     } else {
       $('ai-model-hint').textContent = `${models.length} compatible models reported by this API.`;
     }
 
-    reconcileHiddenFallbacks($('ai-provider').value, models);
+    reconcileHiddenFallbacks($('ai-provider').value, models, fallbackOrder);
   }
 
   async function loadAvailableModels(provider = $('ai-provider').value) {
@@ -387,9 +404,12 @@
 
   function validateSelectedModel() {
     const provider = $('ai-provider').value;
+    const selected = $('ai-model').value.trim();
+    if (!selected) {
+      throw new Error('Select a model to continue.');
+    }
     if (provider === 'custom') return;
     const models = availableModelValues();
-    const selected = $('ai-model').value.trim();
     if (models.length && !models.includes(selected)) {
       throw new Error('Select a model reported as available by this API.');
     }
@@ -435,6 +455,10 @@
     try {
       await loadAvailableModels(provider);
       validateSelectedModel();
+      const fallbackFields = {};
+      for (let index = 1; index <= MAX_FALLBACKS; index += 1) {
+        fallbackFields[`fallback_${index}`] = $(fallbackFieldId(index)).value.trim();
+      }
       await readJson(await fetch('/api/settings', {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
@@ -442,8 +466,7 @@
           provider,
           api_key: $('ai-key').value.trim(),
           model: $('ai-model').value.trim(),
-          fallback_1: $('ai-fallback-1').value.trim(),
-          fallback_2: $('ai-fallback-2').value.trim(),
+          ...fallbackFields,
           base_url: $('ai-base-url').value.trim(),
         }),
       }));

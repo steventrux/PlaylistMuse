@@ -11,6 +11,12 @@ from typing import Any
 import httpx
 
 from backend.config import AppConfig
+from backend.provider_rate_limits import (
+    ProviderRateLimitedError,
+    cooldown_seconds_for_response,
+    is_rate_limited,
+    mark_rate_limited,
+)
 
 SYSTEM_PROMPT = """You are PlaylistMuse, an expert music playlist curator.
 Return only one valid JSON object with exactly this structure:
@@ -59,7 +65,13 @@ Rules:
 OPENROUTER_PROVIDERS = {"openrouter_auto", "openrouter_free"}
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_BATCH_SIZE = 8
-PROVIDER_BATCH_SIZES = {"openrouter_free": 6, "ollama": 6}
+PROVIDER_BATCH_SIZES = {
+    "openrouter_free": 6,
+    "ollama": 6,
+    "gemini": 16,
+    "openrouter_auto": 16,
+    "anthropic": 16,
+}
 
 _GEMINI_SCHEMA_KEYS = {
     "$id",
@@ -284,9 +296,21 @@ def safe_error_message(error: Exception) -> str:
     return message
 
 
-def _raise_for_provider(response: httpx.Response, provider: str) -> None:
+def _raise_for_provider(
+    response: httpx.Response,
+    provider: str,
+    *,
+    provider_key: str | None = None,
+    model: str | None = None,
+) -> None:
     if response.is_success:
         return
+    if response.status_code == 429 and provider_key and model:
+        mark_rate_limited(
+            provider_key,
+            model,
+            cooldown_seconds=cooldown_seconds_for_response(response, provider_key),
+        )
     raise ProviderRequestError(
         provider,
         response.status_code,
@@ -337,6 +361,9 @@ async def _request_model(
     *,
     exact_count: bool = False,
 ) -> str:
+    if is_rate_limited(config.provider, model):
+        raise ProviderRateLimitedError(f"{config.provider}/{model} is cached as rate-limited")
+
     if config.provider == "gemini":
         response = await client.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
@@ -356,7 +383,7 @@ async def _request_model(
                 },
             },
         )
-        _raise_for_provider(response, "Gemini")
+        _raise_for_provider(response, "Gemini", provider_key=config.provider, model=model)
         return _gemini_text(response.json())
 
     if config.provider == "anthropic":
@@ -374,7 +401,7 @@ async def _request_model(
                 "messages": [{"role": "user", "content": user_prompt}],
             },
         )
-        _raise_for_provider(response, "Anthropic")
+        _raise_for_provider(response, "Anthropic", provider_key=config.provider, model=model)
         data = response.json()
         content = data.get("content")
         if not isinstance(content, list) or not content:
@@ -394,7 +421,7 @@ async def _request_model(
                 ],
             },
         )
-        _raise_for_provider(response, "Ollama")
+        _raise_for_provider(response, "Ollama", provider_key=config.provider, model=model)
         return str(response.json().get("message", {}).get("content", ""))
 
     if config.provider in OPENROUTER_PROVIDERS:
@@ -421,7 +448,7 @@ async def _request_model(
                 ],
             },
         )
-        _raise_for_provider(response, "OpenRouter")
+        _raise_for_provider(response, "OpenRouter", provider_key=config.provider, model=model)
         return _content_from_openai(response.json())
 
     base_url = config.base_url.rstrip("/") if config.base_url else "https://api.openai.com/v1"
@@ -440,7 +467,7 @@ async def _request_model(
             ],
         },
     )
-    _raise_for_provider(response, "OpenAI-compatible provider")
+    _raise_for_provider(response, "OpenAI-compatible provider", provider_key=config.provider, model=model)
     return _content_from_openai(response.json())
 
 

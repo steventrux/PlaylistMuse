@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -16,7 +19,22 @@ OPENROUTER_FIXED_MODELS = {
 PROVIDERS_WITH_OPTIONAL_KEYS = {"ollama", "custom"}
 MODEL_DISCOVERY_TIMEOUT = 15.0
 
-ModelLoader = Callable[[httpx.AsyncClient, AppConfig], Awaitable[list[str]]]
+
+@dataclass(slots=True)
+class ProviderModels:
+    """Models reported by a provider, with an optional verified recency signal.
+
+    ``recommended_model`` and ``fallback_order`` are populated only when the provider
+    exposes a genuine, verifiable recency signal (an official alias or a real
+    creation timestamp) -- never guessed from a model's name alone.
+    """
+
+    models: list[str]
+    recommended_model: str | None = None
+    fallback_order: list[str] | None = field(default=None)
+
+
+ModelLoader = Callable[[httpx.AsyncClient, AppConfig], Awaitable[ProviderModels]]
 
 
 class ModelDiscoveryError(ValueError):
@@ -100,6 +118,112 @@ def _is_ollama_chat_model(model: str) -> bool:
     return not any(term in lowered for term in excluded)
 
 
+def _model_entries(payload: Any) -> list[dict[str, Any]]:
+    if not isinstance(payload, dict):
+        return []
+    data = payload.get("data")
+    if not isinstance(data, list):
+        return []
+    return [item for item in data if isinstance(item, dict)]
+
+
+_UNSTABLE_MODEL_TERMS = ("preview", "experimental", "exp-", "eap")
+
+
+def _is_usable_model(model: str) -> bool:
+    """Exclude preview/experimental/early-access models from selection entirely.
+
+    These are unsuited for production use (unstable behaviour, no reliability guarantee,
+    sometimes narrowly specialized like a video-only early-access build) -- excluded from
+    the reported ``models`` list itself, not just from the automatic fallback chain.
+    """
+    lowered = model.casefold()
+    return not any(term in lowered for term in _UNSTABLE_MODEL_TERMS)
+
+
+def _recommendation_from_epoch(
+    entries: list[dict[str, Any]], key: str
+) -> tuple[str | None, list[str] | None]:
+    """Rank entries by a real Unix-epoch creation timestamp (e.g. OpenAI's ``created``)."""
+    dated: list[tuple[str, float]] = []
+    for item in entries:
+        model_id = str(item.get("id", "")).strip()
+        raw = item.get(key)
+        if (
+            not model_id
+            or not _is_usable_model(model_id)
+            or isinstance(raw, bool)
+            or not isinstance(raw, (int, float))
+            or raw <= 0
+        ):
+            continue
+        dated.append((model_id, float(raw)))
+    if not dated:
+        return None, None
+    dated.sort(key=lambda pair: pair[1], reverse=True)
+    ordered = _unique([model_id for model_id, _ in dated])
+    return ordered[0], ordered[1:]
+
+
+def _recommendation_from_iso8601(
+    entries: list[dict[str, Any]], key: str
+) -> tuple[str | None, list[str] | None]:
+    """Rank entries by a real ISO-8601 creation timestamp (e.g. Anthropic's ``created_at``)."""
+    dated: list[tuple[str, datetime]] = []
+    for item in entries:
+        model_id = str(item.get("id", "")).strip()
+        raw = item.get(key)
+        if not model_id or not _is_usable_model(model_id):
+            continue
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        try:
+            parsed = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        dated.append((model_id, parsed))
+    if not dated:
+        return None, None
+    dated.sort(key=lambda pair: pair[1], reverse=True)
+    ordered = _unique([model_id for model_id, _ in dated])
+    return ordered[0], ordered[1:]
+
+
+_GEMINI_FLASH_LATEST_ALIAS = "gemini-flash-latest"
+_GEMINI_VERSION_RE = re.compile(r"^gemini-(\d+)\.(\d+)")
+
+
+def _gemini_recency_sort_key(model: str) -> tuple[int, int, int]:
+    match = _GEMINI_VERSION_RE.match(model)
+    if not match:
+        return (-1, 0, 0)
+    is_flash = 1 if "flash" in model.casefold() else 0
+    return (int(match.group(1)), int(match.group(2)), is_flash)
+
+
+def _gemini_recommendation(
+    models: list[str],
+) -> tuple[str | None, list[str] | None]:
+    """Use Google's own flash-tier ``-latest`` alias as the only verified recency signal.
+
+    Gemini's model-list API exposes no reliable release-date field (``version`` is
+    inconsistent, and the only date appears as free text inside ``description``), so
+    anything else would be a guess rather than a verified signal.
+    """
+    if _GEMINI_FLASH_LATEST_ALIAS not in models:
+        return None, None
+    remaining = sorted(
+        (
+            model
+            for model in models
+            if model != _GEMINI_FLASH_LATEST_ALIAS and _is_usable_model(model)
+        ),
+        key=_gemini_recency_sort_key,
+        reverse=True,
+    )
+    return _GEMINI_FLASH_LATEST_ALIAS, remaining
+
+
 def _sort_models(models: list[str], current_model: str = "") -> list[str]:
     current = current_model.strip()
 
@@ -151,7 +275,7 @@ async def _request_json(
     return payload
 
 
-async def _gemini_models(client: httpx.AsyncClient, config: AppConfig) -> list[str]:
+async def _gemini_models(client: httpx.AsyncClient, config: AppConfig) -> ProviderModels:
     payload = await _request_json(
         client,
         "GET",
@@ -170,10 +294,15 @@ async def _gemini_models(client: httpx.AsyncClient, config: AppConfig) -> list[s
         model = str(item.get("name", "")).removeprefix("models/").strip()
         if _is_gemini_text_model(model):
             models.append(model)
-    return models
+    recommended, fallback_order = _gemini_recommendation(models)
+    return ProviderModels(
+        models=models,
+        recommended_model=recommended,
+        fallback_order=fallback_order,
+    )
 
 
-async def _openai_models(client: httpx.AsyncClient, config: AppConfig) -> list[str]:
+async def _openai_models(client: httpx.AsyncClient, config: AppConfig) -> ProviderModels:
     payload = await _request_json(
         client,
         "GET",
@@ -181,14 +310,21 @@ async def _openai_models(client: httpx.AsyncClient, config: AppConfig) -> list[s
         provider_label="OpenAI",
         headers={"authorization": f"Bearer {config.api_key}"},
     )
-    return [
-        model
-        for model in _openai_compatible_ids(payload)
-        if _is_openai_chat_model(model)
+    entries = [
+        item
+        for item in _model_entries(payload)
+        if _is_openai_chat_model(str(item.get("id", "")).strip())
     ]
+    models = _unique([str(item.get("id", "")).strip() for item in entries])
+    recommended, fallback_order = _recommendation_from_epoch(entries, "created")
+    return ProviderModels(
+        models=models,
+        recommended_model=recommended,
+        fallback_order=fallback_order,
+    )
 
 
-async def _anthropic_models(client: httpx.AsyncClient, config: AppConfig) -> list[str]:
+async def _anthropic_models(client: httpx.AsyncClient, config: AppConfig) -> ProviderModels:
     payload = await _request_json(
         client,
         "GET",
@@ -200,14 +336,21 @@ async def _anthropic_models(client: httpx.AsyncClient, config: AppConfig) -> lis
         },
         params={"limit": 1000},
     )
-    return [
-        model
-        for model in _openai_compatible_ids(payload)
-        if model.startswith("claude-")
+    entries = [
+        item
+        for item in _model_entries(payload)
+        if str(item.get("id", "")).strip().startswith("claude-")
     ]
+    models = _unique([str(item.get("id", "")).strip() for item in entries])
+    recommended, fallback_order = _recommendation_from_iso8601(entries, "created_at")
+    return ProviderModels(
+        models=models,
+        recommended_model=recommended,
+        fallback_order=fallback_order,
+    )
 
 
-async def _ollama_models(client: httpx.AsyncClient, config: AppConfig) -> list[str]:
+async def _ollama_models(client: httpx.AsyncClient, config: AppConfig) -> ProviderModels:
     if not config.base_url.strip():
         raise ModelDiscoveryError("Enter the Ollama server URL first.")
     payload = await _request_json(
@@ -218,8 +361,10 @@ async def _ollama_models(client: httpx.AsyncClient, config: AppConfig) -> list[s
     )
     raw_models = payload.get("models", [])
     if not isinstance(raw_models, list):
-        return []
-    return _unique(
+        return ProviderModels(models=[])
+    # Ollama only reports when a model was pulled locally, not when it was released,
+    # so there is no verifiable recency signal here -- the caller must choose explicitly.
+    models = _unique(
         [
             model
             for item in raw_models
@@ -230,9 +375,10 @@ async def _ollama_models(client: httpx.AsyncClient, config: AppConfig) -> list[s
             if model and _is_ollama_chat_model(model)
         ]
     )
+    return ProviderModels(models=models)
 
 
-async def _custom_models(client: httpx.AsyncClient, config: AppConfig) -> list[str]:
+async def _custom_models(client: httpx.AsyncClient, config: AppConfig) -> ProviderModels:
     if not config.base_url.strip():
         raise ModelDiscoveryError("Enter the compatible API base URL first.")
     headers = (
@@ -247,7 +393,8 @@ async def _custom_models(client: httpx.AsyncClient, config: AppConfig) -> list[s
         provider_label="Compatible endpoint",
         headers=headers,
     )
-    return _openai_compatible_ids(payload)
+    # An arbitrary endpoint has no known schema/semantics for recency -- no recommendation.
+    return ProviderModels(models=_openai_compatible_ids(payload))
 
 
 MODEL_LOADERS: dict[str, ModelLoader] = {
@@ -275,6 +422,8 @@ async def discover_provider_models(config: AppConfig) -> dict[str, Any]:
             "current_model": fixed_model,
             "fixed": True,
             "source": "provider_router",
+            "recommended_model": None,
+            "fallback_order": None,
         }
 
     loader = MODEL_LOADERS.get(config.provider)
@@ -291,17 +440,31 @@ async def discover_provider_models(config: AppConfig) -> dict[str, Any]:
         timeout=MODEL_DISCOVERY_TIMEOUT,
         follow_redirects=True,
     ) as client:
-        models = await loader(client, config)
+        result = await loader(client, config)
 
-    models = _sort_models(models, config.model)
+    usable_models = [model for model in result.models if _is_usable_model(model)]
+    models = _sort_models(usable_models, config.model)
     if not models:
         raise ModelDiscoveryError(
             "The provider did not report any compatible text-generation models."
         )
+
+    model_set = set(models)
+    recommended_model = (
+        result.recommended_model if result.recommended_model in model_set else None
+    )
+    fallback_order = (
+        [model for model in result.fallback_order if model in model_set]
+        if result.fallback_order
+        else None
+    ) or None
+
     return {
         "provider": config.provider,
         "models": models,
         "current_model": config.model,
         "fixed": False,
         "source": "provider_api",
+        "recommended_model": recommended_model,
+        "fallback_order": fallback_order,
     }

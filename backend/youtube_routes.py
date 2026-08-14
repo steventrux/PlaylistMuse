@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from backend.ai_models import ModelDiscoveryError, discover_provider_models
 from backend.config import (
+    FALLBACK_FIELDS,
     AppConfig,
     activate_provider,
     api_key_matches_provider,
@@ -181,8 +182,7 @@ def _model_discovery_config(request: AIModelDiscoveryRequest) -> AppConfig:
         provider=request.provider,
         api_key=api_key,
         model=provider_config.model,
-        fallback_1=provider_config.fallback_1,
-        fallback_2=provider_config.fallback_2,
+        **{name: getattr(provider_config, name) for name in FALLBACK_FIELDS},
         base_url=base_url,
         provider_api_keys=provider_api_keys,
         provider_profiles=dict(current.provider_profiles),
