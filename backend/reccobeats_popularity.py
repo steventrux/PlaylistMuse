@@ -266,7 +266,7 @@ async def _max_exact_search_match(
     artist: str,
     title: str,
 ) -> dict[str, Any] | None:
-    """Resolve one identity while collapsing duplicate exact Recco rows to the strongest score."""
+    """Preserve the first exact recording while collapsing only same-ISRC duplicates."""
     queries = (title, f"{artist} {title}")
     seen: set[str] = set()
     for query in queries:
@@ -285,8 +285,17 @@ async def _max_exact_search_match(
             if _strict_track_match(item, artist=artist, title=title)
         ]
         if matches:
+            primary = matches[0]
+            primary_isrc = str(primary.get("isrc", "")).strip()
+            if not primary_isrc:
+                return primary
+            same_recording = [
+                item
+                for item in matches
+                if str(item.get("isrc", "")).strip() == primary_isrc
+            ]
             return max(
-                matches,
+                same_recording,
                 key=lambda item: _popularity(item.get("popularity"))
                 if _popularity(item.get("popularity")) is not None
                 else -1,
