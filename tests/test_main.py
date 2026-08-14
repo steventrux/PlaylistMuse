@@ -139,6 +139,7 @@ def test_openrouter_free_enforces_free_router_and_marks_both_modes(monkeypatch) 
             "model": "paid/model-should-not-be-used",
             "fallback_1": "paid/fallback",
             "fallback_2": "paid/fallback-2",
+            "fallback_3": "paid/fallback-3",
             "base_url": "https://wrong.example/v1",
         },
     )
@@ -148,6 +149,8 @@ def test_openrouter_free_enforces_free_router_and_marks_both_modes(monkeypatch) 
     assert payload["model"] == "openrouter/free"
     assert payload["fallback_1"] == ""
     assert payload["fallback_2"] == ""
+    assert payload["fallback_3"] == ""
+    assert payload["fallback_8"] == ""
     assert payload["base_url"] == ""
     assert payload["configured"] is True
     assert payload["provider_keys_set"]["openrouter_auto"] is True

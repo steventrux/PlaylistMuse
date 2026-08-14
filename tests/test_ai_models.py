@@ -9,7 +9,9 @@ from backend.ai_models import (
     MODEL_LOADERS,
     PROVIDERS_WITH_OPTIONAL_KEYS,
     ModelDiscoveryError,
+    ProviderModels,
     _anthropic_models,
+    _custom_models,
     _gemini_models,
     _is_gemini_text_model,
     _is_ollama_chat_model,
@@ -23,8 +25,8 @@ from backend.config import AppConfig
 from backend.youtube_routes import AIModelDiscoveryRequest, get_available_ai_models
 
 
-def _run_loader(loader, config: AppConfig, handler) -> list[str]:
-    async def run() -> list[str]:
+def _run_loader(loader, config: AppConfig, handler) -> ProviderModels:
+    async def run() -> ProviderModels:
         async with httpx.AsyncClient(
             transport=httpx.MockTransport(handler)
         ) as client:
@@ -106,12 +108,106 @@ def test_gemini_loader_uses_generation_methods_and_text_filter() -> None:
             },
         )
 
-    models = _run_loader(
+    result = _run_loader(
         _gemini_models,
         AppConfig(provider="gemini", api_key="gemini-key"),
         handler,
     )
-    assert models == ["gemini-3.5-flash"]
+    assert result.models == ["gemini-3.5-flash"]
+    assert result.recommended_model is None
+    assert result.fallback_order is None
+
+
+def test_gemini_loader_recommends_flash_latest_alias_when_present() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "models": [
+                    {
+                        "name": "models/gemini-3.6-flash",
+                        "supportedGenerationMethods": ["generateContent"],
+                    },
+                    {
+                        "name": "models/gemini-3.7-flash",
+                        "supportedGenerationMethods": ["generateContent"],
+                    },
+                    {
+                        "name": "models/gemini-flash-latest",
+                        "supportedGenerationMethods": ["generateContent"],
+                    },
+                    {
+                        "name": "models/gemini-2.5-pro",
+                        "supportedGenerationMethods": ["generateContent"],
+                    },
+                ]
+            },
+        )
+
+    result = _run_loader(
+        _gemini_models,
+        AppConfig(provider="gemini", api_key="gemini-key"),
+        handler,
+    )
+    assert result.recommended_model == "gemini-flash-latest"
+    # Newer flash versions are ranked ahead of the older flash and the pro tier.
+    assert result.fallback_order == ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-2.5-pro"]
+
+
+def test_gemini_loader_excludes_preview_and_early_access_models_from_fallback_order() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "models": [
+                    {
+                        "name": "models/gemini-flash-latest",
+                        "supportedGenerationMethods": ["generateContent"],
+                    },
+                    {
+                        "name": "models/gemini-3.7-flash",
+                        "supportedGenerationMethods": ["generateContent"],
+                    },
+                    {
+                        "name": "models/gemini-3-flash-preview",
+                        "supportedGenerationMethods": ["generateContent"],
+                    },
+                    {
+                        "name": "models/gemini-3.7-flash-video-understanding-eap",
+                        "supportedGenerationMethods": ["generateContent"],
+                    },
+                ]
+            },
+        )
+
+    result = _run_loader(
+        _gemini_models,
+        AppConfig(provider="gemini", api_key="gemini-key"),
+        handler,
+    )
+    assert result.recommended_model == "gemini-flash-latest"
+    assert result.fallback_order == ["gemini-3.7-flash"]
+    # Preview/early-access variants are still reported so a user can pick one manually.
+    assert "gemini-3-flash-preview" in result.models
+    assert "gemini-3.7-flash-video-understanding-eap" in result.models
+
+
+def test_discover_provider_models_excludes_unstable_models_from_the_reported_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_loader(client, config) -> ProviderModels:
+        return ProviderModels(
+            models=["gemini-flash-latest", "gemini-3.7-flash", "gemini-3-flash-preview"],
+            recommended_model="gemini-flash-latest",
+            fallback_order=["gemini-3.7-flash"],
+        )
+
+    monkeypatch.setitem(MODEL_LOADERS, "gemini", fake_loader)
+    result = asyncio.run(
+        discover_provider_models(AppConfig(provider="gemini", api_key="k"))
+    )
+    assert "gemini-3-flash-preview" not in result["models"]
+    assert result["models"] == ["gemini-3.7-flash", "gemini-flash-latest"]
 
 
 def test_openai_loader_filters_non_chat_models() -> None:
@@ -130,12 +226,36 @@ def test_openai_loader_filters_non_chat_models() -> None:
             },
         )
 
-    models = _run_loader(
+    result = _run_loader(
         _openai_models,
         AppConfig(provider="openai", api_key="openai-key"),
         handler,
     )
-    assert models == ["gpt-5-mini", "o4-mini"]
+    assert result.models == ["gpt-5-mini", "o4-mini"]
+    assert result.recommended_model is None
+    assert result.fallback_order is None
+
+
+def test_openai_loader_recommends_model_with_newest_created_timestamp() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"id": "gpt-5-mini", "created": 1000},
+                    {"id": "o4-mini", "created": 3000},
+                    {"id": "gpt-5-nano", "created": 2000},
+                ]
+            },
+        )
+
+    result = _run_loader(
+        _openai_models,
+        AppConfig(provider="openai", api_key="openai-key"),
+        handler,
+    )
+    assert result.recommended_model == "o4-mini"
+    assert result.fallback_order == ["gpt-5-nano", "gpt-5-mini"]
 
 
 def test_anthropic_loader_keeps_claude_models() -> None:
@@ -154,12 +274,36 @@ def test_anthropic_loader_keeps_claude_models() -> None:
             },
         )
 
-    models = _run_loader(
+    result = _run_loader(
         _anthropic_models,
         AppConfig(provider="anthropic", api_key="anthropic-key"),
         handler,
     )
-    assert models == ["claude-sonnet-4-5", "claude-haiku-4-5"]
+    assert result.models == ["claude-sonnet-4-5", "claude-haiku-4-5"]
+    assert result.recommended_model is None
+    assert result.fallback_order is None
+
+
+def test_anthropic_loader_recommends_model_with_newest_created_at() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"id": "claude-sonnet-4-5", "created_at": "2025-06-01T00:00:00Z"},
+                    {"id": "claude-haiku-4-5", "created_at": "2025-09-01T00:00:00Z"},
+                    {"id": "claude-opus-4-1", "created_at": "2025-08-01T00:00:00Z"},
+                ]
+            },
+        )
+
+    result = _run_loader(
+        _anthropic_models,
+        AppConfig(provider="anthropic", api_key="anthropic-key"),
+        handler,
+    )
+    assert result.recommended_model == "claude-haiku-4-5"
+    assert result.fallback_order == ["claude-opus-4-1", "claude-sonnet-4-5"]
 
 
 def test_ollama_loader_keeps_installed_chat_models() -> None:
@@ -176,12 +320,29 @@ def test_ollama_loader_keeps_installed_chat_models() -> None:
             },
         )
 
-    models = _run_loader(
+    result = _run_loader(
         _ollama_models,
         AppConfig(provider="ollama", base_url="http://ollama.test"),
         handler,
     )
-    assert models == ["qwen3:8b", "llama3.1:8b"]
+    assert result.models == ["qwen3:8b", "llama3.1:8b"]
+    # Ollama only knows local pull time, never real release recency -- never recommended.
+    assert result.recommended_model is None
+    assert result.fallback_order is None
+
+
+def test_custom_loader_never_recommends_a_model() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": [{"id": "model-a"}, {"id": "model-b"}]})
+
+    result = _run_loader(
+        _custom_models,
+        AppConfig(provider="custom", base_url="http://compatible.test"),
+        handler,
+    )
+    assert result.models == ["model-a", "model-b"]
+    assert result.recommended_model is None
+    assert result.fallback_order is None
 
 
 def test_provider_requiring_key_fails_before_network_call() -> None:
@@ -206,9 +367,48 @@ def test_openrouter_modes_use_fixed_router_models() -> None:
         "current_model": "openrouter/auto",
         "fixed": True,
         "source": "provider_router",
+        "recommended_model": None,
+        "fallback_order": None,
     }
     assert free["models"] == ["openrouter/free"]
     assert free["fixed"] is True
+
+
+def test_discover_provider_models_propagates_verified_recommendation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_loader(client, config) -> ProviderModels:
+        return ProviderModels(
+            models=["model-a", "model-b", "model-c"],
+            recommended_model="model-b",
+            fallback_order=["model-c", "model-a", "model-not-in-list"],
+        )
+
+    monkeypatch.setitem(MODEL_LOADERS, "gemini", fake_loader)
+    result = asyncio.run(
+        discover_provider_models(AppConfig(provider="gemini", api_key="k"))
+    )
+    assert result["recommended_model"] == "model-b"
+    # Stale/unknown entries are dropped defensively rather than surfaced to the client.
+    assert result["fallback_order"] == ["model-c", "model-a"]
+
+
+def test_discover_provider_models_drops_recommendation_outside_reported_models(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_loader(client, config) -> ProviderModels:
+        return ProviderModels(
+            models=["model-a"],
+            recommended_model="model-not-in-list",
+            fallback_order=None,
+        )
+
+    monkeypatch.setitem(MODEL_LOADERS, "gemini", fake_loader)
+    result = asyncio.run(
+        discover_provider_models(AppConfig(provider="gemini", api_key="k"))
+    )
+    assert result["recommended_model"] is None
+    assert result["fallback_order"] is None
 
 
 def test_ai_models_route_supports_fixed_openrouter_without_credentials() -> None:

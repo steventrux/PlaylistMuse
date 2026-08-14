@@ -39,6 +39,9 @@ _RESOLVED_SESSION_TRACKS: ContextVar[tuple[dict[str, Any], ...]] = ContextVar(
 _REQUESTED_SESSION_COUNT: ContextVar[int] = ContextVar(
     "playlistmuse_requested_session_count", default=0
 )
+_LAST_INTERPRETED_CONSTRAINTS: ContextVar[dict[str, Any] | None] = ContextVar(
+    "playlistmuse_last_interpreted_constraints", default=None
+)
 
 
 def _stage_name(prompt: str) -> str:
@@ -243,6 +246,7 @@ def _reset_resolution_session(
     _ACTIVE_EXACT_ARTIST_QUOTAS.set(tuple(exact_quotas or ()))
     _RESOLVED_SESSION_TRACKS.set(())
     _REQUESTED_SESSION_COUNT.set(max(0, int(count)))
+    _LAST_INTERPRETED_CONSTRAINTS.set(None)
 
 
 def _cap_buffered_quotas_at_exact_counts(
@@ -326,37 +330,14 @@ def _select_resolved_tracks(
     )
 
 
-async def generate_playlist_draft(
-    config: Any,
-    prompt: str,
-    count: int,
-) -> dict[str, Any]:
-    """Generate and validate one draft without mutating imported modules."""
-    from backend.artist_quota_detection import (
-        exact_quota_guidance,
-        extract_artist_exact_quotas,
-        extract_artist_minimum_quotas,
-        quota_deficits,
-        quota_guidance,
-        user_request_text,
-    )
-    from backend.creative_intent import (
-        CreativeIntent,
-        activate_creative_intent,
-        assess_creative_fit,
-        creative_repair_prompt,
-        interpret_creative_intent,
-    )
-    from backend.entity_resolution import canonicalize_interpretation
-    from backend.llm import generate_playlist_draft as raw_generate_playlist_draft
-    from backend.metadata_validation import (
-        activate_constraints,
-        active_constraints,
-        constraints_from_payload,
-        extract_metadata_constraints,
-    )
-    from backend.playlist_policy import hard_allowed_artists, policy_from_payload
-    from backend.policy_consistency import apply_playlist_policy
+def _dict_tracks(draft: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return only the dict-shaped entries of a draft's track list."""
+    return [track for track in draft.get("tracks", []) if isinstance(track, dict)]
+
+
+def _activate_stage_session(stage: str, optimized_prompt: str) -> None:
+    """Reset the per-stage replacement/recording/creative context for a fresh draft."""
+    from backend.creative_intent import CreativeIntent, activate_creative_intent
     from backend.policy_enforcement import (
         _ACTIVE_POLICY,
         _POLICY_BASE_TRACKS,
@@ -364,21 +345,8 @@ async def generate_playlist_draft(
         _REPLACEMENT_MODE,
         parse_replacement_tracks,
     )
-    from backend.prompt_validation import assess_interpretation, assess_prompt
-    from backend.recording_variants import (
-        RecordingVariantPolicy,
-        activate_recording_policy,
-        interpret_recording_policy,
-    )
-    from backend.request_constraints import (
-        buffered_artist_quotas,
-        open_ended_year_range,
-    )
+    from backend.recording_variants import RecordingVariantPolicy, activate_recording_policy
 
-    optimized_prompt, optimized_count = _optimized_replenishment_request(
-        prompt, count
-    )
-    stage = _stage_name(optimized_prompt)
     if stage == "llm_initial":
         _ACTIVE_POLICY.set(None)
         _POLICY_BASE_TRACKS.set(())
@@ -394,6 +362,126 @@ async def generate_playlist_draft(
         _REPLACEMENT_FINAL_COUNT.set(final_count)
         activate_recording_policy(RecordingVariantPolicy())
         activate_creative_intent(CreativeIntent())
+
+
+async def _interpret_request(
+    config: Any,
+    source_prompt: str,
+    fallback: Any,
+) -> tuple[dict[str, Any] | None, Any, Any]:
+    """Interpret one request's constraints and recording/creative policy in parallel.
+
+    Returns (interpreted_payload, assessment, enforced_constraints) and raises ValueError
+    when the interpreted request is impossible to satisfy.
+    """
+    from backend.creative_intent import activate_creative_intent, interpret_creative_intent
+    from backend.entity_resolution import canonicalize_interpretation
+    from backend.metadata_validation import constraints_from_payload
+    from backend.prompt_validation import assess_interpretation, assess_prompt
+    from backend.recording_variants import activate_recording_policy, interpret_recording_policy
+    from backend.request_constraints import open_ended_year_range
+
+    assessment, recording_policy, creative_intent = await asyncio.gather(
+        assess_prompt(config, source_prompt),
+        interpret_recording_policy(config, source_prompt),
+        interpret_creative_intent(config, source_prompt),
+    )
+    activate_recording_policy(recording_policy)
+    activate_creative_intent(creative_intent)
+    if assessment.status == "impossible":
+        reason = " ".join(assessment.reasons)
+        raise ValueError(reason or "The request contains incompatible constraints.")
+
+    interpreted = await canonicalize_interpretation(assessment.interpretation)
+    assessment = assess_interpretation(interpreted)
+    enforced_constraints = constraints_from_payload(interpreted, fallback=fallback)
+
+    explicit_open_range = open_ended_year_range(source_prompt)
+    if explicit_open_range is not None and enforced_constraints.release_year is None:
+        lower, upper = explicit_open_range
+        enforced_constraints.release_year_from = max(
+            lower,
+            enforced_constraints.release_year_from
+            if enforced_constraints.release_year_from is not None
+            else lower,
+        )
+        enforced_constraints.release_year_to = min(
+            upper,
+            enforced_constraints.release_year_to
+            if enforced_constraints.release_year_to is not None
+            else upper,
+        )
+    return interpreted, assessment, enforced_constraints
+
+
+async def _replenishment_reccobeats_guidance(stage: str, optimized_count: int) -> str:
+    """Return optional ReccoBeats-derived guidance text for a replenishment round."""
+    if stage != "llm_replenishment":
+        return ""
+
+    verified_anchors = [
+        dict(track)
+        for track in _RESOLVED_SESSION_TRACKS.get()
+        if isinstance(track, dict)
+    ]
+    reccobeats_candidates: list[dict[str, str]] = []
+    if verified_anchors:
+        try:
+            from backend.reccobeats_features import (
+                recommendation_candidates_from_tracks,
+            )
+
+            reccobeats_candidates = await recommendation_candidates_from_tracks(
+                verified_anchors,
+                limit=min(24, max(12, optimized_count)),
+                max_anchors=3,
+            )
+        except Exception as error:  # noqa: BLE001 - optional discovery is fail-open.
+            logger.info(
+                "reccobeats_replenishment unavailable error=%s",
+                type(error).__name__,
+            )
+    guidance = _reccobeats_replenishment_guidance(reccobeats_candidates)
+    logger.info(
+        "reccobeats_replenishment anchors=%s candidates=%s applied=%s",
+        len(verified_anchors),
+        len(reccobeats_candidates),
+        bool(guidance),
+    )
+    return guidance
+
+
+async def generate_playlist_draft(
+    config: Any,
+    prompt: str,
+    count: int,
+) -> dict[str, Any]:
+    """Generate and validate one draft without mutating imported modules."""
+    from backend.artist_quota_detection import (
+        exact_quota_guidance,
+        extract_artist_exact_quotas,
+        extract_artist_minimum_quotas,
+        quota_deficits,
+        quota_guidance,
+        user_request_text,
+    )
+    from backend.creative_intent import assess_creative_fit, creative_repair_prompt
+    from backend.llm import generate_playlist_draft as raw_generate_playlist_draft
+    from backend.metadata_validation import (
+        activate_constraints,
+        active_constraints,
+        extract_metadata_constraints,
+    )
+    from backend.playlist_policy import hard_allowed_artists, policy_from_payload
+    from backend.policy_consistency import apply_playlist_policy
+    from backend.policy_enforcement import _ACTIVE_POLICY
+    from backend.request_constraints import buffered_artist_quotas
+
+    optimized_prompt, optimized_count = _optimized_replenishment_request(
+        prompt, count
+    )
+    stage = _stage_name(optimized_prompt)
+    _activate_stage_session(stage, optimized_prompt)
 
     started_at = time.perf_counter()
     should_interpret = stage in {"llm_initial", "llm_replacement"}
@@ -427,96 +515,25 @@ async def generate_playlist_draft(
     enforced_constraints = None
     try:
         if should_interpret:
-            assessment, recording_policy, creative_intent = await asyncio.gather(
-                assess_prompt(config, source_prompt),
-                interpret_recording_policy(config, source_prompt),
-                interpret_creative_intent(config, source_prompt),
+            interpreted, assessment, enforced_constraints = await _interpret_request(
+                config, source_prompt, fallback
             )
-            activate_recording_policy(recording_policy)
-            activate_creative_intent(creative_intent)
-            if assessment.status == "impossible":
-                reason = " ".join(assessment.reasons)
-                raise ValueError(
-                    reason
-                    or "The request contains incompatible constraints."
-                )
-            interpreted = await canonicalize_interpretation(
-                assessment.interpretation
-            )
-            assessment = assess_interpretation(interpreted)
-            enforced_constraints = constraints_from_payload(
-                interpreted, fallback=fallback
-            )
-            explicit_open_range = open_ended_year_range(source_prompt)
-            if (
-                explicit_open_range is not None
-                and enforced_constraints.release_year is None
-            ):
-                lower, upper = explicit_open_range
-                enforced_constraints.release_year_from = max(
-                    lower,
-                    enforced_constraints.release_year_from
-                    if enforced_constraints.release_year_from is not None
-                    else lower,
-                )
-                enforced_constraints.release_year_to = min(
-                    upper,
-                    enforced_constraints.release_year_to
-                    if enforced_constraints.release_year_to is not None
-                    else upper,
-                )
+            _LAST_INTERPRETED_CONSTRAINTS.set(interpreted)
         else:
             enforced_constraints = active_constraints()
 
         hard_guidance = _hard_constraint_guidance(enforced_constraints)
         submitted_prompt += hard_guidance
 
-        reccobeats_guidance = ""
-        if stage == "llm_replenishment":
-            verified_anchors = [
-                dict(track)
-                for track in _RESOLVED_SESSION_TRACKS.get()
-                if isinstance(track, dict)
-            ]
-            reccobeats_candidates: list[dict[str, str]] = []
-            if verified_anchors:
-                try:
-                    from backend.reccobeats_features import (
-                        recommendation_candidates_from_tracks,
-                    )
-
-                    reccobeats_candidates = await recommendation_candidates_from_tracks(
-                        verified_anchors,
-                        limit=min(24, max(12, optimized_count)),
-                        max_anchors=3,
-                    )
-                except Exception as error:  # noqa: BLE001 - optional discovery is fail-open.
-                    logger.info(
-                        "reccobeats_replenishment unavailable error=%s",
-                        type(error).__name__,
-                    )
-            reccobeats_guidance = _reccobeats_replenishment_guidance(
-                reccobeats_candidates
-            )
-            submitted_prompt += reccobeats_guidance
-            logger.info(
-                "reccobeats_replenishment anchors=%s candidates=%s applied=%s",
-                len(verified_anchors),
-                len(reccobeats_candidates),
-                bool(reccobeats_guidance),
-            )
+        reccobeats_guidance = await _replenishment_reccobeats_guidance(
+            stage, optimized_count
+        )
+        submitted_prompt += reccobeats_guidance
 
         async def repair_quota_deficits(
             current: dict[str, Any],
         ) -> tuple[dict[str, Any], list[Any]]:
-            deficits = quota_deficits(
-                [
-                    track
-                    for track in current.get("tracks", [])
-                    if isinstance(track, dict)
-                ],
-                generation_quotas,
-            )
+            deficits = quota_deficits(_dict_tracks(current), generation_quotas)
             for _ in range(2):
                 if not deficits:
                     break
@@ -532,11 +549,7 @@ async def generate_playlist_draft(
                     optimized_count,
                 )
                 repaired_deficits = quota_deficits(
-                    [
-                        track
-                        for track in repaired.get("tracks", [])
-                        if isinstance(track, dict)
-                    ],
+                    _dict_tracks(repaired),
                     generation_quotas,
                 )
                 if sum(item.minimum for item in repaired_deficits) >= sum(
@@ -552,14 +565,7 @@ async def generate_playlist_draft(
         )
         draft, generation_deficits = await repair_quota_deficits(draft)
 
-        creative_conflicts = await assess_creative_fit(
-            config,
-            [
-                track
-                for track in draft.get("tracks", [])
-                if isinstance(track, dict)
-            ],
-        )
+        creative_conflicts = await assess_creative_fit(config, _dict_tracks(draft))
         for _ in range(_creative_repair_rounds(stage)):
             if not creative_conflicts:
                 break
@@ -576,12 +582,7 @@ async def generate_playlist_draft(
             )
             repaired, repaired_deficits = await repair_quota_deficits(repaired)
             repaired_conflicts = await assess_creative_fit(
-                config,
-                [
-                    track
-                    for track in repaired.get("tracks", [])
-                    if isinstance(track, dict)
-                ],
+                config, _dict_tracks(repaired)
             )
             if len(repaired_conflicts) >= len(creative_conflicts):
                 break
@@ -595,14 +596,7 @@ async def generate_playlist_draft(
             }
             accepted_tracks: list[dict[str, Any]] = []
             rejected_tracks: list[dict[str, Any]] = []
-            for index, track in enumerate(
-                [
-                    item
-                    for item in draft.get("tracks", [])
-                    if isinstance(item, dict)
-                ],
-                start=1,
-            ):
+            for index, track in enumerate(_dict_tracks(draft), start=1):
                 conflict = conflict_by_index.get(index)
                 if conflict is None:
                     accepted_tracks.append(track)
@@ -622,14 +616,7 @@ async def generate_playlist_draft(
                 generation_quotas,
             )
 
-        effective_deficits = quota_deficits(
-            [
-                track
-                for track in draft.get("tracks", [])
-                if isinstance(track, dict)
-            ],
-            artist_quotas,
-        )
+        effective_deficits = quota_deficits(_dict_tracks(draft), artist_quotas)
         if should_interpret:
             constraints = enforced_constraints
             policy = policy_from_payload(interpreted, prompt=source_prompt)

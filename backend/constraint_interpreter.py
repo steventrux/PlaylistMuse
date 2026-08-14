@@ -13,6 +13,12 @@ from typing import Any
 import httpx
 
 from backend.config import AppConfig
+from backend.provider_rate_limits import (
+    ProviderRateLimitedError,
+    cooldown_seconds_for_response,
+    is_rate_limited,
+    mark_rate_limited,
+)
 
 OPENROUTER_PROVIDERS = {"openrouter_auto", "openrouter_free"}
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
@@ -266,6 +272,16 @@ def _openai_text(data: dict[str, Any]) -> str:
     return content
 
 
+def _raise_for_structured_json(response: httpx.Response, provider: str, model: str) -> None:
+    if response.status_code == 429:
+        mark_rate_limited(
+            provider,
+            model,
+            cooldown_seconds=cooldown_seconds_for_response(response, provider),
+        )
+    response.raise_for_status()
+
+
 async def request_structured_json(
     config: AppConfig,
     prompt: str,
@@ -276,6 +292,10 @@ async def request_structured_json(
 ) -> str:
     """Request one provider-neutral JSON object using the active AI configuration."""
     selected_model = model or config.model_chain[0]
+    if is_rate_limited(config.provider, selected_model):
+        raise ProviderRateLimitedError(
+            f"{config.provider}/{selected_model} is cached as rate-limited"
+        )
     timeout = httpx.Timeout(45.0, connect=10.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
         if config.provider == "gemini":
@@ -295,7 +315,7 @@ async def request_structured_json(
                     },
                 },
             )
-            response.raise_for_status()
+            _raise_for_structured_json(response, config.provider, selected_model)
             return _gemini_text(response.json())
 
         if config.provider == "anthropic":
@@ -314,7 +334,7 @@ async def request_structured_json(
                     "messages": [{"role": "user", "content": prompt}],
                 },
             )
-            response.raise_for_status()
+            _raise_for_structured_json(response, config.provider, selected_model)
             data = response.json()
             content = data.get("content")
             if not isinstance(content, list) or not content:
@@ -335,7 +355,7 @@ async def request_structured_json(
                     ],
                 },
             )
-            response.raise_for_status()
+            _raise_for_structured_json(response, config.provider, selected_model)
             return str(response.json().get("message", {}).get("content", ""))
 
         if config.provider in OPENROUTER_PROVIDERS:
@@ -366,7 +386,7 @@ async def request_structured_json(
                 ],
             },
         )
-        response.raise_for_status()
+        _raise_for_structured_json(response, config.provider, selected_model)
         return _openai_text(response.json())
 
 
