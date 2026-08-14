@@ -9,6 +9,7 @@ import threading
 import time
 import weakref
 from collections.abc import Callable
+from datetime import timezone
 from email.utils import parsedate_to_datetime
 from typing import Any
 
@@ -116,7 +117,7 @@ def _retry_after_seconds(response: httpx.Response) -> float:
             try:
                 retry_at = parsedate_to_datetime(raw)
                 if retry_at.tzinfo is None:
-                    retry_at = retry_at.replace(tzinfo=__import__("datetime").timezone.utc)
+                    retry_at = retry_at.replace(tzinfo=timezone.utc)
                 value = retry_at.timestamp() - time.time()
             except (TypeError, ValueError, OverflowError):
                 value = DEFAULT_RETRY_AFTER_SECONDS
@@ -138,6 +139,8 @@ async def request_json(
     now: Callable[[], float] = time.monotonic,
 ) -> Any:
     """GET one Recco endpoint with shared cache, pacing and a global 429 circuit breaker."""
+    global _BLOCKED_UNTIL, _NEXT_REQUEST_AT
+
     key = _cache_key(path, params)
     current = now()
     cached = _cached_payload(key, current)
@@ -163,7 +166,6 @@ async def request_json(
                 f"ReccoBeats cooldown active for {remaining:.2f}s"
             )
 
-        global _NEXT_REQUEST_AT
         with _STATE_LOCK:
             delay = max(0.0, _NEXT_REQUEST_AT - current)
         if delay > 0:
@@ -178,7 +180,6 @@ async def request_json(
         if status_code == 429:
             retry_after = _retry_after_seconds(response)
             with _STATE_LOCK:
-                global _BLOCKED_UNTIL
                 _BLOCKED_UNTIL = max(_BLOCKED_UNTIL, now() + retry_after)
             LOGGER.warning(
                 "reccobeats_rate_limited path=%s retry_after=%.2f",
@@ -186,8 +187,7 @@ async def request_json(
                 retry_after,
             )
             raise ReccoRateLimited(
-                f"ReccoBeats rate limited; retry after {retry_after:.2f}s",
-                request=getattr(response, "request", None),
+                f"ReccoBeats rate limited; retry after {retry_after:.2f}s"
             )
 
         response.raise_for_status()
