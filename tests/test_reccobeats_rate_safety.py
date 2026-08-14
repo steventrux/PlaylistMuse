@@ -23,6 +23,17 @@ def _reset() -> None:
     reset_request_popularity_cache()
 
 
+def _client_factory(transport: httpx.MockTransport):
+    real_client = httpx.AsyncClient
+
+    class ClientFactory:
+        def __call__(self, *args, **kwargs):
+            kwargs["transport"] = transport
+            return real_client(*args, **kwargs)
+
+    return ClientFactory()
+
+
 def test_identical_recco_get_is_served_from_shared_cache(monkeypatch) -> None:
     calls = 0
 
@@ -91,7 +102,7 @@ def test_identity_cache_never_downgrades_known_popularity() -> None:
     )[0]["popularity"] == 78
 
 
-def test_free_form_popularity_uses_strongest_exact_duplicate(monkeypatch) -> None:
+def test_free_form_popularity_uses_strongest_same_isrc_duplicate(monkeypatch) -> None:
     calls: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -122,20 +133,57 @@ def test_free_form_popularity_uses_strongest_exact_duplicate(monkeypatch) -> Non
     monkeypatch.setattr(reccobeats_http, "MIN_REQUEST_INTERVAL_SECONDS", 0.0)
     _reset()
     transport = httpx.MockTransport(handler)
-    real_client = httpx.AsyncClient
-
-    class ClientFactory:
-        def __call__(self, *args, **kwargs):
-            kwargs["transport"] = transport
-            return real_client(*args, **kwargs)
-
-    monkeypatch.setattr(reccobeats_popularity.httpx, "AsyncClient", ClientFactory())
+    monkeypatch.setattr(
+        reccobeats_popularity.httpx,
+        "AsyncClient",
+        _client_factory(transport),
+    )
     scores = asyncio.run(
         popularity_for_tracks([{"artist": "Same Artist", "title": "Same Song"}])
     )
 
     assert scores[("same artist", "same song")] == 78
     assert calls == ["/v1/track/search"]
+
+
+def test_free_form_popularity_does_not_cross_recording_isrc(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/track/search"
+        return httpx.Response(
+            200,
+            json={
+                "content": [
+                    {
+                        "id": "primary",
+                        "trackTitle": "Same Song",
+                        "artists": [{"name": "Same Artist"}],
+                        "isrc": "IT0000000001",
+                        "popularity": 16,
+                    },
+                    {
+                        "id": "other-recording",
+                        "trackTitle": "Same Song",
+                        "artists": [{"name": "Same Artist"}],
+                        "isrc": "IT0000000002",
+                        "popularity": 99,
+                    },
+                ]
+            },
+        )
+
+    monkeypatch.setattr(reccobeats_http, "MIN_REQUEST_INTERVAL_SECONDS", 0.0)
+    _reset()
+    transport = httpx.MockTransport(handler)
+    monkeypatch.setattr(
+        reccobeats_popularity.httpx,
+        "AsyncClient",
+        _client_factory(transport),
+    )
+    scores = asyncio.run(
+        popularity_for_tracks([{"artist": "Same Artist", "title": "Same Song"}])
+    )
+
+    assert scores[("same artist", "same song")] == 16
 
 
 def test_track_detail_duplicate_isrc_uses_strongest_score(monkeypatch) -> None:
@@ -169,14 +217,11 @@ def test_track_detail_duplicate_isrc_uses_strongest_score(monkeypatch) -> None:
     monkeypatch.setattr(reccobeats_http, "MIN_REQUEST_INTERVAL_SECONDS", 0.0)
     _reset()
     transport = httpx.MockTransport(handler)
-    real_client = httpx.AsyncClient
-
-    class ClientFactory:
-        def __call__(self, *args, **kwargs):
-            kwargs["transport"] = transport
-            return real_client(*args, **kwargs)
-
-    monkeypatch.setattr(reccobeats_popularity.httpx, "AsyncClient", ClientFactory())
+    monkeypatch.setattr(
+        reccobeats_popularity.httpx,
+        "AsyncClient",
+        _client_factory(transport),
+    )
     enriched = asyncio.run(
         enrich_recommendation_popularity(
             [
