@@ -1,20 +1,13 @@
-"""Public generation runtime with optional ReccoBeats orchestration."""
+"""Public generation runtime using the proven low-latency orchestration path."""
 
 from __future__ import annotations
 
-import logging
-import time
 from typing import Any
 
 from backend import generation_runtime_core as _core
-from backend.popularity_intent import active_popularity_intent
-from backend.popularity_policy import popularity_policy_label
-from backend.popularity_runtime import partition_absolute_popularity
-from backend.reccobeats_guidance import reccobeats_guidance
-from backend.reccobeats_runtime import generate as _generate_with_reccobeats
 
-LOGGER = logging.getLogger("playlistmuse.performance")
-
+# Keep the public/runtime symbols stable while routing generation through the
+# pre-advanced-Recco orchestration that was measured around 60–70 seconds.
 _ACTIVE_RESOLUTION_QUOTAS = _core._ACTIVE_RESOLUTION_QUOTAS
 _ACTIVE_EXACT_ARTIST_QUOTAS = _core._ACTIVE_EXACT_ARTIST_QUOTAS
 _RESOLVED_SESSION_TRACKS = _core._RESOLVED_SESSION_TRACKS
@@ -32,35 +25,12 @@ _repair_quota_prompt = _core._repair_quota_prompt
 _reset_resolution_session = _core._reset_resolution_session
 _cap_buffered_quotas_at_exact_counts = _core._cap_buffered_quotas_at_exact_counts
 _album_key = _core._album_key
+_diversity_rank = _core._diversity_rank
 _log_stage = _core._log_stage
-_reccobeats_replenishment_guidance = reccobeats_guidance
+_reccobeats_replenishment_guidance = _core._reccobeats_replenishment_guidance
 
 discover_from_anchors = _core.discover_from_anchors
 discover_for_seed = _core.discover_for_seed
-
-
-def _popularity_value(track: dict[str, Any]) -> int | None:
-    value = track.get("popularity")
-    if isinstance(value, bool):
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _diversity_rank(track: dict[str, Any], existing: list[dict[str, Any]]) -> tuple[Any, ...]:
-    """Honor explicit popularity preference before ordinary diversity tie-breaking."""
-    base = _core._diversity_rank(track, existing)
-    intent = active_popularity_intent()
-    if not intent.active:
-        return base
-    score = _popularity_value(track)
-    if score is None:
-        return (1, 0, *base)
-    preference = str(intent.preference).casefold()
-    popularity_rank = -score if preference == "popular" else score
-    return (0, popularity_rank, *base)
 
 
 async def generate_playlist_draft(
@@ -68,7 +38,16 @@ async def generate_playlist_draft(
     prompt: str,
     count: int,
 ) -> dict[str, Any]:
-    return await _generate_with_reccobeats(_core, config, prompt, count)
+    """Generate with the proven baseline path; advanced Recco orchestration is disabled."""
+    return await _core.generate_playlist_draft(config, prompt, count)
+
+
+async def resolve_candidates(
+    candidates: list[dict[str, str]],
+    exclusions: dict[str, bool],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Resolve candidates with the baseline catalogue path."""
+    return await _core.resolve_candidates(candidates, exclusions)
 
 
 def _select_resolved_tracks(
@@ -78,137 +57,12 @@ def _select_resolved_tracks(
     artist_matches: Any,
     quota_deficits: Any,
 ) -> list[dict[str, Any]]:
-    from backend.selection_guard import guarded_select_resolved_tracks
-
-    return guarded_select_resolved_tracks(
+    return _core._select_resolved_tracks(
         resolved,
         youtube=youtube,
         artist_matches=artist_matches,
         quota_deficits=quota_deficits,
     )
-
-
-async def resolve_candidates(
-    candidates: list[dict[str, Any]],
-    exclusions: dict[str, bool],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    from backend import youtube
-    from backend.artist_quota_detection import artist_matches, quota_deficits
-    from backend.candidate_context import (
-        annotate_resolved_candidate_context,
-        filter_resolved_recording_variants_contextual,
-    )
-    from backend.metadata_validation import active_constraints
-    from backend.recording_variants import (
-        active_recording_policy,
-        effective_resolver_options,
-        policy_with_option_exclusions,
-        recording_filter_conflicts,
-    )
-    from backend.temporal_alias_guard import filter_temporal_artist_aliases
-
-    started_at = time.perf_counter()
-    popularity_rejected: list[dict[str, Any]] = []
-    eligible_candidates = [dict(candidate) for candidate in candidates]
-    intent = active_popularity_intent()
-    if intent.active:
-        eligible_candidates, popularity_rejected = partition_absolute_popularity(
-            eligible_candidates,
-            str(intent.preference),
-        )
-        LOGGER.info(
-            "popularity_catalogue_guard preference=%s policy=%s input=%s eligible=%s rejected=%s",
-            intent.preference,
-            popularity_policy_label(intent.preference),
-            len(candidates),
-            len(eligible_candidates),
-            len(popularity_rejected),
-        )
-
-    try:
-        recording_policy = active_recording_policy()
-        conflicts = recording_filter_conflicts(exclusions, recording_policy)
-        if conflicts and not recording_policy.override_exclusions:
-            raise ValueError(conflicts[0].message)
-        effective_exclusions = effective_resolver_options(exclusions, recording_policy)
-        if eligible_candidates:
-            resolved, unresolved = await youtube.resolve_candidates(
-                eligible_candidates,
-                effective_exclusions,
-            )
-        else:
-            resolved, unresolved = [], []
-        unresolved.extend(popularity_rejected)
-        resolved = annotate_resolved_candidate_context(
-            resolved,
-            eligible_candidates,
-            artist_matches=artist_matches,
-        )
-        resolved, temporal_rejected = await filter_temporal_artist_aliases(
-            resolved,
-            active_constraints(),
-        )
-        unresolved.extend(temporal_rejected)
-
-        validation_policy = policy_with_option_exclusions(
-            effective_exclusions,
-            recording_policy,
-        )
-        resolved, variant_rejected = filter_resolved_recording_variants_contextual(
-            resolved,
-            validation_policy,
-        )
-        unresolved.extend(variant_rejected)
-        selected = _select_resolved_tracks(
-            resolved,
-            youtube=youtube,
-            artist_matches=artist_matches,
-            quota_deficits=quota_deficits,
-        )
-        recco_candidates = sum(
-            1
-            for candidate in eligible_candidates
-            if str(candidate.get("source", "")).strip() == "reccobeats"
-        )
-        recco_selected = sum(
-            1
-            for track in selected
-            if str(track.get("source", "")).strip() == "reccobeats"
-        )
-        popularity_candidates = sum(
-            _popularity_value(candidate) is not None
-            for candidate in eligible_candidates
-        )
-        selected_scores = [
-            score
-            for track in selected
-            if (score := _popularity_value(track)) is not None
-        ]
-        LOGGER.info(
-            "reccobeats_catalogue candidates=%s eligible=%s selected=%s recco_candidates=%s "
-            "recco_selected=%s popularity_candidates=%s popularity_selected=%s "
-            "popularity_selected_avg=%s popularity_rejected=%s",
-            len(candidates),
-            len(eligible_candidates),
-            len(selected),
-            recco_candidates,
-            recco_selected,
-            popularity_candidates,
-            len(selected_scores),
-            round(sum(selected_scores) / len(selected_scores), 1)
-            if selected_scores
-            else None,
-            len(popularity_rejected),
-        )
-        return selected, unresolved
-    finally:
-        _log_stage(
-            "catalogue_resolution",
-            started_at,
-            candidates=len(candidates),
-            eligible=len(eligible_candidates),
-            popularity_rejected=len(popularity_rejected),
-        )
 
 
 def __getattr__(name: str) -> Any:
