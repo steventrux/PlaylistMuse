@@ -12,11 +12,7 @@ from typing import Any
 
 import httpx
 
-from backend.reccobeats_http import (
-    API_ROOT,
-    clear_reccobeats_http_state,
-    request_json,
-)
+from backend.reccobeats_http import clear_reccobeats_http_state, request_json
 from backend.text_normalization import normalize_identity
 from backend.version import USER_AGENT
 
