@@ -8,6 +8,8 @@ from typing import Any
 
 from backend import generation_runtime_core as _core
 from backend.popularity_intent import active_popularity_intent
+from backend.popularity_policy import popularity_policy_label
+from backend.popularity_runtime import partition_absolute_popularity
 from backend.reccobeats_guidance import reccobeats_guidance
 from backend.reccobeats_runtime import generate as _generate_with_reccobeats
 
@@ -106,19 +108,40 @@ async def resolve_candidates(
     from backend.temporal_alias_guard import filter_temporal_artist_aliases
 
     started_at = time.perf_counter()
+    popularity_rejected: list[dict[str, Any]] = []
+    eligible_candidates = [dict(candidate) for candidate in candidates]
+    intent = active_popularity_intent()
+    if intent.active:
+        eligible_candidates, popularity_rejected = partition_absolute_popularity(
+            eligible_candidates,
+            str(intent.preference),
+        )
+        LOGGER.info(
+            "popularity_catalogue_guard preference=%s policy=%s input=%s eligible=%s rejected=%s",
+            intent.preference,
+            popularity_policy_label(intent.preference),
+            len(candidates),
+            len(eligible_candidates),
+            len(popularity_rejected),
+        )
+
     try:
         recording_policy = active_recording_policy()
         conflicts = recording_filter_conflicts(exclusions, recording_policy)
         if conflicts and not recording_policy.override_exclusions:
             raise ValueError(conflicts[0].message)
         effective_exclusions = effective_resolver_options(exclusions, recording_policy)
-        resolved, unresolved = await youtube.resolve_candidates(
-            candidates,
-            effective_exclusions,
-        )
+        if eligible_candidates:
+            resolved, unresolved = await youtube.resolve_candidates(
+                eligible_candidates,
+                effective_exclusions,
+            )
+        else:
+            resolved, unresolved = [], []
+        unresolved.extend(popularity_rejected)
         resolved = annotate_resolved_candidate_context(
             resolved,
-            candidates,
+            eligible_candidates,
             artist_matches=artist_matches,
         )
         resolved, temporal_rejected = await filter_temporal_artist_aliases(
@@ -144,7 +167,7 @@ async def resolve_candidates(
         )
         recco_candidates = sum(
             1
-            for candidate in candidates
+            for candidate in eligible_candidates
             if str(candidate.get("source", "")).strip() == "reccobeats"
         )
         recco_selected = sum(
@@ -153,7 +176,8 @@ async def resolve_candidates(
             if str(track.get("source", "")).strip() == "reccobeats"
         )
         popularity_candidates = sum(
-            _popularity_value(candidate) is not None for candidate in candidates
+            _popularity_value(candidate) is not None
+            for candidate in eligible_candidates
         )
         selected_scores = [
             score
@@ -161,10 +185,11 @@ async def resolve_candidates(
             if (score := _popularity_value(track)) is not None
         ]
         LOGGER.info(
-            "reccobeats_catalogue candidates=%s selected=%s recco_candidates=%s "
+            "reccobeats_catalogue candidates=%s eligible=%s selected=%s recco_candidates=%s "
             "recco_selected=%s popularity_candidates=%s popularity_selected=%s "
-            "popularity_selected_avg=%s",
+            "popularity_selected_avg=%s popularity_rejected=%s",
             len(candidates),
+            len(eligible_candidates),
             len(selected),
             recco_candidates,
             recco_selected,
@@ -173,10 +198,17 @@ async def resolve_candidates(
             round(sum(selected_scores) / len(selected_scores), 1)
             if selected_scores
             else None,
+            len(popularity_rejected),
         )
         return selected, unresolved
     finally:
-        _log_stage("catalogue_resolution", started_at, candidates=len(candidates))
+        _log_stage(
+            "catalogue_resolution",
+            started_at,
+            candidates=len(candidates),
+            eligible=len(eligible_candidates),
+            popularity_rejected=len(popularity_rejected),
+        )
 
 
 def __getattr__(name: str) -> Any:
