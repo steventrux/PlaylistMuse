@@ -89,11 +89,13 @@ def test_local_year_to_present_range_overrides_ai_exact_year_misread() -> None:
     )
 
     assert fallback.release_year is None
+    assert fallback.artist_country == "IT"
     assert (fallback.release_year_from, fallback.release_year_to) == (
         2000,
         current_year,
     )
     assert constraints.release_year is None
+    assert constraints.artist_country == "IT"
     assert (constraints.release_year_from, constraints.release_year_to) == (
         2000,
         current_year,
@@ -104,6 +106,7 @@ def test_local_year_to_present_range_overrides_ai_exact_year_misread() -> None:
             artist="Example Artist",
             title="Example Track",
             original_release_year=2023,
+            artist_country="IT",
             matched_artist="Example Artist",
             match_score=0.98,
             confidence="high",
