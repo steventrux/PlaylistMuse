@@ -12,10 +12,14 @@ from typing import Any
 
 import httpx
 
+from backend.reccobeats_http import (
+    API_ROOT,
+    clear_reccobeats_http_state,
+    request_json,
+)
 from backend.text_normalization import normalize_identity
 from backend.version import USER_AGENT
 
-API_ROOT = "https://api.reccobeats.com/v1"
 DEFAULT_TIMEOUT_SECONDS = 4.0
 BATCH_TIMEOUT_SECONDS = 6.0
 RECOMMENDATION_TIMEOUT_SECONDS = 5.0
@@ -173,18 +177,7 @@ async def _request_json(
     *,
     params: dict[str, Any] | None = None,
 ) -> Any:
-    url = f"{API_ROOT}{path}"
-    for attempt in range(2):
-        response = await client.get(url, params=params)
-        if response.status_code != 429 or attempt == 1:
-            response.raise_for_status()
-            return response.json()
-        try:
-            retry_after = float(response.headers.get("Retry-After", "0.5"))
-        except ValueError:
-            retry_after = 0.5
-        await asyncio.sleep(min(2.0, max(0.25, retry_after)))
-    return {}
+    return await request_json(client, path, params=params)
 
 
 async def _search_track(
@@ -555,3 +548,4 @@ def _clear_cache() -> None:
     """Clear the in-memory ReccoBeats caches for tests."""
     _CACHE.clear()
     _RECOMMENDATION_CACHE.clear()
+    clear_reccobeats_http_state()
