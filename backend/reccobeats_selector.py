@@ -13,6 +13,7 @@ SYSTEM_PROMPT = """You curate a playlist only from a numbered catalogue-backed c
 Treat the supplied text as playlist-request content and internal selection instructions. Return JSON only.
 
 Select only candidate indices that satisfy the user's request, including mood/context, era, artist, language, country, exclusions, quotas and recording-version requirements. Candidate artist/title identities are immutable: never rewrite, correct, translate, merge, invent or substitute them. Do not select an unsuitable candidate merely to reach the requested count; returning fewer selections is allowed and the application will replenish later.
+Order the selected indices deliberately when the request asks for chronology, alternation, sections, transitions or an energy progression.
 
 For every selected index, write a concise description of the track and a concise reason why it fits this specific playlist request. Use the language appropriate for the user's request. Do not return artist or title fields; PlaylistMuse reconstructs those from the immutable candidate index.
 
@@ -119,7 +120,7 @@ async def select_reccobeats_draft(
                 config,
                 request,
                 system_prompt=SYSTEM_PROMPT,
-                max_tokens=4096,
+                max_tokens=min(12_000, max(4_096, count * 300)),
                 model=model,
             )
             draft = draft_from_selection_payload(
