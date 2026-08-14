@@ -1,6 +1,19 @@
+import asyncio
+import json
+
 import pytest
 
-from backend.constraint_interpreter import _extract_json, _guard_artist_country
+from backend import constraint_interpreter
+from backend.config import AppConfig
+from backend.constraint_interpreter import _extract_json, interpret_constraints
+
+
+def _config() -> AppConfig:
+    return AppConfig(
+        provider="custom",
+        model="test-model",
+        base_url="http://provider.test",
+    )
 
 
 def test_extracts_constraint_json_from_provider_text():
@@ -23,44 +36,63 @@ def test_constraint_payload_can_represent_non_latin_requests():
 
 
 @pytest.mark.parametrize(
-    "prompt",
+    ("prompt", "country"),
     [
-        "Crea una playlist di musica italiana dal 2000 ad oggi adatta per un party.",
-        "Create a playlist of Italian music for a party.",
-        "Crée une playlist de musique italienne pour une fête.",
-        "Crea una playlist de música italiana para una fiesta.",
-        "Erstelle eine Playlist mit italienischer Musik für eine Party.",
+        ("Crea una playlist di musica italiana dal 2000 ad oggi adatta per un party.", "IT"),
+        ("Create a playlist of French music for a party.", "FR"),
+        ("Crée une playlist de musique allemande pour une fête.", "DE"),
+        ("Crea una playlist de música española para una fiesta.", "ES"),
+        ("Erstelle eine Playlist mit britischer Musik für eine Party.", "GB"),
     ],
 )
-def test_generic_national_music_does_not_become_artist_country_constraint(prompt):
+def test_national_repertoire_keeps_interpreted_artist_country(monkeypatch, prompt, country):
     payload = {
-        "artist_country": "IT",
-        "field_confidence": {"artist_country": 0.99},
+        "artist_country": country,
+        "lyrics_language": None,
+        "field_confidence": {
+            "artist_country": 0.99,
+            "lyrics_language": 0.0,
+        },
     }
 
-    guarded = _guard_artist_country(prompt, payload)
+    async def fake_request(*args, **kwargs):
+        return json.dumps(payload)
 
-    assert guarded["artist_country"] is None
-    assert guarded["field_confidence"]["artist_country"] == 0.0
+    monkeypatch.setattr(constraint_interpreter, "request_structured_json", fake_request)
+    monkeypatch.setattr(constraint_interpreter, "_read_cache", lambda *args, **kwargs: None)
+    monkeypatch.setattr(constraint_interpreter, "_write_cache", lambda *args, **kwargs: None)
+
+    interpreted = asyncio.run(interpret_constraints(_config(), prompt))
+
+    assert interpreted is not None
+    assert interpreted["artist_country"] == country
+    assert interpreted["field_confidence"]["artist_country"] == 0.99
 
 
-@pytest.mark.parametrize(
-    "prompt",
-    [
-        "Solo brani di artisti italiani dal 2000 ad oggi.",
-        "Only tracks by Italian artists from 2000 onward.",
-        "Uniquement des titres d'artistes italiens depuis 2000.",
-        "Solo canciones de artistas italianos desde 2000.",
-        "Nur Songs italienischer Künstler ab 2000.",
-    ],
-)
-def test_explicit_artist_nationality_keeps_artist_country_constraint(prompt):
+def test_national_origin_and_lyrics_language_remain_independent(monkeypatch):
     payload = {
         "artist_country": "IT",
-        "field_confidence": {"artist_country": 0.99},
+        "lyrics_language": None,
+        "field_confidence": {
+            "artist_country": 0.98,
+            "lyrics_language": 0.0,
+        },
     }
 
-    guarded = _guard_artist_country(prompt, payload)
+    async def fake_request(*args, **kwargs):
+        return json.dumps(payload)
 
-    assert guarded["artist_country"] == "IT"
-    assert guarded["field_confidence"]["artist_country"] == 0.99
+    monkeypatch.setattr(constraint_interpreter, "request_structured_json", fake_request)
+    monkeypatch.setattr(constraint_interpreter, "_read_cache", lambda *args, **kwargs: None)
+    monkeypatch.setattr(constraint_interpreter, "_write_cache", lambda *args, **kwargs: None)
+
+    interpreted = asyncio.run(
+        interpret_constraints(
+            _config(),
+            "Crea una playlist di musica italiana per una festa.",
+        )
+    )
+
+    assert interpreted is not None
+    assert interpreted["artist_country"] == "IT"
+    assert interpreted["lyrics_language"] is None
