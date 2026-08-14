@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from contextvars import ContextVar
 from typing import Any
 
@@ -215,11 +216,16 @@ async def enrich_recommendation_popularity(
     try:
         details: list[dict[str, Any]] = []
         failed = 0
+        deadline = time.monotonic() + TIMEOUT_SECONDS
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(DEFAULT_TIMEOUT_SECONDS),
             headers={"Accept": "application/json", "User-Agent": USER_AGENT},
         ) as client:
             for batch in batches:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    failed += 1
+                    break
                 try:
                     payload = await asyncio.wait_for(
                         request_json(
@@ -227,7 +233,7 @@ async def enrich_recommendation_popularity(
                             "/track",
                             params={"ids": ",".join(batch)},
                         ),
-                        timeout=TIMEOUT_SECONDS,
+                        timeout=remaining,
                     )
                     details.extend(_content(payload))
                 except (asyncio.TimeoutError, httpx.HTTPError, ValueError, TypeError):
@@ -330,15 +336,19 @@ async def popularity_for_tracks(
         return identity, score, track_id
 
     try:
+        deadline = time.monotonic() + TIMEOUT_SECONDS
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(DEFAULT_TIMEOUT_SECONDS),
             headers={"Accept": "application/json", "User-Agent": USER_AGENT},
         ) as client:
             for track in missing:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
                 try:
                     identity, score, track_id = await asyncio.wait_for(
                         resolve(client, track),
-                        timeout=TIMEOUT_SECONDS,
+                        timeout=remaining,
                     )
                 except (asyncio.TimeoutError, httpx.HTTPError, ValueError, TypeError):
                     break
