@@ -243,25 +243,39 @@ def test_track_detail_duplicate_isrc_uses_strongest_score(monkeypatch) -> None:
 def test_free_form_scoring_stops_after_one_global_budget(monkeypatch) -> None:
     calls = 0
 
+    class DummyClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
     async def slow_match(client, artist, title):
         nonlocal calls
         calls += 1
         await asyncio.sleep(0.05)
         return None
 
-    monkeypatch.setattr(reccobeats_popularity, "TIMEOUT_SECONDS", 0.01)
-    monkeypatch.setattr(reccobeats_popularity, "_max_exact_search_match", slow_match)
-    _reset()
-
-    scores = asyncio.run(
-        popularity_for_tracks(
+    async def run():
+        reset_request_popularity_cache()
+        return await popularity_for_tracks(
             [
-                {"artist": "Artist A", "title": "Song A"},
-                {"artist": "Artist B", "title": "Song B"},
-                {"artist": "Artist C", "title": "Song C"},
+                {"artist": "Budget Artist A", "title": "Budget Song A"},
+                {"artist": "Budget Artist B", "title": "Budget Song B"},
+                {"artist": "Budget Artist C", "title": "Budget Song C"},
             ]
         )
+
+    monkeypatch.setattr(reccobeats_popularity, "TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(reccobeats_popularity, "_max_exact_search_match", slow_match)
+    monkeypatch.setattr(
+        reccobeats_popularity.httpx,
+        "AsyncClient",
+        lambda *args, **kwargs: DummyClient(),
     )
+    clear_reccobeats_http_state()
+
+    scores = asyncio.run(run())
 
     assert scores == {}
     assert calls == 1
