@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import threading
 import time
+import weakref
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -35,6 +37,11 @@ _RECOMMENDATION_CACHE: dict[
     tuple[tuple[tuple[str, str], ...], int],
     tuple[float, tuple[dict[str, str], ...]],
 ] = {}
+_RECOMMENDATION_LOCK_GUARD = threading.Lock()
+_RECOMMENDATION_LOCKS: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop,
+    asyncio.Lock,
+] = weakref.WeakKeyDictionary()
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +77,17 @@ class ReccoBeatsAudioEvidence:
             "loudness": self.loudness,
         }
         return {key: value for key, value in values.items() if value is not None}
+
+
+def _recommendation_lock() -> asyncio.Lock:
+    """Serialize whole recommendation discoveries without charging queue time to their timeout."""
+    loop = asyncio.get_running_loop()
+    with _RECOMMENDATION_LOCK_GUARD:
+        lock = _RECOMMENDATION_LOCKS.get(loop)
+        if lock is None:
+            lock = asyncio.Lock()
+            _RECOMMENDATION_LOCKS[loop] = lock
+        return lock
 
 
 def _cache_key(artist: str, title: str) -> tuple[str, str]:
@@ -350,16 +368,24 @@ async def recommendation_candidates_from_tracks(
         return recommendations
 
     try:
-        recommendations = await asyncio.wait_for(
-            discover(),
-            timeout=RECOMMENDATION_TIMEOUT_SECONDS,
-        )
-        _prune_recommendation_cache(current_time)
-        _RECOMMENDATION_CACHE[cache_key] = (
-            now() + RECOMMENDATION_CACHE_TTL_SECONDS,
-            tuple(dict(candidate) for candidate in recommendations),
-        )
-        return recommendations
+        lock = _recommendation_lock()
+        async with lock:
+            # Another queued discovery may have populated this exact result while we waited.
+            current_time = now()
+            cached = _RECOMMENDATION_CACHE.get(cache_key)
+            if cached and cached[0] > current_time:
+                return [dict(candidate) for candidate in cached[1]]
+
+            recommendations = await asyncio.wait_for(
+                discover(),
+                timeout=RECOMMENDATION_TIMEOUT_SECONDS,
+            )
+            _prune_recommendation_cache(current_time)
+            _RECOMMENDATION_CACHE[cache_key] = (
+                now() + RECOMMENDATION_CACHE_TTL_SECONDS,
+                tuple(dict(candidate) for candidate in recommendations),
+            )
+            return recommendations
     except (asyncio.TimeoutError, httpx.HTTPError, ValueError, TypeError) as error:
         LOGGER.info(
             "ReccoBeats recommendation discovery unavailable anchors=%s error=%s",
@@ -544,4 +570,6 @@ def _clear_cache() -> None:
     """Clear the in-memory ReccoBeats caches for tests."""
     _CACHE.clear()
     _RECOMMENDATION_CACHE.clear()
+    with _RECOMMENDATION_LOCK_GUARD:
+        _RECOMMENDATION_LOCKS.clear()
     clear_reccobeats_http_state()
