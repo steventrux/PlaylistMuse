@@ -193,3 +193,30 @@ def test_track_detail_duplicate_isrc_uses_strongest_score(monkeypatch) -> None:
 
     assert enriched[0]["popularity"] == 78
     assert calls == ["/v1/track"]
+
+
+def test_free_form_scoring_stops_after_one_global_budget(monkeypatch) -> None:
+    calls = 0
+
+    async def slow_match(client, artist, title):
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.05)
+        return None
+
+    monkeypatch.setattr(reccobeats_popularity, "TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(reccobeats_popularity, "_max_exact_search_match", slow_match)
+    _reset()
+
+    scores = asyncio.run(
+        popularity_for_tracks(
+            [
+                {"artist": "Artist A", "title": "Song A"},
+                {"artist": "Artist B", "title": "Song B"},
+                {"artist": "Artist C", "title": "Song C"},
+            ]
+        )
+    )
+
+    assert scores == {}
+    assert calls == 1
