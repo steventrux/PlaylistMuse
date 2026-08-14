@@ -16,6 +16,7 @@ from typing import Any, Literal
 
 import httpx
 
+from backend.musicbrainz_artist import lookup_artist_origin
 from backend.musicbrainz_client import rate_limited_get
 from backend.national_origin import infer_artist_country
 from backend.text_normalization import normalize_identity as _normalize
@@ -29,7 +30,7 @@ NEGATIVE_TTL_SECONDS = 24 * 60 * 60
 MIN_MATCH_SCORE = 0.78
 HIGH_MATCH_SCORE = 0.90
 MIN_CONSTRAINT_CONFIDENCE = 0.85
-METADATA_CACHE_VERSION = "5"
+METADATA_CACHE_VERSION = "6"
 
 ValidationStatus = Literal["valid", "invalid", "unknown"]
 
@@ -82,6 +83,7 @@ class TrackMetadata:
     artist: str
     title: str
     recording_mbid: str | None = None
+    artist_mbid: str | None = None
     release_group_mbid: str | None = None
     isrcs: list[str] = field(default_factory=list)
     original_release_date: str | None = None
@@ -401,9 +403,19 @@ def _read_cache(
         if not row or float(row["expires_at"]) <= time.time():
             return None
         payload = json.loads(str(row["payload"]))
+        payload.setdefault("artist_mbid", None)
         payload.setdefault("matched_artist", None)
         payload.setdefault("release_titles", [])
         return TrackMetadata(**payload)
+
+
+def _metadata_ttl(metadata: TrackMetadata) -> int:
+    return (
+        RECENT_TTL_SECONDS
+        if metadata.original_release_year
+        and metadata.original_release_year >= time.gmtime().tm_year - 1
+        else DEFAULT_TTL_SECONDS
+    )
 
 
 def _write_cache(
@@ -542,6 +554,7 @@ def _metadata_from_recording(
         artist=artist,
         title=title,
         recording_mbid=str(recording.get("id", "")).strip() or None,
+        artist_mbid=str(artist_entity.get("id", "")).strip() or None,
         release_group_mbid=str(release_group.get("id", "")).strip() or None,
         isrcs=[str(value) for value in recording.get("isrcs", []) if str(value).strip()],
         original_release_date=release_date,
@@ -730,13 +743,7 @@ async def lookup_track_metadata(
         )
         if metadata.match_score < MIN_MATCH_SCORE:
             metadata.warnings.append("MusicBrainz match confidence is too low")
-        ttl = (
-            RECENT_TTL_SECONDS
-            if metadata.original_release_year
-            and metadata.original_release_year >= time.gmtime().tm_year - 1
-            else DEFAULT_TTL_SECONDS
-        )
-        _write_cache(metadata, ttl=ttl, path=cache_path)
+        _write_cache(metadata, ttl=_metadata_ttl(metadata), path=cache_path)
         return metadata
     except (httpx.HTTPError, ValueError, TypeError, sqlite3.Error) as error:
         return TrackMetadata(
@@ -867,6 +874,35 @@ def validate_metadata(
     return ValidationResult(status=status, violations=violations, metadata=metadata)
 
 
+async def _enrich_artist_origin(
+    metadata: TrackMetadata,
+    constraints: MetadataConstraints,
+    *,
+    client: httpx.AsyncClient | None = None,
+    cache_path: Path | None = None,
+) -> TrackMetadata:
+    """Resolve missing artist origin only when a country hard constraint requires it."""
+    if (
+        constraints.artist_country is None
+        or metadata.artist_country
+        or not metadata.artist_mbid
+        or metadata.match_score < MIN_MATCH_SCORE
+    ):
+        return metadata
+
+    origin = await lookup_artist_origin(metadata.artist_mbid, client=client)
+    if origin is None:
+        return metadata
+
+    metadata.artist_country = origin.country
+    if not metadata.artist_area:
+        metadata.artist_area = origin.area
+    if origin.country or origin.area:
+        with suppress(sqlite3.Error):
+            _write_cache(metadata, ttl=_metadata_ttl(metadata), path=cache_path)
+    return metadata
+
+
 async def validate_candidate(
     candidate: dict[str, Any],
     constraints: MetadataConstraints,
@@ -897,14 +933,13 @@ async def validate_candidate(
             < _date_key(metadata.original_release_date)
         ):
             metadata = historical
-            ttl = (
-                RECENT_TTL_SECONDS
-                if metadata.original_release_year
-                and metadata.original_release_year
-                >= time.gmtime().tm_year - 1
-                else DEFAULT_TTL_SECONDS
-            )
             with suppress(sqlite3.Error):
-                _write_cache(metadata, ttl=ttl, path=cache_path)
+                _write_cache(metadata, ttl=_metadata_ttl(metadata), path=cache_path)
 
+    metadata = await _enrich_artist_origin(
+        metadata,
+        constraints,
+        client=client,
+        cache_path=cache_path,
+    )
     return validate_metadata(metadata, constraints)
