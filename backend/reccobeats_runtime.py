@@ -135,7 +135,7 @@ def _batch_signature(batch: list[dict[str, Any]]) -> tuple[tuple[str, str], ...]
     return tuple(
         key
         for anchor in batch
-        if all((key := _candidate_key(anchor)))
+        if all(key := _candidate_key(anchor))
     )
 
 
