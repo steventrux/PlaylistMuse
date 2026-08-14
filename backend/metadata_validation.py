@@ -17,6 +17,7 @@ from typing import Any, Literal
 import httpx
 
 from backend.musicbrainz_client import rate_limited_get
+from backend.national_origin import infer_artist_country
 from backend.text_normalization import normalize_identity as _normalize
 from backend.validation_fixes import effective_temporal_range
 from backend.version import USER_AGENT
@@ -125,12 +126,6 @@ _DECADE_PATTERNS = (
     re.compile(r"\b(?:anni|années|años|anos|jahre|decade|décennie|década|年代)\s*['’]?(\d{2})\b", re.I),
     re.compile(r"\b(19\d0|20\d0)s\b", re.I),
 )
-_COUNTRY_PATTERNS = {
-    "IT": re.compile(
-        r"\b(?:italian artists?|artists? from italy|artisti italiani|cantanti italiani)\b",
-        re.I,
-    )
-}
 _DIRECT_ARTIST_PATTERNS = (
     re.compile(r"\b(?:musica|brani|canzoni|songs?|tracks?|music)\s+(?:di|dei|degli|delle|by|from)\s+([\wÀ-ÿ&.' -]{1,100}?)(?=\s+(?:per|for|pour|para|zum|für)\b|[.!?,;]|$)", re.I),
     re.compile(r"\b(?:solo|only|soltanto|esclusivamente)\s+(?:musica|brani|canzoni|songs?|tracks?)?\s*(?:di|dei|degli|delle|by|from)\s+([\wÀ-ÿ&.' -]{1,100})(?:[.!?,;]|$)", re.I),
@@ -264,8 +259,8 @@ def constraints_from_payload(
             year_from, year_to = year_to, year_from
 
     country = base.artist_country
-    if trusted("artist_country"):
-        country = str(payload.get("artist_country") or "").upper().strip() or country
+    if country is None and trusted("artist_country"):
+        country = str(payload.get("artist_country") or "").upper().strip() or None
 
     allowed_artists = list(base.allowed_artists)
     if trusted("allowed_artists"):
@@ -328,10 +323,7 @@ def extract_metadata_constraints(prompt: str) -> MetadataConstraints:
                 if match:
                     year = int(match.group(1))
                     break
-    country = next(
-        (code for code, pattern in _COUNTRY_PATTERNS.items() if pattern.search(normalized)),
-        None,
-    )
+    country = infer_artist_country(normalized) if not similarity else None
     allowed_artists: list[str] = []
     if not similarity:
         for pattern in _DIRECT_ARTIST_PATTERNS:
