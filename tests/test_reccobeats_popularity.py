@@ -5,12 +5,19 @@ import asyncio
 from backend import reccobeats_runtime
 from backend.generation_runtime import _reccobeats_replenishment_guidance
 from backend.popularity_intent import PopularityIntent, intent_from_payload
+from backend.popularity_policy import (
+    LESS_KNOWN_MAXIMUM,
+    POPULAR_MINIMUM,
+    filter_absolute_popularity,
+    satisfies_popularity,
+)
 from backend.reccobeats_anchors import anchors_from_payload
 from backend.reccobeats_popularity import (
     canonicalize_reccobeats_matches,
     enrich_recommendation_popularity,
     rank_by_popularity,
 )
+from backend.reccobeats_selector import draft_from_selection_payload
 
 
 def _candidate(artist: str, title: str, popularity=None):
@@ -38,7 +45,37 @@ def test_popularity_intent_requires_confident_explicit_preference() -> None:
     assert not neutral.active
 
 
-def test_recco_popularity_ranking_is_relative_and_missing_is_neutral() -> None:
+def test_explicit_popularity_uses_disjoint_absolute_bands() -> None:
+    assert POPULAR_MINIMUM == 60
+    assert LESS_KNOWN_MAXIMUM == 30
+    assert satisfies_popularity(60, "popular")
+    assert satisfies_popularity(100, "popular")
+    assert not satisfies_popularity(59, "popular")
+    assert satisfies_popularity(30, "less_known")
+    assert satisfies_popularity(0, "less_known")
+    assert not satisfies_popularity(31, "less_known")
+    assert not satisfies_popularity(None, "popular")
+    assert not satisfies_popularity(None, "less_known")
+    assert not satisfies_popularity(45, "popular")
+    assert not satisfies_popularity(45, "less_known")
+
+
+def test_absolute_filter_never_treats_missing_score_as_obscure() -> None:
+    candidates = [
+        _candidate("A", "Unknown"),
+        _candidate("B", "Deep", 12),
+        _candidate("C", "Middle", 45),
+        _candidate("D", "Hit", 81),
+    ]
+    assert [item["title"] for item in filter_absolute_popularity(candidates, "popular")] == [
+        "Hit"
+    ]
+    assert [
+        item["title"] for item in filter_absolute_popularity(candidates, "less_known")
+    ] == ["Deep"]
+
+
+def test_recco_popularity_ranking_remains_relative_inside_an_absolute_band() -> None:
     candidates = [
         _candidate("A", "Medium", 40),
         _candidate("B", "Unknown"),
@@ -55,7 +92,7 @@ def test_recco_popularity_ranking_is_relative_and_missing_is_neutral() -> None:
     assert [item["title"] for item in neutral] == ["Medium", "Unknown", "Popular", "Deep"]
 
 
-def test_popularity_guidance_uses_ranked_pool_without_becoming_hard_constraint() -> None:
+def test_popularity_guidance_describes_absolute_policy_and_identity_source() -> None:
     candidates = [
         _candidate("Artist A", "Hit", 90),
         _candidate("Artist B", "Deep Cut", 12),
@@ -64,15 +101,15 @@ def test_popularity_guidance_uses_ranked_pool_without_becoming_hard_constraint()
     popular = _reccobeats_replenishment_guidance(candidates, "popular")
     less_known = _reccobeats_replenishment_guidance(candidates, "less_known")
 
-    assert "broader ReccoBeats pool" in popular
-    assert "higher known popularity values" in popular
-    assert "lower known popularity values" in less_known
+    assert "absolute Recco popularity policy" in popular
+    assert ">=60" in popular
+    assert "<=30" in less_known
     assert "primary source of song identities" in popular
     assert "primary source of song identities" in less_known
-    assert "soft preference" in popular
-    assert "never overrides eligibility or creative fit" in popular
-    assert "missing popularity value is neutral" in less_known
+    assert "relative ranking alone is not enough" in popular
+    assert "missing popularity value" in less_known
     assert "more familiar unlisted song" in less_known
+    assert "Popularity never overrides mandatory eligibility or creative fit" in popular
 
 
 def test_canonical_recco_identity_keeps_llm_explanations() -> None:
@@ -112,6 +149,38 @@ def test_canonical_recco_identity_keeps_llm_explanations() -> None:
         "popularity": 77,
     }
     assert result[1] == tracks[1]
+
+
+def test_selector_payload_reconstructs_immutable_recco_identity() -> None:
+    candidates = [
+        _candidate("Canonical A", "Song A", 75),
+        _candidate("Canonical B", "Song B", 82),
+    ]
+    draft = draft_from_selection_payload(
+        {
+            "title": "Party",
+            "description": "Party description",
+            "selections": [
+                {"index": 2, "description": "Desc B", "reason": "Reason B"},
+                {"index": 1, "description": "Desc A", "reason": "Reason A"},
+                {"index": 2, "description": "Duplicate", "reason": "Duplicate"},
+            ],
+        },
+        candidates,
+        limit=2,
+    )
+
+    assert draft is not None
+    assert [(item["artist"], item["title"]) for item in draft["tracks"]] == [
+        ("Canonical B", "Song B"),
+        ("Canonical A", "Song A"),
+    ]
+    assert [item["reccobeats_id"] for item in draft["tracks"]] == [
+        "Canonical B-Song B",
+        "Canonical A-Song A",
+    ]
+    assert draft["tracks"][0]["description"] == "Desc B"
+    assert draft["tracks"][0]["reason"] == "Reason B"
 
 
 def test_anchor_payload_deduplicates_identity_and_caps_at_six() -> None:
@@ -220,7 +289,48 @@ def test_neutral_primary_success_keeps_single_recommendation_call(monkeypatch) -
     assert metadata["expanded_pool"] is False
 
 
-def test_explicit_popularity_builds_large_pool_then_keeps_requested_extreme(
+def test_popular_pool_enforces_absolute_threshold_and_recovers_with_single_seeds(
+    monkeypatch,
+) -> None:
+    anchors = [
+        {"artist": f"Artist {letter}", "title": f"Song {letter}"}
+        for letter in "ABCDEF"
+    ]
+    calls: list[list[str]] = []
+
+    async def fake_recommend(tracks, *, limit, max_anchors):
+        calls.append([track["artist"] for track in tracks])
+        assert limit == 30
+        if len(tracks) == 1 and tracks[0]["artist"] == "Artist B":
+            return [_candidate("Recovered", "Hit", 78)]
+        return []
+
+    async def fake_enrich(candidates, *, preference):
+        return sorted(candidates, key=lambda item: item["popularity"], reverse=True)
+
+    monkeypatch.setattr(
+        reccobeats_runtime,
+        "recommendation_candidates_from_tracks",
+        fake_recommend,
+    )
+    monkeypatch.setattr(
+        reccobeats_runtime,
+        "enrich_recommendation_popularity",
+        fake_enrich,
+    )
+
+    popular, metadata = asyncio.run(
+        reccobeats_runtime._recommend_with_fallback(anchors, 25, "popular")
+    )
+
+    assert [item["title"] for item in popular] == ["Hit"]
+    assert metadata["fallback_used"] is True
+    assert metadata["absolute_candidates"] == 1
+    assert metadata["absolute_policy"] == ">=60"
+    assert ["Artist B"] in calls
+
+
+def test_explicit_popular_keeps_only_absolute_high_end_of_aggregate_pool(
     monkeypatch,
 ) -> None:
     anchors = [
@@ -260,19 +370,19 @@ def test_explicit_popularity_builds_large_pool_then_keeps_requested_extreme(
         reccobeats_runtime._recommend_with_fallback(anchors, 25, "popular")
     )
 
-    assert len(calls) == 4
-    assert all(1 <= len(call) <= 3 for call in calls)
-    assert len(popular) == 24
-    assert [item["popularity"] for item in popular] == list(range(72, 48, -1))
+    assert len(calls) == 7
+    assert all(item["popularity"] >= POPULAR_MINIMUM for item in popular)
+    assert [item["popularity"] for item in popular] == list(range(96, 66, -1))
     assert metadata["expanded_pool"] is True
-    assert metadata["discovery_batches"] == 4
-    assert metadata["pool_candidates"] == 72
-    assert metadata["context_candidates"] == 24
-    assert metadata["pool_popularity_min"] == 1
-    assert metadata["pool_popularity_max"] == 72
+    assert metadata["fallback_used"] is True
+    assert metadata["pool_candidates"] == 96
+    assert metadata["context_candidates"] == 30
+    assert metadata["absolute_candidates"] == 37
 
 
-def test_explicit_less_known_keeps_low_end_of_aggregate_pool(monkeypatch) -> None:
+def test_explicit_less_known_keeps_only_absolute_low_end_of_aggregate_pool(
+    monkeypatch,
+) -> None:
     anchors = [
         {"artist": f"Artist {letter}", "title": f"Song {letter}"}
         for letter in "ABCDEF"
@@ -305,10 +415,13 @@ def test_explicit_less_known_keeps_low_end_of_aggregate_pool(monkeypatch) -> Non
         reccobeats_runtime._recommend_with_fallback(anchors, 25, "less_known")
     )
 
-    assert [item["popularity"] for item in less_known] == list(range(1, 25))
+    assert [item["popularity"] for item in less_known] == list(range(1, 31))
+    assert all(item["popularity"] <= LESS_KNOWN_MAXIMUM for item in less_known)
     assert metadata["pool_candidates"] == 72
+    assert metadata["absolute_candidates"] == 30
     assert metadata["context_popularity_min"] == 1
-    assert metadata["context_popularity_max"] == 24
+    assert metadata["context_popularity_max"] == 30
+    assert metadata["fallback_used"] is False
 
 
 def test_large_popularity_enrichment_is_split_into_bounded_detail_batches(
