@@ -141,6 +141,10 @@ def active_popularity_intent() -> PopularityIntent:
 def activate_popularity_intent(
     intent: PopularityIntent,
 ) -> Token[PopularityIntent | None]:
+    if intent.preference == "neutral" and intent.confidence >= POPULARITY_CONFIDENCE:
+        from backend.reccobeats_popularity import reset_request_popularity_cache
+
+        reset_request_popularity_cache()
     return _ACTIVE_INTENT.set(intent)
 
 
