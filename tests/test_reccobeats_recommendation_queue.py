@@ -22,7 +22,7 @@ def test_recommendation_timeout_excludes_discovery_queue_time(monkeypatch) -> No
         active_discoveries += 1
         max_active_discoveries = max(max_active_discoveries, active_discoveries)
         try:
-            await asyncio.sleep(0.035)
+            await asyncio.sleep(0.08)
             return {
                 "id": f"seed-{artist}",
                 "trackTitle": title,
@@ -33,7 +33,7 @@ def test_recommendation_timeout_excludes_discovery_queue_time(monkeypatch) -> No
 
     async def fake_request_json(client, path: str, *, params=None):
         assert path == "/track/recommendation"
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.02)
         seed = str((params or {}).get("seeds", ""))
         suffix = seed.removeprefix("seed-") or "unknown"
         return {
@@ -49,7 +49,7 @@ def test_recommendation_timeout_excludes_discovery_queue_time(monkeypatch) -> No
     monkeypatch.setattr(
         reccobeats_features,
         "RECOMMENDATION_TIMEOUT_SECONDS",
-        0.06,
+        0.15,
     )
     monkeypatch.setattr(
         reccobeats_features,
