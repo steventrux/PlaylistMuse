@@ -120,20 +120,20 @@ def test_request_scoped_popularity_cache_preserves_known_score_after_later_failu
         "AsyncClient",
         lambda *args, **kwargs: FakeClient(),
     )
-    reccobeats_popularity.reset_request_popularity_cache()
     candidate = _candidate(1)
     candidate.pop("popularity")
 
-    first = asyncio.run(
-        reccobeats_popularity.enrich_recommendation_popularity(
+    async def run_request():
+        reccobeats_popularity.reset_request_popularity_cache()
+        first = await reccobeats_popularity.enrich_recommendation_popularity(
             [candidate], preference="popular"
         )
-    )
-    second = asyncio.run(
-        reccobeats_popularity.enrich_recommendation_popularity(
+        second = await reccobeats_popularity.enrich_recommendation_popularity(
             [candidate], preference="popular"
         )
-    )
+        return first, second
+
+    first, second = asyncio.run(run_request())
 
     assert first[0]["popularity"] == 77
     assert second[0]["popularity"] == 77
