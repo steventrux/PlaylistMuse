@@ -56,24 +56,35 @@ def annotate_resolved_candidate_context(
     *,
     artist_matches: Any,
 ) -> list[dict[str, Any]]:
-    """Attach the exact requested identity and soft Recco metadata to resolved tracks."""
+    """Attach the exact requested identity and soft Recco metadata to resolved tracks.
+
+    An exact (description, reason) signature match is worth an unbeatable 1_000.0 in
+    `_origin_score` -- no fuzzy title-score match can ever outscore it -- so it's
+    pre-indexed into a dict for O(1) lookup instead of scanning every candidate for every
+    resolved track. The O(candidates) fuzzy fallback only runs for tracks without an
+    exact signature match.
+    """
+    dict_candidates = [item for item in candidates if isinstance(item, dict)]
+    by_signature: dict[tuple[str, str], dict[str, Any]] = {}
+    for item in dict_candidates:
+        signature = _origin_signature(item)
+        if all(signature) and signature not in by_signature:
+            by_signature[signature] = item
+
     annotated: list[dict[str, Any]] = []
     for track in resolved:
         copy = dict(track)
-        scored = [
-            (
-                _origin_score(copy, item, artist_matches=artist_matches),
-                item,
-            )
-            for item in candidates
-            if isinstance(item, dict)
-        ]
-        candidate = max(scored, key=lambda item: item[0], default=(-1.0, None))[1]
-        if candidate is not None and _origin_score(
-            copy,
-            candidate,
-            artist_matches=artist_matches,
-        ) >= 0.0:
+        track_signature = _origin_signature(copy)
+        exact_match = by_signature.get(track_signature) if all(track_signature) else None
+        if exact_match is not None:
+            score, candidate = 1_000.0, exact_match
+        else:
+            scored = [
+                (_origin_score(copy, item, artist_matches=artist_matches), item)
+                for item in dict_candidates
+            ]
+            score, candidate = max(scored, key=lambda item: item[0], default=(-1.0, None))
+        if candidate is not None and score >= 0.0:
             copy["requested_artist"] = _candidate_artist(candidate)
             copy["requested_title"] = str(candidate.get("title") or "").strip()
             for key in ("popularity", "reccobeats_id", "source"):

@@ -52,7 +52,6 @@ def test_metadata_validation_uses_resolved_youtube_identity(monkeypatch) -> None
         "_resolve_one",
         lambda candidate, exclusions: _catalogue_track(),
     )
-    monkeypatch.setattr(youtube, "_read_cache", lambda *args, **kwargs: None)
 
     async def validate_canonical(candidate, constraints, client=None):
         seen.append((candidate["artist"], candidate["title"]))
@@ -96,7 +95,6 @@ def test_unknown_canonical_metadata_remains_rejected(monkeypatch) -> None:
         "_resolve_one",
         lambda candidate, exclusions: _catalogue_track(),
     )
-    monkeypatch.setattr(youtube, "_read_cache", lambda *args, **kwargs: None)
 
     async def unknown_metadata(candidate, constraints, client=None):
         return ValidationResult(

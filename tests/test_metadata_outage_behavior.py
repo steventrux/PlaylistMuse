@@ -41,7 +41,6 @@ def test_complete_musicbrainz_outage_raises_temporary_service_error(monkeypatch)
             "Metadata lookup unavailable: ConnectTimeout",
         )
 
-    monkeypatch.setattr("backend.youtube._read_cache", lambda *args, **kwargs: None)
     monkeypatch.setattr("backend.youtube.validate_candidate", unavailable)
 
     with pytest.raises(
@@ -64,7 +63,6 @@ def test_genuine_unknown_metadata_remains_a_rejection(monkeypatch):
     async def no_match(candidate, constraints, client=None):
         return _unknown_result(candidate, "No MusicBrainz match")
 
-    monkeypatch.setattr("backend.youtube._read_cache", lambda *args, **kwargs: None)
     monkeypatch.setattr("backend.youtube.validate_candidate", no_match)
 
     accepted, rejected = asyncio.run(
@@ -98,7 +96,6 @@ def test_partial_outage_keeps_verified_results_and_marks_failed_lookup(monkeypat
             "Metadata lookup unavailable: ReadTimeout",
         )
 
-    monkeypatch.setattr("backend.youtube._read_cache", lambda *args, **kwargs: None)
     monkeypatch.setattr("backend.youtube.validate_candidate", mixed_result)
 
     accepted, rejected = asyncio.run(

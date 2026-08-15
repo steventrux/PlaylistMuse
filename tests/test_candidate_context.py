@@ -42,6 +42,69 @@ def test_requested_identity_and_popularity_survive_catalogue_canonicalization() 
     assert result[0]["popularity"] == 44
 
 
+def test_exact_signature_match_skips_the_fuzzy_scan_entirely() -> None:
+    """An exact (description, reason) match is an unbeatable 1_000.0 score -- confirm the
+    O(candidates) fuzzy fallback (which calls artist_matches) never runs when one exists,
+    by making artist_matches raise if it's ever called."""
+
+    def fail_if_called(actual: str, expected: str) -> bool:
+        raise AssertionError("fuzzy fallback should not run when an exact match exists")
+
+    candidates = [
+        {
+            "artist": "Wrong Artist",
+            "title": "Wrong Title",
+            "description": "The one true description.",
+            "reason": "The one true reason.",
+            "popularity": 10,
+        },
+    ]
+    resolved = [
+        {
+            "artists": "Whoever Actually Resolved",
+            "title": "Whatever Title",
+            "description": "The one true description.",
+            "reason": "The one true reason.",
+            "video_id": "track-1",
+        }
+    ]
+
+    result = annotate_resolved_candidate_context(
+        resolved, candidates, artist_matches=fail_if_called
+    )
+
+    assert result[0]["requested_artist"] == "Wrong Artist"
+    assert result[0]["popularity"] == 10
+
+
+def test_fuzzy_fallback_still_matches_without_an_exact_signature() -> None:
+    candidates = [
+        {
+            "artist": "Colapesce",
+            "title": "Musica Leggerissima",
+            "description": "Different description text.",
+            "reason": "Different reason text.",
+            "popularity": 44,
+        }
+    ]
+    resolved = [
+        {
+            "artists": "Colapesce",
+            "title": "Musica leggerissima",
+            "description": "Canonical catalogue description.",
+            "reason": "Canonical catalogue reason.",
+            "video_id": "track-1",
+        }
+    ]
+
+    result = annotate_resolved_candidate_context(
+        resolved, candidates, artist_matches=_artist_matches
+    )
+
+    assert result[0]["requested_artist"] == "Colapesce"
+    assert result[0]["popularity"] == 44
+
+
 def test_song_title_marker_is_not_mistaken_for_cover_version() -> None:
     track = {
         "artists": "Boomdabash, Alessandra Amoroso",
