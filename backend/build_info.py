@@ -10,6 +10,7 @@ from typing import Any
 from fastapi import APIRouter
 
 from backend.source_revision import git_revision
+from backend.update_check import check_for_update
 from backend.version import APP_VERSION, REPOSITORY_URL
 
 _VALID_CHANNELS = {"stable", "beta", "dev"}
@@ -61,12 +62,17 @@ def _source_git_dir() -> Path:
 _STARTUP_SOURCE_COMMIT = git_revision(_source_git_dir())
 
 
-def _running_commit() -> str:
+def _resolved_commit_sha() -> str:
     commit = _clean(os.getenv("PLAYLISTMUSE_GIT_SHA"))
     if commit.lower() in _INVALID_COMMITS:
         commit = ""
     if not commit:
         commit = _STARTUP_SOURCE_COMMIT
+    return commit
+
+
+def _running_commit() -> str:
+    commit = _resolved_commit_sha()
     return commit[:7] if commit else ""
 
 
@@ -114,3 +120,14 @@ def current_build_info() -> BuildInfo:
 def get_version() -> dict[str, Any]:
     """Return the version, release channel and source revision of this running build."""
     return asdict(current_build_info())
+
+
+@router.get("/version/update")
+async def get_version_update() -> dict[str, Any]:
+    """Return whether a newer PlaylistMuse build is available upstream on GitHub."""
+    info = current_build_info()
+    return await check_for_update(
+        channel=info.channel,
+        version=info.version,
+        commit_sha=_resolved_commit_sha(),
+    )

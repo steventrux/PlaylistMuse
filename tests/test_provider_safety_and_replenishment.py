@@ -133,4 +133,4 @@ def test_generate_appends_a_discreet_signature_to_the_description(monkeypatch) -
     )
 
     assert result["description"].startswith("A short, punchy description.")
-    assert "github.com/steventrux/PlaylistMuse" in result["description"]
+    assert "Made with PlaylistMuse" in result["description"]

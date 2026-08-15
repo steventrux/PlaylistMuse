@@ -336,11 +336,56 @@ body.sidebar-open .playlistmuse-sidebar {
   line-height: 1.45;
 }
 
+.sidebar-version-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .sidebar-build-version {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.sidebar-build-version--update {
+  color: #fde68a;
+}
+
+.sidebar-update-badge {
+  display: none;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(251, 191, 36, .34);
+  background: rgba(120, 74, 8, .12);
+  color: #fde68a;
+}
+
+.sidebar-update-badge:not([hidden]) {
+  display: inline-flex;
+}
+
+.sidebar-update-badge:hover,
+.sidebar-update-badge:focus-visible {
+  border-color: rgba(251, 191, 36, .55);
+  background: rgba(120, 74, 8, .2);
+}
+
+.sidebar-update-icon {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .sidebar-repo-link {

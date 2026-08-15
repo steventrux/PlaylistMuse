@@ -72,7 +72,7 @@ def test_settings_overlay_is_loaded_on_all_primary_pages() -> None:
     playlist = _text("playlist.html")
 
     overlay = '<script src="/static/settings-overlay.js?v=1"></script>'
-    home_status = '/static/home-status.js?v=18'
+    home_status = '/static/home-status.js?v=22'
     for html in (index, library, playlist):
         assert overlay in html
         assert home_status in html

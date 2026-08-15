@@ -144,7 +144,7 @@
 
   function ensureStatusStyles() {
     ensureStylesheet('/static/layout.css', '/static/layout.css?v=5');
-    ensureStylesheet('/static/header-navigation.css', '/static/header-navigation.css?v=7');
+    ensureStylesheet('/static/header-navigation.css', '/static/header-navigation.css?v=11');
     ensureStylesheet('/static/settings-dialog.css', '/static/settings-dialog.css?v=5');
     ensureStylesheet('/static/settings-overlay.css', '/static/settings-overlay.css?v=1');
   }
@@ -169,6 +169,25 @@
       if (info.repository_url) repository.href = info.repository_url;
     } catch {
       version.textContent = 'Version unavailable';
+    }
+  }
+
+  async function refreshUpdateStatus(sidebar) {
+    const version = sidebar?.querySelector('#sidebar-build-version');
+    const badge = sidebar?.querySelector('#sidebar-update-badge');
+    if (!version || !badge) return;
+
+    try {
+      const response = await fetch('/api/version/update', {cache: 'no-store'});
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const info = await response.json();
+      const available = Boolean(info.update_available);
+      if (available && info.url) badge.href = info.url;
+      version.classList.toggle('sidebar-build-version--update', available);
+      badge.hidden = !available;
+    } catch {
+      version.classList.remove('sidebar-build-version--update');
+      badge.hidden = true;
     }
   }
 
@@ -241,7 +260,14 @@
         </section>
       </nav>
       <div class="sidebar-footer">
-        <span id="sidebar-build-version" class="sidebar-build-version">Checking version…</span>
+        <span class="sidebar-version-row">
+          <span id="sidebar-build-version" class="sidebar-build-version">Checking version…</span>
+          <a id="sidebar-update-badge" class="sidebar-update-badge" href="${REPOSITORY_URL}" target="_blank" rel="noopener noreferrer" title="New version available" aria-label="New version available" hidden>
+            <svg class="sidebar-update-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M12 19V5M5 12l7-7 7 7" />
+            </svg>
+          </a>
+        </span>
         <a class="sidebar-repo-link" href="${REPOSITORY_URL}" target="_blank" rel="noopener noreferrer" aria-label="PlaylistMuse repository on GitHub">
           ${githubIcon}
           <span>GitHub</span>
@@ -251,6 +277,7 @@
 
     document.body.append(backdrop, sidebar);
     void refreshBuildInfo(sidebar);
+    void refreshUpdateStatus(sidebar);
 
     const activePage = currentPage();
     sidebar.querySelectorAll('.sidebar-link').forEach((link) => {
