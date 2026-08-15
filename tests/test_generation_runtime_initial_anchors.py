@@ -113,6 +113,37 @@ def test_initial_guidance_fast_path_adds_negligible_overhead(monkeypatch) -> Non
     assert elapsed < 0.3
 
 
+def test_initial_guidance_skips_anchor_interpretation_when_seed_anchor_supplied(
+    monkeypatch,
+) -> None:
+    """Seed-based generation already knows the real anchor -- never guess it via an LLM call."""
+
+    async def fail_if_called(config, prompt):
+        raise AssertionError("anchor interpretation should not run when seed_anchor is given")
+
+    async def fake_recommendations(anchors, *, limit, max_anchors):
+        assert anchors == [{"artist": "Queen", "title": "Bohemian Rhapsody", "kind": "seed"}]
+        return [{"artist": "Aerosmith", "title": "Dream On", "source": "reccobeats"}]
+
+    monkeypatch.setattr(
+        "backend.reccobeats_anchors.interpret_reccobeats_anchors", fail_if_called
+    )
+    monkeypatch.setattr(
+        "backend.reccobeats_features.recommendation_candidates_from_tracks",
+        fake_recommendations,
+    )
+
+    guidance = asyncio.run(
+        core._initial_reccobeats_guidance(
+            _config(),
+            "llm_initial",
+            "Create a playlist from the seed song 'Bohemian Rhapsody' by Queen.",
+            {"artist": "Queen", "title": "Bohemian Rhapsody", "kind": "seed"},
+        )
+    )
+    assert "Dream On" in guidance
+
+
 def test_initial_guidance_anchor_interpretation_has_a_hard_timeout(monkeypatch) -> None:
     """A hung/slow AI provider must not be allowed to stall the initial draft.
 

@@ -87,7 +87,6 @@ _GENERATION_PROGRESS: ContextVar[Callable[[str], None] | None] = ContextVar(
 
 GENERATION_STAGE_MESSAGES = {
     "llm_initial": "Interpreting your request and drafting the playlist…",
-    "llm_guided": "Refining the playlist around your reference track…",
     "catalogue_resolution_initial": "Validating tracks and resolving them on YouTube Music…",
     "llm_replenishment": "Refining the playlist to fill any gaps…",
     "catalogue_resolution_replenishment": "Validating the new tracks on YouTube Music…",
@@ -595,19 +594,16 @@ def _artist_identity_keys(value: str) -> set[str]:
     return keys
 
 
-def _discovery_prompt(
-    original_prompt: str,
-    first_draft: dict,
-    candidates: list[dict[str, str]],
-    count: int,
-    *,
-    seed_mode: str = "",
-) -> str:
-    first_pass = "\n".join(
-        f"- {track.get('artist', 'Unknown artist')} — "
-        f"{track.get('title', 'Unknown track')}"
-        for track in first_draft.get("tracks", [])[:count]
-    )
+def _seed_evidence_guidance(candidates: list[dict[str, str]], *, seed_mode: str) -> str:
+    """Fold Last.fm seed evidence directly into the single initial draft prompt.
+
+    Seed requests always have real Last.fm-derived candidates before any draft exists
+    (unlike prompt-based generation, whose lastfm_candidates is always empty -- see
+    discover_from_anchors's deliberate no-op in lastfm_discovery.py). Folding the evidence
+    into the one llm_initial draft, instead of running a second llm_guided draft
+    afterwards, removes an entire redundant LLM generation pass (with its own quota-repair
+    and creative-repair rounds) for every seed request.
+    """
     evidence = "\n".join(
         f"- {candidate.get('artist', 'Unknown artist')} — "
         f"{candidate.get('title', 'Unknown track')} "
@@ -616,24 +612,15 @@ def _discovery_prompt(
     )
     seed_instruction = f"\n{_seed_mode_instruction(seed_mode)}\n" if seed_mode else ""
     return (
-        f"Create the final playlist for this request:\n{original_prompt}\n\n"
-        "MANDATORY PRIORITY: preserve every explicit constraint in the original request. "
-        "Dates, years, eras, languages, countries, markets, exclusions and words such as "
-        "only or exactly are hard filters. A candidate that violates one must be rejected, "
-        "even if it improves coherence, discovery, variety or flow. Never silently broaden "
-        "the request. Musical flow may only order already compliant tracks."
         f"{seed_instruction}\n"
-        "You have two complementary inputs:\n"
-        "1. Your own first-pass musical ideas.\n"
-        "2. Last.fm collaborative-listening evidence derived from the seed.\n\n"
-        f"First-pass ideas:\n{first_pass or '- None'}\n\n"
-        f"Last.fm seed evidence:\n{evidence or '- None'}\n\n"
-        f"Return a final playlist of up to {count} tracks. Use Last.fm evidence only when "
-        "it satisfies the original request and the selected seed mode. You may select "
-        "tracks not listed above only when they satisfy every mandatory constraint and "
-        "have a clear musical justification. Do not add contrast tracks merely to create "
-        "a narrative arc. For every selected song, write a natural song description and "
-        "a playlist-specific reason. Use canonical artist and released track names."
+        "Last.fm collaborative-listening evidence derived from the seed:\n"
+        f"{evidence or '- None'}\n\n"
+        "Use this evidence only when it satisfies the original request and the selected "
+        "seed mode. You may also select tracks not listed above when they satisfy every "
+        "mandatory constraint and have a clear musical justification. Do not mechanically "
+        "copy the evidence list; use your own musical judgment. For every selected song, "
+        "write a natural song description and a playlist-specific reason. Use canonical "
+        "artist and released track names."
     )
 
 
@@ -842,31 +829,21 @@ def _replenishment_prompt(
 async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     config = load_config()
     seed_mode = _SEED_MODE.get()
-    _emit_progress("llm_initial")
-    first_draft = await generate_playlist_draft(
-        config,
-        _constraint_priority_prompt(prompt),
-        count,
-    )
-
     lastfm_anchors = list(_SEED_ANCHORS.get())
     lastfm_candidates = list(_SEED_RECOMMENDATIONS.get())
-    draft = first_draft
-    guidance_applied = False
+
+    initial_prompt = _constraint_priority_prompt(prompt)
     if lastfm_candidates:
-        guided_prompt = _discovery_prompt(
-            prompt,
-            first_draft,
-            lastfm_candidates,
-            count,
-            seed_mode=seed_mode,
-        )
-        try:
-            _emit_progress("llm_guided")
-            draft = await generate_playlist_draft(config, guided_prompt, count)
-            guidance_applied = True
-        except Exception:
-            draft = first_draft
+        initial_prompt += _seed_evidence_guidance(lastfm_candidates, seed_mode=seed_mode)
+
+    _emit_progress("llm_initial")
+    draft = await generate_playlist_draft(
+        config,
+        initial_prompt,
+        count,
+        lastfm_anchors[0] if lastfm_anchors else None,
+    )
+    guidance_applied = bool(lastfm_candidates)
 
     draft_tracks = _annotate_lastfm_sources(
         list(draft.get("tracks", [])),
@@ -1114,6 +1091,48 @@ async def analyze_prompt(request: PromptAnalysisRequest) -> dict:
         ) from error
 
 
+def _is_seed_track(track: dict, seed: SeedTrack, seed_key: str) -> bool:
+    return track.get("video_id") == seed.video_id or track_identity_key(
+        track.get("title", ""), track.get("artists", "")
+    ) == seed_key
+
+
+async def _seed_other_tracks(
+    prompt: str,
+    other_count: int,
+    options: PlaylistOptions,
+    seed: SeedTrack,
+    seed_key: str,
+) -> tuple[dict, dict | None]:
+    """Ask _generate() for exactly `other_count` tracks distinct from the seed.
+
+    _generate() itself guarantees exactly `other_count` verified, quota-checked tracks. The
+    only way this can fall short of the seed handler's needs is if the AI independently
+    reproduces the seed among its own suggestions; that is retried once, explicitly
+    forbidding the seed song, so the caller never has to fall back to silently dropping an
+    already-verified track to make room for the seed.
+    """
+    attempt_prompt = prompt
+    reproduced_track: dict | None = None
+    for _ in range(2):
+        result = await _generate(attempt_prompt, other_count, options)
+        match = next(
+            (track for track in result["tracks"] if _is_seed_track(track, seed, seed_key)),
+            None,
+        )
+        if match is None:
+            return result, reproduced_track
+        reproduced_track = reproduced_track or match
+        attempt_prompt = (
+            f"{prompt}\n\nDo not include '{seed.title}' by {seed.artists} among your "
+            "suggestions -- it is already the playlist's first track."
+        )
+    raise ValueError(
+        "PlaylistMuse could not find enough tracks distinct from the seed song. "
+        "Try a different seed or request more tracks."
+    )
+
+
 async def _generate_from_seed_playlist(request: SeedGenerateRequest) -> dict:
     """Build a seed-anchored playlist. Raises ValueError/Exception like _generate() itself.
 
@@ -1121,6 +1140,8 @@ async def _generate_from_seed_playlist(request: SeedGenerateRequest) -> dict:
     both the plain JSON endpoint and the streaming endpoint below can share it.
     """
     seed = request.seed
+    seed_key = track_identity_key(seed.title, seed.artists)
+    other_count = request.track_count - 1
     prompt = (
         f"Create a playlist from the seed song '{seed.title}' by {seed.artists}. "
         f"{_seed_mode_instruction(request.seed_mode)} The seed must remain the primary "
@@ -1141,43 +1162,28 @@ async def _generate_from_seed_playlist(request: SeedGenerateRequest) -> dict:
     anchor_token = _SEED_ANCHORS.set((seed_anchor,))
     mode_token = _SEED_MODE.set(request.seed_mode)
     try:
-        result = await _generate(prompt, request.track_count, request.options)
+        result, reproduced_track = await _seed_other_tracks(
+            prompt, other_count, request.options, seed, seed_key
+        )
     finally:
         _SEED_MODE.reset(mode_token)
         _SEED_ANCHORS.reset(anchor_token)
         _SEED_RECOMMENDATIONS.reset(recommendation_token)
 
     seed_payload = seed.model_dump()
-    seed_key = track_identity_key(seed.title, seed.artists)
-    matching_track = next(
-        (
-            track
-            for track in result["tracks"]
-            if track_identity_key(
-                track.get("title", ""),
-                track.get("artists", ""),
-            )
-            == seed_key
-        ),
-        None,
-    )
+    # The seed is a user-chosen reference track, not a generated suggestion: it always
+    # appears first regardless of exclude_live/exclude_covers/exclude_remixes -- it is
+    # deliberately never routed through resolve_candidates()'s exclusion filters.
     seed_payload["description"] = (
-        (matching_track or {}).get("description")
+        (reproduced_track or {}).get("description")
         or "The reference song that establishes the playlist's core sound, mood and energy."
     )
     seed_payload["reason"] = (
-        (matching_track or {}).get("reason")
+        (reproduced_track or {}).get("reason")
         or "It anchors the sequence because every other selection was chosen in response to its musical character."
     )
 
-    remaining_tracks = [
-        track
-        for track in result["tracks"]
-        if track.get("video_id") != seed.video_id
-        and track_identity_key(track.get("title", ""), track.get("artists", ""))
-        != seed_key
-    ]
-    result["tracks"] = [seed_payload, *remaining_tracks][: request.track_count]
+    result["tracks"] = [seed_payload, *result["tracks"]]
     result["resolved_count"] = len(result["tracks"])
     result["seed"] = seed_payload
     result["seed_mode"] = request.seed_mode

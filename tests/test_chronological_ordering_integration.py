@@ -45,7 +45,7 @@ def test_prompt_generation_applies_explicit_chronological_order(monkeypatch) -> 
         lambda: SimpleNamespace(configured=True),
     )
 
-    async def fake_generate(config, prompt, count):
+    async def fake_generate(config, prompt, count, seed_anchor=None):
         return {
             "title": "Chronological Playlist",
             "description": "A test playlist",

@@ -8,6 +8,7 @@ import backend.lastfm_discovery as discovery
 
 
 def test_seed_discovery_prefers_similar_tracks() -> None:
+    discovery._clear_cache()
     methods: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -59,6 +60,7 @@ def test_seed_discovery_prefers_similar_tracks() -> None:
 
 
 def test_seed_discovery_falls_back_to_similar_artist_signals() -> None:
+    discovery._clear_cache()
     methods: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -104,6 +106,64 @@ def test_seed_discovery_falls_back_to_similar_artist_signals() -> None:
     assert all(signal["lastfm_strategy"] == "similar_artist" for signal in signals)
     assert all(signal["anchor_artist"] == "Merk & Kremont" for signal in signals)
     assert all(signal["anchor_title"] == "PARTENOPE" for signal in signals)
+
+
+def test_seed_discovery_caches_results_and_avoids_a_second_call() -> None:
+    discovery._clear_cache()
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200,
+            json={
+                "similartracks": {
+                    "track": [{"name": "Dream On", "artist": {"name": "Aerosmith"}, "match": "0.8"}]
+                }
+            },
+        )
+
+    async def run() -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as client:
+            first = await discovery.discover_for_seed(
+                "Queen", "Bohemian Rhapsody", api_key="test-key", client=client, now=lambda: 100.0,
+            )
+            second = await discovery.discover_for_seed(
+                "Queen", "Bohemian Rhapsody", api_key="test-key", client=client, now=lambda: 101.0,
+            )
+        return first, second
+
+    first, second = asyncio.run(run())
+
+    assert calls == 1
+    assert second == first
+
+
+def test_seed_discovery_does_not_cache_a_lastfm_error_response() -> None:
+    discovery._clear_cache()
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={"error": 11, "message": "Service Offline"})
+
+    async def run() -> None:
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as client:
+            await discovery.discover_for_seed(
+                "Queen", "Bohemian Rhapsody", api_key="test-key", client=client, now=lambda: 100.0,
+            )
+            await discovery.discover_for_seed(
+                "Queen", "Bohemian Rhapsody", api_key="test-key", client=client, now=lambda: 101.0,
+            )
+
+    asyncio.run(run())
+
+    # track.getsimilar + artist.getsimilar fallback, per attempt, both failing -> 4 calls total
+    assert calls == 4
 
 
 def test_select_prompt_anchors_deduplicates_and_limits() -> None:

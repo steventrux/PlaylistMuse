@@ -51,7 +51,7 @@ def test_free_prompt_skips_lastfm_discovery_and_second_generation(monkeypatch) -
         lambda: SimpleNamespace(configured=True),
     )
 
-    async def fake_generate(config, prompt, count):
+    async def fake_generate(config, prompt, count, seed_anchor=None):
         generation_calls.append(prompt)
         return _draft()
 

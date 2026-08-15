@@ -358,78 +358,140 @@ def test_track_identity_ignores_case_accents_and_punctuation() -> None:
     )
 
 
+def _seed_request(**overrides) -> dict:
+    payload = {
+        "seed": {
+            "video_id": "selected-seed",
+            "title": "Woman",
+            "artists": "Wolfmother",
+            "album": "Wolfmother",
+            "duration": "2:56",
+            "thumbnail_url": "",
+            "url": "https://music.youtube.com/watch?v=selected-seed",
+        },
+        "track_count": 5,
+        "options": {
+            "exclude_live": True,
+            "exclude_covers": True,
+            "exclude_remixes": True,
+        },
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _seed_track_payload(video_id: str, title: str, artists: str) -> dict:
+    return {
+        "video_id": video_id,
+        "title": title,
+        "artists": artists,
+        "album": "Album",
+        "duration": "3:00",
+        "thumbnail_url": "",
+        "url": f"https://music.youtube.com/watch?v={video_id}",
+        "description": "d",
+        "reason": "r",
+    }
+
+
+def _seed_draft(prompt: str, count: int, tracks: list[dict]) -> dict:
+    return {
+        "name": "Fuzz Riffs",
+        "description": "Heavy riffs and driving grooves.",
+        "prompt": prompt,
+        "requested_count": count,
+        "resolved_count": len(tracks),
+        "tracks": tracks,
+        "unresolved": [],
+    }
+
+
 def test_seed_generation_removes_alternate_upload_of_same_song(monkeypatch) -> None:
+    calls: list[str] = []
+
     async def fake_generate(prompt, count, options):
-        return {
-            "name": "Fuzz Riffs",
-            "description": "Heavy riffs and driving grooves.",
-            "prompt": prompt,
-            "requested_count": count,
-            "resolved_count": 5,
-            "tracks": [
-                {
-                    "video_id": "alternate-upload",
-                    "title": "Woman",
-                    "artists": "Wolfmother",
-                    "album": "Wolfmother",
-                    "duration": "2:57",
-                    "thumbnail_url": "",
-                    "url": "https://music.youtube.com/watch?v=alternate-upload",
-                    "description": "A compact blast of fuzz-heavy hard rock.",
-                    "reason": "It establishes the playlist's central riff-driven energy.",
-                },
-                {
-                    "video_id": "track-2",
-                    "title": "No One Knows",
-                    "artists": "Queens of the Stone Age",
-                },
-                {
-                    "video_id": "track-3",
-                    "title": "Figure It Out",
-                    "artists": "Royal Blood",
-                },
-                {
-                    "video_id": "track-4",
-                    "title": "Cochise",
-                    "artists": "Audioslave",
-                },
-                {
-                    "video_id": "track-5",
-                    "title": "Go With the Flow",
-                    "artists": "Queens of the Stone Age",
-                },
-            ],
-            "unresolved": [],
-        }
+        calls.append(prompt)
+        assert count == 4
+        if len(calls) == 1:
+            # The AI independently reproduces the seed (a different video_id, same
+            # identity) among its own suggestions -- this must trigger exactly one retry.
+            tracks = [
+                _seed_track_payload("alternate-upload", "Woman", "Wolfmother"),
+                _seed_track_payload("track-2", "No One Knows", "Queens of the Stone Age"),
+                _seed_track_payload("track-3", "Figure It Out", "Royal Blood"),
+                _seed_track_payload("track-4", "Cochise", "Audioslave"),
+            ]
+        else:
+            assert "Do not include" in prompt
+            tracks = [
+                _seed_track_payload("track-2", "No One Knows", "Queens of the Stone Age"),
+                _seed_track_payload("track-3", "Figure It Out", "Royal Blood"),
+                _seed_track_payload("track-4", "Cochise", "Audioslave"),
+                _seed_track_payload("track-5", "Go With the Flow", "Queens of the Stone Age"),
+            ]
+        return _seed_draft(prompt, count, tracks)
 
     monkeypatch.setattr(main_module, "_generate", fake_generate)
     client = TestClient(main_module.app)
-    response = client.post(
-        "/api/playlists/generate-from-seed",
-        json={
-            "seed": {
-                "video_id": "selected-seed",
-                "title": "Woman",
-                "artists": "Wolfmother",
-                "album": "Wolfmother",
-                "duration": "2:56",
-                "thumbnail_url": "",
-                "url": "https://music.youtube.com/watch?v=selected-seed",
-            },
-            "track_count": 5,
-            "options": {
-                "exclude_live": True,
-                "exclude_covers": True,
-                "exclude_remixes": True,
-            },
-        },
-    )
+    response = client.post("/api/playlists/generate-from-seed", json=_seed_request())
 
     assert response.status_code == 200
     tracks = response.json()["tracks"]
     identities = [track_identity_key(track["title"], track["artists"]) for track in tracks]
     seed_identity = track_identity_key("Woman", "Wolfmother")
 
+    assert len(calls) == 2
     assert tracks[0]["video_id"] == "selected-seed"
     assert identities.count(seed_identity) == 1
     assert len(identities) == len(set(identities))
+    assert len(tracks) == 5
+
+
+def test_seed_generation_keeps_every_track_when_seed_is_not_reproduced(monkeypatch) -> None:
+    calls: list[str] = []
+
+    async def fake_generate(prompt, count, options):
+        calls.append(prompt)
+        assert count == 4
+        tracks = [
+            _seed_track_payload("track-2", "No One Knows", "Queens of the Stone Age"),
+            _seed_track_payload("track-3", "Figure It Out", "Royal Blood"),
+            _seed_track_payload("track-4", "Cochise", "Audioslave"),
+            _seed_track_payload("track-5", "Go With the Flow", "Queens of the Stone Age"),
+        ]
+        return _seed_draft(prompt, count, tracks)
+
+    monkeypatch.setattr(main_module, "_generate", fake_generate)
+    client = TestClient(main_module.app)
+    response = client.post("/api/playlists/generate-from-seed", json=_seed_request())
+
+    assert response.status_code == 200
+    payload = response.json()
+    tracks = payload["tracks"]
+
+    assert len(calls) == 1
+    assert len(tracks) == 5
+    assert tracks[0]["video_id"] == "selected-seed"
+    assert {track["video_id"] for track in tracks[1:]} == {
+        "track-2",
+        "track-3",
+        "track-4",
+        "track-5",
+    }
+
+
+def test_seed_generation_fails_loudly_when_seed_keeps_being_reproduced(monkeypatch) -> None:
+    async def fake_generate(prompt, count, options):
+        tracks = [
+            _seed_track_payload("alternate-upload", "Woman", "Wolfmother"),
+            _seed_track_payload("track-2", "No One Knows", "Queens of the Stone Age"),
+            _seed_track_payload("track-3", "Figure It Out", "Royal Blood"),
+            _seed_track_payload("track-4", "Cochise", "Audioslave"),
+        ]
+        return _seed_draft(prompt, count, tracks)
+
+    monkeypatch.setattr(main_module, "_generate", fake_generate)
+    client = TestClient(main_module.app)
+    response = client.post("/api/playlists/generate-from-seed", json=_seed_request())
+
+    assert response.status_code == 400
