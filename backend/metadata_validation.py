@@ -18,7 +18,7 @@ import httpx
 
 from backend.musicbrainz_artist import lookup_artist_origin
 from backend.musicbrainz_client import rate_limited_get
-from backend.national_origin import infer_artist_country
+from backend.national_origin import infer_artist_country, normalize_country_to_iso
 from backend.text_normalization import normalize_identity as _normalize
 from backend.validation_fixes import effective_temporal_range
 from backend.version import USER_AGENT
@@ -264,7 +264,11 @@ def constraints_from_payload(
 
     country = base.artist_country
     if country is None and trusted("artist_country"):
-        country = str(payload.get("artist_country") or "").upper().strip() or None
+        # The interpretation schema has no format instruction for this field, so the
+        # LLM may write a free-text country name ("Italy") instead of the ISO code
+        # MusicBrainz returns ("IT") -- normalize deterministically rather than
+        # comparing the LLM's raw formatting later.
+        country = normalize_country_to_iso(str(payload.get("artist_country") or ""))
 
     allowed_artists = list(base.allowed_artists)
     if trusted("allowed_artists"):

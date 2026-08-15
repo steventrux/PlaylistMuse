@@ -78,3 +78,66 @@ def infer_artist_country(prompt: str) -> str | None:
         if pattern.search(text)
     )
     return next(iter(matches)) if len(matches) == 1 else None
+
+
+# Free-text country names an LLM might write for artist_country, keyed by their
+# ISO-3166-1 alpha-2 code. Covers the same six countries infer_artist_country()
+# supports, in English plus the languages already recognized above, so an LLM-guessed
+# value (e.g. "Italy", "ITALY", "Italia") normalizes to the same code MusicBrainz
+# returns ("IT") instead of being compared as a raw, never-matching string.
+_COUNTRY_NAME_TO_ISO: dict[str, str] = {
+    "italy": "IT",
+    "italia": "IT",
+    "italie": "IT",
+    "italien": "IT",
+    "france": "FR",
+    "francia": "FR",
+    "frankreich": "FR",
+    "germany": "DE",
+    "germania": "DE",
+    "allemagne": "DE",
+    "deutschland": "DE",
+    "alemania": "DE",
+    "spain": "ES",
+    "spagna": "ES",
+    "espagne": "ES",
+    "espana": "ES",
+    "españa": "ES",
+    "spanien": "ES",
+    "united kingdom": "GB",
+    "uk": "GB",
+    "britain": "GB",
+    "great britain": "GB",
+    "regno unito": "GB",
+    "royaume-uni": "GB",
+    "royaume uni": "GB",
+    "reino unido": "GB",
+    "vereinigtes konigreich": "GB",
+    "vereinigtes königreich": "GB",
+    "united states": "US",
+    "united states of america": "US",
+    "usa": "US",
+    "america": "US",
+    "stati uniti": "US",
+    "etats-unis": "US",
+    "états-unis": "US",
+    "estados unidos": "US",
+    "vereinigte staaten": "US",
+}
+
+
+def normalize_country_to_iso(value: str) -> str | None:
+    """Canonicalize a free-text country name to its ISO-3166-1 alpha-2 code.
+
+    For hard constraints, LLM output is never trusted as-is: this lets a
+    free-text country guess (e.g. from constraint interpretation, which has no
+    format instruction for this field) be compared against MusicBrainz's own
+    ISO-coded artist_country deterministically, instead of failing to match
+    forever because "ITALY" != "IT".
+    """
+    cleaned = " ".join(str(value or "").split())
+    if not cleaned:
+        return None
+    if len(cleaned) == 2 and cleaned.isalpha():
+        return cleaned.upper()
+    return _COUNTRY_NAME_TO_ISO.get(cleaned.casefold())
