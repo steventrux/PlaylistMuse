@@ -115,7 +115,6 @@ def test_musicbrainz_retries_primary_artist_after_canonical_credit_miss(monkeypa
     activate_constraints_from_prompt("songs released in 2026 only")
     calls: list[str] = []
 
-    monkeypatch.setattr(youtube, "_read_cache", lambda *args, **kwargs: None)
 
     async def fake_validate(candidate, constraints, client=None):
         artist = candidate["artist"]
@@ -172,7 +171,6 @@ def test_musicbrainz_retries_requested_title_after_featured_canonical_title(monk
     activate_constraints_from_prompt("songs from 2000 to 2026")
     calls: list[tuple[str, str]] = []
 
-    monkeypatch.setattr(youtube, "_read_cache", lambda *args, **kwargs: None)
 
     async def fake_validate(candidate, constraints, client=None):
         artist = candidate["artist"]
@@ -240,7 +238,6 @@ def test_musicbrainz_does_not_retry_verified_constraint_violation(monkeypatch) -
     activate_constraints_from_prompt("songs released in 2026 only")
     calls = 0
 
-    monkeypatch.setattr(youtube, "_read_cache", lambda *args, **kwargs: None)
 
     async def fake_validate(candidate, constraints, client=None):
         nonlocal calls

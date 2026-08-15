@@ -648,7 +648,9 @@ async def generate_playlist_draft(
                     draft,
                     creative_conflicts,
                 )
-                + hard_guidance,
+                + hard_guidance
+                + quota_guidance(generation_quotas)
+                + exact_quota_guidance(exact_artist_quotas),
                 optimized_count,
             )
             repaired, repaired_deficits = await repair_quota_deficits(repaired)

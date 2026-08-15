@@ -858,6 +858,21 @@ def _replenishment_prompt(
     )
 
 
+def _initial_draft_overshoot(count: int) -> int:
+    """Extra tracks to request in the very first draft, beyond the target `count`.
+
+    Every replenishment round after the first already over-requests based on assumed
+    catalogue-resolution yield (`_optimized_replenishment_request`), but the initial draft
+    asked for exactly `count` with no safety margin -- so any request that loses even a
+    few candidates to resolution failure fell straight into a full extra LLM +
+    catalogue-resolution round trip. The replenishment loop's own exit condition
+    (`missing = count - len(tracks)`) and the final `tracks[:count]` truncation already
+    handle an over-sized result for free, so this costs nothing beyond a marginally
+    longer prompt on the same single initial call.
+    """
+    return min(8, max(3, round(count * 0.15)))
+
+
 async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     config = load_config()
     seed_mode = _SEED_MODE.get()
@@ -872,7 +887,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     draft = await generate_playlist_draft(
         config,
         initial_prompt,
-        count,
+        count + _initial_draft_overshoot(count),
         is_seed_generation=bool(lastfm_anchors),
     )
     guidance_applied = bool(lastfm_candidates)

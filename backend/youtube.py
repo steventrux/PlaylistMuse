@@ -24,16 +24,15 @@ from backend.metadata_runtime import (
 from backend.metadata_validation import (
     USER_AGENT as METADATA_USER_AGENT,
     ValidationResult,
-    _read_cache,
     active_constraints,
     validate_candidate,
-    validate_metadata,
 )
 from backend.youtube_core import (
     DEFAULT_YOUTUBE_CACHE_TTL_SECONDS,
     DEFAULT_YOUTUBE_NEGATIVE_CACHE_TTL_SECONDS,
     LOGGER,
     MAX_METADATA_LOOKUP_ATTEMPTS,
+    METADATA_VALIDATION_BATCH_SIZE,
     MIN_ARTIST_SCORE,
     MIN_COMBINED_SCORE,
     MIN_TITLE_SCORE,
@@ -436,11 +435,14 @@ async def _metadata_filter(
 
         async def evaluate(candidate: dict[str, str]) -> ValidationResult:
             nonlocal remaining_lookups, network_attempts, temporary_failures
-            artist = str(candidate.get("artist", "")).strip()
-            title = str(candidate.get("title", "")).strip()
-            cached = _read_cache(artist, title)
-            if cached is not None:
-                return validate_metadata(cached, constraints)
+            # Deliberately no cache short-circuit here: validate_candidate() already
+            # caches internally (via lookup_track_metadata()), and it re-derives whether
+            # a historical probe or artist-origin enrichment is still needed for the
+            # constraints active in *this* request. A cache-key of artist+title alone
+            # (shared across all requests for up to 90 days) means a naive fast path here
+            # would "lock in" whatever fields the first-ever request happened to need,
+            # silently starving later requests that need e.g. artist_country of the
+            # enrichment they require.
             if remaining_lookups <= 0:
                 return _budget_exceeded_result(candidate)
             remaining_lookups -= 1
@@ -454,26 +456,9 @@ async def _metadata_filter(
                 temporary_failures += 1
             return result
 
-        for index, candidate in enumerate(unique_candidates):
-            if max_valid is not None and len(accepted) >= max_valid:
-                deferred = unique_candidates[index:]
-                rejected.extend(
-                    {
-                        **item,
-                        "unresolved_reason": "metadata_deferred_after_target",
-                    }
-                    for item in deferred
-                )
-                LOGGER.info(
-                    "catalogue_metadata outcome=stopped_early target=%s accepted=%s "
-                    "deferred=%s candidates=%s",
-                    max_valid,
-                    len(accepted),
-                    len(deferred),
-                    len(unique_candidates),
-                )
-                break
-
+        async def resolve_one(
+            candidate: dict[str, str],
+        ) -> tuple[dict[str, str] | None, dict[str, Any] | None]:
             canonical_artist = str(candidate.get("artist", "")).strip()
             canonical_title = str(candidate.get("title", "")).strip()
             result = await evaluate(candidate)
@@ -494,12 +479,50 @@ async def _metadata_filter(
             if result.status == "valid":
                 copy = dict(candidate)
                 copy["metadata_validation"] = asdict(result.metadata)  # type: ignore[assignment]
-                accepted.append(copy)
-            else:
-                rejection = _metadata_rejection(candidate, result)
-                if _temporarily_unavailable(result):
-                    rejection["unresolved_reason"] = "metadata_service_unavailable"
-                rejected.append(rejection)
+                return copy, None
+            rejection = _metadata_rejection(candidate, result)
+            if _temporarily_unavailable(result):
+                rejection["unresolved_reason"] = "metadata_service_unavailable"
+            return None, rejection
+
+        # Dispatched in small concurrent batches rather than one candidate at a time:
+        # MusicBrainz calls are paced through a single process-wide scheduler
+        # (musicbrainz_client.rate_limited_get), so sequential awaiting wastes each
+        # candidate's full response latency before the next candidate's slot is even
+        # requested. Batching (instead of one all-at-once gather()) preserves the
+        # early-stop-once-max_valid-is-reached check between batches, so it can't
+        # overshoot by more than one batch's worth of already-in-flight lookups.
+        index = 0
+        while index < len(unique_candidates):
+            if max_valid is not None and len(accepted) >= max_valid:
+                deferred = unique_candidates[index:]
+                rejected.extend(
+                    {
+                        **item,
+                        "unresolved_reason": "metadata_deferred_after_target",
+                    }
+                    for item in deferred
+                )
+                LOGGER.info(
+                    "catalogue_metadata outcome=stopped_early target=%s accepted=%s "
+                    "deferred=%s candidates=%s",
+                    max_valid,
+                    len(accepted),
+                    len(deferred),
+                    len(unique_candidates),
+                )
+                break
+
+            batch = unique_candidates[index : index + METADATA_VALIDATION_BATCH_SIZE]
+            index += len(batch)
+            batch_results = await asyncio.gather(
+                *(resolve_one(candidate) for candidate in batch)
+            )
+            for accepted_copy, rejection in batch_results:
+                if accepted_copy is not None:
+                    accepted.append(accepted_copy)
+                else:
+                    rejected.append(rejection)
 
     if network_attempts > 0 and temporary_failures == network_attempts:
         raise MetadataServiceUnavailableError(

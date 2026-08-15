@@ -81,7 +81,9 @@ def test_generate_replenishes_tracks_after_youtube_resolution(monkeypatch) -> No
 
     assert len(result["tracks"]) == 5
     assert result["resolved_count"] == 5
-    assert ai_calls[0] == 5
+    # The initial draft requests a small overshoot beyond the target count so a
+    # meaningful fraction of borderline requests can skip replenishment round 1 entirely.
+    assert ai_calls[0] == 5 + main_module._initial_draft_overshoot(5)
     assert len(ai_calls) == 2
 
 
