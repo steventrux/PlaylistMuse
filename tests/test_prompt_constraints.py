@@ -4,6 +4,7 @@ from backend.main import (
     _constraint_priority_prompt,
     _replenishment_prompt,
     _seed_evidence_guidance,
+    _seed_lastfm_evidence_params,
     _seed_mode_instruction,
 )
 
@@ -60,9 +61,20 @@ def test_seed_modes_have_distinct_similarity_rules():
     exploratory = _seed_mode_instruction("exploratory")
 
     assert "primary mandatory criterion" in strict
-    assert "Most tracks should be close matches" in balanced
-    assert "allow a wider sequence" in exploratory
+    assert "close matches supported by Last.fm" in balanced
+    assert "real journey" in exploratory
     assert len({strict, balanced, exploratory}) == 3
+
+
+def test_seed_lastfm_evidence_params_vary_by_mode():
+    strict_limit, strict_broaden = _seed_lastfm_evidence_params("strict", 20)
+    balanced_limit, balanced_broaden = _seed_lastfm_evidence_params("balanced", 20)
+    exploratory_limit, exploratory_broaden = _seed_lastfm_evidence_params("exploratory", 20)
+
+    assert strict_broaden is False
+    assert balanced_broaden is False
+    assert exploratory_broaden is True
+    assert strict_limit < balanced_limit == exploratory_limit
 
 
 def test_seed_request_defaults_to_balanced_and_accepts_all_modes():

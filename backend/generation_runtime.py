@@ -63,10 +63,10 @@ async def generate_playlist_draft(
     config: Any,
     prompt: str,
     count: int,
-    seed_anchor: dict[str, str] | None = None,
+    is_seed_generation: bool = False,
 ) -> dict[str, Any]:
     """Generate with the proven baseline path; advanced Recco orchestration is disabled."""
-    return await _core.generate_playlist_draft(config, prompt, count, seed_anchor)
+    return await _core.generate_playlist_draft(config, prompt, count, is_seed_generation)
 
 
 def _select_resolved_tracks(

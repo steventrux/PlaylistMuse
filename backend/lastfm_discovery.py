@@ -241,11 +241,18 @@ async def discover_for_seed(
     title: str,
     *,
     limit: int = 40,
+    broaden: bool = False,
     api_key: str | None = None,
     client: httpx.AsyncClient | None = None,
     now: Callable[[], float] = time.monotonic,
 ) -> list[dict[str, str]]:
-    """Return track evidence, falling back to related-artist signals for the AI."""
+    """Return track evidence, falling back to related-artist signals for the AI.
+
+    When `broaden` is True, related-artist signals are blended in alongside the direct
+    track-level matches (not just used as a fallback when there are none) -- this widens
+    the evidence pool for exploratory seed generation, which needs genuine breadth beyond
+    the seed's closest sonic neighbours to have material to draw from.
+    """
     seed_artist = " ".join(str(artist).split())
     seed_title = " ".join(str(title).split())
     key = (api_key if api_key is not None else lastfm_api_key()).strip()
@@ -258,6 +265,7 @@ async def discover_for_seed(
         seed_artist.casefold(),
         seed_title.casefold(),
         normalized_limit,
+        broaden,
     )
     current_time = now()
     cached = _CACHE.get(cache_key)
@@ -280,7 +288,7 @@ async def discover_for_seed(
         )
         track_call_failed = not similar_payload
         direct = _parse_similar_tracks(similar_payload, seed_artist, seed_title)
-        if direct:
+        if direct and not broaden:
             result = _attach_anchor(direct[:normalized_limit], seed_artist, seed_title)
             if not track_call_failed:
                 _store_cache(cache_key, result, current_time)
@@ -295,6 +303,20 @@ async def discover_for_seed(
         )
         artist_call_failed = not artist_payload
         related_artists = _parse_similar_artists(artist_payload, seed_artist)
+
+        if direct and broaden:
+            # Keep the direct track-level matches first (still the strongest evidence),
+            # then top up with related-artist signals for real breadth.
+            combined = _deduplicate(
+                [*direct, *related_artists],
+                excluded={_key(seed_artist, seed_title)},
+                limit=normalized_limit,
+            )
+            result = _attach_anchor(combined, seed_artist, seed_title)
+            if not (track_call_failed or artist_call_failed):
+                _store_cache(cache_key, result, current_time)
+            return result
+
         result = _attach_anchor(
             related_artists[:normalized_limit],
             seed_artist,

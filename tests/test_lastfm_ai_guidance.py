@@ -106,7 +106,7 @@ def test_seed_context_uses_supplied_lastfm_signals(monkeypatch) -> None:
 
     _isolate_generation_dependencies(monkeypatch)
 
-    async def fake_generate(config, prompt, count, seed_anchor=None):
+    async def fake_generate(config, prompt, count, is_seed_generation=False):
         nonlocal calls
         calls += 1
         assert "Last.fm collaborative-listening evidence" in prompt

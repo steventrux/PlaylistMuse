@@ -113,24 +113,25 @@ def test_initial_guidance_fast_path_adds_negligible_overhead(monkeypatch) -> Non
     assert elapsed < 0.3
 
 
-def test_initial_guidance_skips_anchor_interpretation_when_seed_anchor_supplied(
+def test_initial_guidance_is_skipped_entirely_for_seed_based_generation(
     monkeypatch,
 ) -> None:
-    """Seed-based generation already knows the real anchor -- never guess it via an LLM call."""
+    """Seed requests get real grounding from Last.fm; ReccoBeats' single-seed
+    recommendation output was found to be genre-incoherent noise in a live comparative
+    check (French-house and mainstream-pop seeds alike), so it isn't worth the latency."""
 
     async def fail_if_called(config, prompt):
-        raise AssertionError("anchor interpretation should not run when seed_anchor is given")
+        raise AssertionError("anchor interpretation should not run for seed-based generation")
 
-    async def fake_recommendations(anchors, *, limit, max_anchors):
-        assert anchors == [{"artist": "Queen", "title": "Bohemian Rhapsody", "kind": "seed"}]
-        return [{"artist": "Aerosmith", "title": "Dream On", "source": "reccobeats"}]
+    async def fail_if_called_recommendations(anchors, *, limit, max_anchors):
+        raise AssertionError("ReccoBeats recommendation lookup should not run for seed-based generation")
 
     monkeypatch.setattr(
         "backend.reccobeats_anchors.interpret_reccobeats_anchors", fail_if_called
     )
     monkeypatch.setattr(
         "backend.reccobeats_features.recommendation_candidates_from_tracks",
-        fake_recommendations,
+        fail_if_called_recommendations,
     )
 
     guidance = asyncio.run(
@@ -141,7 +142,7 @@ def test_initial_guidance_skips_anchor_interpretation_when_seed_anchor_supplied(
             {"artist": "Queen", "title": "Bohemian Rhapsody", "kind": "seed"},
         )
     )
-    assert "Dream On" in guidance
+    assert guidance == ""
 
 
 def test_initial_guidance_anchor_interpretation_has_a_hard_timeout(monkeypatch) -> None:
