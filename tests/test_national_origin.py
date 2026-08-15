@@ -9,7 +9,7 @@ from backend.metadata_validation import (
     extract_metadata_constraints,
     validate_metadata,
 )
-from backend.national_origin import infer_artist_country
+from backend.national_origin import infer_artist_country, normalize_country_to_iso
 from backend.reccobeats_selector import deterministic_reccobeats_draft
 from backend.youtube import _metadata_filter
 
@@ -75,6 +75,56 @@ def test_local_explicit_country_cannot_be_overridden_by_ai_payload():
     assert constraints.artist_country == "IT"
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("IT", "IT"),
+        ("it", "IT"),
+        ("Italy", "IT"),
+        ("ITALY", "IT"),
+        ("Italia", "IT"),
+        ("united kingdom", "GB"),
+        ("USA", "US"),
+        ("Narnia", None),
+        ("", None),
+    ],
+)
+def test_normalize_country_to_iso(raw, expected):
+    assert normalize_country_to_iso(raw) == expected
+
+
+def test_ai_payload_country_name_is_normalized_to_iso_before_comparison():
+    """Regression test for a real bug (fixed 2026-08-16): "Italian pop hits" doesn't
+    match infer_artist_country()'s deterministic patterns ("hits" isn't a recognized
+    repertoire noun), so the constraint falls through to the AI's own free-text guess.
+    The interpretation schema has no format instruction for artist_country, so the AI
+    wrote "ITALY" -- which, uppercased but never normalized, could never equal
+    MusicBrainz's ISO-coded "IT" and silently rejected every correctly-Italian track."""
+    fallback = extract_metadata_constraints("Italian pop hits released between 2018 and 2022")
+    assert fallback.artist_country is None  # confirms the deterministic path indeed misses this
+
+    constraints = constraints_from_payload(
+        {
+            "artist_country": "ITALY",
+            "field_confidence": {"artist_country": 1.0},
+        },
+        fallback=fallback,
+    )
+
+    assert constraints.artist_country == "IT"
+
+    metadata = TrackMetadata(
+        artist="Tananai",
+        title="Sesso Occasionale",
+        artist_country="IT",
+        original_release_year=2021,
+        match_score=1.0,
+        confidence="high",
+    )
+    result = validate_metadata(metadata, constraints)
+    assert result.status == "valid"
+
+
 def test_recco_fallback_from_real_national_prompt_rejects_foreign_artist(monkeypatch):
     constraints = activate_constraints_from_prompt(
         "Crea una playlist di musica italiana dal 2000 al 2026 con brani popolari per un party."
@@ -114,7 +164,6 @@ def test_recco_fallback_from_real_national_prompt_rejects_foreign_artist(monkeyp
         )
         return validate_metadata(metadata, active)
 
-    monkeypatch.setattr("backend.youtube._read_cache", lambda *args, **kwargs: None)
     monkeypatch.setattr("backend.youtube.validate_candidate", fake_validate)
 
     accepted, rejected = asyncio.run(_metadata_filter(draft["tracks"]))
