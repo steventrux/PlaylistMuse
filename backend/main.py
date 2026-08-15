@@ -139,23 +139,55 @@ def _seed_mode_instruction(mode: str) -> str:
         return (
             "STRICT seed mode: musical similarity to the seed is the primary mandatory "
             "criterion. Prefer exact Last.fm similar-track evidence. Keep style, timbre, "
-            "energy, mood and era close to the seed. Do not add contrast tracks, broad "
-            "genre neighbours or famous songs merely to create a journey. Variety and "
-            "flow must never weaken similarity."
+            "energy, mood and era close to the seed, and stay within the seed's own "
+            "subgenre and scene throughout -- do not drift into adjacent subgenres even "
+            "if they share some Last.fm overlap. Do not add contrast tracks, broad genre "
+            "neighbours or famous songs merely to create a journey. Variety and flow must "
+            "never weaken similarity. If in doubt about a candidate, leave it out."
         )
     if mode == "exploratory":
         return (
-            "EXPLORATORY seed mode: begin close to the seed, then allow a wider sequence "
-            "through defensible musical links. Every track must still connect through at "
-            "least one concrete characteristic such as sound, rhythm, mood, instrumentation, "
-            "scene or artist affinity. Avoid arbitrary contrast or unrelated hits."
+            "EXPLORATORY seed mode: this must read as a real journey, not a repeat of the "
+            "seed's exact subgenre track after track. Start close to the seed, then "
+            "deliberately range further as the playlist progresses: pull in adjacent "
+            "subgenres, different eras, and artists the seed influenced or was influenced "
+            "by -- not just its closest sonic neighbours. Do not favor remixes or reworks "
+            "as a way to add variety; the request's own exclude/include filters already "
+            "govern recording versions -- use different songs and artists to create range, "
+            "not different versions of the same recording. Roughly half the tracks or more "
+            "should come from outside the seed's immediate subgenre. Every track must still "
+            "connect through at least one concrete, statable characteristic (sound, rhythm, "
+            "mood, instrumentation, scene or artist affinity) -- explain that link, don't "
+            "just assert similarity. Avoid arbitrary contrast or songs with no defensible "
+            "connection to the seed."
         )
     return (
-        "BALANCED seed mode: keep the seed clearly central. Most tracks should be close "
-        "matches supported by Last.fm or strong musical affinity, with a limited number "
-        "of compatible variations. Flow may organise the result but may not override "
-        "similarity to the seed."
+        "BALANCED seed mode: keep the seed clearly central. Roughly two-thirds to three-"
+        "quarters of tracks should be close matches supported by Last.fm or strong musical "
+        "affinity; deliberately include a handful (roughly one-quarter to one-third) of "
+        "compatible variations -- an adjacent subgenre, a different era, or a related "
+        "artist -- rather than staying entirely within the seed's exact sound. Flow may "
+        "organise the result but may not override similarity to the seed."
     )
+
+
+def _seed_lastfm_evidence_params(mode: str, track_count: int) -> tuple[int, bool]:
+    """Return (limit, broaden) for the seed's Last.fm evidence fetch, tuned per mode.
+
+    Prompt wording alone wasn't enough to make the three seed modes feel meaningfully
+    different (verified live, 2026-08-15): all three were fed the identical evidence pool,
+    so the model had little reason to diversify even when instructed to. Strict now
+    requests a tighter pool (Last.fm already returns matches ranked by score, so a smaller
+    limit keeps only the closest ones); exploratory requests `broaden=True`, blending in
+    related-artist signals for genuine breadth. This costs one extra Last.fm HTTP call for
+    exploratory only (~0.7s, measured) -- balanced/strict are unaffected.
+    """
+    default_limit = min(MAX_LASTFM_CONTEXT_TRACKS, max(20, track_count * 2))
+    if mode == "strict":
+        return min(MAX_LASTFM_CONTEXT_TRACKS, max(10, track_count)), False
+    if mode == "exploratory":
+        return default_limit, True
+    return default_limit, False
 
 
 class SettingsResponse(BaseModel):
@@ -841,7 +873,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
         config,
         initial_prompt,
         count,
-        lastfm_anchors[0] if lastfm_anchors else None,
+        is_seed_generation=bool(lastfm_anchors),
     )
     guidance_applied = bool(lastfm_candidates)
 
@@ -1146,12 +1178,18 @@ async def _generate_from_seed_playlist(request: SeedGenerateRequest) -> dict:
         f"Create a playlist from the seed song '{seed.title}' by {seed.artists}. "
         f"{_seed_mode_instruction(request.seed_mode)} The seed must remain the primary "
         "reference for every selection. Do not let editorial sequencing or a narrative "
-        "journey override the selected similarity mode."
+        "journey override the selected similarity mode. Do not include "
+        f"'{seed.title}' by {seed.artists} itself among your suggestions -- it is "
+        "already the playlist's first track; suggest only other songs related to it."
+    )
+    lastfm_limit, lastfm_broaden = _seed_lastfm_evidence_params(
+        request.seed_mode, request.track_count
     )
     lastfm_candidates = await similar_track_candidates(
         seed.artists,
         seed.title,
-        limit=min(MAX_LASTFM_CONTEXT_TRACKS, max(20, request.track_count * 2)),
+        limit=lastfm_limit,
+        broaden=lastfm_broaden,
     )
     seed_anchor = {
         "artist": seed.artists,

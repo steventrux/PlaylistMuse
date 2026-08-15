@@ -28,7 +28,7 @@ def test_generate_replenishes_tracks_after_youtube_resolution(monkeypatch) -> No
     ai_calls: list[int] = []
     resolve_calls = 0
 
-    async def fake_generate(config, prompt, count, seed_anchor=None):
+    async def fake_generate(config, prompt, count, is_seed_generation=False):
         ai_calls.append(count)
         start = 1 if len(ai_calls) == 1 else 6
         return {
@@ -86,7 +86,7 @@ def test_generate_replenishes_tracks_after_youtube_resolution(monkeypatch) -> No
 
 
 def test_generate_appends_a_discreet_signature_to_the_description(monkeypatch) -> None:
-    async def fake_generate(config, prompt, count, seed_anchor=None):
+    async def fake_generate(config, prompt, count, is_seed_generation=False):
         return {
             "title": "Test Playlist",
             "description": "A short, punchy description.",

@@ -456,7 +456,7 @@ async def _initial_reccobeats_guidance(
     config: Any,
     stage: str,
     prompt: str,
-    seed_anchor: dict[str, str] | None = None,
+    is_seed_generation: bool = False,
 ) -> str:
     """Ground the very first draft in real ReccoBeats catalogue songs before any tracks exist.
 
@@ -473,28 +473,29 @@ async def _initial_reccobeats_guidance(
     a hard requirement, and must not be allowed to multiply the worst-case latency of the
     already-unbounded constraint-interpretation call that runs alongside it.
 
-    When `seed_anchor` is supplied (seed-based generation), the real anchor track is
-    already known with certainty, so the LLM anchor-interpretation round-trip is skipped
-    entirely in favor of a direct, deterministic ReccoBeats recommendation lookup.
+    For seed-based generation (`is_seed_generation=True`) this step is skipped entirely:
+    seed requests already get real, evidence-backed grounding from Last.fm (see
+    `_seed_evidence_guidance` in main.py), and a live comparative check (2026-08-15, two
+    unrelated seeds -- a niche French-house track and a mainstream global pop hit) found
+    ReccoBeats' single-seed `/track/recommendation` output to be genre-incoherent noise in
+    both cases, contributing effectively zero usable tracks to the final playlist while
+    costing a real ~7s of latency. Given generation speed is a standing priority, that
+    latency isn't worth spending on a step with no observed benefit for seed mode.
     """
-    if stage != "llm_initial":
+    if stage != "llm_initial" or is_seed_generation:
         return ""
 
     reccobeats_candidates: list[dict[str, str]] = []
     try:
+        from backend.reccobeats_anchors import interpret_reccobeats_anchors
         from backend.reccobeats_features import (
             recommendation_candidates_from_tracks,
         )
 
-        if seed_anchor is not None:
-            anchors = [seed_anchor]
-        else:
-            from backend.reccobeats_anchors import interpret_reccobeats_anchors
-
-            anchors = await asyncio.wait_for(
-                interpret_reccobeats_anchors(config, prompt),
-                timeout=INITIAL_ANCHOR_TIMEOUT_SECONDS,
-            )
+        anchors = await asyncio.wait_for(
+            interpret_reccobeats_anchors(config, prompt),
+            timeout=INITIAL_ANCHOR_TIMEOUT_SECONDS,
+        )
         if anchors:
             reccobeats_candidates = await recommendation_candidates_from_tracks(
                 anchors,
@@ -522,7 +523,7 @@ async def generate_playlist_draft(
     config: Any,
     prompt: str,
     count: int,
-    seed_anchor: dict[str, str] | None = None,
+    is_seed_generation: bool = False,
 ) -> dict[str, Any]:
     """Generate and validate one draft without mutating imported modules."""
     from backend.artist_quota_detection import (
@@ -596,7 +597,7 @@ async def generate_playlist_draft(
         reccobeats_guidance = await _replenishment_reccobeats_guidance(
             stage, optimized_count
         ) or await _initial_reccobeats_guidance(
-            config, stage, source_prompt, seed_anchor
+            config, stage, source_prompt, is_seed_generation
         )
         submitted_prompt += reccobeats_guidance
 
@@ -772,6 +773,7 @@ async def discover_for_seed(
     title: str,
     *,
     limit: int = 40,
+    broaden: bool = False,
     api_key: str | None = None,
     client: Any | None = None,
 ) -> list[dict[str, str]]:
@@ -786,6 +788,7 @@ async def discover_for_seed(
             artist,
             title,
             limit=limit,
+            broaden=broaden,
             api_key=api_key,
             client=client,
         )

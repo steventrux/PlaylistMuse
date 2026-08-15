@@ -166,6 +166,75 @@ def test_seed_discovery_does_not_cache_a_lastfm_error_response() -> None:
     assert calls == 4
 
 
+def test_seed_discovery_broaden_blends_related_artists_with_direct_matches() -> None:
+    discovery._clear_cache()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        method = request.url.params["method"]
+        if method == "track.getsimilar":
+            return httpx.Response(
+                200,
+                json={
+                    "similartracks": {
+                        "track": [
+                            {"name": "Dream On", "artist": {"name": "Aerosmith"}, "match": "0.9"},
+                        ]
+                    }
+                },
+            )
+        if method == "artist.getsimilar":
+            return httpx.Response(
+                200,
+                json={
+                    "similarartists": {
+                        "artist": [{"name": "Boston", "match": "0.6"}],
+                    }
+                },
+            )
+        raise AssertionError(f"Unexpected method: {method}")
+
+    async def run() -> list[dict[str, str]]:
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as client:
+            return await discovery.discover_for_seed(
+                "Queen", "Bohemian Rhapsody", limit=10, api_key="test-key",
+                client=client, broaden=True,
+            )
+
+    signals = asyncio.run(run())
+
+    assert {signal["artist"] for signal in signals} == {"Aerosmith", "Boston"}
+    assert any(signal["lastfm_strategy"] == "similar_track" for signal in signals)
+    assert any(signal["lastfm_strategy"] == "similar_artist" for signal in signals)
+
+
+def test_seed_discovery_without_broaden_skips_the_artist_call_when_tracks_found() -> None:
+    discovery._clear_cache()
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.params["method"])
+        return httpx.Response(
+            200,
+            json={
+                "similartracks": {
+                    "track": [{"name": "Dream On", "artist": {"name": "Aerosmith"}, "match": "0.9"}]
+                }
+            },
+        )
+
+    async def run() -> None:
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as client:
+            await discovery.discover_for_seed(
+                "Queen", "Bohemian Rhapsody", limit=10, api_key="test-key",
+                client=client, broaden=False,
+            )
+
+    asyncio.run(run())
+    assert calls == ["track.getsimilar"]
+
+
 def test_select_prompt_anchors_deduplicates_and_limits() -> None:
     tracks = [
         {"artist": "Artist A", "title": "Track A"},
