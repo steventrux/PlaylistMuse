@@ -3,7 +3,7 @@
 APP_VERSION = "0.2.2"
 REPOSITORY_URL = "https://github.com/steventrux/PlaylistMuse"
 USER_AGENT = f"PlaylistMuse/{APP_VERSION} (+{REPOSITORY_URL})"
-PLAYLIST_SIGNATURE = f"— Made with PlaylistMuse · {REPOSITORY_URL}"
+PLAYLIST_SIGNATURE = "Made with PlaylistMuse"
 
 
 def with_playlist_signature(description: str) -> str:

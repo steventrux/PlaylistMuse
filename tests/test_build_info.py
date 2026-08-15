@@ -32,7 +32,6 @@ def test_release_identity_is_centralized() -> None:
 def test_playlist_signature_is_appended_once() -> None:
     signed = with_playlist_signature("A joyful power-pop playlist.")
     assert signed == f"A joyful power-pop playlist.\n\n{PLAYLIST_SIGNATURE}"
-    assert REPOSITORY_URL in signed
 
     # Idempotent: an already-signed description (e.g. carried forward by a refinement
     # flow) must not accumulate a second copy of the signature.
@@ -42,6 +41,13 @@ def test_playlist_signature_is_appended_once() -> None:
 def test_playlist_signature_handles_an_empty_description() -> None:
     assert with_playlist_signature("") == PLAYLIST_SIGNATURE
     assert with_playlist_signature("   ") == PLAYLIST_SIGNATURE
+
+
+def test_resolved_commit_sha_is_the_untruncated_source_for_running_commit(monkeypatch) -> None:
+    monkeypatch.setenv("PLAYLISTMUSE_GIT_SHA", "472c481f65da13876694f846708e2177981a7a7e")
+
+    assert build_info._resolved_commit_sha() == "472c481f65da13876694f846708e2177981a7a7e"
+    assert build_info._running_commit() == "472c481"
 
 
 def test_build_info_defaults_to_dev_without_claiming_a_revision(monkeypatch) -> None:
