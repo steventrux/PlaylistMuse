@@ -13,6 +13,7 @@ from typing import Any
 logger = logging.getLogger("playlistmuse.performance")
 
 MAX_CREATIVE_REPAIR_ROUNDS = 1
+INITIAL_ANCHOR_TIMEOUT_SECONDS = 6.0
 
 _REPLENISHMENT_MISSING_RE = re.compile(
     r"still needs\s+(\d+)\s+resolvable songs", re.IGNORECASE
@@ -451,6 +452,59 @@ async def _replenishment_reccobeats_guidance(stage: str, optimized_count: int) -
     return guidance
 
 
+async def _initial_reccobeats_guidance(config: Any, stage: str, prompt: str) -> str:
+    """Ground the very first draft in real ReccoBeats catalogue songs before any tracks exist.
+
+    Unlike the replenishment round (which reuses tracks the LLM already picked), this
+    interprets the raw request into a handful of real anchor songs first, so even the
+    initial draft has some catalogue grounding. This is intentionally a single anchor
+    interpretation call plus a single recommendation discovery call — not the full
+    multi-stage, multi-batch orchestration that was reverted for being too slow (see
+    the "restore fast generation runtime baseline" history for `reccobeats_runtime.py`).
+
+    The anchor interpretation call has no built-in timeout of its own — it can try every
+    model in `config.model_chain` (primary plus up to 8 fallbacks) at up to 45s each, so
+    it is wrapped here in a short hard deadline. This is an optional grounding step, not
+    a hard requirement, and must not be allowed to multiply the worst-case latency of the
+    already-unbounded constraint-interpretation call that runs alongside it.
+    """
+    if stage != "llm_initial":
+        return ""
+
+    reccobeats_candidates: list[dict[str, str]] = []
+    try:
+        from backend.reccobeats_anchors import interpret_reccobeats_anchors
+        from backend.reccobeats_features import (
+            recommendation_candidates_from_tracks,
+        )
+
+        anchors = await asyncio.wait_for(
+            interpret_reccobeats_anchors(config, prompt),
+            timeout=INITIAL_ANCHOR_TIMEOUT_SECONDS,
+        )
+        if anchors:
+            reccobeats_candidates = await recommendation_candidates_from_tracks(
+                anchors,
+                limit=24,
+                max_anchors=3,
+            )
+    except Exception as error:  # noqa: BLE001 - optional discovery is fail-open.
+        logger.info(
+            "reccobeats_initial_anchors unavailable error=%s",
+            type(error).__name__,
+        )
+
+    from backend.reccobeats_guidance import reccobeats_guidance as build_guidance_text
+
+    guidance = build_guidance_text(reccobeats_candidates)
+    logger.info(
+        "reccobeats_initial candidates=%s applied=%s",
+        len(reccobeats_candidates),
+        bool(guidance),
+    )
+    return guidance
+
+
 async def generate_playlist_draft(
     config: Any,
     prompt: str,
@@ -527,7 +581,7 @@ async def generate_playlist_draft(
 
         reccobeats_guidance = await _replenishment_reccobeats_guidance(
             stage, optimized_count
-        )
+        ) or await _initial_reccobeats_guidance(config, stage, source_prompt)
         submitted_prompt += reccobeats_guidance
 
         async def repair_quota_deficits(

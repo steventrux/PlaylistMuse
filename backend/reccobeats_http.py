@@ -198,7 +198,9 @@ async def request_json(
             now=now(),
             ttl=_cache_ttl(path),
         )
-        return copy.deepcopy(payload)
+        # payload was just parsed fresh above and isn't shared with anything else yet
+        # (the cache holds its own deep copy), so it can be returned directly here.
+        return payload
 
 
 def clear_reccobeats_http_state() -> None:

@@ -413,6 +413,49 @@
     }
   }
 
+  // Reads a fetch() response streamed as newline-delimited SSE `data: {...}\n\n` frames
+  // (see backend/main.py::_stream_generation). Calls onStage(evt) for every `type:"stage"`
+  // event as it arrives, and resolves with the final `type:"result"` event's payload, or
+  // throws an Error (message including which stage it happened in) for `type:"error"`.
+  async function readGenerationStream(response, onStage) {
+    if (!response.ok) {
+      // Validation errors (e.g. bad request body) never reach the streaming code path on
+      // the backend, so the body here is a plain JSON error, not an event stream.
+      await readJson(response, {flattenValidationErrors: true});
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    const handleFrame = (frame) => {
+      const line = frame.split('\n').find((item) => item.startsWith('data: '));
+      if (!line) return null;
+      return JSON.parse(line.slice('data: '.length));
+    };
+
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (value) buffer += decoder.decode(value, {stream: true});
+      let boundary = buffer.indexOf('\n\n');
+      while (boundary !== -1) {
+        const frame = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const event = handleFrame(frame);
+        if (event?.type === 'stage') {
+          onStage(event);
+        } else if (event?.type === 'result') {
+          return event.playlist;
+        } else if (event?.type === 'error') {
+          const suffix = event.stage_message ? ` (${event.stage_message})` : '';
+          throw new Error(`${event.message}${suffix}`);
+        }
+        boundary = buffer.indexOf('\n\n');
+      }
+      if (done) break;
+    }
+    throw new Error('The generation stream ended unexpectedly.');
+  }
+
   async function generate() {
     const button = $('generate');
     if (button.disabled) return;
@@ -424,11 +467,11 @@
     if (state.mode === 'prompt') {
       const prompt = normalizedPrompt();
       if (!prompt) return message('Describe the playlist you want.', true);
-      endpoint = '/api/playlists/generate';
+      endpoint = '/api/playlists/generate/stream';
       request = {prompt, track_count: trackCount(), options: options()};
     } else {
       if (!state.selectedSeed) return message('Search for and select a seed track first.', true);
-      endpoint = '/api/playlists/generate-from-seed';
+      endpoint = '/api/playlists/generate-from-seed/stream';
       request = {
         seed: state.selectedSeed,
         seed_mode: state.seedMode,
@@ -443,16 +486,16 @@
       ariaLabel: 'Generating playlist',
     });
     setGenerationInputsLocked(true);
-    message('Generating and resolving tracks on YouTube Music…');
+    message('Interpreting your request and drafting the playlist…');
 
     try {
-      const data = await readJson(
+      const data = await readGenerationStream(
         await fetch(endpoint, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify(request),
         }),
-        {flattenValidationErrors: true},
+        (event) => message(event.message),
       );
       sessionStorage.setItem('playlistmuse-generated-playlist', JSON.stringify(data));
       sessionStorage.setItem('playlistmuse-generation-request', JSON.stringify({

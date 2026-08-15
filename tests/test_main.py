@@ -81,8 +81,73 @@ def test_prompt_analysis_scores_general_semantic_result(monkeypatch) -> None:
         "structures": 2,
         "relations": 2,
         "issues": [],
+        "performance_notes": [],
     }
     assert captured["prompt"] == "任意の言語で書かれたプレイリストのリクエスト"
+
+
+def _empty_semantics() -> dict:
+    return {
+        "dimensions": [],
+        "hard_constraints": 0,
+        "soft_constraints": 0,
+        "structures": [],
+        "relations": 0,
+        "ambiguities": [],
+        "conflicts": [],
+        "missing_information": [],
+        "imprecisions": [],
+        "possible_typos": [],
+    }
+
+
+def test_prompt_complexity_reflects_the_temporal_range_validation_cost(monkeypatch) -> None:
+    """A closed release-year range is known to double MusicBrainz calls per candidate."""
+
+    async def fake_analyze(config, prompt, *, track_count, options):
+        return _empty_semantics()
+
+    monkeypatch.setattr(main_module, "analyze_prompt_semantics", fake_analyze)
+    monkeypatch.setattr(main_module, "load_config", lambda: AppConfig())
+    client = TestClient(main_module.app)
+
+    baseline = client.post(
+        "/api/prompts/analyze",
+        json={"prompt": "Heavy guitars playlist", "track_count": 15},
+    ).json()
+    ranged = client.post(
+        "/api/prompts/analyze",
+        json={
+            "prompt": "Heavy guitars playlist between 1990 and 2005",
+            "track_count": 15,
+        },
+    ).json()
+
+    assert baseline["performance_notes"] == []
+    assert ranged["score"] > baseline["score"]
+    assert ranged["performance_notes"]
+    assert "second catalogue lookup" in ranged["performance_notes"][0]
+
+
+def test_prompt_complexity_reflects_the_artist_country_validation_cost(monkeypatch) -> None:
+    async def fake_analyze(config, prompt, *, track_count, options):
+        return _empty_semantics()
+
+    monkeypatch.setattr(main_module, "analyze_prompt_semantics", fake_analyze)
+    monkeypatch.setattr(main_module, "load_config", lambda: AppConfig())
+    client = TestClient(main_module.app)
+
+    baseline = client.post(
+        "/api/prompts/analyze",
+        json={"prompt": "Party playlist", "track_count": 15},
+    ).json()
+    with_country = client.post(
+        "/api/prompts/analyze",
+        json={"prompt": "Crea una playlist di musica italiana per una festa.", "track_count": 15},
+    ).json()
+
+    assert with_country["score"] > baseline["score"]
+    assert any("Artist-origin" in note for note in with_country["performance_notes"])
 
 
 def test_prompt_analysis_reports_general_conflicts_and_ambiguities(monkeypatch) -> None:

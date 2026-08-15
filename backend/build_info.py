@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter
 
@@ -25,6 +26,7 @@ class BuildInfo:
     channel: str
     commit: str
     display: str
+    dirty: bool = False
     repository_url: str = REPOSITORY_URL
 
 
@@ -68,6 +70,17 @@ def _running_commit() -> str:
     return commit[:7] if commit else ""
 
 
+def _running_build_is_dirty() -> bool:
+    """Whether the image was built from a checkout with uncommitted local changes.
+
+    This is a build-time snapshot (baked in via the PLAYLISTMUSE_GIT_DIRTY build arg,
+    computed on the host — see scripts/vps-smoke-test.sh), not something re-derived at
+    container startup: unlike the checkout revision, there's no lightweight way to detect
+    an uncommitted diff from just the mounted `.git/HEAD` and `.git/refs`.
+    """
+    return _clean(os.getenv("PLAYLISTMUSE_GIT_DIRTY")).lower() in {"1", "true", "yes"}
+
+
 def current_build_info() -> BuildInfo:
     """Return metadata for the exact build currently serving the application."""
     requested_channel = _clean(os.getenv("PLAYLISTMUSE_CHANNEL")).lower()
@@ -78,23 +91,26 @@ def current_build_info() -> BuildInfo:
     )
     channel = requested_channel if requested_channel in _VALID_CHANNELS else _infer_channel(version)
     short_commit = _running_commit()
+    dirty = _running_build_is_dirty()
 
     label = _version_label(version)
-    display = (
+    base_display = (
         f"{label} · {short_commit}"
         if channel == "dev" and short_commit
         else label
     )
+    display = f"{base_display} (local)" if dirty else base_display
 
     return BuildInfo(
         version=version,
         channel=channel,
         commit=short_commit,
         display=display,
+        dirty=dirty,
     )
 
 
 @router.get("/version")
-def get_version() -> dict[str, str]:
+def get_version() -> dict[str, Any]:
     """Return the version, release channel and source revision of this running build."""
     return asdict(current_build_info())

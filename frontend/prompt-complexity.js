@@ -99,8 +99,9 @@
     const popover = document.getElementById('prompt-complexity-popover');
     const score = document.getElementById('prompt-complexity-score');
     const summary = document.getElementById('prompt-complexity-summary');
+    const performance = document.getElementById('prompt-complexity-performance');
     const clarity = document.getElementById('prompt-clarity');
-    if (!prompt || !component || !trigger || !popover || !score || !summary || !clarity) return;
+    if (!prompt || !component || !trigger || !popover || !score || !summary || !performance || !clarity) return;
 
     const cache = new Map();
     let timer = null;
@@ -143,6 +144,13 @@
         `${result.structures} structural ${result.structures === 1 ? 'rule' : 'rules'}`,
       ].join(' · ');
       clarity.textContent = clarityText(result);
+      const performanceNotes = Array.isArray(result.performance_notes) ? result.performance_notes : [];
+      performance.replaceChildren(...performanceNotes.map((note) => {
+        const item = document.createElement('li');
+        item.textContent = String(note || '');
+        return item;
+      }));
+      performance.classList.toggle('hidden', performanceNotes.length === 0);
       renderFilterConflicts(filterConflicts(result));
       component.classList.remove('hidden');
     };

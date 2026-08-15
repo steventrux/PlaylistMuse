@@ -10,6 +10,7 @@ import httpx
 
 from backend.config import AppConfig
 from backend.constraint_interpreter import request_structured_json
+from backend.provider_rate_limits import ProviderRateLimitedError
 from backend.recording_variants import (
     policy_from_payload,
     recording_filter_conflicts,
@@ -246,6 +247,7 @@ async def analyze_prompt_semantics(
             return analysis
         except (
             TimeoutError,
+            ProviderRateLimitedError,
             httpx.HTTPError,
             TypeError,
             ValueError,

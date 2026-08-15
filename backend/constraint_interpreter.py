@@ -282,6 +282,31 @@ def _raise_for_structured_json(response: httpx.Response, provider: str, model: s
     response.raise_for_status()
 
 
+def _dated_system_prompt(base: str) -> str:
+    """Append the real current date, computed fresh per call (never baked into a constant).
+
+    Every structured AI call in the app goes through this one function, so this single
+    change gives every one of them an accurate "today" reference. Knowing the date alone
+    doesn't stop a model from calling the present year "the future" -- it genuinely lacks
+    verified data for anything past its own training cutoff, current year included, and
+    without guidance it reaches for "future" as the closest word for "I have no data on
+    this" (seen e.g. constraint interpretation flagging "2026" as an unverifiable future
+    year while the request was made in August 2026). The explicit ban on that phrasing
+    below is what actually fixes the user-facing wording; the date alone does not.
+    """
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    return (
+        f"{base}\n\nToday's date is {today} (UTC). Use it only to reason about what "
+        '"recent", "current", "this year" or "upcoming" mean in the request -- it is not '
+        "itself a request constraint. You do not have verified knowledge of events, "
+        "releases or chart data announced after your own training cutoff, even for years "
+        f"at or before {today}. When that lack of verified data limits what you can do, "
+        'describe it that way (e.g. "not verifiable from training data") -- never call '
+        f"{today.split('-')[0]} or any earlier year \"the future\" or \"an upcoming year\", "
+        "since it is not chronologically future relative to today's date above."
+    )
+
+
 async def request_structured_json(
     config: AppConfig,
     prompt: str,
@@ -291,6 +316,7 @@ async def request_structured_json(
     model: str | None = None,
 ) -> str:
     """Request one provider-neutral JSON object using the active AI configuration."""
+    system_prompt = _dated_system_prompt(system_prompt)
     selected_model = model or config.model_chain[0]
     if is_rate_limited(config.provider, selected_model):
         raise ProviderRateLimitedError(
@@ -391,7 +417,7 @@ async def request_structured_json(
 
 
 async def interpret_constraints(config: AppConfig, prompt: str) -> dict[str, Any] | None:
-    """Interpret multilingual constraints, returning None on any provider failure."""
+    """Interpret multilingual constraints, returning None only once every model fails."""
     if not config.configured:
         return None
     cached = _read_cache(config, prompt)
@@ -399,9 +425,20 @@ async def interpret_constraints(config: AppConfig, prompt: str) -> dict[str, Any
         unwrapped = _unwrap_cached_payload(cached)
         if unwrapped is not None:
             return unwrapped
-    try:
-        payload = _extract_json(await request_structured_json(config, prompt))
-    except (httpx.HTTPError, ValueError, TypeError, json.JSONDecodeError):
-        return None
-    _write_cache(config, prompt, payload)
-    return payload
+
+    for model in config.model_chain:
+        try:
+            payload = _extract_json(
+                await request_structured_json(config, prompt, model=model)
+            )
+        except (
+            ProviderRateLimitedError,
+            httpx.HTTPError,
+            ValueError,
+            TypeError,
+            json.JSONDecodeError,
+        ):
+            continue
+        _write_cache(config, prompt, payload)
+        return payload
+    return None

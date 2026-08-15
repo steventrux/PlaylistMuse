@@ -85,6 +85,8 @@ class TrackMetadata:
     recording_mbid: str | None = None
     artist_mbid: str | None = None
     release_group_mbid: str | None = None
+    release_group_primary_type: str | None = None
+    release_group_secondary_types: tuple[str, ...] = field(default_factory=tuple)
     isrcs: list[str] = field(default_factory=list)
     original_release_date: str | None = None
     original_release_year: int | None = None
@@ -406,6 +408,8 @@ def _read_cache(
         payload.setdefault("artist_mbid", None)
         payload.setdefault("matched_artist", None)
         payload.setdefault("release_titles", [])
+        payload.setdefault("release_group_primary_type", None)
+        payload.setdefault("release_group_secondary_types", [])
         return TrackMetadata(**payload)
 
 
@@ -435,6 +439,40 @@ def _write_cache(
                 time.time() + ttl,
             ),
         )
+
+
+_TITLE_EDITION_SUFFIX_TERMS = r"remaster(?:ed)?|radio\s+edit|\blive\b|\w+\s+version"
+_TITLE_EDITION_BRACKET_SUFFIX_RE = re.compile(
+    rf"\s*[\[(][^\])]*(?:{_TITLE_EDITION_SUFFIX_TERMS})[^\])]*[\])]\s*$",
+    re.I,
+)
+_TITLE_EDITION_DASH_SUFFIX_RE = re.compile(
+    rf"\s*[-–—]\s*(?:\d{{4}}\s+)?(?:{_TITLE_EDITION_SUFFIX_TERMS})\b.*$",
+    re.I,
+)
+
+
+def _strip_title_edition_suffix(title: str) -> str:
+    """Strip a trailing edition/version descriptor before building a MusicBrainz query.
+
+    A YouTube-resolved title like "Summer of 69 (Classic Version)" or "Song (2011
+    Remastered)" can make MusicBrainz's search match a specific reissue/rerelease
+    instead of the true original recording, giving the wrong release year for hard
+    constraint validation. This only cleans the *search query text* passed to
+    MusicBrainz -- the candidate's actual title (what ends up in the playlist) is
+    never touched, and the original title is still what gets returned in warnings/etc.
+
+    Deliberately separate from backend/playlist_ordering.py's own, similarly-named
+    suffix stripping: that one specifically tries both the exact and stripped title and
+    keeps whichever gives an earlier year, which this single best-effort clean would
+    interfere with if shared. This one is a single clean applied once, since
+    validate_candidate() already has its own historical-probe fallback for ambiguous
+    cases (see _historical_probe_cutoff).
+    """
+    cleaned = str(title).strip()
+    for pattern in (_TITLE_EDITION_BRACKET_SUFFIX_RE, _TITLE_EDITION_DASH_SUFFIX_RE):
+        cleaned = pattern.sub("", cleaned).strip(" -–—")
+    return cleaned or str(title).strip()
 
 
 def _artist_credit(recording: dict[str, Any]) -> str:
@@ -556,6 +594,12 @@ def _metadata_from_recording(
         recording_mbid=str(recording.get("id", "")).strip() or None,
         artist_mbid=str(artist_entity.get("id", "")).strip() or None,
         release_group_mbid=str(release_group.get("id", "")).strip() or None,
+        release_group_primary_type=str(release_group.get("primary-type") or "").strip() or None,
+        release_group_secondary_types=tuple(
+            str(item).strip()
+            for item in (release_group.get("secondary-types") or [])
+            if str(item).strip()
+        ),
         isrcs=[str(value) for value in recording.get("isrcs", []) if str(value).strip()],
         original_release_date=release_date,
         original_release_year=(
@@ -614,18 +658,56 @@ async def _rate_limited_get(
     )
 
 
+_ORIGINAL_RELEASE_TYPES = {"Album", "Single", "EP"}
+
+
+def _is_confidently_original_release(metadata: TrackMetadata) -> bool:
+    """Low-risk signal that the primary match is not a misleadingly-dated compilation.
+
+    A clean Album/Single/EP release-group (no Compilation/Live/Remix/Demo/Broadcast/...
+    secondary type) with a high title/artist match score is not absolute proof that no
+    still-earlier release of the same nominal type exists (e.g. an earlier single later
+    collected on an album, not surfaced by the primary bounded search) -- but it reliably
+    excludes the scenario the historical probe was originally added for: a compilation/
+    "best of"/live release whose date would otherwise misrepresent the true original
+    release year. Empirically (see the live A/B check that motivated this gate), MusicBrainz
+    frequently surfaces exactly a Live or Compilation release-group as the earliest-dated
+    match even for well-known, unambiguous studio tracks -- the secondary-types check is
+    what does most of the real protective work here, not the primary-type check.
+    """
+    return (
+        metadata.match_score >= HIGH_MATCH_SCORE
+        and metadata.release_group_primary_type in _ORIGINAL_RELEASE_TYPES
+        and not metadata.release_group_secondary_types
+    )
+
+
 def _historical_probe_cutoff(
     metadata: TrackMetadata,
     constraints: MetadataConstraints,
 ) -> int | None:
-    """Return the latest year needed to resolve an earlier first release."""
+    """Return the latest year needed to resolve an earlier first release.
+
+    Skipped when the primary metadata is already a confidently-original album release
+    exactly matching (or already inside) the requested year -- see
+    _is_confidently_original_release for the accepted trade-off. Compilations, live albums,
+    remixes and any lower-confidence or type-ambiguous match still always probe.
+    """
     year = metadata.original_release_year
     if constraints.release_year is not None:
+        if year == constraints.release_year and _is_confidently_original_release(metadata):
+            return None
         return constraints.release_year
     if (
         constraints.release_year_from is not None
         and constraints.release_year_to is not None
     ):
+        if (
+            year is not None
+            and constraints.release_year_from <= year <= constraints.release_year_to
+            and _is_confidently_original_release(metadata)
+        ):
+            return None
         return constraints.release_year_to
     if constraints.release_year_from is not None:
         if year is None or year >= constraints.release_year_from:
@@ -911,7 +993,7 @@ async def validate_candidate(
     cache_path: Path | None = None,
 ) -> ValidationResult:
     artist = str(candidate.get("artist", candidate.get("artists", ""))).strip()
-    title = str(candidate.get("title", "")).strip()
+    title = _strip_title_edition_suffix(str(candidate.get("title", "")).strip())
     metadata = await lookup_track_metadata(
         artist,
         title,

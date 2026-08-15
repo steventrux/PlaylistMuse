@@ -1,11 +1,17 @@
 import asyncio
 import json
+import time
 
 import pytest
 
 from backend import constraint_interpreter
 from backend.config import AppConfig
-from backend.constraint_interpreter import _extract_json, interpret_constraints
+from backend.constraint_interpreter import (
+    _dated_system_prompt,
+    _extract_json,
+    interpret_constraints,
+)
+from backend.provider_rate_limits import ProviderRateLimitedError
 
 
 def _config() -> AppConfig:
@@ -14,6 +20,16 @@ def _config() -> AppConfig:
         model="test-model",
         base_url="http://provider.test",
     )
+
+
+def test_dated_system_prompt_appends_todays_date_without_mutating_base():
+    base = "Base system prompt."
+
+    dated = _dated_system_prompt(base)
+
+    assert dated.startswith(base)
+    assert time.strftime("%Y-%m-%d", time.gmtime()) in dated
+    assert base == "Base system prompt."
 
 
 def test_extracts_constraint_json_from_provider_text():
@@ -96,3 +112,53 @@ def test_national_origin_and_lyrics_language_remain_independent(monkeypatch):
     assert interpreted is not None
     assert interpreted["artist_country"] == "IT"
     assert interpreted["lyrics_language"] is None
+
+
+def _config_with_fallback() -> AppConfig:
+    return AppConfig(
+        provider="custom",
+        model="primary-model",
+        fallback_1="fallback-model",
+        base_url="http://provider.test",
+    )
+
+
+def test_rate_limited_primary_model_falls_back_to_next_model(monkeypatch) -> None:
+    """A model cached as rate-limited must not stop constraint interpretation.
+
+    Regression test: ProviderRateLimitedError was introduced without every
+    request_structured_json caller catching it, so a rate-limited primary model
+    used to propagate uncaught instead of trying the next model in the chain.
+    """
+    payload = {"allowed_artists": ["Metallica"], "confidence": "high"}
+
+    async def fake_request(config, prompt, *, model=None, **kwargs):
+        if model == "primary-model":
+            raise ProviderRateLimitedError("custom/primary-model is cached as rate-limited")
+        assert model == "fallback-model"
+        return json.dumps(payload)
+
+    monkeypatch.setattr(constraint_interpreter, "request_structured_json", fake_request)
+    monkeypatch.setattr(constraint_interpreter, "_read_cache", lambda *args, **kwargs: None)
+    monkeypatch.setattr(constraint_interpreter, "_write_cache", lambda *args, **kwargs: None)
+
+    interpreted = asyncio.run(
+        interpret_constraints(_config_with_fallback(), "Playlist di musica heavy metal.")
+    )
+
+    assert interpreted == payload
+
+
+def test_all_models_rate_limited_degrades_to_none_without_raising(monkeypatch) -> None:
+    async def always_rate_limited(config, prompt, *, model=None, **kwargs):
+        raise ProviderRateLimitedError(f"custom/{model} is cached as rate-limited")
+
+    monkeypatch.setattr(constraint_interpreter, "request_structured_json", always_rate_limited)
+    monkeypatch.setattr(constraint_interpreter, "_read_cache", lambda *args, **kwargs: None)
+    monkeypatch.setattr(constraint_interpreter, "_write_cache", lambda *args, **kwargs: None)
+
+    interpreted = asyncio.run(
+        interpret_constraints(_config_with_fallback(), "Playlist di musica heavy metal.")
+    )
+
+    assert interpreted is None

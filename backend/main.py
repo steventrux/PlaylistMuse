@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import re
+from collections.abc import AsyncIterator, Callable
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
@@ -29,12 +32,13 @@ from backend.generation_runtime import (
     resolve_candidates,
 )
 from backend.llm import safe_error_message
+from backend.metadata_validation import extract_metadata_constraints
 from backend.playlist_ordering import (
     chronological_order_from_payload,
     order_tracks_by_release_date,
 )
 from backend.prompt_analysis import analyze_prompt_semantics
-from backend.version import APP_VERSION
+from backend.version import APP_VERSION, with_playlist_signature
 from backend.youtube import search_songs, track_identity_key
 from backend.youtube_routes import router as youtube_router
 
@@ -76,6 +80,31 @@ _SEED_MODE: ContextVar[str] = ContextVar(
     "playlistmuse_seed_mode",
     default="",
 )
+_GENERATION_PROGRESS: ContextVar[Callable[[str], None] | None] = ContextVar(
+    "playlistmuse_generation_progress",
+    default=None,
+)
+
+GENERATION_STAGE_MESSAGES = {
+    "llm_initial": "Interpreting your request and drafting the playlist…",
+    "llm_guided": "Refining the playlist around your reference track…",
+    "catalogue_resolution_initial": "Validating tracks and resolving them on YouTube Music…",
+    "llm_replenishment": "Refining the playlist to fill any gaps…",
+    "catalogue_resolution_replenishment": "Validating the new tracks on YouTube Music…",
+}
+
+
+def _emit_progress(stage: str) -> None:
+    """Notify an in-flight streaming request of a generation-stage transition, if any.
+
+    A plain no-op for every existing caller of _generate(): the callback is only ever set
+    by the streaming endpoints below, via a ContextVar (same pattern as _SEED_MODE etc.)
+    so _generate()'s signature never has to change.
+    """
+    callback = _GENERATION_PROGRESS.get()
+    if callback is not None:
+        callback(stage)
+
 
 app = FastAPI(
     title="PlaylistMuse",
@@ -245,7 +274,67 @@ def _clarity_level(score: int) -> str:
     return "Needs clarification"
 
 
-def _score_prompt_analysis(analysis: dict, track_count: int) -> dict:
+_TEMPORAL_RANGE_POINTS = 20
+_TEMPORAL_OPEN_POINTS = 8
+_ARTIST_COUNTRY_POINTS = 3
+
+
+def _performance_cost(prompt: str) -> tuple[int, list[str]]:
+    """Points reflecting known extra catalogue-validation cost, not just semantic difficulty.
+
+    Reuses extract_metadata_constraints -- the same local, regex-based, no-network heuristic
+    that generation already falls back to -- so this adds no extra AI/network call and no
+    extra latency to the live-typing complexity indicator. Only covers constraints with a
+    currently measured or well-understood extra cost:
+    - An exact release year, or a closed release-year range (from AND to), makes every
+      candidate pay for a second MusicBrainz lookup unconditionally (see
+      _historical_probe_cutoff in metadata_validation.py) -- directly measured at ~180s vs
+      ~3s for 25 candidates in one real generation (roughly 60% of total generation time in
+      that run). Weighted heavily relative to the semantic-complexity categories below, since
+      this single factor can outweigh all of them combined in real wall-clock terms.
+    - An open-ended release-year bound (only "from" or only "to") sometimes triggers the
+      same second lookup, but only when the primary result doesn't already satisfy it.
+    - An artist-country constraint adds one extra MusicBrainz artist lookup per new artist
+      (cached 90 days, so cheap after the first use, but real on a cold cache).
+
+    This is a heuristic on the raw prompt text, not the AI-verified constraint interpretation
+    used at generation time -- it can occasionally miss an unusually-phrased constraint, or
+    flag a phrase that turns out not to be one. It only affects the displayed complexity
+    estimate, never actual generation behavior.
+    """
+    constraints = extract_metadata_constraints(prompt)
+    points = 0
+    reasons: list[str] = []
+
+    if constraints.release_year is not None or (
+        constraints.release_year_from is not None
+        and constraints.release_year_to is not None
+    ):
+        points += _TEMPORAL_RANGE_POINTS
+        reasons.append(
+            "Release-year constraint: every candidate needs a second catalogue lookup "
+            "to confirm the true original release date."
+        )
+    elif (
+        constraints.release_year_from is not None
+        or constraints.release_year_to is not None
+    ):
+        points += _TEMPORAL_OPEN_POINTS
+        reasons.append(
+            "Release-year constraint: some candidates may need an extra catalogue lookup."
+        )
+
+    if constraints.artist_country is not None:
+        points += _ARTIST_COUNTRY_POINTS
+        reasons.append(
+            "Artist-origin constraint: new artists need an extra catalogue lookup "
+            "(cached after the first use)."
+        )
+
+    return points, reasons
+
+
+def _score_prompt_analysis(analysis: dict, track_count: int, prompt: str) -> dict:
     dimensions = list(dict.fromkeys(analysis["dimensions"]))
     structures = list(dict.fromkeys(analysis["structures"]))
     hard_constraints = int(analysis["hard_constraints"])
@@ -259,6 +348,7 @@ def _score_prompt_analysis(analysis: dict, track_count: int) -> dict:
         25, sum(_STRUCTURE_POINTS.get(item, 0) for item in structures)
     )
     relation_score = min(15, 3 * relations)
+    performance_points, performance_notes = _performance_cost(prompt)
     score = min(
         100,
         5
@@ -266,7 +356,8 @@ def _score_prompt_analysis(analysis: dict, track_count: int) -> dict:
         + constraint_score
         + structure_score
         + relation_score
-        + _quantity_points(track_count),
+        + _quantity_points(track_count)
+        + performance_points,
     )
 
     ambiguities = analysis["ambiguities"]
@@ -297,6 +388,7 @@ def _score_prompt_analysis(analysis: dict, track_count: int) -> dict:
         "structures": len(structures),
         "relations": relations,
         "issues": issues,
+        "performance_notes": performance_notes,
     }
 
 
@@ -750,6 +842,7 @@ def _replenishment_prompt(
 async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     config = load_config()
     seed_mode = _SEED_MODE.get()
+    _emit_progress("llm_initial")
     first_draft = await generate_playlist_draft(
         config,
         _constraint_priority_prompt(prompt),
@@ -769,6 +862,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
             seed_mode=seed_mode,
         )
         try:
+            _emit_progress("llm_guided")
             draft = await generate_playlist_draft(config, guided_prompt, count)
             guidance_applied = True
         except Exception:
@@ -779,6 +873,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
         lastfm_candidates,
     )
     exclusions = options.model_dump()
+    _emit_progress("catalogue_resolution_initial")
     tracks, unresolved = await resolve_candidates(draft_tracks, exclusions)
     _log_catalogue_diagnostics(
         "initial",
@@ -814,6 +909,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
             lastfm_candidates,
             seed_mode=seed_mode,
         )
+        _emit_progress("llm_replenishment")
         refill = await generate_playlist_draft(config, refill_prompt, pool_size)
         refill_tracks = _annotate_lastfm_sources(
             list(refill.get("tracks", [])),
@@ -835,6 +931,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
             continue
 
         playlist_before = len(tracks)
+        _emit_progress("catalogue_resolution_replenishment")
         newly_resolved, newly_unresolved = await resolve_candidates(
             fresh_candidates,
             exclusions,
@@ -910,7 +1007,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
 
     return {
         "name": draft["title"],
-        "description": draft["description"],
+        "description": with_playlist_signature(draft["description"]),
         "prompt": prompt,
         "requested_count": count,
         "resolved_count": count,
@@ -1007,7 +1104,7 @@ async def analyze_prompt(request: PromptAnalysisRequest) -> dict:
             track_count=request.track_count,
             options=request.options.model_dump(),
         )
-        return _score_prompt_analysis(semantics, request.track_count)
+        return _score_prompt_analysis(semantics, request.track_count, request.prompt)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
     except Exception as error:
@@ -1017,8 +1114,12 @@ async def analyze_prompt(request: PromptAnalysisRequest) -> dict:
         ) from error
 
 
-@app.post("/api/playlists/generate-from-seed")
-async def generate_from_seed(request: SeedGenerateRequest) -> dict:
+async def _generate_from_seed_playlist(request: SeedGenerateRequest) -> dict:
+    """Build a seed-anchored playlist. Raises ValueError/Exception like _generate() itself.
+
+    Extracted from the generate-from-seed endpoint (pure refactor, no behavior change) so
+    both the plain JSON endpoint and the streaming endpoint below can share it.
+    """
     seed = request.seed
     prompt = (
         f"Create a playlist from the seed song '{seed.title}' by {seed.artists}. "
@@ -1041,13 +1142,6 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
     mode_token = _SEED_MODE.set(request.seed_mode)
     try:
         result = await _generate(prompt, request.track_count, request.options)
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
-    except Exception as error:
-        raise HTTPException(
-            status_code=502,
-            detail="Playlist generation failed. Please try again.",
-        ) from error
     finally:
         _SEED_MODE.reset(mode_token)
         _SEED_ANCHORS.reset(anchor_token)
@@ -1090,6 +1184,104 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
     if isinstance(result.get("lastfm"), dict):
         _refresh_lastfm_selection(result["lastfm"], result["tracks"])
     return result
+
+
+@app.post("/api/playlists/generate-from-seed")
+async def generate_from_seed(request: SeedGenerateRequest) -> dict:
+    try:
+        return await _generate_from_seed_playlist(request)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=502,
+            detail="Playlist generation failed. Please try again.",
+        ) from error
+
+
+def _sse_event(payload: dict[str, Any]) -> bytes:
+    return f"data: {json.dumps(payload)}\n\n".encode()
+
+
+async def _stream_generation(
+    work: Callable[[], Any],
+) -> AsyncIterator[bytes]:
+    """Run `work()` in the background, streaming SSE progress events as it advances.
+
+    `work` is a zero-argument callable returning the generation coroutine (either
+    `_generate(...)` or `_generate_from_seed_playlist(...)`). The progress callback is set
+    on `_GENERATION_PROGRESS` here, before the background task is created, so the task's
+    copy of the context (asyncio.Task snapshots the current context at creation time) sees
+    it -- _generate() itself never needs a callback parameter.
+    """
+    queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
+    last_stage: dict[str, str | None] = {"key": None, "message": None}
+
+    def on_progress(stage: str) -> None:
+        message = GENERATION_STAGE_MESSAGES.get(stage)
+        if message:
+            last_stage["key"] = stage
+            last_stage["message"] = message
+            queue.put_nowait(("stage", {"stage": stage, "message": message}))
+
+    async def run() -> None:
+        try:
+            result = await work()
+            await queue.put(("result", {"playlist": result}))
+        except ValueError as error:
+            await queue.put((
+                "error",
+                {
+                    "stage": last_stage["key"],
+                    "stage_message": last_stage["message"],
+                    "message": safe_error_message(error),
+                },
+            ))
+        except Exception:  # noqa: BLE001 - translated into one safe SSE error event.
+            await queue.put((
+                "error",
+                {
+                    "stage": last_stage["key"],
+                    "stage_message": last_stage["message"],
+                    "message": "Playlist generation failed. Please try again.",
+                },
+            ))
+
+    token = _GENERATION_PROGRESS.set(on_progress)
+    task = asyncio.ensure_future(run())
+    try:
+        while True:
+            kind, payload = await queue.get()
+            yield _sse_event({"type": kind, **payload})
+            if kind in ("result", "error"):
+                break
+    finally:
+        _GENERATION_PROGRESS.reset(token)
+        if not task.done():
+            task.cancel()
+
+
+_SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+
+
+@app.post("/api/playlists/generate/stream")
+async def generate_playlist_stream(request: GenerateRequest) -> StreamingResponse:
+    return StreamingResponse(
+        _stream_generation(
+            lambda: _generate(request.prompt, request.track_count, request.options)
+        ),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
+
+
+@app.post("/api/playlists/generate-from-seed/stream")
+async def generate_from_seed_stream(request: SeedGenerateRequest) -> StreamingResponse:
+    return StreamingResponse(
+        _stream_generation(lambda: _generate_from_seed_playlist(request)),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
 
 
 @app.post("/api/playlists/replace-track")
