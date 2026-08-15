@@ -3,6 +3,7 @@ import json
 
 from backend.config import AppConfig
 from backend.prompt_analysis import analyze_prompt_semantics, parse_analysis
+from backend.provider_rate_limits import ProviderRateLimitedError
 
 
 def test_prompt_analysis_accepts_language_independent_semantic_categories() -> None:
@@ -107,3 +108,54 @@ def test_prompt_analysis_adds_structured_filter_conflict(monkeypatch) -> None:
         conflict.startswith("FILTER_CONFLICT::exclude_live::")
         for conflict in result["conflicts"]
     )
+
+
+def test_rate_limited_model_falls_back_to_next_model_instead_of_aborting(monkeypatch) -> None:
+    """A cached rate-limit on one model must not abort the whole fallback loop.
+
+    Regression test: ProviderRateLimitedError used to propagate uncaught out of the
+    model_order loop, so a rate-limited primary model failed the whole request instead
+    of trying the next configured model.
+    """
+
+    async def fake_request(config, prompt, *, system_prompt, max_tokens, model=None):
+        if model == "primary-model":
+            raise ProviderRateLimitedError("openai/primary-model is cached as rate-limited")
+        assert model == "fallback-model"
+        return json.dumps(
+            {
+                "dimensions": ["genre"],
+                "hard_constraints": 1,
+                "soft_constraints": 0,
+                "structures": [],
+                "relations": 0,
+                "ambiguities": [],
+                "conflicts": [],
+                "missing_information": [],
+                "imprecisions": [],
+                "possible_typos": [],
+                "required_recording_types": [],
+                "included_recording_types": [],
+                "excluded_recording_types": [],
+                "recording_type_confidence": 0.5,
+            }
+        )
+
+    monkeypatch.setattr("backend.prompt_analysis.request_structured_json", fake_request)
+    config = AppConfig(
+        provider="openai",
+        api_key="sk-test",
+        model="primary-model",
+        fallback_1="fallback-model",
+    )
+
+    result = asyncio.run(
+        analyze_prompt_semantics(
+            config,
+            "create a rock playlist",
+            track_count=20,
+            options={"exclude_live": False, "exclude_covers": False, "exclude_remixes": False},
+        )
+    )
+
+    assert result["dimensions"] == ["genre"]

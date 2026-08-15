@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 
 from backend.config import AppConfig
+from backend.constraint_interpreter import _dated_system_prompt
 from backend.provider_rate_limits import (
     ProviderRateLimitedError,
     cooldown_seconds_for_response,
@@ -364,6 +365,8 @@ async def _request_model(
     if is_rate_limited(config.provider, model):
         raise ProviderRateLimitedError(f"{config.provider}/{model} is cached as rate-limited")
 
+    dated_system_prompt = _dated_system_prompt(SYSTEM_PROMPT)
+
     if config.provider == "gemini":
         response = await client.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
@@ -372,7 +375,7 @@ async def _request_model(
                 "content-type": "application/json",
             },
             json={
-                "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+                "systemInstruction": {"parts": [{"text": dated_system_prompt}]},
                 "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
                 "generationConfig": {
                     "maxOutputTokens": min(65_536, max(8_192, count * 520)),
@@ -397,7 +400,7 @@ async def _request_model(
             json={
                 "model": model,
                 "max_tokens": min(32_000, max(8_192, count * 500)),
-                "system": SYSTEM_PROMPT,
+                "system": dated_system_prompt,
                 "messages": [{"role": "user", "content": user_prompt}],
             },
         )
@@ -416,7 +419,7 @@ async def _request_model(
                 "stream": False,
                 "format": "json",
                 "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": dated_system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
             },
@@ -443,7 +446,7 @@ async def _request_model(
                 "plugins": [{"id": "response-healing"}],
                 "provider": {"require_parameters": True},
                 "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": dated_system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
             },
@@ -462,7 +465,7 @@ async def _request_model(
             "model": model,
             "temperature": 0.7,
             "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": dated_system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
         },

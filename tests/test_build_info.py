@@ -8,7 +8,13 @@ import backend.build_info as build_info
 from backend.application import app
 from backend.build_info import current_build_info
 from backend.source_revision import git_revision
-from backend.version import APP_VERSION, REPOSITORY_URL, USER_AGENT
+from backend.version import (
+    APP_VERSION,
+    PLAYLIST_SIGNATURE,
+    REPOSITORY_URL,
+    USER_AGENT,
+    with_playlist_signature,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -23,10 +29,26 @@ def test_release_identity_is_centralized() -> None:
     assert USER_AGENT == f"PlaylistMuse/{APP_VERSION} (+{REPOSITORY_URL})"
 
 
+def test_playlist_signature_is_appended_once() -> None:
+    signed = with_playlist_signature("A joyful power-pop playlist.")
+    assert signed == f"A joyful power-pop playlist.\n\n{PLAYLIST_SIGNATURE}"
+    assert REPOSITORY_URL in signed
+
+    # Idempotent: an already-signed description (e.g. carried forward by a refinement
+    # flow) must not accumulate a second copy of the signature.
+    assert with_playlist_signature(signed) == signed
+
+
+def test_playlist_signature_handles_an_empty_description() -> None:
+    assert with_playlist_signature("") == PLAYLIST_SIGNATURE
+    assert with_playlist_signature("   ") == PLAYLIST_SIGNATURE
+
+
 def test_build_info_defaults_to_dev_without_claiming_a_revision(monkeypatch) -> None:
     monkeypatch.delenv("PLAYLISTMUSE_VERSION", raising=False)
     monkeypatch.delenv("PLAYLISTMUSE_CHANNEL", raising=False)
     monkeypatch.delenv("PLAYLISTMUSE_GIT_SHA", raising=False)
+    monkeypatch.delenv("PLAYLISTMUSE_GIT_DIRTY", raising=False)
     monkeypatch.setattr(build_info, "_STARTUP_SOURCE_COMMIT", "")
 
     info = current_build_info()
@@ -35,6 +57,7 @@ def test_build_info_defaults_to_dev_without_claiming_a_revision(monkeypatch) -> 
     assert info.channel == "dev"
     assert info.commit == ""
     assert info.display == "dev"
+    assert info.dirty is False
 
 
 def test_stable_channel_uses_application_version_when_not_overridden(monkeypatch) -> None:
@@ -84,6 +107,38 @@ def test_explicit_build_revision_takes_precedence(monkeypatch) -> None:
 
     assert info.commit == "abcdef1"
     assert info.display == "dev · abcdef1"
+
+
+def test_dirty_build_is_flagged_and_labeled_local(monkeypatch) -> None:
+    monkeypatch.setenv("PLAYLISTMUSE_VERSION", "dev")
+    monkeypatch.setenv("PLAYLISTMUSE_CHANNEL", "dev")
+    monkeypatch.setenv("PLAYLISTMUSE_GIT_SHA", "local")
+    monkeypatch.setenv("PLAYLISTMUSE_GIT_DIRTY", "true")
+    monkeypatch.setattr(
+        build_info,
+        "_STARTUP_SOURCE_COMMIT",
+        "608c2a458283c69b2196eb9ecc0e3676f505ed98",
+    )
+
+    info = current_build_info()
+
+    assert info.dirty is True
+    assert info.commit == "608c2a4"
+    assert info.display == "dev · 608c2a4 (local)"
+
+
+def test_dirty_flag_accepts_common_truthy_spellings_only(monkeypatch) -> None:
+    monkeypatch.setenv("PLAYLISTMUSE_VERSION", "dev")
+    monkeypatch.setenv("PLAYLISTMUSE_CHANNEL", "dev")
+    monkeypatch.setattr(build_info, "_STARTUP_SOURCE_COMMIT", "")
+
+    for truthy in ("true", "TRUE", "1", "yes"):
+        monkeypatch.setenv("PLAYLISTMUSE_GIT_DIRTY", truthy)
+        assert current_build_info().dirty is True
+
+    for falsy in ("false", "0", "no", ""):
+        monkeypatch.setenv("PLAYLISTMUSE_GIT_DIRTY", falsy)
+        assert current_build_info().dirty is False
 
 
 def test_build_info_keeps_stable_and_beta_labels_version_only(monkeypatch) -> None:
@@ -146,6 +201,7 @@ def test_version_endpoint_reports_running_build_metadata(monkeypatch) -> None:
     monkeypatch.setenv("PLAYLISTMUSE_VERSION", "0.3.0-beta.2")
     monkeypatch.setenv("PLAYLISTMUSE_CHANNEL", "beta")
     monkeypatch.setenv("PLAYLISTMUSE_GIT_SHA", "abcdef1234567890")
+    monkeypatch.delenv("PLAYLISTMUSE_GIT_DIRTY", raising=False)
 
     response = TestClient(app).get("/api/version")
 
@@ -156,5 +212,19 @@ def test_version_endpoint_reports_running_build_metadata(monkeypatch) -> None:
         "channel": "beta",
         "commit": "abcdef1",
         "display": "v0.3.0-beta.2",
+        "dirty": False,
         "repository_url": REPOSITORY_URL,
     }
+
+
+def test_dockerfile_and_compose_wire_up_the_local_dirty_flag() -> None:
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert "ARG PLAYLISTMUSE_GIT_DIRTY=false" in dockerfile
+    assert "PLAYLISTMUSE_GIT_DIRTY=${PLAYLISTMUSE_GIT_DIRTY}" in dockerfile
+
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "PLAYLISTMUSE_GIT_DIRTY: ${PLAYLISTMUSE_GIT_DIRTY:-false}" in compose
+
+    smoke_test = (ROOT / "scripts" / "vps-smoke-test.sh").read_text(encoding="utf-8")
+    assert 'git status --porcelain -- backend frontend quality' in smoke_test
+    assert 'PLAYLISTMUSE_GIT_DIRTY="$GIT_DIRTY"' in smoke_test

@@ -11,7 +11,12 @@ from backend.youtube_title_normalization import base_title
 _TITLE_TOKEN_RE = re.compile(r"[a-z0-9]+")
 _LIVE_RE = re.compile(r"(?:\blive(?=\b|\d)|\b(?:concert|session)\b)")
 _REMIX_RE = re.compile(r"\b(remix|mix|edit|mashup)\b")
-_COVER_RE = re.compile(r"\b(cover|tribute|karaoke)\b")
+_COVER_RE = re.compile(
+    r"\b(cover|tribute|karaoke)\b"
+    r"|\bin\s+the\s+style\s+of\b"
+    r"|\b(?:as\s+)?made\s+famous\s+by\b"
+    r"|\boriginally\s+(?:performed|recorded)\s+by\b"
+)
 
 
 def title_score(candidate_title: str, result_title: str) -> float:

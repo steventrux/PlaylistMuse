@@ -13,6 +13,14 @@ if [[ -z "$BASE_URL" ]]; then
   BASE_URL="http://127.0.0.1:${HOST_PORT}"
 fi
 
+# The running image only ever reflects a git commit for /api/version display purposes,
+# not the actual local diff — flag it as a "(local)" build whenever the directories that
+# get COPY'd into the image (backend, frontend, quality) have uncommitted changes.
+GIT_DIRTY=false
+if git status --porcelain -- backend frontend quality 2>/dev/null | grep -q .; then
+  GIT_DIRTY=true
+fi
+
 HEALTH_URL="$BASE_URL/api/health"
 VERSION_URL="$BASE_URL/api/version"
 ROOT_URL="$BASE_URL/"
@@ -45,6 +53,7 @@ fetch() {
 compose() {
   PLAYLISTMUSE_CONTAINER_NAME="$CONTAINER" \
   PLAYLISTMUSE_HOST_PORT="$HOST_PORT" \
+  PLAYLISTMUSE_GIT_DIRTY="$GIT_DIRTY" \
     docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" "$@"
 }
 
@@ -77,7 +86,7 @@ fi
 echo "Cleaning previous isolated dev Compose resources..."
 compose down --remove-orphans >/dev/null 2>&1 || true
 
-echo "Building and starting PlaylistMuse dev on port ${HOST_PORT}..."
+echo "Building and starting PlaylistMuse dev on port ${HOST_PORT} (local changes: ${GIT_DIRTY})..."
 compose up -d --build --force-recreate
 
 echo "Waiting for application health..."

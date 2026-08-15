@@ -14,7 +14,11 @@ from typing import Any
 
 import httpx
 
-from backend.reccobeats_http import clear_reccobeats_http_state, request_json
+from backend.reccobeats_http import (
+    RECOMMENDATION_CACHE_TTL_SECONDS,
+    clear_reccobeats_http_state,
+    request_json,
+)
 from backend.text_normalization import normalize_identity
 from backend.version import USER_AGENT
 
@@ -22,10 +26,8 @@ DEFAULT_TIMEOUT_SECONDS = 4.0
 BATCH_TIMEOUT_SECONDS = 6.0
 RECOMMENDATION_TIMEOUT_SECONDS = 5.0
 CACHE_TTL_SECONDS = 6 * 60 * 60
-RECOMMENDATION_CACHE_TTL_SECONDS = 30 * 60
 MAX_CACHE_ENTRIES = 512
 MAX_RECOMMENDATION_CACHE_ENTRIES = 128
-MAX_CONCURRENT_REQUESTS = 5
 MAX_RECOMMENDATION_SEEDS = 3
 MAX_RECOMMENDATION_SIZE = 30
 SEARCH_SIZE = 20
@@ -42,6 +44,30 @@ _RECOMMENDATION_LOCKS: weakref.WeakKeyDictionary[
     asyncio.AbstractEventLoop,
     asyncio.Lock,
 ] = weakref.WeakKeyDictionary()
+_CLIENT_GUARD = threading.Lock()
+_SHARED_CLIENTS: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop,
+    httpx.AsyncClient,
+] = weakref.WeakKeyDictionary()
+
+
+def _shared_client() -> httpx.AsyncClient:
+    """Reuse one pooled client per event loop instead of opening a new connection per call.
+
+    The underlying ReccoBeats HTTP layer already serializes every request behind a single
+    global semaphore, so per-call client creation only added TCP/TLS handshake overhead on
+    top of that serialized pacing.
+    """
+    loop = asyncio.get_running_loop()
+    with _CLIENT_GUARD:
+        client = _SHARED_CLIENTS.get(loop)
+        if client is None or client.is_closed:
+            client = httpx.AsyncClient(
+                timeout=httpx.Timeout(DEFAULT_TIMEOUT_SECONDS),
+                headers={"Accept": "application/json", "User-Agent": USER_AGENT},
+            )
+            _SHARED_CLIENTS[loop] = client
+        return client
 
 
 @dataclass(frozen=True, slots=True)
@@ -322,11 +348,7 @@ async def recommendation_candidates_from_tracks(
     if cached and cached[0] > current_time:
         return [dict(candidate) for candidate in cached[1]]
 
-    owns_client = client is None
-    active_client = client or httpx.AsyncClient(
-        timeout=httpx.Timeout(DEFAULT_TIMEOUT_SECONDS),
-        headers={"Accept": "application/json", "User-Agent": USER_AGENT},
-    )
+    active_client = client or _shared_client()
 
     async def discover() -> list[dict[str, str]]:
         matched = await asyncio.gather(
@@ -393,9 +415,6 @@ async def recommendation_candidates_from_tracks(
             type(error).__name__,
         )
         return []
-    finally:
-        if owns_client:
-            await active_client.aclose()
 
 
 def _finite_number(value: Any) -> float | None:
@@ -460,11 +479,7 @@ async def audio_evidence_for_track(
     if cached and cached[0] > current_time:
         return cached[1]
 
-    owns_client = client is None
-    active_client = client or httpx.AsyncClient(
-        timeout=httpx.Timeout(DEFAULT_TIMEOUT_SECONDS),
-        headers={"Accept": "application/json", "User-Agent": USER_AGENT},
-    )
+    active_client = client or _shared_client()
     try:
         candidate = await _search_track(
             active_client,
@@ -502,19 +517,19 @@ async def audio_evidence_for_track(
             type(error).__name__,
         )
         return ReccoBeatsAudioEvidence()
-    finally:
-        if owns_client:
-            await active_client.aclose()
 
 
 async def audio_evidence_for_tracks(
     tracks: list[dict[str, Any]],
 ) -> list[ReccoBeatsAudioEvidence]:
-    """Fetch optional evidence with a hard batch budget; unfinished work is neutral."""
+    """Fetch optional evidence with a hard batch budget; unfinished work is neutral.
+
+    Tasks are fanned out per track, but the shared ReccoBeats HTTP layer already
+    serializes every actual network request behind one global semaphore — there is
+    no local concurrency limit to apply here on top of that.
+    """
     if not tracks:
         return []
-
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
     async def one(
         client: httpx.AsyncClient,
@@ -522,48 +537,44 @@ async def audio_evidence_for_tracks(
     ) -> ReccoBeatsAudioEvidence:
         artist = str(track.get("artist") or track.get("artists") or "").strip()
         title = str(track.get("title") or "").strip()
-        async with semaphore:
-            return await audio_evidence_for_track(
-                artist,
-                title,
-                client=client,
-            )
-
-    async with httpx.AsyncClient(
-        timeout=httpx.Timeout(DEFAULT_TIMEOUT_SECONDS),
-        headers={"Accept": "application/json", "User-Agent": USER_AGENT},
-    ) as client:
-        tasks = [asyncio.create_task(one(client, track)) for track in tracks]
-        done, pending = await asyncio.wait(
-            tasks,
-            timeout=BATCH_TIMEOUT_SECONDS,
+        return await audio_evidence_for_track(
+            artist,
+            title,
+            client=client,
         )
-        if pending:
-            LOGGER.info(
-                "ReccoBeats audio batch budget reached completed=%s total=%s timeout_seconds=%s",
-                len(done),
-                len(tasks),
-                BATCH_TIMEOUT_SECONDS,
-            )
-            for task in pending:
-                task.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
 
-        results: list[ReccoBeatsAudioEvidence] = []
-        for task in tasks:
-            if task.cancelled() or not task.done():
-                results.append(ReccoBeatsAudioEvidence())
-                continue
-            try:
-                result = task.result()
-            except Exception:  # noqa: BLE001 - third-party enrichment is intentionally fail-open.
-                result = ReccoBeatsAudioEvidence()
-            results.append(
-                result
-                if isinstance(result, ReccoBeatsAudioEvidence)
-                else ReccoBeatsAudioEvidence()
-            )
-        return results
+    client = _shared_client()
+    tasks = [asyncio.create_task(one(client, track)) for track in tracks]
+    done, pending = await asyncio.wait(
+        tasks,
+        timeout=BATCH_TIMEOUT_SECONDS,
+    )
+    if pending:
+        LOGGER.info(
+            "ReccoBeats audio batch budget reached completed=%s total=%s timeout_seconds=%s",
+            len(done),
+            len(tasks),
+            BATCH_TIMEOUT_SECONDS,
+        )
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+
+    results: list[ReccoBeatsAudioEvidence] = []
+    for task in tasks:
+        if task.cancelled() or not task.done():
+            results.append(ReccoBeatsAudioEvidence())
+            continue
+        try:
+            result = task.result()
+        except Exception:  # noqa: BLE001 - third-party enrichment is intentionally fail-open.
+            result = ReccoBeatsAudioEvidence()
+        results.append(
+            result
+            if isinstance(result, ReccoBeatsAudioEvidence)
+            else ReccoBeatsAudioEvidence()
+        )
+    return results
 
 
 def _clear_cache() -> None:
@@ -572,4 +583,6 @@ def _clear_cache() -> None:
     _RECOMMENDATION_CACHE.clear()
     with _RECOMMENDATION_LOCK_GUARD:
         _RECOMMENDATION_LOCKS.clear()
+    with _CLIENT_GUARD:
+        _SHARED_CLIENTS.clear()
     clear_reccobeats_http_state()

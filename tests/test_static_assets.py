@@ -38,7 +38,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     settings_overlay = '<script src="/static/settings-overlay.js?v=1"></script>'
     home_status = '<script src="/static/home-status.js?v=18"></script>'
     generation_state = '<script src="/static/generation-state.js?v=3"></script>'
-    app = '<script src="/static/app.js?v=19"></script>'
+    app = '<script src="/static/app.js?v=20"></script>'
 
     assert index.index(common) < index.index(
         '<script src="/static/ai-settings.js?v=12"></script>'
@@ -52,7 +52,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     assert generation_state in index
     assert index.index(generation_state) < index.index(app)
     assert index.index(common) < index.index(app)
-    assert '<script src="/static/prompt-complexity.js?v=8"></script>' in index
+    assert '<script src="/static/prompt-complexity.js?v=9"></script>' in index
     assert index.index(home_status) < index.index(app)
 
     playlist_home_status = (
@@ -90,8 +90,8 @@ def test_prompt_complexity_uses_compact_icon_popover() -> None:
     complexity_style = _style("prompt-complexity.css")
 
     assert '<link rel="stylesheet" href="/static/style.css?v=10">' in index
-    assert '<link rel="stylesheet" href="/static/prompt-complexity.css?v=3">' in index
-    assert '<script src="/static/prompt-complexity.js?v=8"></script>' in index
+    assert '<link rel="stylesheet" href="/static/prompt-complexity.css?v=4">' in index
+    assert '<script src="/static/prompt-complexity.js?v=9"></script>' in index
     assert 'id="prompt-complexity-trigger"' in index
     assert '<div class="prompt-label-row">' in index
     assert 'class="prompt-complexity-info-dot"' in index
@@ -297,7 +297,7 @@ def test_ai_settings_separate_active_and_selected_provider_states() -> None:
     assert '/static/ai-settings.css?v=3' in index
     assert '/static/ai-settings.css?v=3' in settings
     assert '/static/ai-settings.css' not in playlist
-    assert '/static/app.js?v=19' in index
+    assert '/static/app.js?v=20' in index
     assert 'id="ai-active-status"' in index
     assert 'id="ai-active-status"' in settings
     assert "Choose or configure a provider" in index

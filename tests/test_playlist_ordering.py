@@ -340,3 +340,13 @@ def test_explicit_chronology_fails_only_after_fallback_is_exhausted(monkeypatch)
         asyncio.run(ordering.order_tracks_by_release_date(tracks, "oldest_first"))
 
     assert fallback_titles == ["Unknown"]
+
+
+def test_strip_version_suffix_recognizes_classic_and_extended_editions() -> None:
+    assert ordering._strip_version_suffix("Song (Classic Version)") == "Song"
+    assert ordering._strip_version_suffix("Song (Extended Version)") == "Song"
+    assert ordering._strip_version_suffix("Song (Anniversary Version)") == "Song"
+    assert ordering._strip_version_suffix("Song (Deluxe Version)") == "Song"
+    # Already-covered terms must keep working after widening the pattern.
+    assert ordering._strip_version_suffix("Song (Remastered)") == "Song"
+    assert ordering._strip_version_suffix("Take on Me") == "Take on Me"

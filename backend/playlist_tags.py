@@ -9,6 +9,7 @@ import httpx
 
 from backend.config import AppConfig
 from backend.constraint_interpreter import request_structured_json
+from backend.provider_rate_limits import ProviderRateLimitedError
 
 AI_TAG_LIMITS = {"genre": 3, "mood": 2, "period": 1}
 CUSTOM_TAG_LIMIT = 20
@@ -147,7 +148,13 @@ async def suggest_playlist_tags(
                 raise ValueError("The AI model returned an empty playlist classification.")
             tags["custom"] = normalize_playlist_tags(playlist.get("tags"))["custom"]
             return tags
-        except (httpx.HTTPError, TypeError, ValueError, json.JSONDecodeError) as error:
+        except (
+            ProviderRateLimitedError,
+            httpx.HTTPError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as error:
             errors.append(error)
 
     if errors:

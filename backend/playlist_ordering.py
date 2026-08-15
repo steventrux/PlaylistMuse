@@ -71,7 +71,8 @@ _LIVE_ALBUM_RE = re.compile(
 )
 _VERSION_TERMS = (
     r"remaster(?:ed)?|radio\s+edit|single\s+version|album\s+version|"
-    r"mono(?:\s+version)?|stereo(?:\s+version)?|acoustic\s+version|demo\s+version"
+    r"mono(?:\s+version)?|stereo(?:\s+version)?|acoustic\s+version|demo\s+version|"
+    r"classic\s+version|extended\s+version|anniversary\s+version|deluxe\s+version"
 )
 _VERSION_BRACKET_SUFFIX_RE = re.compile(
     rf"\s*[\[(][^\])]*(?:{_VERSION_TERMS})[^\])]*[\])]\s*$",

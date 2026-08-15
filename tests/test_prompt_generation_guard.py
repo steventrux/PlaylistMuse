@@ -25,15 +25,15 @@ def test_abbreviated_range_after_cutoff_is_impossible():
 
 def test_prompt_validation_guard_is_loaded_after_app_listener_registration():
     html = (FRONTEND / "index.html").read_text(encoding="utf-8")
-    app = '<script src="/static/app.js?v=19"></script>'
+    app = '<script src="/static/app.js?v=20"></script>'
     guard = '<script src="/static/prompt-validation-guard.js?v=3"></script>'
-    complexity = '<script src="/static/prompt-complexity.js?v=8"></script>'
+    complexity = '<script src="/static/prompt-complexity.js?v=9"></script>'
 
     assert app in html
     assert guard in html
     assert complexity in html
     assert "prompt-validation-guard.js?v=2" not in html
-    assert "prompt-complexity.js?v=7" not in html
+    assert "prompt-complexity.js?v=8" not in html
     assert html.index(app) < html.index(guard)
 
 
