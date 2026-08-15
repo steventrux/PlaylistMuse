@@ -26,7 +26,7 @@ def test_emit_progress_is_a_noop_without_a_registered_callback() -> None:
 
 
 def test_generate_stream_emits_stage_events_then_result(monkeypatch) -> None:
-    async def fake_generate(config, prompt, count):
+    async def fake_generate(config, prompt, count, seed_anchor=None):
         return {
             "title": "Test Playlist",
             "description": "A test playlist.",
@@ -92,7 +92,7 @@ def test_generate_stream_emits_stage_events_then_result(monkeypatch) -> None:
 def test_generate_stream_reports_error_with_last_stage(monkeypatch) -> None:
     call_count = {"n": 0}
 
-    async def fake_generate(config, prompt, count):
+    async def fake_generate(config, prompt, count, seed_anchor=None):
         call_count["n"] += 1
         n = call_count["n"]
         return {
@@ -144,18 +144,14 @@ def test_generate_from_seed_stream_keeps_seed_first(monkeypatch) -> None:
             "description": "Heavy riffs.",
             "prompt": prompt,
             "requested_count": count,
-            "resolved_count": 2,
+            "resolved_count": count,
             "tracks": [
                 {
-                    "video_id": "track-2",
-                    "title": "No One Knows",
+                    "video_id": f"track-{index}",
+                    "title": f"Track {index}",
                     "artists": "Queens of the Stone Age",
-                },
-                {
-                    "video_id": "selected-seed",
-                    "title": "Woman",
-                    "artists": "Wolfmother",
-                },
+                }
+                for index in range(count)
             ],
             "unresolved": [],
         }

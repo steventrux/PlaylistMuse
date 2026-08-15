@@ -106,12 +106,10 @@ def test_seed_context_uses_supplied_lastfm_signals(monkeypatch) -> None:
 
     _isolate_generation_dependencies(monkeypatch)
 
-    async def fake_generate(config, prompt, count):
+    async def fake_generate(config, prompt, count, seed_anchor=None):
         nonlocal calls
         calls += 1
-        if calls == 1:
-            return _draft([("First Artist", "First Track")])
-        assert "Last.fm seed evidence" in prompt
+        assert "Last.fm collaborative-listening evidence" in prompt
         return _draft([("Seed Related Artist", "Seed Related Track")])
 
     async def fake_resolve(candidates, exclusions):
@@ -142,7 +140,7 @@ def test_seed_context_uses_supplied_lastfm_signals(monkeypatch) -> None:
         main_module._SEED_ANCHORS.reset(anchor_token)
         main_module._SEED_RECOMMENDATIONS.reset(recommendation_token)
 
-    assert calls == 2
+    assert calls == 1
     assert result["lastfm"]["guidance_applied"] is True
     assert result["lastfm"]["selected"] == 1
     assert result["lastfm"]["represented_signals"] == 1
