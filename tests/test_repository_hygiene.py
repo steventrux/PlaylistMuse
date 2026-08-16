@@ -8,7 +8,16 @@ ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
 FRONTEND = ROOT / "frontend"
 STATIC_ASSET_RE = re.compile(r"/static/([A-Za-z0-9._/-]+)")
-HTML_ENTRY_POINTS = ("index.html", "playlist.html", "library.html", "settings.html")
+HTML_ENTRY_POINTS = (
+    "index.html",
+    "playlist.html",
+    "library.html",
+    "settings.html",
+    "statistics.html",
+    "statistics-nerd.html",
+    "statistics-detail.html",
+    "diagnostics.html",
+)
 REFERENCE_SOURCE_SUFFIXES = {".html", ".js", ".css"}
 RUNTIME_ASSET_SUFFIXES = {".js", ".css", ".png", ".svg"}
 BACKEND_ENTRYPOINTS = {"__init__", "application", "main"}

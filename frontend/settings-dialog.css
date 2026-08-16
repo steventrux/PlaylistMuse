@@ -147,8 +147,14 @@
   min-height: 42px;
 }
 
+.settings-dialog-card .settings-actions + .field-hint {
+  margin-top: 16px;
+}
+
 @media (max-width: 600px) {
-  .settings-dialog-card .settings-actions > button {
+  .settings-dialog-card .settings-actions > button,
+  .settings-dialog-card .settings-actions > a {
     flex: 1 1 100%;
+    text-align: center;
   }
 }

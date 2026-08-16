@@ -144,14 +144,14 @@
 
   function ensureStatusStyles() {
     ensureStylesheet('/static/layout.css', '/static/layout.css?v=5');
-    ensureStylesheet('/static/header-navigation.css', '/static/header-navigation.css?v=12');
-    ensureStylesheet('/static/settings-dialog.css', '/static/settings-dialog.css?v=6');
-    ensureStylesheet('/static/settings-overlay.css', '/static/settings-overlay.css?v=1');
+    ensureStylesheet('/static/header-navigation.css', '/static/header-navigation.css?v=13');
+    ensureStylesheet('/static/settings-dialog.css', '/static/settings-dialog.css?v=7');
   }
 
   function currentPage() {
     const path = window.location.pathname;
     if (path.endsWith('/library.html')) return 'library';
+    if (path.endsWith('/statistics.html')) return 'statistics';
     if (path === '/' || path.endsWith('/index.html') || path.endsWith('/playlist.html')) return 'create';
     return '';
   }
@@ -257,6 +257,16 @@
         <section class="sidebar-group" aria-labelledby="sidebar-integrations-label">
           <p id="sidebar-integrations-label" class="sidebar-group-label">Integrations</p>
           <div class="header-actions header-service-status" aria-label="Service configuration status"></div>
+        </section>
+        <section class="sidebar-group" aria-labelledby="sidebar-insights-label">
+          <p id="sidebar-insights-label" class="sidebar-group-label">Insights</p>
+          <a class="sidebar-link" data-page="statistics" href="/static/statistics.html">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M5 19h14" />
+              <path d="M8 19v-6M13 19V9M18 19v-9" />
+            </svg>
+            <span>Statistics</span>
+          </a>
         </section>
       </nav>
       <div class="sidebar-footer">
@@ -485,7 +495,7 @@
   }
 
   function openSettings(section) {
-    window.PlaylistMuseSettingsOverlay?.open(section);
+    window.PlaylistMuseCommon.openSettings(section);
   }
 
   function bindIndicatorActions() {

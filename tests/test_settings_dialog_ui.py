@@ -15,7 +15,7 @@ def test_settings_dialogs_share_the_same_visual_system() -> None:
     youtube_script = (FRONTEND / "youtube-account.js").read_text(encoding="utf-8")
     lastfm_script = (FRONTEND / "lastfm-settings.js").read_text(encoding="utf-8")
 
-    assert '@import url("/static/settings-dialog.css?v=6");' in ai_styles
+    assert '@import url("/static/settings-dialog.css?v=7");' in ai_styles
     assert ".settings-dialog-card .ai-active-summary" in shared_styles
     assert ".settings-dialog-card .youtube-account-summary" in shared_styles
     assert ".settings-dialog-card .settings-summary" in shared_styles
@@ -65,6 +65,6 @@ def test_settings_page_reuses_shared_button_components() -> None:
     settings_styles = (FRONTEND / "settings-page.css").read_text(encoding="utf-8")
 
     assert '<link rel="stylesheet" href="/static/controls.css?v=8">' in settings_html
-    assert 'id="settings-close" class="secondary settings-icon-btn"' in settings_html
+    assert 'id="settings-close"' not in settings_html
     assert "settings-close-button" not in settings_html
     assert ".settings-close-button" not in settings_styles

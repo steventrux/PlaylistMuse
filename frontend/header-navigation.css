@@ -175,7 +175,6 @@ body.sidebar-open .playlistmuse-sidebar {
 }
 
 .sidebar-link {
-  position: relative;
   display: grid;
   min-height: 46px;
   padding: 8px 12px;
@@ -208,17 +207,6 @@ body.sidebar-open .playlistmuse-sidebar {
   border-color: rgba(183, 156, 255, .35);
   background: linear-gradient(135deg, rgba(139, 92, 246, .2), rgba(91, 33, 182, .14));
   color: var(--text-primary);
-}
-
-.sidebar-link.active::before {
-  content: "";
-  position: absolute;
-  top: 6px;
-  bottom: 6px;
-  left: -1px;
-  width: 3px;
-  border-radius: 999px;
-  background: var(--brand-gradient);
 }
 
 .sidebar-link svg {

@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from collections.abc import AsyncIterator, Callable
 from contextvars import ContextVar
 from pathlib import Path
@@ -25,6 +26,8 @@ from backend.config import (
     save_config,
 )
 from backend.constraint_interpreter import interpret_constraints
+from backend.generation_counter import record_generation
+from backend.generation_errors import record_generation_error
 from backend.generation_runtime import (
     _LAST_INTERPRETED_CONSTRAINTS,
     discover_for_seed as similar_track_candidates,
@@ -37,7 +40,9 @@ from backend.playlist_ordering import (
     chronological_order_from_payload,
     order_tracks_by_release_date,
 )
+from backend.playlist_stats import compute_stats
 from backend.prompt_analysis import analyze_prompt_semantics
+from backend.telemetry import report_playlist_generated, telemetry_enabled
 from backend.version import APP_VERSION, with_playlist_signature
 from backend.youtube import search_songs, track_identity_key
 from backend.youtube_routes import router as youtube_router
@@ -1051,6 +1056,12 @@ async def health() -> dict[str, str]:
     return {"status": "healthy", "application": "PlaylistMuse"}
 
 
+@app.get("/api/stats")
+async def get_stats() -> dict:
+    """Local-only aggregate statistics -- nothing here is sent anywhere."""
+    return compute_stats()
+
+
 @app.get("/api/settings", response_model=SettingsResponse)
 async def get_settings() -> SettingsResponse:
     return _settings_response(load_config())
@@ -1106,13 +1117,40 @@ async def seed_search(
     return {"query": q, "results": songs}
 
 
+async def _generate_with_telemetry(work: Callable[[], Any]) -> dict:
+    """Time one top-level generation, record it, and tag the result with which
+    provider produced it.
+
+    Wraps `_generate()`/`_generate_from_seed_playlist()` at the route boundary (not
+    inside `_generate()` itself) because seed-mode generation can call `_generate()`
+    internally more than once per user-facing request (`_seed_other_tracks()` retries
+    once if the AI reproduces the seed track) -- hooking inside `_generate()` would
+    double-count those retries as separate playlists.
+    """
+    started = time.perf_counter()
+    result = await work()
+    elapsed_ms = round((time.perf_counter() - started) * 1000)
+    result["generation_meta"] = {
+        "provider": load_config().provider or "unknown",
+        "duration_ms": elapsed_ms,
+    }
+    record_generation()
+    if telemetry_enabled():
+        asyncio.create_task(report_playlist_generated())
+    return result
+
+
 @app.post("/api/playlists/generate")
 async def generate_playlist(request: GenerateRequest) -> dict:
     try:
-        return await _generate(request.prompt, request.track_count, request.options)
+        return await _generate_with_telemetry(
+            lambda: _generate(request.prompt, request.track_count, request.options)
+        )
     except ValueError as error:
+        record_generation_error(error)
         raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
     except Exception as error:
+        record_generation_error(error)
         raise HTTPException(
             status_code=502,
             detail="Playlist generation failed. Please try again.",
@@ -1248,10 +1286,14 @@ async def _generate_from_seed_playlist(request: SeedGenerateRequest) -> dict:
 @app.post("/api/playlists/generate-from-seed")
 async def generate_from_seed(request: SeedGenerateRequest) -> dict:
     try:
-        return await _generate_from_seed_playlist(request)
+        return await _generate_with_telemetry(
+            lambda: _generate_from_seed_playlist(request)
+        )
     except ValueError as error:
+        record_generation_error(error)
         raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
     except Exception as error:
+        record_generation_error(error)
         raise HTTPException(
             status_code=502,
             detail="Playlist generation failed. Please try again.",
@@ -1288,6 +1330,7 @@ async def _stream_generation(
             result = await work()
             await queue.put(("result", {"playlist": result}))
         except ValueError as error:
+            record_generation_error(error)
             await queue.put((
                 "error",
                 {
@@ -1296,7 +1339,8 @@ async def _stream_generation(
                     "message": safe_error_message(error),
                 },
             ))
-        except Exception:  # noqa: BLE001 - translated into one safe SSE error event.
+        except Exception as error:  # noqa: BLE001 - translated into one safe SSE error event.
+            record_generation_error(error)
             await queue.put((
                 "error",
                 {
@@ -1327,7 +1371,9 @@ _SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 async def generate_playlist_stream(request: GenerateRequest) -> StreamingResponse:
     return StreamingResponse(
         _stream_generation(
-            lambda: _generate(request.prompt, request.track_count, request.options)
+            lambda: _generate_with_telemetry(
+                lambda: _generate(request.prompt, request.track_count, request.options)
+            )
         ),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
@@ -1337,7 +1383,11 @@ async def generate_playlist_stream(request: GenerateRequest) -> StreamingRespons
 @app.post("/api/playlists/generate-from-seed/stream")
 async def generate_from_seed_stream(request: SeedGenerateRequest) -> StreamingResponse:
     return StreamingResponse(
-        _stream_generation(lambda: _generate_from_seed_playlist(request)),
+        _stream_generation(
+            lambda: _generate_with_telemetry(
+                lambda: _generate_from_seed_playlist(request)
+            )
+        ),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )

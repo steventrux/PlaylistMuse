@@ -97,7 +97,7 @@
   }
 
   function openYouTubeSettings() {
-    window.PlaylistMuseSettingsOverlay?.open('youtube');
+    window.PlaylistMuseCommon.openSettings('youtube');
   }
 
   function renderPublishedResult(result) {

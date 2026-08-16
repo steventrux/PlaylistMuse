@@ -1,38 +1,5 @@
-/* Dedicated, scalable settings workspace. */
-
-.settings-page-body {
-  min-height: 100vh;
-}
-
-.settings-page-header,
-.settings-page-main {
-  width: min(1040px, calc(100% - 40px));
-  margin-inline: auto;
-}
-
-.settings-page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 28px 0 20px;
-}
-
-.settings-brand {
-  display: inline-flex;
-  width: min(360px, 48vw);
-  text-decoration: none;
-}
-
-.settings-brand img {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-.settings-page-main {
-  padding-bottom: 48px;
-}
+/* Dedicated, scalable settings workspace -- lives inside the standard
+   .app-header + <main> shell shared with statistics.html/diagnostics.html. */
 
 .settings-page-shell {
   display: grid;
@@ -169,58 +136,11 @@
   margin-top: 0;
 }
 
-#settings-support-panel .settings-actions + .field-hint {
-  margin-top: 16px;
-}
-
 #settings-lastfm-host > .lastfm-settings-panel {
   padding: 0;
 }
 
-html.settings-embedded,
-html.settings-embedded body {
-  min-height: 100%;
-  background: transparent;
-}
-
-html.settings-embedded body::before {
-  display: none;
-}
-
-html.settings-embedded .settings-page-header {
-  display: none;
-}
-
-html.settings-embedded .settings-page-main {
-  width: 100%;
-  min-height: 100vh;
-  padding: 0;
-}
-
-html.settings-embedded .settings-page-shell {
-  min-height: 100vh;
-  border-radius: 22px;
-  box-shadow: none;
-}
-
-html.settings-embedded .settings-page-content-heading {
-  padding-right: 56px;
-}
-
 @media (max-width: 760px) {
-  .settings-page-header,
-  .settings-page-main {
-    width: min(100% - 24px, 680px);
-  }
-
-  .settings-page-header {
-    padding-top: 20px;
-  }
-
-  .settings-brand {
-    width: min(280px, calc(100vw - 90px));
-  }
-
   .settings-page-shell {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
@@ -275,44 +195,6 @@ html.settings-embedded .settings-page-content-heading {
 
   .settings-page-content-heading h2 {
     font-size: 1.5rem;
-  }
-
-  #settings-support-panel .settings-actions {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
-  }
-
-  #settings-support-panel .settings-actions > a {
-    width: 100%;
-    justify-content: center;
-    text-align: center;
-  }
-
-  html.settings-embedded,
-  html.settings-embedded body {
-    height: 100%;
-    min-height: 100%;
-  }
-
-  html.settings-embedded .settings-page-main {
-    width: 100%;
-    height: 100%;
-    min-height: 100%;
-  }
-
-  html.settings-embedded .settings-page-shell {
-    height: 100%;
-    min-height: 100%;
-    border-radius: 18px;
-  }
-
-  html.settings-embedded .settings-page-navigation {
-    padding-top: 58px;
-  }
-
-  html.settings-embedded .settings-page-content-heading {
-    padding-right: 0;
   }
 }
 
