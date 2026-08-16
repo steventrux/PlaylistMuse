@@ -271,6 +271,7 @@ body.sidebar-open .playlistmuse-sidebar {
 }
 
 .playlistmuse-sidebar .header-indicator:hover,
+.playlistmuse-sidebar .header-indicator.on:hover,
 .playlistmuse-sidebar .header-indicator:focus-visible {
   transform: translateX(1px);
   border-color: rgba(183, 156, 255, .36);
