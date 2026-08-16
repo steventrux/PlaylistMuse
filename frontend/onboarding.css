@@ -26,7 +26,7 @@
 }
 
 .setup-dialog-card .dialog-head {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .setup-dialog-card .dialog-head h2 {
@@ -42,9 +42,9 @@
 
 .setup-progress {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin: 0 0 18px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 16px;
   padding: 0;
   list-style: none;
 }
@@ -58,14 +58,16 @@
   padding: 10px 13px;
   border: 1px solid rgba(169, 155, 255, .2);
   border-radius: 13px;
-  background: #11162c;
+  background: rgba(169, 155, 255, .06);
   color: var(--text-muted);
   font-size: .86rem;
   font-weight: 750;
   overflow-wrap: anywhere;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
 }
 
 .setup-progress li span {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -73,25 +75,47 @@
   height: 25px;
   flex: 0 0 25px;
   border-radius: 50%;
-  background: #1b2140;
+  background: rgba(169, 155, 255, .14);
   color: inherit;
   font-size: .76rem;
   font-weight: 850;
+  transition: background 160ms ease, color 160ms ease;
 }
 
 .setup-progress li.active {
-  border-color: rgba(183, 156, 255, .58);
-  background: #281b4d;
-  color: #ddd6fe;
+  border-color: rgba(139, 92, 246, .5);
+  background: rgba(139, 92, 246, .14);
+  color: var(--text-primary);
+}
+
+.setup-progress li.active span {
+  background: var(--brand-gradient);
+  color: #fff;
 }
 
 .setup-progress li.complete {
   border-color: rgba(56, 189, 248, .42);
-  background: #0e3044;
+  background: rgba(56, 189, 248, .1);
   color: var(--cyan-light);
 }
 
+.setup-progress li.complete span {
+  color: transparent;
+  background: rgba(56, 189, 248, .22);
+}
+
+.setup-progress li.complete span::before {
+  content: "✓";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--cyan-light);
+  font-size: .8rem;
+}
+
 .setup-step.settings-block {
+  padding-top: 0;
   padding-bottom: 0;
   border-bottom: 0;
 }

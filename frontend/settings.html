@@ -6,11 +6,6 @@
   <meta name="theme-color" content="#070916">
   <link rel="icon" type="image/png" href="/static/playlistmuse-favicon.png?v=1">
   <title>Settings · PlaylistMuse</title>
-  <script>
-    if (new URLSearchParams(window.location.search).get('embedded') === '1') {
-      document.documentElement.classList.add('settings-embedded');
-    }
-  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
@@ -22,21 +17,19 @@
   <link rel="stylesheet" href="/static/youtube.css?v=3">
   <link rel="stylesheet" href="/static/youtube-settings.css?v=1">
   <link rel="stylesheet" href="/static/lastfm.css?v=1">
-  <link rel="stylesheet" href="/static/settings-page.css?v=4">
+  <link rel="stylesheet" href="/static/settings-page.css?v=5">
+  <link rel="stylesheet" href="/static/header-navigation.css?v=13">
 </head>
-<body class="settings-page-body">
-  <header class="settings-page-header">
-    <a class="settings-brand" href="/" aria-label="PlaylistMuse home">
-      <img src="/static/playlistmuse-banner.svg?v=1" alt="PlaylistMuse">
-    </a>
-    <button id="settings-close" class="secondary settings-icon-btn" type="button" aria-label="Close settings" title="Close settings">
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-        <path d="m6 6 12 12M18 6 6 18" />
-      </svg>
-    </button>
+<body>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">AI playlist studio</p>
+      <h1>PlaylistMuse</h1>
+    </div>
+    <a class="secondary library-header-link" href="/" aria-label="Home" title="Home">Create playlist</a>
   </header>
 
-  <main class="settings-page-main">
+  <main>
     <div class="settings-page-shell">
       <aside class="settings-page-navigation" aria-label="Settings sections">
         <div class="settings-page-title-block">
@@ -47,17 +40,26 @@
         <nav class="settings-section-navigation" aria-label="PlaylistMuse settings">
           <p class="settings-section-label">Integrations</p>
           <button class="settings-section-link" type="button" data-settings-section="ai">
+            <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+              <path d="M13.2 6.1a4.2 4.2 0 0 0-7.3 3 4.7 4.7 0 0 0-2.6 7.7 4.4 4.4 0 0 0 3.4 7.1 4.2 4.2 0 0 0 6.5 2.1" />
+              <path d="M18.8 6.1a4.2 4.2 0 0 1 7.3 3 4.7 4.7 0 0 1 2.6 7.7 4.4 4.4 0 0 1-3.4 7.1 4.2 4.2 0 0 1-6.5 2.1" />
+              <path d="M13.2 6.1c1.3.7 2 1.9 2 3.5v3.1M18.8 6.1c-1.3.7-2 1.9-2 3.5v3.1M9.1 11.1c1.7.2 2.8 1.1 3.2 2.7M22.9 11.1c-1.7.2-2.8 1.1-3.2 2.7M8 20.7c1.9-.5 3.4 0 4.5 1.5M24 20.7c-1.9-.5-3.4 0-4.5 1.5" />
+              <path fill="currentColor" stroke="none" d="m17.2 10-5 7.8h4.1l-1.4 5.4 5.1-7.7h-4.2l1.4-5.5Z" />
+            </svg>
             <span>AI</span>
           </button>
           <button class="settings-section-link" type="button" data-settings-section="youtube">
+            <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+              <rect fill="currentColor" stroke="none" x="3.5" y="8" width="25" height="16" rx="5.5" />
+              <path fill="#090c1d" stroke="none" d="m13.4 12.4 7.2 3.6-7.2 3.6v-7.2Z" />
+            </svg>
             <span>YouTube Music</span>
           </button>
           <button class="settings-section-link" type="button" data-settings-section="lastfm">
+            <svg viewBox="0 0 512 512" aria-hidden="true" focusable="false">
+              <path fill="currentColor" stroke="none" d="M225.8 367.1l-18.8-51s-30.5 34-76.2 34c-40.5 0-69.2-35.2-69.2-91.5 0-72.1 36.4-97.9 72.1-97.9 66.5 0 74.8 53.3 100.9 134.9 18.8 56.9 54 102.6 155.4 102.6 72.7 0 122-22.3 122-80.9 0-72.9-62.7-80.6-115-92.1-25.8-5.9-33.4-16.4-33.4-34 0-19.9 15.8-31.7 41.6-31.7 28.2 0 43.4 10.6 45.7 35.8l58.6-7c-4.7-52.8-41.1-74.5-100.9-74.5-52.8 0-104.4 19.9-104.4 83.9 0 39.9 19.4 65.1 68 76.8 44.9 10.6 79.8 13.8 79.8 45.7 0 21.7-21.1 30.5-61 30.5-59.2 0-83.9-31.1-97.9-73.9-32-96.8-43.6-163-161.3-163C45.7 113.8 0 168.3 0 261c0 89.1 45.7 137.2 127.9 137.2 66.2 0 97.9-31.1 97.9-31.1z" />
+            </svg>
             <span>Last.fm</span>
-          </button>
-          <p class="settings-section-label">Support</p>
-          <button class="settings-section-link" type="button" data-settings-section="support">
-            <span>Diagnostics</span>
           </button>
         </nav>
       </aside>
@@ -113,7 +115,7 @@
               </label>
 
               <label for="ai-model">Primary model
-                <input id="ai-model" value="gemini-3.6-flash" placeholder="Primary model identifier">
+                <input id="ai-model" value="" placeholder="Primary model identifier">
               </label>
 
               <div id="fallback-row" class="fallback-row" aria-label="Fallback models">
@@ -181,35 +183,15 @@
         </section>
 
         <div id="settings-lastfm-host" class="settings-page-panel hidden"></div>
-
-        <section id="settings-support-panel" class="settings-block setup-step settings-page-panel hidden">
-          <div class="settings-summary">
-            <h3>Bug reports and diagnostics</h3>
-            <p class="field-hint">
-              If PlaylistMuse behaves unexpectedly, download a diagnostic report and attach it to a GitHub bug report together with the steps needed to reproduce the problem.
-            </p>
-            <p id="support-build-info" class="settings-status">Checking running version…</p>
-          </div>
-
-          <div class="settings-actions">
-            <a id="download-diagnostics" class="secondary" href="/api/diagnostics/report">Download diagnostic report</a>
-            <a id="report-bug" class="primary" href="https://github.com/steventrux/PlaylistMuse/issues/new?template=bug_report.yml" target="_blank" rel="noopener noreferrer">Report a bug on GitHub</a>
-          </div>
-
-          <p class="field-hint">
-            The report contains build information, configuration state and recent application errors. Known credentials and common secret formats are redacted automatically. Review the archive before sharing it and never upload your <code>.env</code>, raw configuration files or OAuth token files.
-          </p>
-        </section>
       </section>
     </div>
   </main>
 
-  <script src="/static/common.js?v=1"></script>
-  <script src="/static/diagnostics-client.js?v=1"></script>
+  <script src="/static/common.js?v=7"></script>
   <script src="/static/ai-settings.js?v=12"></script>
   <script src="/static/youtube-account.js?v=5"></script>
   <script src="/static/lastfm-settings.js?v=2"></script>
-  <script src="/static/support.js?v=3"></script>
-  <script src="/static/settings-page.js?v=3"></script>
+  <script src="/static/settings-page.js?v=5"></script>
+  <script src="/static/home-status.js?v=26"></script>
 </body>
 </html>

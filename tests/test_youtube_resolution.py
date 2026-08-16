@@ -106,6 +106,48 @@ def test_resolver_rejects_tribute_cover_even_when_title_matches(monkeypatch) -> 
     assert track["artists"] == "Alice in Chains"
 
 
+def test_resolver_rejects_tribute_artist_named_after_the_style_it_imitates(
+    monkeypatch,
+) -> None:
+    """Regression test: a tribute act's channel name can literally contain the real
+    artist's name (e.g. "Done Again (In The Style of Bryan Adams)"), which used to score
+    a perfect artist match via token_set_ratio and slip past the cover/tribute filter
+    since it doesn't contain the words "cover", "tribute" or "karaoke"."""
+
+    class FakeClient:
+        def search(self, query, filter, limit):
+            return [
+                _result(
+                    video_id="tribute-act",
+                    title="Run To You",
+                    artist="Done Again (In The Style of Bryan Adams)",
+                    album="Run To You",
+                ),
+                _result(
+                    video_id="original",
+                    title="Run To You",
+                    artist="Bryan Adams",
+                    album="Reckless",
+                ),
+            ]
+
+    monkeypatch.setattr(youtube_module, "_thread_client", lambda: FakeClient())
+
+    track = youtube_module._resolve_one(
+        {
+            "artist": "Bryan Adams",
+            "title": "Run To You",
+            "description": "Description.",
+            "reason": "Reason.",
+        },
+        DEFAULT_EXCLUSIONS,
+    )
+
+    assert track is not None
+    assert track["video_id"] == "original"
+    assert track["artists"] == "Bryan Adams"
+
+
 def test_resolver_rejects_same_title_from_wrong_artist(monkeypatch) -> None:
     class FakeClient:
         def search(self, query, filter, limit):

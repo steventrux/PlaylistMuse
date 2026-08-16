@@ -1,0 +1,8 @@
+name = "playlistmuse-stats"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+# Created by `wrangler kv namespace create STATS_KV`; paste the printed `id` here.
+[[kv_namespaces]]
+binding = "STATS_KV"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"

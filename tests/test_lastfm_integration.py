@@ -30,8 +30,8 @@ def test_seed_lastfm_context_is_isolated_to_one_generation(monkeypatch) -> None:
         }
     ]
 
-    async def fake_lastfm(artist, track, limit=40):
-        seen["lastfm_request"] = (artist, track, limit)
+    async def fake_lastfm(artist, track, limit=40, broaden=False):
+        seen["lastfm_request"] = (artist, track, limit, broaden)
         return lastfm_candidates
 
     async def fake_generate(prompt, count, options):
@@ -73,7 +73,7 @@ def test_seed_lastfm_context_is_isolated_to_one_generation(monkeypatch) -> None:
     )
 
     assert response.status_code == 200
-    assert seen["lastfm_request"] == ("The Rolling Stones", "Gimme Shelter", 20)
+    assert seen["lastfm_request"] == ("The Rolling Stones", "Gimme Shelter", 20, False)
     assert seen["generation_context"] == lastfm_candidates
     assert seen["anchor_context"] == [
         {

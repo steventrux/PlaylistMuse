@@ -12,14 +12,14 @@
   <link rel="stylesheet" href="/static/style.css?v=10">
   <link rel="stylesheet" href="/static/layout.css?v=5">
   <link rel="stylesheet" href="/static/controls.css?v=8">
-  <link rel="stylesheet" href="/static/prompt-complexity.css?v=3">
+  <link rel="stylesheet" href="/static/prompt-complexity.css?v=4">
   <link rel="stylesheet" href="/static/prompt-surprise.css?v=3">
   <link rel="stylesheet" href="/static/generation.css?v=5">
   <link rel="stylesheet" href="/static/youtube.css?v=3">
   <link rel="stylesheet" href="/static/youtube-settings.css?v=1">
   <link rel="stylesheet" href="/static/onboarding.css?v=2">
   <link rel="stylesheet" href="/static/ai-settings.css?v=3">
-  <link rel="stylesheet" href="/static/header-navigation.css?v=7">
+  <link rel="stylesheet" href="/static/header-navigation.css?v=13">
 </head>
 <body>
   <header class="app-header">
@@ -69,6 +69,7 @@
               </div>
               <div class="prompt-complexity-meter" aria-hidden="true"><span></span></div>
               <p id="prompt-complexity-summary"></p>
+              <ul id="prompt-complexity-performance" class="prompt-complexity-performance hidden"></ul>
               <span id="prompt-clarity" class="prompt-clarity"></span>
             </div>
           </div>
@@ -163,16 +164,22 @@
           <p id="setup-eyebrow" class="eyebrow">Initial configuration</p>
           <h2 id="setup-title">Set up PlaylistMuse</h2>
         </div>
-        <button id="close-setup" type="button" class="icon" aria-label="Close">×</button>
+        <button id="close-setup" type="button" class="secondary settings-icon-btn" aria-label="Close">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="m6 6 12 12M18 6 6 18" />
+          </svg>
+        </button>
       </div>
 
       <ol id="setup-progress" class="setup-progress" aria-label="Initial setup progress">
         <li id="setup-progress-ai" class="active"><span>1</span> AI provider</li>
         <li id="setup-progress-youtube"><span>2</span> YouTube Music</li>
+        <li id="setup-progress-lastfm"><span>3</span> Last.fm</li>
       </ol>
 
       <p id="setup-intro" class="setup-intro">
-        Configure the AI provider first, then optionally connect YouTube Music for direct playlist publishing.
+        Start with an AI provider — it's required to generate playlists. YouTube Music and Last.fm are
+        optional and can be connected now or later from Settings.
       </p>
 
       <section id="setup-ai-step" class="settings-block setup-step">
@@ -220,7 +227,7 @@
             </label>
 
             <label for="ai-model">Primary model
-              <input id="ai-model" value="gemini-3.6-flash" placeholder="Primary model identifier">
+              <input id="ai-model" value="" placeholder="Primary model identifier">
             </label>
 
             <div id="fallback-row" class="fallback-row" aria-label="Fallback models">
@@ -287,11 +294,13 @@
         </div>
       </section>
 
+      <div id="settings-lastfm-host"></div>
+
       <div id="setup-navigation" class="setup-navigation">
         <button id="setup-skip" type="button" class="secondary">Skip for now</button>
         <div class="setup-navigation-actions">
           <button id="setup-back" type="button" class="secondary hidden">Back</button>
-          <button id="setup-next" type="button" class="primary">Continue to YouTube</button>
+          <button id="setup-next" type="button" class="primary">Continue to YouTube Music</button>
           <button id="setup-finish" type="button" class="primary hidden">Finish setup</button>
         </div>
       </div>
@@ -299,16 +308,16 @@
   </dialog>
 
   <script src="/static/replacement-history.js?v=3"></script>
-  <script src="/static/common.js?v=1"></script>
+  <script src="/static/common.js?v=7"></script>
   <script src="/static/ai-settings.js?v=12"></script>
   <script src="/static/youtube-account.js?v=5"></script>
-  <script src="/static/settings-overlay.js?v=1"></script>
-  <script src="/static/home-status.js?v=18"></script>
+  <script src="/static/lastfm-settings.js?v=2"></script>
+  <script src="/static/home-status.js?v=26"></script>
   <script src="/static/generation-state.js?v=3"></script>
-  <script src="/static/prompt-surprise.js?v=2"></script>
-  <script src="/static/prompt-complexity.js?v=7"></script>
-  <script src="/static/app.js?v=19"></script>
+  <script src="/static/prompt-surprise.js?v=3"></script>
+  <script src="/static/prompt-complexity.js?v=9"></script>
+  <script src="/static/app.js?v=21"></script>
   <script src="/static/lastfm-status.js?v=2"></script>
-  <script src="/static/prompt-validation-guard.js?v=2"></script>
+  <script src="/static/prompt-validation-guard.js?v=3"></script>
 </body>
 </html>

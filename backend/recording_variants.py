@@ -43,8 +43,8 @@ Use only live, cover and remix in the arrays. recording_type_confidence is from 
 """
 
 _LIVE_RE = re.compile(
-    r"\b(?:live|concert|session|en\s+vivo|ao\s+vivo|dal\s+vivo|en\s+directo|"
-    r"en\s+concert|concierto|konzert|liveaufnahme)\b",
+    r"(?:\blive(?=\b|\d)|\b(?:concert|session|en\s+vivo|ao\s+vivo|dal\s+vivo|"
+    r"en\s+directo|en\s+concert|concierto|konzert|liveaufnahme)\b)",
     re.IGNORECASE,
 )
 _COVER_RE = re.compile(
@@ -264,6 +264,18 @@ def effective_resolver_options(
         for variant in policy.required | policy.included:
             result[_OPTION_KEYS[variant]] = False
     return result
+
+
+def policy_with_option_exclusions(
+    options: dict[str, bool],
+    policy: RecordingVariantPolicy,
+) -> RecordingVariantPolicy:
+    """Mirror active UI recording exclusions into the post-resolution validator."""
+    excluded = set(policy.excluded)
+    for variant, option in _OPTION_KEYS.items():
+        if bool(options.get(option, True)):
+            excluded.add(variant)
+    return replace(policy, excluded=frozenset(excluded))
 
 
 def _variant_text(track: dict[str, Any]) -> tuple[str, str]:

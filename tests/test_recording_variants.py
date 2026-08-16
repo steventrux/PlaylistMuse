@@ -11,9 +11,11 @@ from backend.recording_variants import (
     activate_recording_policy,
     effective_resolver_options,
     policy_from_payload,
+    policy_with_option_exclusions,
     recording_filter_conflicts,
     recording_variant_violations,
     reset_recording_policy,
+    track_matches_variant,
 )
 
 
@@ -76,6 +78,25 @@ def test_required_live_rejects_studio_track_and_accepts_identified_live_track() 
     assert not recording_variant_violations([_track("Song (Live at Wembley)")], policy)
 
 
+def test_compact_live_suffix_is_recognized_as_live_recording() -> None:
+    assert track_matches_variant(_track("Mondo (Live25)"), "live") is True
+    assert track_matches_variant(_track("Mondo (Live 2025)"), "live") is True
+    assert track_matches_variant(_track("Mondo"), "live") is False
+
+
+def test_ui_exclusions_are_mirrored_into_post_resolution_policy() -> None:
+    policy = policy_with_option_exclusions(
+        {
+            "exclude_live": True,
+            "exclude_covers": True,
+            "exclude_remixes": False,
+        },
+        RecordingVariantPolicy(),
+    )
+
+    assert policy.excluded == frozenset({"live", "cover"})
+
+
 def test_playlist_studio_enforces_recording_version_on_editable_scope() -> None:
     policy = RecordingVariantPolicy(required=frozenset({"live"})).for_refinement()
 
@@ -125,6 +146,38 @@ def test_catalogue_resolution_filters_non_live_results(monkeypatch) -> None:
 
     assert [track["title"] for track in resolved] == ["Song (Live)"]
     assert unresolved[0]["title"] == "Studio Song"
+    assert unresolved[0]["unresolved_reason"] == "recording_variant_validation"
+
+
+def test_catalogue_resolution_rejects_live25_when_live_filter_is_enabled(monkeypatch) -> None:
+    async def fake_resolve(candidates, exclusions):
+        assert exclusions["exclude_live"] is True
+        return ([_track("Mondo (Live25)")], [])
+
+    monkeypatch.setattr(youtube, "resolve_candidates", fake_resolve)
+    monkeypatch.setattr(
+        generation_runtime,
+        "_select_resolved_tracks",
+        lambda resolved, **_: resolved,
+    )
+
+    token = activate_recording_policy(RecordingVariantPolicy())
+    try:
+        resolved, unresolved = asyncio.run(
+            generation_runtime.resolve_candidates(
+                [{"artist": "Test Artist", "title": "Mondo"}],
+                {
+                    "exclude_live": True,
+                    "exclude_covers": False,
+                    "exclude_remixes": False,
+                },
+            )
+        )
+    finally:
+        reset_recording_policy(token)
+
+    assert resolved == []
+    assert unresolved[0]["title"] == "Mondo (Live25)"
     assert unresolved[0]["unresolved_reason"] == "recording_variant_validation"
 
 

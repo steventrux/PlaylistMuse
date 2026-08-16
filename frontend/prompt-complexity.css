@@ -147,6 +147,27 @@
   color: #86efac;
 }
 
+.prompt-complexity-performance {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding: 8px 0 0;
+  border-top: 1px solid rgba(148, 163, 184, .18);
+  list-style: none;
+  color: #fbbf24;
+  font-size: .74rem;
+  line-height: 1.4;
+}
+
+.prompt-complexity-performance.hidden {
+  display: none;
+}
+
+.prompt-complexity-performance li::before {
+  content: "⏱ ";
+}
+
 @media (max-width: 520px) {
   .prompt-complexity-popover {
     right: -4px;

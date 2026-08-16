@@ -16,7 +16,9 @@ from typing import Any, Literal
 
 import httpx
 
+from backend.musicbrainz_artist import lookup_artist_origin
 from backend.musicbrainz_client import rate_limited_get
+from backend.national_origin import infer_artist_country, normalize_country_to_iso
 from backend.text_normalization import normalize_identity as _normalize
 from backend.validation_fixes import effective_temporal_range
 from backend.version import USER_AGENT
@@ -28,7 +30,7 @@ NEGATIVE_TTL_SECONDS = 24 * 60 * 60
 MIN_MATCH_SCORE = 0.78
 HIGH_MATCH_SCORE = 0.90
 MIN_CONSTRAINT_CONFIDENCE = 0.85
-METADATA_CACHE_VERSION = "5"
+METADATA_CACHE_VERSION = "6"
 
 ValidationStatus = Literal["valid", "invalid", "unknown"]
 
@@ -81,7 +83,10 @@ class TrackMetadata:
     artist: str
     title: str
     recording_mbid: str | None = None
+    artist_mbid: str | None = None
     release_group_mbid: str | None = None
+    release_group_primary_type: str | None = None
+    release_group_secondary_types: tuple[str, ...] = field(default_factory=tuple)
     isrcs: list[str] = field(default_factory=list)
     original_release_date: str | None = None
     original_release_year: int | None = None
@@ -125,12 +130,6 @@ _DECADE_PATTERNS = (
     re.compile(r"\b(?:anni|années|años|anos|jahre|decade|décennie|década|年代)\s*['’]?(\d{2})\b", re.I),
     re.compile(r"\b(19\d0|20\d0)s\b", re.I),
 )
-_COUNTRY_PATTERNS = {
-    "IT": re.compile(
-        r"\b(?:italian artists?|artists? from italy|artisti italiani|cantanti italiani)\b",
-        re.I,
-    )
-}
 _DIRECT_ARTIST_PATTERNS = (
     re.compile(r"\b(?:musica|brani|canzoni|songs?|tracks?|music)\s+(?:di|dei|degli|delle|by|from)\s+([\wÀ-ÿ&.' -]{1,100}?)(?=\s+(?:per|for|pour|para|zum|für)\b|[.!?,;]|$)", re.I),
     re.compile(r"\b(?:solo|only|soltanto|esclusivamente)\s+(?:musica|brani|canzoni|songs?|tracks?)?\s*(?:di|dei|degli|delle|by|from)\s+([\wÀ-ÿ&.' -]{1,100})(?:[.!?,;]|$)", re.I),
@@ -264,8 +263,12 @@ def constraints_from_payload(
             year_from, year_to = year_to, year_from
 
     country = base.artist_country
-    if trusted("artist_country"):
-        country = str(payload.get("artist_country") or "").upper().strip() or country
+    if country is None and trusted("artist_country"):
+        # The interpretation schema has no format instruction for this field, so the
+        # LLM may write a free-text country name ("Italy") instead of the ISO code
+        # MusicBrainz returns ("IT") -- normalize deterministically rather than
+        # comparing the LLM's raw formatting later.
+        country = normalize_country_to_iso(str(payload.get("artist_country") or ""))
 
     allowed_artists = list(base.allowed_artists)
     if trusted("allowed_artists"):
@@ -328,10 +331,7 @@ def extract_metadata_constraints(prompt: str) -> MetadataConstraints:
                 if match:
                     year = int(match.group(1))
                     break
-    country = next(
-        (code for code, pattern in _COUNTRY_PATTERNS.items() if pattern.search(normalized)),
-        None,
-    )
+    country = infer_artist_country(normalized) if not similarity else None
     allowed_artists: list[str] = []
     if not similarity:
         for pattern in _DIRECT_ARTIST_PATTERNS:
@@ -409,9 +409,21 @@ def _read_cache(
         if not row or float(row["expires_at"]) <= time.time():
             return None
         payload = json.loads(str(row["payload"]))
+        payload.setdefault("artist_mbid", None)
         payload.setdefault("matched_artist", None)
         payload.setdefault("release_titles", [])
+        payload.setdefault("release_group_primary_type", None)
+        payload.setdefault("release_group_secondary_types", [])
         return TrackMetadata(**payload)
+
+
+def _metadata_ttl(metadata: TrackMetadata) -> int:
+    return (
+        RECENT_TTL_SECONDS
+        if metadata.original_release_year
+        and metadata.original_release_year >= time.gmtime().tm_year - 1
+        else DEFAULT_TTL_SECONDS
+    )
 
 
 def _write_cache(
@@ -431,6 +443,40 @@ def _write_cache(
                 time.time() + ttl,
             ),
         )
+
+
+_TITLE_EDITION_SUFFIX_TERMS = r"remaster(?:ed)?|radio\s+edit|\blive\b|\w+\s+version"
+_TITLE_EDITION_BRACKET_SUFFIX_RE = re.compile(
+    rf"\s*[\[(][^\])]*(?:{_TITLE_EDITION_SUFFIX_TERMS})[^\])]*[\])]\s*$",
+    re.I,
+)
+_TITLE_EDITION_DASH_SUFFIX_RE = re.compile(
+    rf"\s*[-–—]\s*(?:\d{{4}}\s+)?(?:{_TITLE_EDITION_SUFFIX_TERMS})\b.*$",
+    re.I,
+)
+
+
+def _strip_title_edition_suffix(title: str) -> str:
+    """Strip a trailing edition/version descriptor before building a MusicBrainz query.
+
+    A YouTube-resolved title like "Summer of 69 (Classic Version)" or "Song (2011
+    Remastered)" can make MusicBrainz's search match a specific reissue/rerelease
+    instead of the true original recording, giving the wrong release year for hard
+    constraint validation. This only cleans the *search query text* passed to
+    MusicBrainz -- the candidate's actual title (what ends up in the playlist) is
+    never touched, and the original title is still what gets returned in warnings/etc.
+
+    Deliberately separate from backend/playlist_ordering.py's own, similarly-named
+    suffix stripping: that one specifically tries both the exact and stripped title and
+    keeps whichever gives an earlier year, which this single best-effort clean would
+    interfere with if shared. This one is a single clean applied once, since
+    validate_candidate() already has its own historical-probe fallback for ambiguous
+    cases (see _historical_probe_cutoff).
+    """
+    cleaned = str(title).strip()
+    for pattern in (_TITLE_EDITION_BRACKET_SUFFIX_RE, _TITLE_EDITION_DASH_SUFFIX_RE):
+        cleaned = pattern.sub("", cleaned).strip(" -–—")
+    return cleaned or str(title).strip()
 
 
 def _artist_credit(recording: dict[str, Any]) -> str:
@@ -550,7 +596,14 @@ def _metadata_from_recording(
         artist=artist,
         title=title,
         recording_mbid=str(recording.get("id", "")).strip() or None,
+        artist_mbid=str(artist_entity.get("id", "")).strip() or None,
         release_group_mbid=str(release_group.get("id", "")).strip() or None,
+        release_group_primary_type=str(release_group.get("primary-type") or "").strip() or None,
+        release_group_secondary_types=tuple(
+            str(item).strip()
+            for item in (release_group.get("secondary-types") or [])
+            if str(item).strip()
+        ),
         isrcs=[str(value) for value in recording.get("isrcs", []) if str(value).strip()],
         original_release_date=release_date,
         original_release_year=(
@@ -609,18 +662,56 @@ async def _rate_limited_get(
     )
 
 
+_ORIGINAL_RELEASE_TYPES = {"Album", "Single", "EP"}
+
+
+def _is_confidently_original_release(metadata: TrackMetadata) -> bool:
+    """Low-risk signal that the primary match is not a misleadingly-dated compilation.
+
+    A clean Album/Single/EP release-group (no Compilation/Live/Remix/Demo/Broadcast/...
+    secondary type) with a high title/artist match score is not absolute proof that no
+    still-earlier release of the same nominal type exists (e.g. an earlier single later
+    collected on an album, not surfaced by the primary bounded search) -- but it reliably
+    excludes the scenario the historical probe was originally added for: a compilation/
+    "best of"/live release whose date would otherwise misrepresent the true original
+    release year. Empirically (see the live A/B check that motivated this gate), MusicBrainz
+    frequently surfaces exactly a Live or Compilation release-group as the earliest-dated
+    match even for well-known, unambiguous studio tracks -- the secondary-types check is
+    what does most of the real protective work here, not the primary-type check.
+    """
+    return (
+        metadata.match_score >= HIGH_MATCH_SCORE
+        and metadata.release_group_primary_type in _ORIGINAL_RELEASE_TYPES
+        and not metadata.release_group_secondary_types
+    )
+
+
 def _historical_probe_cutoff(
     metadata: TrackMetadata,
     constraints: MetadataConstraints,
 ) -> int | None:
-    """Return the latest year needed to resolve an earlier first release."""
+    """Return the latest year needed to resolve an earlier first release.
+
+    Skipped when the primary metadata is already a confidently-original album release
+    exactly matching (or already inside) the requested year -- see
+    _is_confidently_original_release for the accepted trade-off. Compilations, live albums,
+    remixes and any lower-confidence or type-ambiguous match still always probe.
+    """
     year = metadata.original_release_year
     if constraints.release_year is not None:
+        if year == constraints.release_year and _is_confidently_original_release(metadata):
+            return None
         return constraints.release_year
     if (
         constraints.release_year_from is not None
         and constraints.release_year_to is not None
     ):
+        if (
+            year is not None
+            and constraints.release_year_from <= year <= constraints.release_year_to
+            and _is_confidently_original_release(metadata)
+        ):
+            return None
         return constraints.release_year_to
     if constraints.release_year_from is not None:
         if year is None or year >= constraints.release_year_from:
@@ -738,13 +829,7 @@ async def lookup_track_metadata(
         )
         if metadata.match_score < MIN_MATCH_SCORE:
             metadata.warnings.append("MusicBrainz match confidence is too low")
-        ttl = (
-            RECENT_TTL_SECONDS
-            if metadata.original_release_year
-            and metadata.original_release_year >= time.gmtime().tm_year - 1
-            else DEFAULT_TTL_SECONDS
-        )
-        _write_cache(metadata, ttl=ttl, path=cache_path)
+        _write_cache(metadata, ttl=_metadata_ttl(metadata), path=cache_path)
         return metadata
     except (httpx.HTTPError, ValueError, TypeError, sqlite3.Error) as error:
         return TrackMetadata(
@@ -875,6 +960,35 @@ def validate_metadata(
     return ValidationResult(status=status, violations=violations, metadata=metadata)
 
 
+async def _enrich_artist_origin(
+    metadata: TrackMetadata,
+    constraints: MetadataConstraints,
+    *,
+    client: httpx.AsyncClient | None = None,
+    cache_path: Path | None = None,
+) -> TrackMetadata:
+    """Resolve missing artist origin only when a country hard constraint requires it."""
+    if (
+        constraints.artist_country is None
+        or metadata.artist_country
+        or not metadata.artist_mbid
+        or metadata.match_score < MIN_MATCH_SCORE
+    ):
+        return metadata
+
+    origin = await lookup_artist_origin(metadata.artist_mbid, client=client)
+    if origin is None:
+        return metadata
+
+    metadata.artist_country = origin.country
+    if not metadata.artist_area:
+        metadata.artist_area = origin.area
+    if origin.country or origin.area:
+        with suppress(sqlite3.Error):
+            _write_cache(metadata, ttl=_metadata_ttl(metadata), path=cache_path)
+    return metadata
+
+
 async def validate_candidate(
     candidate: dict[str, Any],
     constraints: MetadataConstraints,
@@ -883,7 +997,7 @@ async def validate_candidate(
     cache_path: Path | None = None,
 ) -> ValidationResult:
     artist = str(candidate.get("artist", candidate.get("artists", ""))).strip()
-    title = str(candidate.get("title", "")).strip()
+    title = _strip_title_edition_suffix(str(candidate.get("title", "")).strip())
     metadata = await lookup_track_metadata(
         artist,
         title,
@@ -905,14 +1019,13 @@ async def validate_candidate(
             < _date_key(metadata.original_release_date)
         ):
             metadata = historical
-            ttl = (
-                RECENT_TTL_SECONDS
-                if metadata.original_release_year
-                and metadata.original_release_year
-                >= time.gmtime().tm_year - 1
-                else DEFAULT_TTL_SECONDS
-            )
             with suppress(sqlite3.Error):
-                _write_cache(metadata, ttl=ttl, path=cache_path)
+                _write_cache(metadata, ttl=_metadata_ttl(metadata), path=cache_path)
 
+    metadata = await _enrich_artist_origin(
+        metadata,
+        constraints,
+        client=client,
+        cache_path=cache_path,
+    )
     return validate_metadata(metadata, constraints)

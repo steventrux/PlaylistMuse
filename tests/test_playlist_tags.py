@@ -13,6 +13,7 @@ import backend.playlist_tags as playlist_tags_module
 from backend.application import app
 from backend.playlist_library import PlaylistLibrary
 from backend.playlist_tags import normalize_playlist_tags, suggest_playlist_tags
+from backend.provider_rate_limits import ProviderRateLimitedError
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
@@ -128,6 +129,42 @@ def test_playlist_tagger_retries_fallback_after_empty_classification(monkeypatch
         models.append(model)
         if model == "model-a":
             return '{"genre":[],"mood":[],"period":[]}'
+        return (
+            '{"genre":["Electronic Pop"],'
+            '"mood":["Energetic"],'
+            '"period":["2020s"]}'
+        )
+
+    monkeypatch.setattr(playlist_tags_module, "request_structured_json", fake_request)
+    config = SimpleNamespace(
+        configured=True,
+        model_chain=("model-a", "model-b"),
+    )
+
+    tags = asyncio.run(suggest_playlist_tags(config, sample_playlist()))
+
+    assert models == ["model-a", "model-b"]
+    assert tags == {
+        "genre": ["Electronic Pop"],
+        "mood": ["Energetic"],
+        "period": ["2020s"],
+        "custom": [],
+    }
+
+
+def test_playlist_tagger_falls_back_when_a_model_is_rate_limited(monkeypatch) -> None:
+    """A model cached as rate-limited must be skipped, not abort the whole fallback loop.
+
+    Regression test: ProviderRateLimitedError used to propagate uncaught out of this
+    loop, so a rate-limited primary model failed tagging entirely instead of trying
+    the next configured model.
+    """
+    models: list[str] = []
+
+    async def fake_request(config, prompt, *, system_prompt, max_tokens, model):
+        models.append(model)
+        if model == "model-a":
+            raise ProviderRateLimitedError("openai/model-a is cached as rate-limited")
         return (
             '{"genre":["Electronic Pop"],'
             '"mood":["Energetic"],'

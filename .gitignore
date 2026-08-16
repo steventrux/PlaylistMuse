@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
 .venv/
 venv/
 .env
@@ -12,3 +13,7 @@ data/*.db-wal
 data/*.sqlite3
 data/logs/
 .DS_Store
+
+# Claude Code local runtime/settings (per-machine, not shared)
+.claude/
+CLAUDE.md

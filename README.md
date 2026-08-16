@@ -14,6 +14,7 @@
   <img src="https://img.shields.io/badge/Docker-ready-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker ready" height="24">
   <img src="https://img.shields.io/badge/self--hosted-yes-8B5CF6?style=flat-square" alt="Self-hosted" height="24">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/steventrux/PlaylistMuse?style=flat-square&color=EC4899" alt="MIT license" height="24"></a>
+  <img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fstats.playlistmuse.workers.dev%2Fbadge.json&style=flat-square" alt="Playlists generated across all opted-in installations" height="24">
 
   <p>
     Create, refine, save and publish YouTube Music playlists from a written idea or a reference song.

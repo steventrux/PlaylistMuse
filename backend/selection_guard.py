@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from backend.policy_enforcement import (
@@ -13,6 +14,8 @@ from backend.policy_enforcement import (
     quota_artist_match,
     select_resolved_tracks,
 )
+
+logger = logging.getLogger("playlistmuse.performance")
 
 
 def _missing_capacity(
@@ -79,6 +82,52 @@ def _respect_exact_artist_caps(
     return kept
 
 
+def _requested_identity_tracks(tracks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Expose exact pre-catalogue identities without fuzzy artist matching."""
+    proxies: list[dict[str, Any]] = []
+    for track in tracks:
+        requested_artist = str(track.get("requested_artist") or "").strip()
+        requested_title = str(track.get("requested_title") or "").strip()
+        proxies.append(
+            {
+                "artist": requested_artist
+                or str(track.get("artists") or track.get("artist") or ""),
+                "title": requested_title or str(track.get("title") or ""),
+            }
+        )
+    return proxies
+
+
+def _exclude_remembered_creative_rejections(
+    tracks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Prevent a generation-scoped creative rejection from reaching final selection."""
+    if not tracks:
+        return tracks
+
+    from backend.creative_intent import _remembered_creative_conflicts
+
+    canonical_conflicts = _remembered_creative_conflicts(tracks)
+    requested_conflicts = _remembered_creative_conflicts(
+        _requested_identity_tracks(tracks)
+    )
+    rejected_indexes = {
+        conflict.index for conflict in [*canonical_conflicts, *requested_conflicts]
+    }
+    if not rejected_indexes:
+        return tracks
+
+    logger.info(
+        "creative_fit phase=rejection_memory_catalogue hits=%s",
+        sorted(rejected_indexes),
+    )
+    return [
+        track
+        for index, track in enumerate(tracks, start=1)
+        if index not in rejected_indexes
+    ]
+
+
 def guarded_select_resolved_tracks(
     resolved: list[dict[str, Any]],
     *,
@@ -90,6 +139,7 @@ def guarded_select_resolved_tracks(
     from backend import generation_runtime as runtime
 
     before = list(runtime._RESOLVED_SESSION_TRACKS.get())
+    resolved = _exclude_remembered_creative_rejections(resolved)
     selected = select_resolved_tracks(
         resolved,
         youtube=youtube,

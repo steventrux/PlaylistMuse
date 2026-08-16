@@ -188,17 +188,31 @@
     updateGenerationControls();
   }
 
+  const SETUP_STEPS = ['ai', 'youtube', 'lastfm'];
+  const SETUP_STEP_EVENTS = {
+    ai: 'playlistmuse-ai-settings-opened',
+    youtube: 'playlistmuse-youtube-settings-opened',
+    lastfm: 'playlistmuse-lastfm-settings-opened',
+  };
+  const SETUP_STEP_TITLES = {
+    ai: 'AI Settings',
+    youtube: 'YouTube Music Settings',
+    lastfm: 'Last.fm Settings',
+  };
+  const SETUP_NEXT_LABELS = {
+    ai: 'Continue to YouTube Music',
+    youtube: 'Continue to Last.fm',
+  };
+
   function dispatchSetupStepEvent(step) {
-    window.dispatchEvent(new Event(
-      step === 'youtube'
-        ? 'playlistmuse-youtube-settings-opened'
-        : 'playlistmuse-ai-settings-opened',
-    ));
+    const eventName = SETUP_STEP_EVENTS[step];
+    if (eventName) window.dispatchEvent(new Event(eventName));
   }
 
   function renderSetup() {
     const onboarding = state.setupMode === 'onboarding';
-    const aiStep = state.setupStep === 'ai';
+    const stepIndex = SETUP_STEPS.indexOf(state.setupStep);
+    const lastStep = stepIndex === SETUP_STEPS.length - 1;
     const intro = $('setup-intro');
 
     $('setup-eyebrow').textContent = onboarding
@@ -206,26 +220,31 @@
       : 'Configuration';
     $('setup-title').textContent = onboarding
       ? 'Set up PlaylistMuse'
-      : aiStep ? 'AI Settings' : 'YouTube Music Settings';
+      : SETUP_STEP_TITLES[state.setupStep];
 
     intro.textContent = onboarding
-      ? 'Configure the AI provider first, then optionally connect YouTube Music for direct playlist publishing.'
+      ? "Start with an AI provider — it's required to generate playlists. "
+        + 'YouTube Music and Last.fm are optional and can be connected now or later from Settings.'
       : '';
     intro.classList.toggle('hidden', !onboarding);
 
     $('setup-progress').classList.toggle('hidden', !onboarding);
     $('setup-navigation').classList.toggle('hidden', !onboarding);
-    $('setup-ai-step').classList.toggle('hidden', !aiStep);
-    $('setup-youtube-step').classList.toggle('hidden', aiStep);
+    $('setup-ai-step').classList.toggle('hidden', state.setupStep !== 'ai');
+    $('setup-youtube-step').classList.toggle('hidden', state.setupStep !== 'youtube');
+    $('setup-lastfm-step')?.classList.toggle('hidden', state.setupStep !== 'lastfm');
 
-    $('setup-progress-ai').classList.toggle('active', aiStep);
-    $('setup-progress-ai').classList.toggle('complete', !aiStep);
-    $('setup-progress-youtube').classList.toggle('active', !aiStep);
-    $('setup-progress-youtube').classList.remove('complete');
+    SETUP_STEPS.forEach((step, index) => {
+      const item = $(`setup-progress-${step}`);
+      if (!item) return;
+      item.classList.toggle('active', step === state.setupStep);
+      item.classList.toggle('complete', index < stepIndex);
+    });
 
-    $('setup-back').classList.toggle('hidden', aiStep);
-    $('setup-next').classList.toggle('hidden', !aiStep);
-    $('setup-finish').classList.toggle('hidden', aiStep);
+    $('setup-back').classList.toggle('hidden', stepIndex === 0);
+    $('setup-next').classList.toggle('hidden', lastStep);
+    $('setup-next').textContent = SETUP_NEXT_LABELS[state.setupStep] || 'Continue';
+    $('setup-finish').classList.toggle('hidden', !lastStep);
 
     dispatchSetupStepEvent(state.setupStep);
   }
@@ -413,6 +432,49 @@
     }
   }
 
+  // Reads a fetch() response streamed as newline-delimited SSE `data: {...}\n\n` frames
+  // (see backend/main.py::_stream_generation). Calls onStage(evt) for every `type:"stage"`
+  // event as it arrives, and resolves with the final `type:"result"` event's payload, or
+  // throws an Error (message including which stage it happened in) for `type:"error"`.
+  async function readGenerationStream(response, onStage) {
+    if (!response.ok) {
+      // Validation errors (e.g. bad request body) never reach the streaming code path on
+      // the backend, so the body here is a plain JSON error, not an event stream.
+      await readJson(response, {flattenValidationErrors: true});
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    const handleFrame = (frame) => {
+      const line = frame.split('\n').find((item) => item.startsWith('data: '));
+      if (!line) return null;
+      return JSON.parse(line.slice('data: '.length));
+    };
+
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (value) buffer += decoder.decode(value, {stream: true});
+      let boundary = buffer.indexOf('\n\n');
+      while (boundary !== -1) {
+        const frame = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const event = handleFrame(frame);
+        if (event?.type === 'stage') {
+          onStage(event);
+        } else if (event?.type === 'result') {
+          return event.playlist;
+        } else if (event?.type === 'error') {
+          const suffix = event.stage_message ? ` (${event.stage_message})` : '';
+          throw new Error(`${event.message}${suffix}`);
+        }
+        boundary = buffer.indexOf('\n\n');
+      }
+      if (done) break;
+    }
+    throw new Error('The generation stream ended unexpectedly.');
+  }
+
   async function generate() {
     const button = $('generate');
     if (button.disabled) return;
@@ -424,11 +486,11 @@
     if (state.mode === 'prompt') {
       const prompt = normalizedPrompt();
       if (!prompt) return message('Describe the playlist you want.', true);
-      endpoint = '/api/playlists/generate';
+      endpoint = '/api/playlists/generate/stream';
       request = {prompt, track_count: trackCount(), options: options()};
     } else {
       if (!state.selectedSeed) return message('Search for and select a seed track first.', true);
-      endpoint = '/api/playlists/generate-from-seed';
+      endpoint = '/api/playlists/generate-from-seed/stream';
       request = {
         seed: state.selectedSeed,
         seed_mode: state.seedMode,
@@ -443,16 +505,16 @@
       ariaLabel: 'Generating playlist',
     });
     setGenerationInputsLocked(true);
-    message('Generating and resolving tracks on YouTube Music…');
+    message('Interpreting your request and drafting the playlist…');
 
     try {
-      const data = await readJson(
+      const data = await readGenerationStream(
         await fetch(endpoint, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify(request),
         }),
-        {flattenValidationErrors: true},
+        (event) => message(event.message),
       );
       sessionStorage.setItem('playlistmuse-generated-playlist', JSON.stringify(data));
       sessionStorage.setItem('playlistmuse-generation-request', JSON.stringify({
@@ -502,17 +564,19 @@
   }));
 
   $('ai-open-settings').addEventListener('click', () => {
-    window.PlaylistMuseSettingsOverlay?.open('ai');
+    window.PlaylistMuseCommon.openSettings('ai');
   });
   $('close-setup').addEventListener('click', closeSetup);
   $('setup-skip').addEventListener('click', closeSetup);
   $('setup-finish').addEventListener('click', closeSetup);
   $('setup-next').addEventListener('click', () => {
-    state.setupStep = 'youtube';
+    const nextIndex = SETUP_STEPS.indexOf(state.setupStep) + 1;
+    state.setupStep = SETUP_STEPS[Math.min(nextIndex, SETUP_STEPS.length - 1)];
     renderSetup();
   });
   $('setup-back').addEventListener('click', () => {
-    state.setupStep = 'ai';
+    const previousIndex = SETUP_STEPS.indexOf(state.setupStep) - 1;
+    state.setupStep = SETUP_STEPS[Math.max(previousIndex, 0)];
     renderSetup();
   });
 

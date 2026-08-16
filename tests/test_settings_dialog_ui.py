@@ -15,15 +15,15 @@ def test_settings_dialogs_share_the_same_visual_system() -> None:
     youtube_script = (FRONTEND / "youtube-account.js").read_text(encoding="utf-8")
     lastfm_script = (FRONTEND / "lastfm-settings.js").read_text(encoding="utf-8")
 
-    assert '@import url("/static/settings-dialog.css?v=4");' in ai_styles
+    assert '@import url("/static/settings-dialog.css?v=7");' in ai_styles
     assert ".settings-dialog-card .ai-active-summary" in shared_styles
     assert ".settings-dialog-card .youtube-account-summary" in shared_styles
     assert ".settings-dialog-card .settings-summary" in shared_styles
     assert ".settings-dialog-card .settings-state.ok" in shared_styles
     assert ":has(#setup-progress.hidden) .dialog-head" in shared_styles
     assert "#setup-dialog .setup-step.settings-block" in shared_styles
-    assert "padding: 14px 0" in shared_styles
-    assert "margin: 0 0 20px" in shared_styles
+    assert "padding: 12px 0" in shared_styles
+    assert "margin: 0 0 16px" in shared_styles
     assert "font-size: 1rem" in shared_styles
     assert "min-height: 36px" in shared_styles
     assert ".youtube-account-summary-heading h3" in shared_styles
@@ -65,6 +65,6 @@ def test_settings_page_reuses_shared_button_components() -> None:
     settings_styles = (FRONTEND / "settings-page.css").read_text(encoding="utf-8")
 
     assert '<link rel="stylesheet" href="/static/controls.css?v=8">' in settings_html
-    assert 'id="settings-close" class="secondary settings-icon-btn"' in settings_html
+    assert 'id="settings-close"' not in settings_html
     assert "settings-close-button" not in settings_html
     assert ".settings-close-button" not in settings_styles

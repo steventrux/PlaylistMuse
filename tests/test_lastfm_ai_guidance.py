@@ -41,7 +41,6 @@ def _resolved(candidate: dict[str, str], index: int) -> dict:
 
 
 def _isolate_generation_dependencies(monkeypatch) -> None:
-    """Keep these tests focused on Last.fm guidance, not prompt-order interpretation."""
     monkeypatch.setattr(
         main_module,
         "load_config",
@@ -56,223 +55,6 @@ def _isolate_generation_dependencies(monkeypatch) -> None:
         "interpret_constraints",
         no_ordering_interpretation,
     )
-
-
-def test_prompt_generation_uses_lastfm_as_ai_context_without_fixed_quota(monkeypatch) -> None:
-    prompts: list[str] = []
-    first_draft = _draft(
-        [
-            ("Anchor Artist", "Anchor Track"),
-            ("First Pass Artist", "First Pass Track"),
-        ],
-        title="First Pass",
-    )
-    final_draft = _draft(
-        [
-            ("Last.fm Artist", "Discovery Track"),
-            ("Independent Artist", "Independent Track"),
-        ],
-        title="Final Guided Playlist",
-    )
-    lastfm_candidates = [
-        {
-            "artist": "Last.fm Artist",
-            "title": "Discovery Track",
-            "source": "lastfm",
-            "lastfm_strategy": "similar_track",
-            "lastfm_match": "0.91",
-            "anchor_artist": "Anchor Artist",
-            "anchor_title": "Anchor Track",
-        },
-        {
-            "artist": "Unused Last.fm Artist",
-            "title": "Choose a suitable track by this artist",
-            "source": "lastfm",
-            "lastfm_strategy": "similar_artist",
-            "lastfm_match": "0.75",
-            "anchor_artist": "First Pass Artist",
-            "anchor_title": "First Pass Track",
-        },
-    ]
-
-    _isolate_generation_dependencies(monkeypatch)
-
-    async def fake_generate(config, prompt, count):
-        prompts.append(prompt)
-        return first_draft if len(prompts) == 1 else final_draft
-
-    async def fake_discover(anchors, *, limit=40, max_anchors=3):
-        assert anchors == [
-            {"artist": "Anchor Artist", "title": "Anchor Track"},
-            {"artist": "First Pass Artist", "title": "First Pass Track"},
-        ]
-        assert limit >= 20
-        return lastfm_candidates
-
-    async def fake_resolve(candidates, exclusions):
-        return [
-            _resolved(candidate, index)
-            for index, candidate in enumerate(candidates, start=1)
-        ], []
-
-    monkeypatch.setattr(main_module, "generate_playlist_draft", fake_generate)
-    monkeypatch.setattr(main_module, "discover_from_anchors", fake_discover)
-    monkeypatch.setattr(main_module, "resolve_candidates", fake_resolve)
-
-    result = asyncio.run(
-        main_module._generate(
-            "Italian electronic pop for a summer drive",
-            2,
-            main_module.PlaylistOptions(),
-        )
-    )
-
-    assert len(prompts) == 2
-    assert "Italian electronic pop for a summer drive" in prompts[1]
-    assert "Last.fm collaborative-listening evidence" in prompts[1]
-    assert "You may select tracks not listed above" in prompts[1]
-    assert "Last.fm Artist — Discovery Track" in prompts[1]
-    assert result["name"] == "Final Guided Playlist"
-
-    diagnostics = result["lastfm"]
-    assert diagnostics["available"] is True
-    assert diagnostics["guidance_applied"] is True
-    assert diagnostics["suggestions"] == 2
-    assert diagnostics["selected"] == 1
-    assert diagnostics["represented_signals"] == 1
-    assert diagnostics["represented_artists"] == 1
-    assert diagnostics["strategies"] == ["similar_artist", "similar_track"]
-    assert diagnostics["anchors"] == [
-        {
-            "artist": "Anchor Artist",
-            "title": "Anchor Track",
-            "kind": "ai_draft",
-        },
-        {
-            "artist": "First Pass Artist",
-            "title": "First Pass Track",
-            "kind": "ai_draft",
-        },
-    ]
-    assert diagnostics["signals"][0] == {
-        "artist": "Last.fm Artist",
-        "title": "Discovery Track",
-        "strategy": "similar_track",
-        "match": "0.91",
-        "selected": True,
-        "artist_represented": True,
-        "anchor": {
-            "artist": "Anchor Artist",
-            "title": "Anchor Track",
-        },
-    }
-    assert diagnostics["signals"][1]["title"] is None
-    assert diagnostics["signals"][1]["selected"] is False
-    assert diagnostics["signals"][1]["artist_represented"] is False
-
-    assert result["tracks"][0]["source"] == "lastfm"
-    assert result["tracks"][0]["lastfm_strategy"] == "similar_track"
-    assert "source" not in result["tracks"][1]
-
-
-def test_ai_can_ignore_all_lastfm_suggestions(monkeypatch) -> None:
-    calls = 0
-    lastfm_candidates = [
-        {
-            "artist": "Suggested Artist",
-            "title": "Suggested Track",
-            "source": "lastfm",
-            "lastfm_strategy": "similar_track",
-            "lastfm_match": "0.9",
-        }
-    ]
-
-    _isolate_generation_dependencies(monkeypatch)
-
-    async def fake_generate(config, prompt, count):
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            return _draft([("Anchor Artist", "Anchor Track")])
-        return _draft(
-            [
-                ("Independent Artist A", "Independent Track A"),
-                ("Independent Artist B", "Independent Track B"),
-            ]
-        )
-
-    async def fake_discover(anchors, *, limit=40, max_anchors=3):
-        return lastfm_candidates
-
-    async def fake_resolve(candidates, exclusions):
-        return [
-            _resolved(candidate, index)
-            for index, candidate in enumerate(candidates, start=1)
-        ], []
-
-    monkeypatch.setattr(main_module, "generate_playlist_draft", fake_generate)
-    monkeypatch.setattr(main_module, "discover_from_anchors", fake_discover)
-    monkeypatch.setattr(main_module, "resolve_candidates", fake_resolve)
-
-    result = asyncio.run(
-        main_module._generate(
-            "A tightly focused prompt",
-            2,
-            main_module.PlaylistOptions(),
-        )
-    )
-
-    assert result["lastfm"]["available"] is True
-    assert result["lastfm"]["suggestions"] == 1
-    assert result["lastfm"]["selected"] == 0
-    assert result["lastfm"]["represented_signals"] == 0
-    assert result["lastfm"]["represented_artists"] == 0
-    assert result["lastfm"]["signals"][0]["selected"] is False
-    assert all(track.get("source") != "lastfm" for track in result["tracks"])
-
-
-def test_similar_artist_signal_reports_artist_representation(monkeypatch) -> None:
-    calls = 0
-    artist_signal = {
-        "artist": "Related Artist",
-        "title": "Choose a suitable track by this artist",
-        "source": "lastfm",
-        "lastfm_strategy": "similar_artist",
-        "lastfm_match": "0.82",
-    }
-
-    _isolate_generation_dependencies(monkeypatch)
-
-    async def fake_generate(config, prompt, count):
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            return _draft([("Anchor Artist", "Anchor Track")])
-        return _draft([("Related Artist", "AI Chosen Song")])
-
-    async def fake_discover(anchors, *, limit=40, max_anchors=3):
-        return [artist_signal]
-
-    async def fake_resolve(candidates, exclusions):
-        return [_resolved(candidates[0], 1)], []
-
-    monkeypatch.setattr(main_module, "generate_playlist_draft", fake_generate)
-    monkeypatch.setattr(main_module, "discover_from_anchors", fake_discover)
-    monkeypatch.setattr(main_module, "resolve_candidates", fake_resolve)
-
-    result = asyncio.run(
-        main_module._generate(
-            "A discovery-oriented playlist",
-            1,
-            main_module.PlaylistOptions(),
-        )
-    )
-
-    assert result["lastfm"]["selected"] == 0
-    assert result["lastfm"]["represented_signals"] == 1
-    assert result["lastfm"]["represented_artists"] == 1
-    assert result["lastfm"]["signals"][0]["artist_represented"] is True
-    assert "source" not in result["tracks"][0]
 
 
 def test_represented_artist_count_is_unique_across_multiple_signals() -> None:
@@ -310,7 +92,7 @@ def test_represented_artist_count_is_unique_across_multiple_signals() -> None:
     assert all(signal["artist_represented"] for signal in diagnostics["signals"])
 
 
-def test_seed_context_skips_prompt_anchor_discovery(monkeypatch) -> None:
+def test_seed_context_uses_supplied_lastfm_signals(monkeypatch) -> None:
     seed_signals = [
         {
             "artist": "Seed Related Artist",
@@ -324,21 +106,16 @@ def test_seed_context_skips_prompt_anchor_discovery(monkeypatch) -> None:
 
     _isolate_generation_dependencies(monkeypatch)
 
-    async def fake_generate(config, prompt, count):
+    async def fake_generate(config, prompt, count, is_seed_generation=False):
         nonlocal calls
         calls += 1
-        if calls == 1:
-            return _draft([("First Artist", "First Track")])
+        assert "Last.fm collaborative-listening evidence" in prompt
         return _draft([("Seed Related Artist", "Seed Related Track")])
-
-    async def forbidden_prompt_discovery(*args, **kwargs):
-        raise AssertionError("Seed discovery should be used before prompt anchors")
 
     async def fake_resolve(candidates, exclusions):
         return [_resolved(candidates[0], 1)], []
 
     monkeypatch.setattr(main_module, "generate_playlist_draft", fake_generate)
-    monkeypatch.setattr(main_module, "discover_from_anchors", forbidden_prompt_discovery)
     monkeypatch.setattr(main_module, "resolve_candidates", fake_resolve)
 
     recommendation_token = main_module._SEED_RECOMMENDATIONS.set(tuple(seed_signals))
@@ -363,7 +140,8 @@ def test_seed_context_skips_prompt_anchor_discovery(monkeypatch) -> None:
         main_module._SEED_ANCHORS.reset(anchor_token)
         main_module._SEED_RECOMMENDATIONS.reset(recommendation_token)
 
-    assert calls == 2
+    assert calls == 1
+    assert result["lastfm"]["guidance_applied"] is True
     assert result["lastfm"]["selected"] == 1
     assert result["lastfm"]["represented_signals"] == 1
     assert result["lastfm"]["represented_artists"] == 1

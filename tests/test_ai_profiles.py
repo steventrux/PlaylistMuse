@@ -275,3 +275,77 @@ def test_disconnect_openrouter_removes_both_modes_and_falls_back(
     assert loaded.key_is_saved("openrouter_free") is False
     assert loaded.is_provider_configured("openrouter_auto") is False
     assert loaded.is_provider_configured("openrouter_free") is False
+
+
+def test_model_chain_includes_every_configured_fallback_in_order() -> None:
+    config = AppConfig(
+        provider="gemini",
+        model="gemini-flash-latest",
+        fallback_1="gemini-3.7-flash",
+        fallback_2="gemini-3.6-flash",
+        fallback_3="gemini-3.5-flash",
+        fallback_4="gemini-3.5-flash-lite",
+        fallback_5="gemini-2.5-pro",
+        fallback_6="gemini-2.5-flash",
+        fallback_7="gemini-2.5-flash-lite",
+        fallback_8="gemini-3.1-flash-lite",
+    )
+    assert config.model_chain == [
+        "gemini-flash-latest",
+        "gemini-3.7-flash",
+        "gemini-3.6-flash",
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-3.1-flash-lite",
+    ]
+
+
+def test_model_chain_drops_empty_and_duplicate_fallback_slots() -> None:
+    config = AppConfig(
+        provider="gemini",
+        model="gemini-flash-latest",
+        fallback_1="gemini-flash-latest",  # duplicate of the primary model
+        fallback_2="",
+        fallback_3="gemini-3.7-flash",
+    )
+    assert config.model_chain == ["gemini-flash-latest", "gemini-3.7-flash"]
+
+
+def test_save_and_load_config_round_trips_all_eight_fallback_slots(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """Regression test for the bug where a saved model reverted after reload."""
+    _set_config_path(monkeypatch, tmp_path)
+
+    save_config(
+        AppConfig(
+            provider="gemini",
+            api_key="AIza-gemini-key",
+            model="gemini-flash-latest",
+            fallback_1="gemini-3.7-flash",
+            fallback_2="gemini-3.6-flash",
+            fallback_3="gemini-3.5-flash",
+            fallback_4="gemini-3.5-flash-lite",
+            fallback_5="gemini-2.5-pro",
+            fallback_6="gemini-2.5-flash",
+            fallback_7="gemini-2.5-flash-lite",
+            fallback_8="gemini-3.1-flash-lite",
+            provider_api_keys={"gemini": "AIza-gemini-key"},
+        )
+    )
+
+    loaded = load_config()
+
+    assert loaded.model == "gemini-flash-latest"
+    assert loaded.fallback_1 == "gemini-3.7-flash"
+    assert loaded.fallback_8 == "gemini-3.1-flash-lite"
+    assert len(loaded.model_chain) == 9
+
+    # A second, independent load must see the same persisted state, not just the
+    # in-memory config object returned by save_config's caller.
+    reloaded = load_config()
+    assert reloaded.model_chain == loaded.model_chain

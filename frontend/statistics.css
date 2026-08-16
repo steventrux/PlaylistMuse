@@ -1,0 +1,375 @@
+/* Local-only statistics overview page. */
+
+.stats-card {
+  display: grid;
+  gap: 26px;
+}
+
+.stats-privacy {
+  display: grid;
+  gap: 14px;
+}
+
+/* Telemetry opt-in: a real on/off switch, with the explanation making clear this
+   is the one thing on the page that isn't purely local. */
+
+.stats-telemetry {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 22px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(139, 92, 246, .05);
+}
+
+.stats-telemetry-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.stats-telemetry-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: .88rem;
+  font-weight: 750;
+}
+
+.stats-telemetry-explain {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: .78rem;
+  line-height: 1.5;
+}
+
+.stats-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 46px;
+  height: 26px;
+  padding: 3px;
+  border: 1px solid rgba(169, 155, 255, .3);
+  border-radius: 999px;
+  background: rgba(169, 155, 255, .14);
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.stats-switch-thumb {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform 160ms ease, background 160ms ease;
+}
+
+.stats-switch:hover,
+.stats-switch:focus-visible {
+  border-color: rgba(183, 156, 255, .55);
+}
+
+.stats-switch[aria-checked="true"] {
+  border-color: rgba(74, 222, 128, .5);
+  background: rgba(74, 222, 128, .22);
+}
+
+.stats-switch[aria-checked="true"] .stats-switch-thumb {
+  background: #86efac;
+  transform: translateX(20px);
+}
+
+.stats-telemetry-status {
+  margin: 0;
+}
+
+.stats-telemetry-status.ok {
+  color: #86efac;
+}
+
+.stats-telemetry-status.error {
+  color: var(--error);
+}
+
+/* Hero figure + secondary numbers */
+
+#stats-content {
+  display: grid;
+  gap: 20px;
+}
+
+.stats-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.stats-hero-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: .82rem;
+  font-weight: 700;
+}
+
+.stats-hero-value {
+  font-size: clamp(2.6rem, 6vw, 3.4rem);
+  font-weight: 850;
+  line-height: 1;
+  letter-spacing: -.03em;
+  background: var(--brand-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.stats-hero-secondary {
+  display: flex;
+  gap: 28px;
+}
+
+.stats-secondary-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.stats-secondary-value {
+  color: var(--text-primary);
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: -.02em;
+}
+
+.stats-secondary-label {
+  color: var(--text-muted);
+  font-size: .74rem;
+  font-weight: 650;
+  text-align: right;
+}
+
+/* Shared section rhythm -- each is a card so the page reads as distinct blocks
+   rather than a flat stack of headings, and doubles as the clickable surface
+   that opens the full-detail page for that stat. */
+
+.stats-section {
+  display: block;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(139, 92, 246, .035);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+a.stats-section-link:hover,
+a.stats-section-link:focus-visible {
+  border-color: rgba(183, 156, 255, .4);
+  background: rgba(139, 92, 246, .08);
+  transform: translateY(-1px);
+}
+
+a.stats-section-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(15, 19, 42, .9), 0 0 0 4px rgba(183, 156, 255, .65);
+}
+
+.stats-section h3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 14px;
+  color: var(--text-primary);
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -.01em;
+}
+
+.stats-section-cta {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: .76rem;
+  font-weight: 700;
+}
+
+a.stats-section-link:hover .stats-section-cta,
+a.stats-section-link:focus-visible .stats-section-cta {
+  color: var(--cyan-light);
+}
+
+.stats-section .field-hint {
+  margin: 0;
+}
+
+/* Monthly timeline */
+
+.stats-timeline {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 130px;
+  padding: 10px 2px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.stats-timeline-col {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.stats-timeline-bar {
+  width: 100%;
+  max-width: 28px;
+  min-height: 3px;
+  border-radius: 4px 4px 0 0;
+  background: var(--violet);
+  transition: background 160ms ease;
+}
+
+.stats-timeline-col:hover .stats-timeline-bar {
+  background: var(--violet-light);
+}
+
+.stats-timeline-month {
+  flex: 0 0 auto;
+  overflow: hidden;
+  max-width: 100%;
+  color: var(--text-muted);
+  font-size: .64rem;
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Ranked list -- shared by every stat (artists, genres, moods, periods, and the
+   nerd page's provider/error breakdowns): a normalized "list with a number" so
+   every stat reads the same way instead of mixing bars, chips and lists. */
+
+.stats-rank-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stats-rank-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(169, 155, 255, .1);
+}
+
+.stats-rank-row:last-child {
+  border-bottom: 0;
+}
+
+.stats-rank-index {
+  color: var(--text-muted);
+  font-size: .76rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-rank-label {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: .88rem;
+  font-weight: 650;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.stats-rank-count {
+  color: var(--text-muted);
+  font-size: .78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* De-emphasized link to the technical/nerd page */
+
+.stats-footer {
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  text-align: right;
+}
+
+.stats-nerd-link {
+  color: var(--text-muted);
+  font-size: .76rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.stats-nerd-link:hover,
+.stats-nerd-link:focus-visible {
+  color: var(--text-secondary);
+}
+
+/* Detail page (statistics-detail.html): reuses the chip/rank-list styling above
+   for the full, untruncated list. */
+
+.stats-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 18px;
+  color: var(--text-muted);
+  font-size: .84rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.stats-back-link:hover,
+.stats-back-link:focus-visible {
+  color: var(--text-secondary);
+}
+
+@media (max-width: 620px) {
+  .stats-hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .stats-hero-secondary {
+    gap: 20px;
+  }
+
+  .stats-secondary-stat {
+    align-items: flex-start;
+  }
+
+  .stats-secondary-label {
+    text-align: left;
+  }
+
+  .stats-telemetry {
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stats-timeline-bar,
+  .stats-switch,
+  .stats-switch-thumb,
+  .stats-section {
+    transition: none;
+  }
+}

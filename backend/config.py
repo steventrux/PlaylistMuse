@@ -16,7 +16,8 @@ OPENROUTER_MODELS = {
     "openrouter_auto": "openrouter/auto",
     "openrouter_free": "openrouter/free",
 }
-PROFILE_FIELDS = ("model", "fallback_1", "fallback_2", "base_url")
+FALLBACK_FIELDS = tuple(f"fallback_{index}" for index in range(1, 9))
+PROFILE_FIELDS = ("model", *FALLBACK_FIELDS, "base_url")
 
 
 def api_key_slot(provider: str) -> str:
@@ -87,29 +88,29 @@ class AppConfig:
     model: str = ""
     fallback_1: str = ""
     fallback_2: str = ""
+    fallback_3: str = ""
+    fallback_4: str = ""
+    fallback_5: str = ""
+    fallback_6: str = ""
+    fallback_7: str = ""
+    fallback_8: str = ""
     base_url: str = ""
     provider_api_keys: dict[str, str] = field(default_factory=dict)
     provider_profiles: dict[str, dict[str, str]] = field(default_factory=dict)
 
+    def _own_profile(self) -> dict[str, str]:
+        return {field_name: getattr(self, field_name).strip() for field_name in PROFILE_FIELDS}
+
     @property
     def configured(self) -> bool:
-        return _profile_is_configured(
-            self.provider,
-            {
-                "model": self.model,
-                "fallback_1": self.fallback_1,
-                "fallback_2": self.fallback_2,
-                "base_url": self.base_url,
-            },
-            self.api_key,
-        )
+        return _profile_is_configured(self.provider, self._own_profile(), self.api_key)
 
     @property
     def model_chain(self) -> list[str]:
-        """Return the primary model followed by unique configured fallbacks."""
+        """Return the primary model followed by unique configured fallbacks, most-recent first."""
         models: list[str] = []
-        for value in (self.model, self.fallback_1, self.fallback_2):
-            model = value.strip()
+        for field_name in ("model", *FALLBACK_FIELDS):
+            model = getattr(self, field_name).strip()
             if model and model not in models:
                 models.append(model)
         return models
@@ -122,12 +123,7 @@ class AppConfig:
     def profile_for(self, provider: str) -> dict[str, str]:
         """Return the saved model settings for one provider."""
         if provider == self.provider:
-            profile = {
-                "model": self.model.strip(),
-                "fallback_1": self.fallback_1.strip(),
-                "fallback_2": self.fallback_2.strip(),
-                "base_url": self.base_url.strip(),
-            }
+            profile = self._own_profile()
         else:
             profile = _normalize_profile(self.provider_profiles.get(provider, {}))
         return _profile_with_shared_defaults(
@@ -142,10 +138,7 @@ class AppConfig:
         return AppConfig(
             provider=provider,
             api_key=self.provider_api_keys.get(api_key_slot(provider), "").strip(),
-            model=profile["model"],
-            fallback_1=profile["fallback_1"],
-            fallback_2=profile["fallback_2"],
-            base_url=profile["base_url"],
+            **profile,
             provider_api_keys=dict(self.provider_api_keys),
             provider_profiles={
                 name: _normalize_profile(values)
@@ -221,11 +214,9 @@ def _materialize_openrouter_profiles(
     if not keys.get("openrouter", "").strip():
         return
     for provider, model in OPENROUTER_MODELS.items():
-        profile = _normalize_profile(profiles.get(provider, {}))
+        # A fixed router has no fallback chain -- every other field is always empty.
+        profile = dict.fromkeys(PROFILE_FIELDS, "")
         profile["model"] = model
-        profile["fallback_1"] = ""
-        profile["fallback_2"] = ""
-        profile["base_url"] = ""
         profiles[provider] = profile
 
 
@@ -259,10 +250,7 @@ def _write_config_state(
     payload = {
         "managed": True,
         "provider": active_provider,
-        "model": active_profile["model"],
-        "fallback_1": active_profile["fallback_1"],
-        "fallback_2": active_profile["fallback_2"],
-        "base_url": active_profile["base_url"],
+        **active_profile,
         "api_keys": keys,
         "profiles": profiles,
     }
@@ -321,6 +309,9 @@ def load_config() -> AppConfig:
         active_profile["base_url"],
         enabled=use_environment,
     )
+    # fallback_3..fallback_8 are the automatic cascade -- always from the saved profile,
+    # no per-slot environment override (unlike the primary model and fallback_1/2 above).
+    extra_fallbacks = {name: active_profile[name] for name in FALLBACK_FIELDS[2:]}
 
     if provider:
         provider_profiles[provider] = {
@@ -328,6 +319,7 @@ def load_config() -> AppConfig:
             "fallback_1": fallback_1,
             "fallback_2": fallback_2,
             "base_url": base_url,
+            **extra_fallbacks,
         }
 
     return AppConfig(
@@ -337,6 +329,7 @@ def load_config() -> AppConfig:
         fallback_1=fallback_1,
         fallback_2=fallback_2,
         base_url=base_url,
+        **extra_fallbacks,
         provider_api_keys=provider_api_keys,
         provider_profiles=provider_profiles,
     )
@@ -353,12 +346,7 @@ def save_config(config: AppConfig) -> None:
             profiles[profile_name] = _normalize_profile(values)
 
     if config.provider:
-        profiles[config.provider] = {
-            "model": config.model.strip(),
-            "fallback_1": config.fallback_1.strip(),
-            "fallback_2": config.fallback_2.strip(),
-            "base_url": config.base_url.strip(),
-        }
+        profiles[config.provider] = config._own_profile()
 
     keys = _saved_api_keys(existing, existing_provider)
     for name, value in config.provider_api_keys.items():

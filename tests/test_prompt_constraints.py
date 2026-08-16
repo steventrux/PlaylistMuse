@@ -2,8 +2,9 @@ from backend.main import (
     SeedGenerateRequest,
     SeedTrack,
     _constraint_priority_prompt,
-    _discovery_prompt,
     _replenishment_prompt,
+    _seed_evidence_guidance,
+    _seed_lastfm_evidence_params,
     _seed_mode_instruction,
 )
 
@@ -19,17 +20,8 @@ def test_constraint_priority_prompt_keeps_original_request_and_hard_filters():
     assert "Use musical progression only to order tracks" in guarded
 
 
-def test_discovery_prompt_subordinates_lastfm_and_flow_to_user_constraints():
-    guided = _discovery_prompt(
-        "Italian summer hits released in 2026 only",
-        {
-            "tracks": [
-                {
-                    "artist": "Example Artist",
-                    "title": "Example Song",
-                }
-            ]
-        },
+def test_seed_evidence_guidance_folds_lastfm_signals_without_a_second_pass():
+    guidance = _seed_evidence_guidance(
         [
             {
                 "artist": "Suggested Artist",
@@ -37,13 +29,14 @@ def test_discovery_prompt_subordinates_lastfm_and_flow_to_user_constraints():
                 "lastfm_strategy": "similar_track",
             }
         ],
-        20,
+        seed_mode="strict",
     )
 
-    assert "hard filters" in guided
-    assert "Never silently broaden" in guided
-    assert "Musical flow may only order already compliant tracks" in guided
-    assert "Use Last.fm evidence only when it satisfies the original request" in guided
+    assert "Suggested Artist" in guidance
+    assert "Suggested Song" in guidance
+    assert "primary mandatory criterion" in guidance  # strict seed-mode instruction
+    assert "Use this evidence only when it satisfies the original request" in guidance
+    assert "first-pass ideas" not in guidance.lower()
 
 
 def test_replenishment_prompt_does_not_relax_constraints_to_fill_count():
@@ -68,9 +61,20 @@ def test_seed_modes_have_distinct_similarity_rules():
     exploratory = _seed_mode_instruction("exploratory")
 
     assert "primary mandatory criterion" in strict
-    assert "Most tracks should be close matches" in balanced
-    assert "allow a wider sequence" in exploratory
+    assert "close matches supported by Last.fm" in balanced
+    assert "real journey" in exploratory
     assert len({strict, balanced, exploratory}) == 3
+
+
+def test_seed_lastfm_evidence_params_vary_by_mode():
+    strict_limit, strict_broaden = _seed_lastfm_evidence_params("strict", 20)
+    balanced_limit, balanced_broaden = _seed_lastfm_evidence_params("balanced", 20)
+    exploratory_limit, exploratory_broaden = _seed_lastfm_evidence_params("exploratory", 20)
+
+    assert strict_broaden is False
+    assert balanced_broaden is False
+    assert exploratory_broaden is True
+    assert strict_limit < balanced_limit == exploratory_limit
 
 
 def test_seed_request_defaults_to_balanced_and_accepts_all_modes():

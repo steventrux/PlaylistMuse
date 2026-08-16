@@ -8,6 +8,7 @@ import backend.lastfm_discovery as discovery
 
 
 def test_seed_discovery_prefers_similar_tracks() -> None:
+    discovery._clear_cache()
     methods: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -59,6 +60,7 @@ def test_seed_discovery_prefers_similar_tracks() -> None:
 
 
 def test_seed_discovery_falls_back_to_similar_artist_signals() -> None:
+    discovery._clear_cache()
     methods: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -106,6 +108,133 @@ def test_seed_discovery_falls_back_to_similar_artist_signals() -> None:
     assert all(signal["anchor_title"] == "PARTENOPE" for signal in signals)
 
 
+def test_seed_discovery_caches_results_and_avoids_a_second_call() -> None:
+    discovery._clear_cache()
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200,
+            json={
+                "similartracks": {
+                    "track": [{"name": "Dream On", "artist": {"name": "Aerosmith"}, "match": "0.8"}]
+                }
+            },
+        )
+
+    async def run() -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as client:
+            first = await discovery.discover_for_seed(
+                "Queen", "Bohemian Rhapsody", api_key="test-key", client=client, now=lambda: 100.0,
+            )
+            second = await discovery.discover_for_seed(
+                "Queen", "Bohemian Rhapsody", api_key="test-key", client=client, now=lambda: 101.0,
+            )
+        return first, second
+
+    first, second = asyncio.run(run())
+
+    assert calls == 1
+    assert second == first
+
+
+def test_seed_discovery_does_not_cache_a_lastfm_error_response() -> None:
+    discovery._clear_cache()
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={"error": 11, "message": "Service Offline"})
+
+    async def run() -> None:
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as client:
+            await discovery.discover_for_seed(
+                "Queen", "Bohemian Rhapsody", api_key="test-key", client=client, now=lambda: 100.0,
+            )
+            await discovery.discover_for_seed(
+                "Queen", "Bohemian Rhapsody", api_key="test-key", client=client, now=lambda: 101.0,
+            )
+
+    asyncio.run(run())
+
+    # track.getsimilar + artist.getsimilar fallback, per attempt, both failing -> 4 calls total
+    assert calls == 4
+
+
+def test_seed_discovery_broaden_blends_related_artists_with_direct_matches() -> None:
+    discovery._clear_cache()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        method = request.url.params["method"]
+        if method == "track.getsimilar":
+            return httpx.Response(
+                200,
+                json={
+                    "similartracks": {
+                        "track": [
+                            {"name": "Dream On", "artist": {"name": "Aerosmith"}, "match": "0.9"},
+                        ]
+                    }
+                },
+            )
+        if method == "artist.getsimilar":
+            return httpx.Response(
+                200,
+                json={
+                    "similarartists": {
+                        "artist": [{"name": "Boston", "match": "0.6"}],
+                    }
+                },
+            )
+        raise AssertionError(f"Unexpected method: {method}")
+
+    async def run() -> list[dict[str, str]]:
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as client:
+            return await discovery.discover_for_seed(
+                "Queen", "Bohemian Rhapsody", limit=10, api_key="test-key",
+                client=client, broaden=True,
+            )
+
+    signals = asyncio.run(run())
+
+    assert {signal["artist"] for signal in signals} == {"Aerosmith", "Boston"}
+    assert any(signal["lastfm_strategy"] == "similar_track" for signal in signals)
+    assert any(signal["lastfm_strategy"] == "similar_artist" for signal in signals)
+
+
+def test_seed_discovery_without_broaden_skips_the_artist_call_when_tracks_found() -> None:
+    discovery._clear_cache()
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.params["method"])
+        return httpx.Response(
+            200,
+            json={
+                "similartracks": {
+                    "track": [{"name": "Dream On", "artist": {"name": "Aerosmith"}, "match": "0.9"}]
+                }
+            },
+        )
+
+    async def run() -> None:
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as client:
+            await discovery.discover_for_seed(
+                "Queen", "Bohemian Rhapsody", limit=10, api_key="test-key",
+                client=client, broaden=False,
+            )
+
+    asyncio.run(run())
+    assert calls == ["track.getsimilar"]
+
+
 def test_select_prompt_anchors_deduplicates_and_limits() -> None:
     tracks = [
         {"artist": "Artist A", "title": "Track A"},
@@ -122,52 +251,12 @@ def test_select_prompt_anchors_deduplicates_and_limits() -> None:
     ]
 
 
-def test_prompt_discovery_uses_distinct_ai_anchors(monkeypatch) -> None:
-    calls: list[tuple[str, str, int]] = []
-
-    monkeypatch.setattr(discovery, "lastfm_api_key", lambda: "saved-key")
-
-    async def fake_discover_for_seed(
-        artist,
-        title,
-        *,
-        limit=40,
-        api_key=None,
-        client=None,
-    ):
-        calls.append((artist, title, limit))
-        return [
-            {
-                "artist": f"Related to {artist}",
-                "title": f"Signal for {title}",
-                "source": "lastfm",
-                "lastfm_strategy": "similar_track",
-                "lastfm_match": "0.8",
-                "anchor_artist": artist,
-                "anchor_title": title,
-            }
-        ]
-
-    monkeypatch.setattr(discovery, "discover_for_seed", fake_discover_for_seed)
-
+def test_prompt_anchor_discovery_is_disabled() -> None:
     anchors = [
         {"artist": "Artist A", "title": "Track A"},
-        {"artist": "Artist A", "title": "Track A"},
         {"artist": "Artist B", "title": "Track B"},
-        {"artist": "Artist C", "title": "Track C"},
-        {"artist": "Artist D", "title": "Track D"},
     ]
 
     signals = asyncio.run(discovery.discover_from_anchors(anchors, limit=12))
 
-    assert [(artist, title) for artist, title, _ in calls] == [
-        ("Artist A", "Track A"),
-        ("Artist B", "Track B"),
-        ("Artist C", "Track C"),
-    ]
-    assert len(signals) == 3
-    assert [signal["anchor_title"] for signal in signals] == [
-        "Track A",
-        "Track B",
-        "Track C",
-    ]
+    assert signals == []
