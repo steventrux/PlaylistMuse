@@ -14,7 +14,8 @@
  */
 
 const COUNTER_KEY = "playlists_generated_total";
-const RATE_LIMIT_WINDOW_SECONDS = 10;
+// Cloudflare KV requires a minimum TTL of 60 seconds -- a shorter value throws.
+const RATE_LIMIT_WINDOW_SECONDS = 60;
 const USER_AGENT_PREFIX = "PlaylistMuse/";
 const BADGE_COLOR = "8B5CF6";
 
