@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from backend.ai_models import ModelDiscoveryError, discover_provider_models
 from backend.config import (
+    FALLBACK_FIELDS,
     AppConfig,
     activate_provider,
     api_key_matches_provider,
@@ -28,6 +29,7 @@ from backend.lastfm_settings import (
 from backend.onboarding import acknowledge_onboarding, onboarding_status
 from backend.playlist_cover import normalize_thumbnail_urls
 from backend.prompt_validation import assess_prompt
+from backend.telemetry import set_telemetry_enabled, telemetry_settings_response
 from backend.youtube_account import (
     YouTubeAccountError,
     disconnect_youtube,
@@ -95,6 +97,10 @@ class LastFmSettingsUpdate(BaseModel):
         if not normalized:
             raise ValueError("Enter a Last.fm API key.")
         return normalized
+
+
+class TelemetrySettingsUpdate(BaseModel):
+    enabled: bool
 
 
 class YouTubeSettingsUpdate(BaseModel):
@@ -181,8 +187,7 @@ def _model_discovery_config(request: AIModelDiscoveryRequest) -> AppConfig:
         provider=request.provider,
         api_key=api_key,
         model=provider_config.model,
-        fallback_1=provider_config.fallback_1,
-        fallback_2=provider_config.fallback_2,
+        **{name: getattr(provider_config, name) for name in FALLBACK_FIELDS},
         base_url=base_url,
         provider_api_keys=provider_api_keys,
         provider_profiles=dict(current.provider_profiles),
@@ -197,6 +202,16 @@ async def get_onboarding_status() -> dict[str, bool]:
 @router.post("/onboarding/acknowledge", tags=["onboarding"])
 async def acknowledge_initial_setup() -> dict[str, bool]:
     return acknowledge_onboarding()
+
+
+@router.get("/telemetry/settings", tags=["telemetry"])
+async def get_telemetry_settings() -> dict[str, object]:
+    return telemetry_settings_response()
+
+
+@router.put("/telemetry/settings", tags=["telemetry"])
+async def update_telemetry_settings(request: TelemetrySettingsUpdate) -> dict[str, object]:
+    return set_telemetry_enabled(request.enabled)
 
 
 @router.post("/playlists/validate-prompt", tags=["playlists"])

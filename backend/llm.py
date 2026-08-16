@@ -11,6 +11,13 @@ from typing import Any
 import httpx
 
 from backend.config import AppConfig
+from backend.constraint_interpreter import _dated_system_prompt
+from backend.provider_rate_limits import (
+    ProviderRateLimitedError,
+    cooldown_seconds_for_response,
+    is_rate_limited,
+    mark_rate_limited,
+)
 
 SYSTEM_PROMPT = """You are PlaylistMuse, an expert music playlist curator.
 Return only one valid JSON object with exactly this structure:
@@ -29,8 +36,10 @@ Return only one valid JSON object with exactly this structure:
 
 Curation protocol:
 - Before producing JSON, silently build a constraint checklist from the request and any internal guidance.
-- Apply requirements in this priority order: explicit mandatory constraints and placements; real-track identity and exclusions; requested structure, sequencing and progression; then coherence, variety and discovery preferences.
-- Never relax a mandatory requirement merely to improve variety. Use softer preferences only as tie-breakers after hard requirements are satisfied.
+- Apply requirements in this priority order: explicit mandatory constraints and placements; real-track identity and exclusions; the user's explicit core musical brief (genre or style, mood, energy, activity or listening context, and requested sound); requested structure, sequencing and progression; then generic coherence, variety, popularity and discovery preferences.
+- Hard constraints define which tracks are eligible. Within that compliant set, treat every explicit non-mandatory musical preference as a substantive playlist-wide selection objective, not merely as title or description metadata and not merely as a tie-breaker.
+- Do not collapse a request to its broad category, era, country, language or genre while ignoring an explicit mood, energy, activity, occasion or listening context. Every selected track must have a defensible role in that stated context; material contrasts belong only when the user asks for contrast or a progression that requires them.
+- Never relax a mandatory requirement to improve a soft objective, and never let generic popularity, variety, novelty or discovery override an explicit user preference.
 - Silently verify every selected song against the applicable hard constraints and against the songs already selected.
 - If the request asks for ordering, alternation, sections, transitions or an energy progression, design the sequence deliberately rather than treating the playlist as an unordered bag of songs.
 - Prefer canonical, confidently real released tracks over uncertain titles. When discovery or obscurity is requested, explore less obvious choices only while preserving factual confidence and all hard constraints.
@@ -57,7 +66,13 @@ Rules:
 OPENROUTER_PROVIDERS = {"openrouter_auto", "openrouter_free"}
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_BATCH_SIZE = 8
-PROVIDER_BATCH_SIZES = {"openrouter_free": 6, "ollama": 6}
+PROVIDER_BATCH_SIZES = {
+    "openrouter_free": 6,
+    "ollama": 6,
+    "gemini": 16,
+    "openrouter_auto": 16,
+    "anthropic": 16,
+}
 
 _GEMINI_SCHEMA_KEYS = {
     "$id",
@@ -282,9 +297,21 @@ def safe_error_message(error: Exception) -> str:
     return message
 
 
-def _raise_for_provider(response: httpx.Response, provider: str) -> None:
+def _raise_for_provider(
+    response: httpx.Response,
+    provider: str,
+    *,
+    provider_key: str | None = None,
+    model: str | None = None,
+) -> None:
     if response.is_success:
         return
+    if response.status_code == 429 and provider_key and model:
+        mark_rate_limited(
+            provider_key,
+            model,
+            cooldown_seconds=cooldown_seconds_for_response(response, provider_key),
+        )
     raise ProviderRequestError(
         provider,
         response.status_code,
@@ -335,6 +362,11 @@ async def _request_model(
     *,
     exact_count: bool = False,
 ) -> str:
+    if is_rate_limited(config.provider, model):
+        raise ProviderRateLimitedError(f"{config.provider}/{model} is cached as rate-limited")
+
+    dated_system_prompt = _dated_system_prompt(SYSTEM_PROMPT)
+
     if config.provider == "gemini":
         response = await client.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
@@ -343,7 +375,7 @@ async def _request_model(
                 "content-type": "application/json",
             },
             json={
-                "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+                "systemInstruction": {"parts": [{"text": dated_system_prompt}]},
                 "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
                 "generationConfig": {
                     "maxOutputTokens": min(65_536, max(8_192, count * 520)),
@@ -354,7 +386,7 @@ async def _request_model(
                 },
             },
         )
-        _raise_for_provider(response, "Gemini")
+        _raise_for_provider(response, "Gemini", provider_key=config.provider, model=model)
         return _gemini_text(response.json())
 
     if config.provider == "anthropic":
@@ -368,11 +400,11 @@ async def _request_model(
             json={
                 "model": model,
                 "max_tokens": min(32_000, max(8_192, count * 500)),
-                "system": SYSTEM_PROMPT,
+                "system": dated_system_prompt,
                 "messages": [{"role": "user", "content": user_prompt}],
             },
         )
-        _raise_for_provider(response, "Anthropic")
+        _raise_for_provider(response, "Anthropic", provider_key=config.provider, model=model)
         data = response.json()
         content = data.get("content")
         if not isinstance(content, list) or not content:
@@ -387,12 +419,12 @@ async def _request_model(
                 "stream": False,
                 "format": "json",
                 "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": dated_system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
             },
         )
-        _raise_for_provider(response, "Ollama")
+        _raise_for_provider(response, "Ollama", provider_key=config.provider, model=model)
         return str(response.json().get("message", {}).get("content", ""))
 
     if config.provider in OPENROUTER_PROVIDERS:
@@ -414,12 +446,12 @@ async def _request_model(
                 "plugins": [{"id": "response-healing"}],
                 "provider": {"require_parameters": True},
                 "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": dated_system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
             },
         )
-        _raise_for_provider(response, "OpenRouter")
+        _raise_for_provider(response, "OpenRouter", provider_key=config.provider, model=model)
         return _content_from_openai(response.json())
 
     base_url = config.base_url.rstrip("/") if config.base_url else "https://api.openai.com/v1"
@@ -433,12 +465,12 @@ async def _request_model(
             "model": model,
             "temperature": 0.7,
             "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": dated_system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
         },
     )
-    _raise_for_provider(response, "OpenAI-compatible provider")
+    _raise_for_provider(response, "OpenAI-compatible provider", provider_key=config.provider, model=model)
     return _content_from_openai(response.json())
 
 

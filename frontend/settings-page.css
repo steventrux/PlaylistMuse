@@ -1,38 +1,5 @@
-/* Dedicated, scalable settings workspace. */
-
-.settings-page-body {
-  min-height: 100vh;
-}
-
-.settings-page-header,
-.settings-page-main {
-  width: min(1040px, calc(100% - 40px));
-  margin-inline: auto;
-}
-
-.settings-page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 28px 0 20px;
-}
-
-.settings-brand {
-  display: inline-flex;
-  width: min(360px, 48vw);
-  text-decoration: none;
-}
-
-.settings-brand img {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-.settings-page-main {
-  padding-bottom: 48px;
-}
+/* Dedicated, scalable settings workspace -- lives inside the standard
+   .app-header + <main> shell shared with statistics.html/diagnostics.html. */
 
 .settings-page-shell {
   display: grid;
@@ -47,13 +14,13 @@
 }
 
 .settings-page-navigation {
-  padding: 28px 18px;
+  padding: 22px 16px;
   border-right: 1px solid var(--border);
   background: rgba(7, 10, 25, .48);
 }
 
 .settings-page-title-block {
-  padding: 0 10px 24px;
+  padding: 0 10px 18px;
 }
 
 .settings-page-title-block .eyebrow,
@@ -87,8 +54,11 @@
 
 .settings-section-link {
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   min-height: 42px;
-  padding: 9px 12px 9px 14px;
+  padding: 7px 12px 7px 14px;
   border: 0;
   border-radius: 11px;
   background: transparent;
@@ -100,15 +70,24 @@
   transition: color 160ms ease, background 160ms ease;
 }
 
-.settings-section-link::before {
-  content: "";
-  position: absolute;
-  top: 9px;
-  bottom: 9px;
-  left: 0;
-  width: 2px;
-  border-radius: 999px;
-  background: transparent;
+.settings-section-link svg {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  padding: 6px;
+  box-sizing: content-box;
+  border-radius: 50%;
+  background: rgba(139, 92, 246, .12);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: background 160ms ease;
+}
+
+.settings-section-link.active svg {
+  background: rgba(139, 92, 246, .24);
 }
 
 .settings-section-link:hover,
@@ -117,23 +96,24 @@
   color: var(--text-primary);
 }
 
+.settings-section-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(15, 19, 42, .9), 0 0 0 4px rgba(183, 156, 255, .65);
+}
+
 .settings-section-link.active {
   background: rgba(139, 92, 246, .12);
   color: var(--text-primary);
 }
 
-.settings-section-link.active::before {
-  background: var(--brand-gradient);
-}
-
 .settings-page-content {
   min-width: 0;
-  padding: 30px 34px 36px;
+  padding: 26px 32px 32px;
 }
 
 .settings-page-content-heading {
-  margin-bottom: 24px;
-  padding-bottom: 18px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -156,58 +136,11 @@
   margin-top: 0;
 }
 
-#settings-support-panel .settings-actions + .field-hint {
-  margin-top: 16px;
-}
-
 #settings-lastfm-host > .lastfm-settings-panel {
   padding: 0;
 }
 
-html.settings-embedded,
-html.settings-embedded body {
-  min-height: 100%;
-  background: transparent;
-}
-
-html.settings-embedded body::before {
-  display: none;
-}
-
-html.settings-embedded .settings-page-header {
-  display: none;
-}
-
-html.settings-embedded .settings-page-main {
-  width: 100%;
-  min-height: 100vh;
-  padding: 0;
-}
-
-html.settings-embedded .settings-page-shell {
-  min-height: 100vh;
-  border-radius: 22px;
-  box-shadow: none;
-}
-
-html.settings-embedded .settings-page-content-heading {
-  padding-right: 56px;
-}
-
 @media (max-width: 760px) {
-  .settings-page-header,
-  .settings-page-main {
-    width: min(100% - 24px, 680px);
-  }
-
-  .settings-page-header {
-    padding-top: 20px;
-  }
-
-  .settings-brand {
-    width: min(280px, calc(100vw - 90px));
-  }
-
   .settings-page-shell {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
@@ -251,15 +184,6 @@ html.settings-embedded .settings-page-content-heading {
     scroll-snap-align: start;
   }
 
-  .settings-section-link::before {
-    top: auto;
-    right: 11px;
-    bottom: 1px;
-    left: 11px;
-    width: auto;
-    height: 2px;
-  }
-
   .settings-page-content {
     padding: 20px 18px 28px;
   }
@@ -271,44 +195,6 @@ html.settings-embedded .settings-page-content-heading {
 
   .settings-page-content-heading h2 {
     font-size: 1.5rem;
-  }
-
-  #settings-support-panel .settings-actions {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
-  }
-
-  #settings-support-panel .settings-actions > a {
-    width: 100%;
-    justify-content: center;
-    text-align: center;
-  }
-
-  html.settings-embedded,
-  html.settings-embedded body {
-    height: 100%;
-    min-height: 100%;
-  }
-
-  html.settings-embedded .settings-page-main {
-    width: 100%;
-    height: 100%;
-    min-height: 100%;
-  }
-
-  html.settings-embedded .settings-page-shell {
-    height: 100%;
-    min-height: 100%;
-    border-radius: 18px;
-  }
-
-  html.settings-embedded .settings-page-navigation {
-    padding-top: 58px;
-  }
-
-  html.settings-embedded .settings-page-content-heading {
-    padding-right: 0;
   }
 }
 

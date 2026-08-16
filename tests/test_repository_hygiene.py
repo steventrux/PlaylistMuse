@@ -8,10 +8,23 @@ ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
 FRONTEND = ROOT / "frontend"
 STATIC_ASSET_RE = re.compile(r"/static/([A-Za-z0-9._/-]+)")
-HTML_ENTRY_POINTS = ("index.html", "playlist.html", "library.html", "settings.html")
+HTML_ENTRY_POINTS = (
+    "index.html",
+    "playlist.html",
+    "library.html",
+    "settings.html",
+    "statistics.html",
+    "statistics-nerd.html",
+    "statistics-detail.html",
+    "diagnostics.html",
+)
 REFERENCE_SOURCE_SUFFIXES = {".html", ".js", ".css"}
 RUNTIME_ASSET_SUFFIXES = {".js", ".css", ".png", ".svg"}
 BACKEND_ENTRYPOINTS = {"__init__", "application", "main"}
+# These modules are intentionally parked after restoring the proven low-latency
+# generation path. They remain covered by their focused tests but are not part of
+# the active runtime graph.
+PARKED_BACKEND_MODULES = {"reccobeats_runtime", "temporal_alias_guard"}
 
 OBSOLETE_PATHS = (
     "backend/runtime_fixes.py",
@@ -112,7 +125,9 @@ def test_backend_modules_are_reachable_from_runtime_code() -> None:
     orphaned = sorted(
         path.name
         for path in BACKEND.glob("*.py")
-        if path.stem not in BACKEND_ENTRYPOINTS and path.stem not in imported
+        if path.stem not in BACKEND_ENTRYPOINTS
+        and path.stem not in PARKED_BACKEND_MODULES
+        and path.stem not in imported
     )
     assert orphaned == []
 

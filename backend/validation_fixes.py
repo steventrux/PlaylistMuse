@@ -168,11 +168,13 @@ def _combine_periods(
 def effective_temporal_range(prompt: str) -> tuple[int, int] | None:
     """Return one exact interval only when all valid periods are contiguous."""
     from backend import prompt_validation as module
+    from backend.request_constraints import open_ended_year_range
 
+    open_range = open_ended_year_range(prompt)
     periods = _bounded_periods(module, prompt)
     alternatives, _ = _combine_periods(prompt, periods)
     if not alternatives:
-        return None
+        return open_range
 
     lower_bounds = [
         int(match.group(1)) + 1
@@ -190,6 +192,9 @@ def effective_temporal_range(prompt: str) -> tuple[int, int] | None:
         int(match.group(1))
         for match in module._UNTIL_RE.finditer(prompt)
     )
+    if open_range is not None:
+        lower_bounds.append(open_range[0])
+        upper_bounds.append(open_range[1])
     global_lower = max(lower_bounds) if lower_bounds else None
     global_upper = min(upper_bounds) if upper_bounds else None
 

@@ -7,8 +7,11 @@ from backend.metadata_validation import (
     TrackMetadata,
     ValidationResult,
     active_constraints,
+    activate_constraints,
     activate_constraints_from_prompt,
+    validate_metadata,
 )
+from backend.reccobeats_selector import deterministic_reccobeats_draft
 from backend.youtube import _metadata_filter
 
 
@@ -86,7 +89,6 @@ def test_metadata_filter_rejects_invalid_and_unknown_candidates(monkeypatch):
             ),
         )
 
-    monkeypatch.setattr("backend.youtube._read_cache", lambda *args, **kwargs: None)
     monkeypatch.setattr("backend.youtube.validate_candidate", fake_validate)
     candidates = [
         {"artist": "Artist", "title": "Valid"},
@@ -122,7 +124,6 @@ def test_metadata_filter_deduplicates_candidates_before_lookup(monkeypatch):
             ),
         )
 
-    monkeypatch.setattr("backend.youtube._read_cache", lambda *args, **kwargs: None)
     monkeypatch.setattr("backend.youtube.validate_candidate", fake_validate)
     candidates = [
         {"artist": "Artist", "title": "Song"},
@@ -136,31 +137,29 @@ def test_metadata_filter_deduplicates_candidates_before_lookup(monkeypatch):
     assert rejected == []
 
 
-def test_cached_metadata_does_not_consume_lookup_budget(monkeypatch):
+def test_zero_lookup_budget_rejects_rather_than_using_a_stale_cache_shortcut(monkeypatch):
+    """`_metadata_filter` used to have its own `_read_cache` fast path that accepted a
+    candidate straight from cache without ever calling `validate_candidate()` -- even
+    under a zero lookup budget. That was removed (2026-08-15) because a cache hit could
+    carry metadata validated for a different request's constraints. Now a zero budget
+    means every candidate is marked "unknown" (metadata lookup budget exceeded) rather
+    than silently accepted via a same-key cache entry."""
     activate_constraints_from_prompt("songs released in 2026 only")
 
-    cached = TrackMetadata(
-        artist="Cached Artist",
-        title="Cached Song",
-        original_release_year=2026,
-        match_score=0.96,
-        confidence="high",
-    )
-
     monkeypatch.setenv("METADATA_VALIDATION_MAX_LOOKUPS", "0")
-    monkeypatch.setattr("backend.youtube._read_cache", lambda *args, **kwargs: cached)
 
     async def fail_if_called(*args, **kwargs):
-        raise AssertionError("cached metadata must not trigger a network lookup")
+        raise AssertionError("a zero lookup budget must not trigger a network lookup")
 
     monkeypatch.setattr("backend.youtube.validate_candidate", fail_if_called)
 
     accepted, rejected = asyncio.run(
-        _metadata_filter([{"artist": "Cached Artist", "title": "Cached Song"}])
+        _metadata_filter([{"artist": "Some Artist", "title": "Some Song"}])
     )
 
-    assert len(accepted) == 1
-    assert rejected == []
+    assert accepted == []
+    assert len(rejected) == 1
+    assert rejected[0]["metadata_validation"]["status"] == "unknown"
 
 
 def test_metadata_filter_marks_candidates_beyond_budget_unknown(monkeypatch):
@@ -183,7 +182,6 @@ def test_metadata_filter_marks_candidates_beyond_budget_unknown(monkeypatch):
         )
 
     monkeypatch.setenv("METADATA_VALIDATION_MAX_LOOKUPS", "1")
-    monkeypatch.setattr("backend.youtube._read_cache", lambda *args, **kwargs: None)
     monkeypatch.setattr("backend.youtube.validate_candidate", fake_validate)
 
     accepted, rejected = asyncio.run(
@@ -200,6 +198,50 @@ def test_metadata_filter_marks_candidates_beyond_budget_unknown(monkeypatch):
     assert rejected[0]["title"] == "Song B"
     assert rejected[0]["metadata_validation"]["status"] == "unknown"
     assert "Metadata lookup budget exceeded" in rejected[0]["metadata_validation"]["warnings"]
+
+
+def test_recco_deterministic_fallback_still_obeys_active_country_constraint(monkeypatch):
+    activate_constraints(MetadataConstraints(artist_country="IT"))
+    draft = deterministic_reccobeats_draft(
+        [
+            {
+                "artist": "Italian Artist",
+                "title": "Italian Song",
+                "source": "reccobeats",
+                "reccobeats_id": "it-1",
+                "popularity": 70,
+            },
+            {
+                "artist": "Foreign Artist",
+                "title": "Foreign Song",
+                "source": "reccobeats",
+                "reccobeats_id": "us-1",
+                "popularity": 80,
+            },
+        ],
+        count=2,
+    )
+    assert draft is not None
+
+    async def fake_validate(candidate, constraints, client=None):
+        country = "IT" if candidate["artist"] == "Italian Artist" else "US"
+        metadata = TrackMetadata(
+            artist=candidate["artist"],
+            title=candidate["title"],
+            artist_country=country,
+            match_score=0.96,
+            confidence="high",
+        )
+        return validate_metadata(metadata, constraints)
+
+    monkeypatch.setattr("backend.youtube.validate_candidate", fake_validate)
+
+    accepted, rejected = asyncio.run(_metadata_filter(draft["tracks"]))
+
+    assert [candidate["artist"] for candidate in accepted] == ["Italian Artist"]
+    assert [candidate["artist"] for candidate in rejected] == ["Foreign Artist"]
+    assert rejected[0]["metadata_validation"]["status"] == "invalid"
+    assert "artist country US does not match IT" in rejected[0]["metadata_validation"]["violations"]
 
 
 def test_replacement_prompt_shape_preserves_metadata_constraints():

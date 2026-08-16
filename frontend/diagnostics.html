@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#070916">
+  <link rel="icon" type="image/png" href="/static/playlistmuse-favicon.png?v=1">
+  <title>Diagnostics · PlaylistMuse</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v=10">
+  <link rel="stylesheet" href="/static/layout.css?v=5">
+  <link rel="stylesheet" href="/static/controls.css?v=8">
+  <link rel="stylesheet" href="/static/settings-dialog.css?v=7">
+  <link rel="stylesheet" href="/static/header-navigation.css?v=13">
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">AI playlist studio</p>
+      <h1>PlaylistMuse</h1>
+    </div>
+    <a class="secondary library-header-link" href="/" aria-label="Home" title="Home">Create playlist</a>
+  </header>
+
+  <main>
+    <section class="card settings-dialog-card" aria-label="Diagnostics">
+      <div class="settings-summary">
+        <h3>Bug reports and diagnostics</h3>
+        <p class="field-hint">
+          If PlaylistMuse behaves unexpectedly, download a diagnostic report and attach it to a GitHub bug report together with the steps needed to reproduce the problem.
+        </p>
+        <p id="support-build-info" class="settings-status">Checking running version&hellip;</p>
+      </div>
+
+      <div class="settings-actions">
+        <a id="download-diagnostics" class="secondary" href="/api/diagnostics/report">Download diagnostic report</a>
+        <a id="report-bug" class="primary" href="https://github.com/steventrux/PlaylistMuse/issues/new?template=bug_report.yml" target="_blank" rel="noopener noreferrer">Report a bug on GitHub</a>
+      </div>
+
+      <p class="field-hint">
+        The report contains build information, configuration state and recent application errors. Known credentials and common secret formats are redacted automatically. Review the archive before sharing it and never upload your <code>.env</code>, raw configuration files or OAuth token files.
+      </p>
+    </section>
+  </main>
+
+  <script src="/static/common.js?v=7"></script>
+  <script src="/static/diagnostics-client.js?v=1"></script>
+  <script src="/static/support.js?v=3"></script>
+  <script src="/static/home-status.js?v=26"></script>
+</body>
+</html>

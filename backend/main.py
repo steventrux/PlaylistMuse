@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+import logging
 import re
+import time
+from collections.abc import AsyncIterator, Callable
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
 from backend.config import (
+    FALLBACK_FIELDS,
     AppConfig,
     api_key_matches_provider,
     api_key_slot,
@@ -20,25 +26,30 @@ from backend.config import (
     save_config,
 )
 from backend.constraint_interpreter import interpret_constraints
+from backend.generation_counter import record_generation
+from backend.generation_errors import record_generation_error
 from backend.generation_runtime import (
+    _LAST_INTERPRETED_CONSTRAINTS,
     discover_for_seed as similar_track_candidates,
-    discover_from_anchors,
     generate_playlist_draft,
     resolve_candidates,
 )
-from backend.lastfm_discovery import select_prompt_anchors
 from backend.llm import safe_error_message
+from backend.metadata_validation import extract_metadata_constraints
 from backend.playlist_ordering import (
     chronological_order_from_payload,
     order_tracks_by_release_date,
 )
+from backend.playlist_stats import compute_stats
 from backend.prompt_analysis import analyze_prompt_semantics
-from backend.version import APP_VERSION
+from backend.telemetry import report_playlist_generated, telemetry_enabled
+from backend.version import APP_VERSION, with_playlist_signature
 from backend.youtube import search_songs, track_identity_key
 from backend.youtube_routes import router as youtube_router
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND = ROOT / "frontend"
+logger = logging.getLogger("playlistmuse.performance")
 
 AI_PROVIDERS = (
     "gemini",
@@ -74,6 +85,30 @@ _SEED_MODE: ContextVar[str] = ContextVar(
     "playlistmuse_seed_mode",
     default="",
 )
+_GENERATION_PROGRESS: ContextVar[Callable[[str], None] | None] = ContextVar(
+    "playlistmuse_generation_progress",
+    default=None,
+)
+
+GENERATION_STAGE_MESSAGES = {
+    "llm_initial": "Interpreting your request and drafting the playlist…",
+    "catalogue_resolution_initial": "Validating tracks and resolving them on YouTube Music…",
+    "llm_replenishment": "Refining the playlist to fill any gaps…",
+    "catalogue_resolution_replenishment": "Validating the new tracks on YouTube Music…",
+}
+
+
+def _emit_progress(stage: str) -> None:
+    """Notify an in-flight streaming request of a generation-stage transition, if any.
+
+    A plain no-op for every existing caller of _generate(): the callback is only ever set
+    by the streaming endpoints below, via a ContextVar (same pattern as _SEED_MODE etc.)
+    so _generate()'s signature never has to change.
+    """
+    callback = _GENERATION_PROGRESS.get()
+    if callback is not None:
+        callback(stage)
+
 
 app = FastAPI(
     title="PlaylistMuse",
@@ -109,23 +144,55 @@ def _seed_mode_instruction(mode: str) -> str:
         return (
             "STRICT seed mode: musical similarity to the seed is the primary mandatory "
             "criterion. Prefer exact Last.fm similar-track evidence. Keep style, timbre, "
-            "energy, mood and era close to the seed. Do not add contrast tracks, broad "
-            "genre neighbours or famous songs merely to create a journey. Variety and "
-            "flow must never weaken similarity."
+            "energy, mood and era close to the seed, and stay within the seed's own "
+            "subgenre and scene throughout -- do not drift into adjacent subgenres even "
+            "if they share some Last.fm overlap. Do not add contrast tracks, broad genre "
+            "neighbours or famous songs merely to create a journey. Variety and flow must "
+            "never weaken similarity. If in doubt about a candidate, leave it out."
         )
     if mode == "exploratory":
         return (
-            "EXPLORATORY seed mode: begin close to the seed, then allow a wider sequence "
-            "through defensible musical links. Every track must still connect through at "
-            "least one concrete characteristic such as sound, rhythm, mood, instrumentation, "
-            "scene or artist affinity. Avoid arbitrary contrast or unrelated hits."
+            "EXPLORATORY seed mode: this must read as a real journey, not a repeat of the "
+            "seed's exact subgenre track after track. Start close to the seed, then "
+            "deliberately range further as the playlist progresses: pull in adjacent "
+            "subgenres, different eras, and artists the seed influenced or was influenced "
+            "by -- not just its closest sonic neighbours. Do not favor remixes or reworks "
+            "as a way to add variety; the request's own exclude/include filters already "
+            "govern recording versions -- use different songs and artists to create range, "
+            "not different versions of the same recording. Roughly half the tracks or more "
+            "should come from outside the seed's immediate subgenre. Every track must still "
+            "connect through at least one concrete, statable characteristic (sound, rhythm, "
+            "mood, instrumentation, scene or artist affinity) -- explain that link, don't "
+            "just assert similarity. Avoid arbitrary contrast or songs with no defensible "
+            "connection to the seed."
         )
     return (
-        "BALANCED seed mode: keep the seed clearly central. Most tracks should be close "
-        "matches supported by Last.fm or strong musical affinity, with a limited number "
-        "of compatible variations. Flow may organise the result but may not override "
-        "similarity to the seed."
+        "BALANCED seed mode: keep the seed clearly central. Roughly two-thirds to three-"
+        "quarters of tracks should be close matches supported by Last.fm or strong musical "
+        "affinity; deliberately include a handful (roughly one-quarter to one-third) of "
+        "compatible variations -- an adjacent subgenre, a different era, or a related "
+        "artist -- rather than staying entirely within the seed's exact sound. Flow may "
+        "organise the result but may not override similarity to the seed."
     )
+
+
+def _seed_lastfm_evidence_params(mode: str, track_count: int) -> tuple[int, bool]:
+    """Return (limit, broaden) for the seed's Last.fm evidence fetch, tuned per mode.
+
+    Prompt wording alone wasn't enough to make the three seed modes feel meaningfully
+    different (verified live, 2026-08-15): all three were fed the identical evidence pool,
+    so the model had little reason to diversify even when instructed to. Strict now
+    requests a tighter pool (Last.fm already returns matches ranked by score, so a smaller
+    limit keeps only the closest ones); exploratory requests `broaden=True`, blending in
+    related-artist signals for genuine breadth. This costs one extra Last.fm HTTP call for
+    exploratory only (~0.7s, measured) -- balanced/strict are unaffected.
+    """
+    default_limit = min(MAX_LASTFM_CONTEXT_TRACKS, max(20, track_count * 2))
+    if mode == "strict":
+        return min(MAX_LASTFM_CONTEXT_TRACKS, max(10, track_count)), False
+    if mode == "exploratory":
+        return default_limit, True
+    return default_limit, False
 
 
 class SettingsResponse(BaseModel):
@@ -133,6 +200,12 @@ class SettingsResponse(BaseModel):
     model: str
     fallback_1: str
     fallback_2: str
+    fallback_3: str
+    fallback_4: str
+    fallback_5: str
+    fallback_6: str
+    fallback_7: str
+    fallback_8: str
     base_url: str
     configured: bool
     api_key_set: bool
@@ -153,6 +226,12 @@ class SettingsUpdate(BaseModel):
     model: str = Field(min_length=1, max_length=120)
     fallback_1: str = Field(default="", max_length=120)
     fallback_2: str = Field(default="", max_length=120)
+    fallback_3: str = Field(default="", max_length=120)
+    fallback_4: str = Field(default="", max_length=120)
+    fallback_5: str = Field(default="", max_length=120)
+    fallback_6: str = Field(default="", max_length=120)
+    fallback_7: str = Field(default="", max_length=120)
+    fallback_8: str = Field(default="", max_length=120)
     base_url: str = ""
 
 
@@ -231,7 +310,67 @@ def _clarity_level(score: int) -> str:
     return "Needs clarification"
 
 
-def _score_prompt_analysis(analysis: dict, track_count: int) -> dict:
+_TEMPORAL_RANGE_POINTS = 20
+_TEMPORAL_OPEN_POINTS = 8
+_ARTIST_COUNTRY_POINTS = 3
+
+
+def _performance_cost(prompt: str) -> tuple[int, list[str]]:
+    """Points reflecting known extra catalogue-validation cost, not just semantic difficulty.
+
+    Reuses extract_metadata_constraints -- the same local, regex-based, no-network heuristic
+    that generation already falls back to -- so this adds no extra AI/network call and no
+    extra latency to the live-typing complexity indicator. Only covers constraints with a
+    currently measured or well-understood extra cost:
+    - An exact release year, or a closed release-year range (from AND to), makes every
+      candidate pay for a second MusicBrainz lookup unconditionally (see
+      _historical_probe_cutoff in metadata_validation.py) -- directly measured at ~180s vs
+      ~3s for 25 candidates in one real generation (roughly 60% of total generation time in
+      that run). Weighted heavily relative to the semantic-complexity categories below, since
+      this single factor can outweigh all of them combined in real wall-clock terms.
+    - An open-ended release-year bound (only "from" or only "to") sometimes triggers the
+      same second lookup, but only when the primary result doesn't already satisfy it.
+    - An artist-country constraint adds one extra MusicBrainz artist lookup per new artist
+      (cached 90 days, so cheap after the first use, but real on a cold cache).
+
+    This is a heuristic on the raw prompt text, not the AI-verified constraint interpretation
+    used at generation time -- it can occasionally miss an unusually-phrased constraint, or
+    flag a phrase that turns out not to be one. It only affects the displayed complexity
+    estimate, never actual generation behavior.
+    """
+    constraints = extract_metadata_constraints(prompt)
+    points = 0
+    reasons: list[str] = []
+
+    if constraints.release_year is not None or (
+        constraints.release_year_from is not None
+        and constraints.release_year_to is not None
+    ):
+        points += _TEMPORAL_RANGE_POINTS
+        reasons.append(
+            "Release-year constraint: every candidate needs a second catalogue lookup "
+            "to confirm the true original release date."
+        )
+    elif (
+        constraints.release_year_from is not None
+        or constraints.release_year_to is not None
+    ):
+        points += _TEMPORAL_OPEN_POINTS
+        reasons.append(
+            "Release-year constraint: some candidates may need an extra catalogue lookup."
+        )
+
+    if constraints.artist_country is not None:
+        points += _ARTIST_COUNTRY_POINTS
+        reasons.append(
+            "Artist-origin constraint: new artists need an extra catalogue lookup "
+            "(cached after the first use)."
+        )
+
+    return points, reasons
+
+
+def _score_prompt_analysis(analysis: dict, track_count: int, prompt: str) -> dict:
     dimensions = list(dict.fromkeys(analysis["dimensions"]))
     structures = list(dict.fromkeys(analysis["structures"]))
     hard_constraints = int(analysis["hard_constraints"])
@@ -245,6 +384,7 @@ def _score_prompt_analysis(analysis: dict, track_count: int) -> dict:
         25, sum(_STRUCTURE_POINTS.get(item, 0) for item in structures)
     )
     relation_score = min(15, 3 * relations)
+    performance_points, performance_notes = _performance_cost(prompt)
     score = min(
         100,
         5
@@ -252,7 +392,8 @@ def _score_prompt_analysis(analysis: dict, track_count: int) -> dict:
         + constraint_score
         + structure_score
         + relation_score
-        + _quantity_points(track_count),
+        + _quantity_points(track_count)
+        + performance_points,
     )
 
     ambiguities = analysis["ambiguities"]
@@ -283,6 +424,7 @@ def _score_prompt_analysis(analysis: dict, track_count: int) -> dict:
         "structures": len(structures),
         "relations": relations,
         "issues": issues,
+        "performance_notes": performance_notes,
     }
 
 
@@ -331,6 +473,12 @@ def _settings_response(config: AppConfig) -> SettingsResponse:
         model=config.model,
         fallback_1=config.fallback_1,
         fallback_2=config.fallback_2,
+        fallback_3=config.fallback_3,
+        fallback_4=config.fallback_4,
+        fallback_5=config.fallback_5,
+        fallback_6=config.fallback_6,
+        fallback_7=config.fallback_7,
+        fallback_8=config.fallback_8,
         base_url=config.base_url,
         configured=config.configured,
         api_key_set=api_key_matches_provider(config.provider, config.api_key),
@@ -344,6 +492,122 @@ def _candidate_key(candidate: dict) -> str:
     return track_identity_key(
         str(candidate.get("title", "")),
         str(candidate.get("artist", candidate.get("artists", ""))),
+    )
+
+
+def _increment_counter(counter: dict[str, int], key: str) -> None:
+    counter[key] = counter.get(key, 0) + 1
+
+
+def _metadata_reason_labels(
+    item: dict[str, Any],
+    *,
+    temporal_required: bool,
+    artist_country_required: bool,
+) -> set[str]:
+    validation = item.get("metadata_validation")
+    if not isinstance(validation, dict):
+        return set()
+
+    labels: set[str] = set()
+    violations = validation.get("violations")
+    if isinstance(violations, list):
+        for violation in violations:
+            text = str(violation).casefold()
+            if "release year" in text:
+                labels.add("release_year")
+            elif "artist country" in text:
+                labels.add("artist_country")
+            elif "album" in text:
+                labels.add("album")
+            elif "artist" in text:
+                labels.add("artist")
+            else:
+                labels.add("metadata_violation")
+
+    warnings = validation.get("warnings")
+    if isinstance(warnings, list):
+        for warning in warnings:
+            text = str(warning).casefold()
+            if "no musicbrainz match" in text:
+                labels.add("no_musicbrainz_match")
+            elif "match confidence is too low" in text:
+                labels.add("low_musicbrainz_confidence")
+            elif "lookup budget exceeded" in text:
+                labels.add("lookup_budget")
+            elif "metadata lookup unavailable" in text:
+                labels.add("metadata_service_unavailable")
+
+    status = str(validation.get("status", "")).strip().casefold()
+    if not labels and status == "unknown":
+        if temporal_required and validation.get("original_release_year") is None:
+            labels.add("missing_release_year")
+        if artist_country_required and not validation.get("artist_country"):
+            labels.add("missing_artist_country")
+        if not labels:
+            labels.add("metadata_unknown")
+    elif not labels and status:
+        labels.add(f"metadata_{status}")
+    return labels
+
+
+def _log_catalogue_diagnostics(
+    stage: str,
+    candidates: list[dict[str, Any]],
+    selected: list[dict[str, Any]],
+    unresolved: list[dict[str, Any]],
+    *,
+    accepted: int | None = None,
+    playlist_before: int = 0,
+) -> None:
+    from backend.metadata_validation import active_constraints
+
+    constraints = active_constraints()
+    temporal_required = any(
+        value is not None
+        for value in (
+            constraints.release_year,
+            constraints.release_year_from,
+            constraints.release_year_to,
+        )
+    )
+    artist_country_required = constraints.artist_country is not None
+    unresolved_reasons: dict[str, int] = {}
+    metadata_reasons: dict[str, int] = {}
+
+    for item in unresolved:
+        if not isinstance(item, dict):
+            _increment_counter(unresolved_reasons, "unknown")
+            continue
+        validation = item.get("metadata_validation")
+        reason = str(item.get("unresolved_reason") or "").strip()
+        if isinstance(validation, dict):
+            _increment_counter(
+                unresolved_reasons,
+                reason or "metadata_validation",
+            )
+            for label in _metadata_reason_labels(
+                item,
+                temporal_required=temporal_required,
+                artist_country_required=artist_country_required,
+            ):
+                _increment_counter(metadata_reasons, label)
+        elif reason:
+            _increment_counter(unresolved_reasons, reason)
+        else:
+            _increment_counter(unresolved_reasons, "youtube_resolution")
+
+    logger.info(
+        "catalogue_diagnostics stage=%s candidates=%s selected=%s accepted=%s "
+        "playlist_before=%s unresolved=%s unresolved_reasons=%s metadata_reasons=%s",
+        stage,
+        len(candidates),
+        len(selected),
+        len(selected) if accepted is None else accepted,
+        playlist_before,
+        len(unresolved),
+        dict(sorted(unresolved_reasons.items())),
+        dict(sorted(metadata_reasons.items())),
     )
 
 
@@ -367,19 +631,16 @@ def _artist_identity_keys(value: str) -> set[str]:
     return keys
 
 
-def _discovery_prompt(
-    original_prompt: str,
-    first_draft: dict,
-    candidates: list[dict[str, str]],
-    count: int,
-    *,
-    seed_mode: str = "",
-) -> str:
-    first_pass = "\n".join(
-        f"- {track.get('artist', 'Unknown artist')} — "
-        f"{track.get('title', 'Unknown track')}"
-        for track in first_draft.get("tracks", [])[:count]
-    )
+def _seed_evidence_guidance(candidates: list[dict[str, str]], *, seed_mode: str) -> str:
+    """Fold Last.fm seed evidence directly into the single initial draft prompt.
+
+    Seed requests always have real Last.fm-derived candidates before any draft exists
+    (unlike prompt-based generation, whose lastfm_candidates is always empty -- see
+    discover_from_anchors's deliberate no-op in lastfm_discovery.py). Folding the evidence
+    into the one llm_initial draft, instead of running a second llm_guided draft
+    afterwards, removes an entire redundant LLM generation pass (with its own quota-repair
+    and creative-repair rounds) for every seed request.
+    """
     evidence = "\n".join(
         f"- {candidate.get('artist', 'Unknown artist')} — "
         f"{candidate.get('title', 'Unknown track')} "
@@ -388,25 +649,15 @@ def _discovery_prompt(
     )
     seed_instruction = f"\n{_seed_mode_instruction(seed_mode)}\n" if seed_mode else ""
     return (
-        f"Create the final playlist for this request:\n{original_prompt}\n\n"
-        "MANDATORY PRIORITY: preserve every explicit constraint in the original request. "
-        "Dates, years, eras, languages, countries, markets, exclusions and words such as "
-        "only or exactly are hard filters. A candidate that violates one must be rejected, "
-        "even if it improves coherence, discovery, variety or flow. Never silently broaden "
-        "the request. Musical flow may only order already compliant tracks."
         f"{seed_instruction}\n"
-        "You have two complementary inputs:\n"
-        "1. Your own first-pass musical ideas.\n"
-        "2. Last.fm collaborative-listening evidence derived from the seed or from "
-        "representative tracks in the first pass.\n\n"
-        f"First-pass ideas:\n{first_pass or '- None'}\n\n"
-        f"Last.fm evidence:\n{evidence or '- None'}\n\n"
-        f"Return a final playlist of up to {count} tracks. Use Last.fm evidence only when "
-        "it satisfies the original request and the selected seed mode. You may select "
-        "tracks not listed above only when they satisfy every mandatory constraint and "
-        "have a clear musical justification. Do not add contrast tracks merely to create "
-        "a narrative arc. For every selected song, write a natural song description and "
-        "a playlist-specific reason. Use canonical artist and released track names."
+        "Last.fm collaborative-listening evidence derived from the seed:\n"
+        f"{evidence or '- None'}\n\n"
+        "Use this evidence only when it satisfies the original request and the selected "
+        "seed mode. You may also select tracks not listed above when they satisfy every "
+        "mandatory constraint and have a clear musical justification. Do not mechanically "
+        "copy the evidence list; use your own musical judgment. For every selected song, "
+        "write a natural song description and a playlist-specific reason. Use canonical "
+        "artist and released track names."
     )
 
 
@@ -612,54 +863,54 @@ def _replenishment_prompt(
     )
 
 
+def _initial_draft_overshoot(count: int) -> int:
+    """Extra tracks to request in the very first draft, beyond the target `count`.
+
+    Every replenishment round after the first already over-requests based on assumed
+    catalogue-resolution yield (`_optimized_replenishment_request`), but the initial draft
+    asked for exactly `count` with no safety margin -- so any request that loses even a
+    few candidates to resolution failure fell straight into a full extra LLM +
+    catalogue-resolution round trip. The replenishment loop's own exit condition
+    (`missing = count - len(tracks)`) and the final `tracks[:count]` truncation already
+    handle an over-sized result for free, so this costs nothing beyond a marginally
+    longer prompt on the same single initial call.
+    """
+    return min(8, max(3, round(count * 0.15)))
+
+
 async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     config = load_config()
     seed_mode = _SEED_MODE.get()
-    first_draft = await generate_playlist_draft(
-        config,
-        _constraint_priority_prompt(prompt),
-        count,
-    )
-
     lastfm_anchors = list(_SEED_ANCHORS.get())
     lastfm_candidates = list(_SEED_RECOMMENDATIONS.get())
-    if not lastfm_candidates:
-        prompt_anchors = select_prompt_anchors(first_draft.get("tracks", []))
-        lastfm_anchors.extend(
-            {
-                "artist": anchor["artist"],
-                "title": anchor["title"],
-                "kind": "ai_draft",
-            }
-            for anchor in prompt_anchors
-        )
-        lastfm_candidates = await discover_from_anchors(
-            prompt_anchors,
-            limit=min(MAX_LASTFM_CONTEXT_TRACKS, max(20, count * 2)),
-        )
 
-    draft = first_draft
-    guidance_applied = False
+    initial_prompt = _constraint_priority_prompt(prompt)
     if lastfm_candidates:
-        guided_prompt = _discovery_prompt(
-            prompt,
-            first_draft,
-            lastfm_candidates,
-            count,
-            seed_mode=seed_mode,
-        )
-        try:
-            draft = await generate_playlist_draft(config, guided_prompt, count)
-            guidance_applied = True
-        except Exception:
-            draft = first_draft
+        initial_prompt += _seed_evidence_guidance(lastfm_candidates, seed_mode=seed_mode)
+
+    _emit_progress("llm_initial")
+    draft = await generate_playlist_draft(
+        config,
+        initial_prompt,
+        count + _initial_draft_overshoot(count),
+        is_seed_generation=bool(lastfm_anchors),
+    )
+    guidance_applied = bool(lastfm_candidates)
 
     draft_tracks = _annotate_lastfm_sources(
         list(draft.get("tracks", [])),
         lastfm_candidates,
     )
     exclusions = options.model_dump()
+    _emit_progress("catalogue_resolution_initial")
     tracks, unresolved = await resolve_candidates(draft_tracks, exclusions)
+    _log_catalogue_diagnostics(
+        "initial",
+        draft_tracks,
+        tracks,
+        unresolved,
+        playlist_before=0,
+    )
 
     attempted_candidates = list(draft_tracks)
     attempted_keys = {_candidate_key(candidate) for candidate in attempted_candidates}
@@ -670,7 +921,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     resolved_ids = {track.get("video_id") for track in tracks if track.get("video_id")}
 
     stalled_rounds = 0
-    for _ in range(MAX_REPLENISHMENT_ROUNDS):
+    for round_index in range(MAX_REPLENISHMENT_ROUNDS):
         missing = count - len(tracks)
         if missing <= 0:
             break
@@ -687,6 +938,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
             lastfm_candidates,
             seed_mode=seed_mode,
         )
+        _emit_progress("llm_replenishment")
         refill = await generate_playlist_draft(config, refill_prompt, pool_size)
         refill_tracks = _annotate_lastfm_sources(
             list(refill.get("tracks", [])),
@@ -707,6 +959,8 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
                 break
             continue
 
+        playlist_before = len(tracks)
+        _emit_progress("catalogue_resolution_replenishment")
         newly_resolved, newly_unresolved = await resolve_candidates(
             fresh_candidates,
             exclusions,
@@ -729,6 +983,14 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
             if len(tracks) >= count:
                 break
 
+        _log_catalogue_diagnostics(
+            f"replenishment_{round_index + 1}",
+            fresh_candidates,
+            newly_resolved,
+            newly_unresolved,
+            accepted=added,
+            playlist_before=playlist_before,
+        )
         stalled_rounds = 0 if added else stalled_rounds + 1
         if stalled_rounds >= MAX_STALLED_ROUNDS:
             break
@@ -747,7 +1009,9 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     if active_policy is not None:
         final_tracks = apply_track_positions(final_tracks, active_policy)
 
-    interpretation = await interpret_constraints(config, prompt)
+    interpretation = _LAST_INTERPRETED_CONSTRAINTS.get()
+    if interpretation is None:
+        interpretation = await interpret_constraints(config, prompt)
     chronological_order = chronological_order_from_payload(interpretation, prompt)
     if chronological_order is not None:
         ordered_tracks = await order_tracks_by_release_date(
@@ -772,7 +1036,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
 
     return {
         "name": draft["title"],
-        "description": draft["description"],
+        "description": with_playlist_signature(draft["description"]),
         "prompt": prompt,
         "requested_count": count,
         "resolved_count": count,
@@ -790,6 +1054,12 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
 @app.get("/api/health")
 async def health() -> dict[str, str]:
     return {"status": "healthy", "application": "PlaylistMuse"}
+
+
+@app.get("/api/stats")
+async def get_stats() -> dict:
+    """Local-only aggregate statistics -- nothing here is sent anywhere."""
+    return compute_stats()
 
 
 @app.get("/api/settings", response_model=SettingsResponse)
@@ -813,21 +1083,18 @@ async def update_settings(request: SettingsUpdate) -> SettingsResponse:
     active_key = provider_api_keys.get(slot, "")
 
     model = request.model.strip()
-    fallback_1 = request.fallback_1.strip()
-    fallback_2 = request.fallback_2.strip()
+    fallbacks = {name: getattr(request, name).strip() for name in FALLBACK_FIELDS}
     base_url = request.base_url.strip()
     if request.provider in OPENROUTER_MODELS:
         model = OPENROUTER_MODELS[request.provider]
-        fallback_1 = ""
-        fallback_2 = ""
+        fallbacks = dict.fromkeys(FALLBACK_FIELDS, "")
         base_url = ""
 
     config = AppConfig(
         provider=request.provider,
         api_key=active_key,
         model=model,
-        fallback_1=fallback_1,
-        fallback_2=fallback_2,
+        **fallbacks,
         base_url=base_url,
         provider_api_keys=provider_api_keys,
     )
@@ -850,13 +1117,40 @@ async def seed_search(
     return {"query": q, "results": songs}
 
 
+async def _generate_with_telemetry(work: Callable[[], Any]) -> dict:
+    """Time one top-level generation, record it, and tag the result with which
+    provider produced it.
+
+    Wraps `_generate()`/`_generate_from_seed_playlist()` at the route boundary (not
+    inside `_generate()` itself) because seed-mode generation can call `_generate()`
+    internally more than once per user-facing request (`_seed_other_tracks()` retries
+    once if the AI reproduces the seed track) -- hooking inside `_generate()` would
+    double-count those retries as separate playlists.
+    """
+    started = time.perf_counter()
+    result = await work()
+    elapsed_ms = round((time.perf_counter() - started) * 1000)
+    result["generation_meta"] = {
+        "provider": load_config().provider or "unknown",
+        "duration_ms": elapsed_ms,
+    }
+    record_generation()
+    if telemetry_enabled():
+        asyncio.create_task(report_playlist_generated())
+    return result
+
+
 @app.post("/api/playlists/generate")
 async def generate_playlist(request: GenerateRequest) -> dict:
     try:
-        return await _generate(request.prompt, request.track_count, request.options)
+        return await _generate_with_telemetry(
+            lambda: _generate(request.prompt, request.track_count, request.options)
+        )
     except ValueError as error:
+        record_generation_error(error)
         raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
     except Exception as error:
+        record_generation_error(error)
         raise HTTPException(
             status_code=502,
             detail="Playlist generation failed. Please try again.",
@@ -872,7 +1166,7 @@ async def analyze_prompt(request: PromptAnalysisRequest) -> dict:
             track_count=request.track_count,
             options=request.options.model_dump(),
         )
-        return _score_prompt_analysis(semantics, request.track_count)
+        return _score_prompt_analysis(semantics, request.track_count, request.prompt)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
     except Exception as error:
@@ -882,19 +1176,73 @@ async def analyze_prompt(request: PromptAnalysisRequest) -> dict:
         ) from error
 
 
-@app.post("/api/playlists/generate-from-seed")
-async def generate_from_seed(request: SeedGenerateRequest) -> dict:
+def _is_seed_track(track: dict, seed: SeedTrack, seed_key: str) -> bool:
+    return track.get("video_id") == seed.video_id or track_identity_key(
+        track.get("title", ""), track.get("artists", "")
+    ) == seed_key
+
+
+async def _seed_other_tracks(
+    prompt: str,
+    other_count: int,
+    options: PlaylistOptions,
+    seed: SeedTrack,
+    seed_key: str,
+) -> tuple[dict, dict | None]:
+    """Ask _generate() for exactly `other_count` tracks distinct from the seed.
+
+    _generate() itself guarantees exactly `other_count` verified, quota-checked tracks. The
+    only way this can fall short of the seed handler's needs is if the AI independently
+    reproduces the seed among its own suggestions; that is retried once, explicitly
+    forbidding the seed song, so the caller never has to fall back to silently dropping an
+    already-verified track to make room for the seed.
+    """
+    attempt_prompt = prompt
+    reproduced_track: dict | None = None
+    for _ in range(2):
+        result = await _generate(attempt_prompt, other_count, options)
+        match = next(
+            (track for track in result["tracks"] if _is_seed_track(track, seed, seed_key)),
+            None,
+        )
+        if match is None:
+            return result, reproduced_track
+        reproduced_track = reproduced_track or match
+        attempt_prompt = (
+            f"{prompt}\n\nDo not include '{seed.title}' by {seed.artists} among your "
+            "suggestions -- it is already the playlist's first track."
+        )
+    raise ValueError(
+        "PlaylistMuse could not find enough tracks distinct from the seed song. "
+        "Try a different seed or request more tracks."
+    )
+
+
+async def _generate_from_seed_playlist(request: SeedGenerateRequest) -> dict:
+    """Build a seed-anchored playlist. Raises ValueError/Exception like _generate() itself.
+
+    Extracted from the generate-from-seed endpoint (pure refactor, no behavior change) so
+    both the plain JSON endpoint and the streaming endpoint below can share it.
+    """
     seed = request.seed
+    seed_key = track_identity_key(seed.title, seed.artists)
+    other_count = request.track_count - 1
     prompt = (
         f"Create a playlist from the seed song '{seed.title}' by {seed.artists}. "
         f"{_seed_mode_instruction(request.seed_mode)} The seed must remain the primary "
         "reference for every selection. Do not let editorial sequencing or a narrative "
-        "journey override the selected similarity mode."
+        "journey override the selected similarity mode. Do not include "
+        f"'{seed.title}' by {seed.artists} itself among your suggestions -- it is "
+        "already the playlist's first track; suggest only other songs related to it."
+    )
+    lastfm_limit, lastfm_broaden = _seed_lastfm_evidence_params(
+        request.seed_mode, request.track_count
     )
     lastfm_candidates = await similar_track_candidates(
         seed.artists,
         seed.title,
-        limit=min(MAX_LASTFM_CONTEXT_TRACKS, max(20, request.track_count * 2)),
+        limit=lastfm_limit,
+        broaden=lastfm_broaden,
     )
     seed_anchor = {
         "artist": seed.artists,
@@ -905,56 +1253,144 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
     anchor_token = _SEED_ANCHORS.set((seed_anchor,))
     mode_token = _SEED_MODE.set(request.seed_mode)
     try:
-        result = await _generate(prompt, request.track_count, request.options)
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
-    except Exception as error:
-        raise HTTPException(
-            status_code=502,
-            detail="Playlist generation failed. Please try again.",
-        ) from error
+        result, reproduced_track = await _seed_other_tracks(
+            prompt, other_count, request.options, seed, seed_key
+        )
     finally:
         _SEED_MODE.reset(mode_token)
         _SEED_ANCHORS.reset(anchor_token)
         _SEED_RECOMMENDATIONS.reset(recommendation_token)
 
     seed_payload = seed.model_dump()
-    seed_key = track_identity_key(seed.title, seed.artists)
-    matching_track = next(
-        (
-            track
-            for track in result["tracks"]
-            if track_identity_key(
-                track.get("title", ""),
-                track.get("artists", ""),
-            )
-            == seed_key
-        ),
-        None,
-    )
+    # The seed is a user-chosen reference track, not a generated suggestion: it always
+    # appears first regardless of exclude_live/exclude_covers/exclude_remixes -- it is
+    # deliberately never routed through resolve_candidates()'s exclusion filters.
     seed_payload["description"] = (
-        (matching_track or {}).get("description")
+        (reproduced_track or {}).get("description")
         or "The reference song that establishes the playlist's core sound, mood and energy."
     )
     seed_payload["reason"] = (
-        (matching_track or {}).get("reason")
+        (reproduced_track or {}).get("reason")
         or "It anchors the sequence because every other selection was chosen in response to its musical character."
     )
 
-    remaining_tracks = [
-        track
-        for track in result["tracks"]
-        if track.get("video_id") != seed.video_id
-        and track_identity_key(track.get("title", ""), track.get("artists", ""))
-        != seed_key
-    ]
-    result["tracks"] = [seed_payload, *remaining_tracks][: request.track_count]
+    result["tracks"] = [seed_payload, *result["tracks"]]
     result["resolved_count"] = len(result["tracks"])
     result["seed"] = seed_payload
     result["seed_mode"] = request.seed_mode
     if isinstance(result.get("lastfm"), dict):
         _refresh_lastfm_selection(result["lastfm"], result["tracks"])
     return result
+
+
+@app.post("/api/playlists/generate-from-seed")
+async def generate_from_seed(request: SeedGenerateRequest) -> dict:
+    try:
+        return await _generate_with_telemetry(
+            lambda: _generate_from_seed_playlist(request)
+        )
+    except ValueError as error:
+        record_generation_error(error)
+        raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
+    except Exception as error:
+        record_generation_error(error)
+        raise HTTPException(
+            status_code=502,
+            detail="Playlist generation failed. Please try again.",
+        ) from error
+
+
+def _sse_event(payload: dict[str, Any]) -> bytes:
+    return f"data: {json.dumps(payload)}\n\n".encode()
+
+
+async def _stream_generation(
+    work: Callable[[], Any],
+) -> AsyncIterator[bytes]:
+    """Run `work()` in the background, streaming SSE progress events as it advances.
+
+    `work` is a zero-argument callable returning the generation coroutine (either
+    `_generate(...)` or `_generate_from_seed_playlist(...)`). The progress callback is set
+    on `_GENERATION_PROGRESS` here, before the background task is created, so the task's
+    copy of the context (asyncio.Task snapshots the current context at creation time) sees
+    it -- _generate() itself never needs a callback parameter.
+    """
+    queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
+    last_stage: dict[str, str | None] = {"key": None, "message": None}
+
+    def on_progress(stage: str) -> None:
+        message = GENERATION_STAGE_MESSAGES.get(stage)
+        if message:
+            last_stage["key"] = stage
+            last_stage["message"] = message
+            queue.put_nowait(("stage", {"stage": stage, "message": message}))
+
+    async def run() -> None:
+        try:
+            result = await work()
+            await queue.put(("result", {"playlist": result}))
+        except ValueError as error:
+            record_generation_error(error)
+            await queue.put((
+                "error",
+                {
+                    "stage": last_stage["key"],
+                    "stage_message": last_stage["message"],
+                    "message": safe_error_message(error),
+                },
+            ))
+        except Exception as error:  # noqa: BLE001 - translated into one safe SSE error event.
+            record_generation_error(error)
+            await queue.put((
+                "error",
+                {
+                    "stage": last_stage["key"],
+                    "stage_message": last_stage["message"],
+                    "message": "Playlist generation failed. Please try again.",
+                },
+            ))
+
+    token = _GENERATION_PROGRESS.set(on_progress)
+    task = asyncio.ensure_future(run())
+    try:
+        while True:
+            kind, payload = await queue.get()
+            yield _sse_event({"type": kind, **payload})
+            if kind in ("result", "error"):
+                break
+    finally:
+        _GENERATION_PROGRESS.reset(token)
+        if not task.done():
+            task.cancel()
+
+
+_SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+
+
+@app.post("/api/playlists/generate/stream")
+async def generate_playlist_stream(request: GenerateRequest) -> StreamingResponse:
+    return StreamingResponse(
+        _stream_generation(
+            lambda: _generate_with_telemetry(
+                lambda: _generate(request.prompt, request.track_count, request.options)
+            )
+        ),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
+
+
+@app.post("/api/playlists/generate-from-seed/stream")
+async def generate_from_seed_stream(request: SeedGenerateRequest) -> StreamingResponse:
+    return StreamingResponse(
+        _stream_generation(
+            lambda: _generate_with_telemetry(
+                lambda: _generate_from_seed_playlist(request)
+            )
+        ),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
 
 
 @app.post("/api/playlists/replace-track")

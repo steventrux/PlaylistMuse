@@ -18,6 +18,38 @@ _OPEN_ENDED_DECADE_PATTERNS = (
         re.IGNORECASE,
     ),
 )
+_OPEN_ENDED_YEAR_PATTERNS = (
+    re.compile(
+        r"\b(?:dal|dall['’]?|a\s+partire\s+dal)\s+(?P<year>19\d{2}|20\d{2})\s+"
+        r"(?:ad|a|fino\s+ad?|fino\s+a)\s+oggi\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bfrom\s+(?P<year>19\d{2}|20\d{2})\s+"
+        r"(?:to|until|through)\s+(?:today|now|the\s+present)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:de|depuis)\s+(?P<year>19\d{2}|20\d{2})\s+"
+        r"(?:à|a|jusqu['’]?(?:à|a))\s+(?:aujourd['’]?hui|maintenant|le\s+présent)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bdesde\s+(?P<year>19\d{2}|20\d{2})\s+"
+        r"(?:hasta\s+)?(?:hoy|la\s+actualidad|ahora)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bvon\s+(?P<year>19\d{2}|20\d{2})\s+bis\s+"
+        r"(?:heute|jetzt|zur\s+gegenwart)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bdesde\s+(?P<year>19\d{2}|20\d{2})\s+"
+        r"(?:até|ate)\s+(?:hoje|agora|o\s+presente)\b",
+        re.IGNORECASE,
+    ),
+)
 
 
 def open_ended_year_range(
@@ -25,15 +57,24 @@ def open_ended_year_range(
     *,
     current_year: int | None = None,
 ) -> tuple[int, int] | None:
-    """Return an explicit decade-to-present range when the wording proves it locally."""
+    """Return an explicit decade/year-to-present range when wording proves it locally."""
     text = " ".join(str(prompt).split())
+    end = current_year or datetime.now(UTC).year
+
     for pattern in _OPEN_ENDED_DECADE_PATTERNS:
         match = pattern.search(text)
         if not match:
             continue
         decade = int(match.group("decade"))
         start = 1900 + decade if decade >= 30 else 2000 + decade
-        end = current_year or datetime.now(UTC).year
+        if start <= end:
+            return start, end
+
+    for pattern in _OPEN_ENDED_YEAR_PATTERNS:
+        match = pattern.search(text)
+        if not match:
+            continue
+        start = int(match.group("year"))
         if start <= end:
             return start, end
     return None

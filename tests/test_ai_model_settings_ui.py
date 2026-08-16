@@ -58,7 +58,9 @@ def test_hidden_fallbacks_remain_saved_and_reconciled() -> None:
     settings = _read("ai-settings.js")
 
     assert "function reconcileHiddenFallbacks" in settings
-    assert "fallback_1: $('ai-fallback-1').value.trim()" in settings
-    assert "fallback_2: $('ai-fallback-2').value.trim()" in settings
-    assert "defaults.fallback1" in settings
-    assert "defaults.fallback2" in settings
+    assert "const MAX_FALLBACKS = 8" in settings
+    assert "fallbackFields[`fallback_${index}`] = $(fallbackFieldId(index)).value.trim()" in settings
+    # Fallbacks are reconciled from the provider's own verified recency order, not a
+    # hardcoded per-provider default -- see reconcileHiddenFallbacks's fallbackOrder param.
+    assert "reconcileHiddenFallbacks(provider, models, fallbackOrder = [])" in settings
+    assert "fallbackOrder.forEach((candidate) => {" in settings

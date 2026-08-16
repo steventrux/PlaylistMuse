@@ -99,12 +99,14 @@
     const popover = document.getElementById('prompt-complexity-popover');
     const score = document.getElementById('prompt-complexity-score');
     const summary = document.getElementById('prompt-complexity-summary');
+    const performance = document.getElementById('prompt-complexity-performance');
     const clarity = document.getElementById('prompt-clarity');
-    if (!prompt || !component || !trigger || !popover || !score || !summary || !clarity) return;
+    if (!prompt || !component || !trigger || !popover || !score || !summary || !performance || !clarity) return;
 
     const cache = new Map();
     let timer = null;
     let controller = null;
+    let activeRequestKey = null;
     let requestSequence = 0;
 
     const settings = () => ({
@@ -113,6 +115,8 @@
       excludeCovers: document.getElementById('exclude-covers')?.checked,
       excludeRemixes: document.getElementById('exclude-remixes')?.checked,
     });
+
+    const currentPayloadKey = () => JSON.stringify(analysisPayload(prompt.value, settings()));
 
     const setPopoverOpen = (open) => {
       trigger.setAttribute('aria-expanded', String(open));
@@ -140,6 +144,13 @@
         `${result.structures} structural ${result.structures === 1 ? 'rule' : 'rules'}`,
       ].join(' · ');
       clarity.textContent = clarityText(result);
+      const performanceNotes = Array.isArray(result.performance_notes) ? result.performance_notes : [];
+      performance.replaceChildren(...performanceNotes.map((note) => {
+        const item = document.createElement('li');
+        item.textContent = String(note || '');
+        return item;
+      }));
+      performance.classList.toggle('hidden', performanceNotes.length === 0);
       renderFilterConflicts(filterConflicts(result));
       component.classList.remove('hidden');
     };
@@ -162,6 +173,7 @@
       controller?.abort();
       const requestController = new AbortController();
       controller = requestController;
+      activeRequestKey = key;
       const sequence = ++requestSequence;
       try {
         const response = await fetch('/api/prompts/analyze', {
@@ -180,19 +192,32 @@
         if (error.name !== 'AbortError' && sequence === requestSequence) hideComponent();
         return null;
       } finally {
-        if (controller === requestController) controller = null;
+        if (controller === requestController) {
+          controller = null;
+          activeRequestKey = null;
+        }
       }
     };
 
     ensureCurrentAnalysisImpl = async () => {
       window.clearTimeout(timer);
       timer = null;
+      const key = currentPayloadKey();
+      if (cache.has(key)) {
+        const cached = cache.get(key);
+        render(cached);
+        return cached;
+      }
+      // Do not abort and duplicate the same request merely because Generate was clicked.
+      // The backend generation path independently enforces hard prompt/filter constraints.
+      if (controller && activeRequestKey === key) return null;
       return analyze();
     };
 
     const schedule = () => {
       window.clearTimeout(timer);
       controller?.abort();
+      renderFilterConflicts([]);
       timer = window.setTimeout(() => {
         timer = null;
         void analyze();

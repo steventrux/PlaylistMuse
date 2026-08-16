@@ -40,6 +40,22 @@
     return payload;
   }
 
+  const SETTINGS_SECTIONS = new Set(['ai', 'youtube', 'lastfm']);
+
+  function openSettings(section) {
+    const target = SETTINGS_SECTIONS.has(section) ? section : 'ai';
+    if (
+      window.location.pathname.endsWith('/settings.html')
+      && typeof window.PlaylistMuseSettingsSelect === 'function'
+    ) {
+      window.PlaylistMuseSettingsSelect(target);
+      return;
+    }
+    const url = new URL('/static/settings.html', window.location.origin);
+    url.searchParams.set('section', target);
+    window.location.assign(`${url.pathname}${url.search}`);
+  }
+
   function setLoadingButton(button, options) {
     const {
       label,
@@ -86,7 +102,7 @@
     };
   }
 
-  return Object.freeze({readJson, setLoadingButton});
+  return Object.freeze({readJson, setLoadingButton, openSettings});
 }));
 
 (() => {
@@ -107,6 +123,11 @@
     if (
       path.endsWith('/library.html')
       || path.endsWith('/playlist.html')
+      || path.endsWith('/statistics.html')
+      || path.endsWith('/statistics-nerd.html')
+      || path.endsWith('/statistics-detail.html')
+      || path.endsWith('/diagnostics.html')
+      || path.endsWith('/settings.html')
       || path === '/'
       || path.endsWith('/index.html')
     ) {
@@ -142,13 +163,16 @@
     navigation.setAttribute('aria-label', 'Primary playlist navigation');
 
     links.forEach((link) => {
+      const icon = link.querySelector('svg');
       const label = link.querySelector('span')?.textContent?.trim()
         || link.textContent.trim();
       const active = link.getAttribute('aria-current') === 'page';
 
       link.className = 'primary-page-link';
       link.classList.toggle('active', active);
-      link.replaceChildren(label);
+      const labelSpan = document.createElement('span');
+      labelSpan.textContent = label;
+      link.replaceChildren(...(icon ? [icon] : []), labelSpan);
       navigation.append(link);
     });
 
@@ -164,14 +188,14 @@
 
   function installSupportNavigation() {
     const sidebarNav = document.querySelector('.playlistmuse-sidebar .sidebar-nav');
-    if (!sidebarNav || sidebarNav.querySelector('[data-settings-section="support"]')) return;
+    if (!sidebarNav || sidebarNav.querySelector('[data-page="diagnostics"]')) return;
 
     const group = document.createElement('section');
     group.className = 'sidebar-group';
     group.setAttribute('aria-labelledby', 'sidebar-support-label');
     group.innerHTML = `
       <p id="sidebar-support-label" class="sidebar-group-label">Support</p>
-      <a class="sidebar-link" data-settings-section="support" href="/static/settings.html?section=support">
+      <a class="sidebar-link" data-page="diagnostics" href="/static/diagnostics.html">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <circle cx="12" cy="12" r="8.5" />
           <path d="M7.5 12h2.4l1.5-3.5 2.2 7 1.5-3.5h1.4" />
@@ -180,15 +204,17 @@
       </a>
     `;
 
-    const link = group.querySelector('[data-settings-section="support"]');
-    link?.addEventListener('click', (event) => {
-      if (typeof window.PlaylistMuseSettingsOverlay?.open !== 'function') return;
-      event.preventDefault();
-      document.querySelector('.playlistmuse-sidebar .sidebar-close')?.click();
-      window.PlaylistMuseSettingsOverlay.open('support');
-    });
+    const activeLink = group.querySelector('[data-page="diagnostics"]');
+    if (window.location.pathname.endsWith('/diagnostics.html')) {
+      activeLink?.classList.add('active');
+      activeLink?.setAttribute('aria-current', 'page');
+    }
 
-    sidebarNav.append(group);
+    // Statistics (Insights) stays the last group in the sidebar, right above the
+    // footer, so Support is inserted before it rather than appended at the end.
+    const insightsGroup = sidebarNav.querySelector('[aria-labelledby="sidebar-insights-label"]');
+    if (insightsGroup) insightsGroup.before(group);
+    else sidebarNav.append(group);
   }
 
   function installPromptAssessmentStyles() {
