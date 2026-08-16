@@ -10,6 +10,7 @@ from backend.build_info import current_build_info
 from backend.source_revision import git_revision
 from backend.version import (
     APP_VERSION,
+    MAX_PLAYLIST_DESCRIPTION_LENGTH,
     PLAYLIST_SIGNATURE,
     REPOSITORY_URL,
     USER_AGENT,
@@ -38,9 +39,37 @@ def test_playlist_signature_is_appended_once() -> None:
     assert with_playlist_signature(signed) == signed
 
 
+def test_playlist_signature_includes_a_link_back_to_the_project() -> None:
+    assert REPOSITORY_URL in PLAYLIST_SIGNATURE
+
+
 def test_playlist_signature_handles_an_empty_description() -> None:
     assert with_playlist_signature("") == PLAYLIST_SIGNATURE
     assert with_playlist_signature("   ") == PLAYLIST_SIGNATURE
+
+
+def test_playlist_signature_trims_an_overlong_description_instead_of_dropping_it() -> None:
+    overlong = "x" * (MAX_PLAYLIST_DESCRIPTION_LENGTH + 500)
+
+    signed = with_playlist_signature(overlong)
+
+    assert len(signed) <= MAX_PLAYLIST_DESCRIPTION_LENGTH
+    assert signed.endswith(f"\n\n{PLAYLIST_SIGNATURE}")
+    body = signed[: -len(f"\n\n{PLAYLIST_SIGNATURE}")]
+    assert body == "x" * (len(body) - 1) + "…"
+
+
+def test_playlist_signature_trims_at_a_word_boundary() -> None:
+    words = "supercalifragilisticexpialidocious " * 200
+    overlong = words.strip()
+
+    signed = with_playlist_signature(overlong)
+
+    assert len(signed) <= MAX_PLAYLIST_DESCRIPTION_LENGTH
+    assert signed.endswith(f"\n\n{PLAYLIST_SIGNATURE}")
+    body = signed[: -len(f"\n\n{PLAYLIST_SIGNATURE}")]
+    assert body.endswith("…")
+    assert not body[:-1].endswith(" ")
 
 
 def test_resolved_commit_sha_is_the_untruncated_source_for_running_commit(monkeypatch) -> None:
