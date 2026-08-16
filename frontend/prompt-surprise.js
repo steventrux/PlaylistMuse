@@ -1,10 +1,6 @@
 (() => {
   'use strict';
 
-  const prompt = document.getElementById('prompt');
-  const button = document.getElementById('prompt-surprise');
-  if (!prompt) return;
-
   const MUSIC_FAMILIES = [
     {
       core: ['classic rock', 'blues rock', 'hard rock', 'roots rock', 'heartland rock', 'garage rock', 'folk rock', 'southern rock'],
@@ -168,6 +164,9 @@
   };
 
   let previousPrompt = '';
+  const FAMILY_HISTORY_SIZE = Math.min(5, MUSIC_FAMILIES.length - 1);
+  let recentFamilies = [];
+  let previousOpener = null;
 
   function pick(items) {
     return items[Math.floor(Math.random() * items.length)];
@@ -187,6 +186,19 @@
     return copy;
   }
 
+  function pickFamily() {
+    const available = MUSIC_FAMILIES.filter((family) => !recentFamilies.includes(family));
+    const family = pick(available.length ? available : MUSIC_FAMILIES);
+    recentFamilies = [family, ...recentFamilies].slice(0, FAMILY_HISTORY_SIZE);
+    return family;
+  }
+
+  function pickOpener() {
+    const opener = OPENERS.length > 1 ? pickDifferent(OPENERS, previousOpener) : pick(OPENERS);
+    previousOpener = opener;
+    return opener;
+  }
+
   function wordCount(value) {
     return String(value).trim().split(/\s+/).filter(Boolean).length;
   }
@@ -200,7 +212,7 @@
 
   function rawPrompt(profileName) {
     const profile = PROFILES[profileName];
-    const family = pick(MUSIC_FAMILIES);
+    const family = pickFamily();
     const genres = buildGenrePhrase(family);
     const dimensions = shuffled([
       ['mood', pick(MOODS)],
@@ -210,7 +222,7 @@
     ]).slice(0, profile.extraDimensions());
 
     const clauses = dimensions.map(([kind, value]) => CLAUSE_BUILDERS[kind](value));
-    const sentence = `${pick(OPENERS)(genres)} ${clauses.join(', ')}.`;
+    const sentence = `${pickOpener()(genres)} ${clauses.join(', ')}.`;
 
     if (Math.random() < profile.creativeChance) {
       return `${sentence} ${pick(CREATIVE_DIRECTIONS)}`;
@@ -239,22 +251,31 @@
     return closest || rawPrompt(profileName);
   }
 
-  function surpriseMe() {
-    let next = buildPrompt('surprise');
-    for (let attempt = 0; attempt < 8 && next === previousPrompt; attempt += 1) {
-      next = buildPrompt('surprise');
-    }
-    previousPrompt = next;
+  function init() {
+    const prompt = document.getElementById('prompt');
+    const button = document.getElementById('prompt-surprise');
+    if (!prompt) return;
 
-    prompt.value = next;
-    prompt.dispatchEvent(new Event('input', {bubbles: true}));
-    prompt.focus();
-    prompt.setSelectionRange(prompt.value.length, prompt.value.length);
+    function surpriseMe() {
+      let next = buildPrompt('surprise');
+      for (let attempt = 0; attempt < 8 && next === previousPrompt; attempt += 1) {
+        next = buildPrompt('surprise');
+      }
+      previousPrompt = next;
+
+      prompt.value = next;
+      prompt.dispatchEvent(new Event('input', {bubbles: true}));
+      prompt.focus();
+      prompt.setSelectionRange(prompt.value.length, prompt.value.length);
+    }
+
+    const example = buildPrompt('example');
+    prompt.placeholder = example;
+    previousPrompt = example;
+
+    button?.addEventListener('click', surpriseMe);
   }
 
-  const example = buildPrompt('example');
-  prompt.placeholder = example;
-  previousPrompt = example;
-
-  button?.addEventListener('click', surpriseMe);
+  window.PlaylistMusePromptSurprise = {buildPrompt, MUSIC_FAMILIES, pickFamily};
+  if (typeof document !== 'undefined') init();
 })();
