@@ -29,6 +29,7 @@ from backend.lastfm_settings import (
 from backend.onboarding import acknowledge_onboarding, onboarding_status
 from backend.playlist_cover import normalize_thumbnail_urls
 from backend.prompt_validation import assess_prompt
+from backend.telemetry import set_telemetry_enabled, telemetry_settings_response
 from backend.youtube_account import (
     YouTubeAccountError,
     disconnect_youtube,
@@ -96,6 +97,10 @@ class LastFmSettingsUpdate(BaseModel):
         if not normalized:
             raise ValueError("Enter a Last.fm API key.")
         return normalized
+
+
+class TelemetrySettingsUpdate(BaseModel):
+    enabled: bool
 
 
 class YouTubeSettingsUpdate(BaseModel):
@@ -197,6 +202,16 @@ async def get_onboarding_status() -> dict[str, bool]:
 @router.post("/onboarding/acknowledge", tags=["onboarding"])
 async def acknowledge_initial_setup() -> dict[str, bool]:
     return acknowledge_onboarding()
+
+
+@router.get("/telemetry/settings", tags=["telemetry"])
+async def get_telemetry_settings() -> dict[str, object]:
+    return telemetry_settings_response()
+
+
+@router.put("/telemetry/settings", tags=["telemetry"])
+async def update_telemetry_settings(request: TelemetrySettingsUpdate) -> dict[str, object]:
+    return set_telemetry_enabled(request.enabled)
 
 
 @router.post("/playlists/validate-prompt", tags=["playlists"])

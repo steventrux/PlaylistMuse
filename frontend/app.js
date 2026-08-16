@@ -564,7 +564,7 @@
   }));
 
   $('ai-open-settings').addEventListener('click', () => {
-    window.PlaylistMuseSettingsOverlay?.open('ai');
+    window.PlaylistMuseCommon.openSettings('ai');
   });
   $('close-setup').addEventListener('click', closeSetup);
   $('setup-skip').addEventListener('click', closeSetup);

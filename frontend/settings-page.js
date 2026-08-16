@@ -1,30 +1,20 @@
 (() => {
   'use strict';
 
-  const SECTIONS = new Set(['ai', 'youtube', 'lastfm', 'support']);
+  const SECTIONS = new Set(['ai', 'youtube', 'lastfm']);
   const sectionTitles = {
     ai: 'AI',
     youtube: 'YouTube Music',
     lastfm: 'Last.fm',
-    support: 'Diagnostics',
   };
   const sectionEyebrows = {
     ai: 'Integration',
     youtube: 'Integration',
     lastfm: 'Integration',
-    support: 'Support',
   };
 
   const $ = (id) => document.getElementById(id);
   const query = new URLSearchParams(window.location.search);
-  const embedded = query.get('embedded') === '1' && window.parent !== window;
-
-  function safeReturnTarget() {
-    const raw = query.get('return') || '/';
-    if (!raw.startsWith('/') || raw.startsWith('//')) return '/';
-    if (raw.startsWith('/static/settings.html')) return '/';
-    return raw;
-  }
 
   function requestedSection() {
     const value = query.get('section') || 'ai';
@@ -32,18 +22,15 @@
   }
 
   function updateLocation(section) {
-    if (embedded) return;
     const url = new URL(window.location.href);
     url.searchParams.set('section', section);
-    if (!url.searchParams.has('return')) url.searchParams.set('return', safeReturnTarget());
     window.history.replaceState({settingsSection: section}, '', `${url.pathname}${url.search}${url.hash}`);
   }
 
   function sectionPanel(section) {
     if (section === 'ai') return $('setup-ai-step');
     if (section === 'youtube') return $('setup-youtube-step');
-    if (section === 'lastfm') return $('settings-lastfm-host');
-    return $('settings-support-panel');
+    return $('settings-lastfm-host');
   }
 
   function notifySectionOpened(section) {
@@ -79,21 +66,8 @@
     notifySectionOpened(selected);
   }
 
-  function closeSettings() {
-    if (embedded) {
-      window.parent.postMessage({type: 'playlistmuse-settings-close'}, window.location.origin);
-      return;
-    }
-    window.location.assign(safeReturnTarget());
-  }
-
   document.querySelectorAll('[data-settings-section]').forEach((button) => {
     button.addEventListener('click', () => selectSection(button.dataset.settingsSection));
-  });
-
-  $('settings-close')?.addEventListener('click', closeSettings);
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') closeSettings();
   });
 
   window.PlaylistMuseSettingsSelect = selectSection;
