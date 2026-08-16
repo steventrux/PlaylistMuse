@@ -188,17 +188,31 @@
     updateGenerationControls();
   }
 
+  const SETUP_STEPS = ['ai', 'youtube', 'lastfm'];
+  const SETUP_STEP_EVENTS = {
+    ai: 'playlistmuse-ai-settings-opened',
+    youtube: 'playlistmuse-youtube-settings-opened',
+    lastfm: 'playlistmuse-lastfm-settings-opened',
+  };
+  const SETUP_STEP_TITLES = {
+    ai: 'AI Settings',
+    youtube: 'YouTube Music Settings',
+    lastfm: 'Last.fm Settings',
+  };
+  const SETUP_NEXT_LABELS = {
+    ai: 'Continue to YouTube Music',
+    youtube: 'Continue to Last.fm',
+  };
+
   function dispatchSetupStepEvent(step) {
-    window.dispatchEvent(new Event(
-      step === 'youtube'
-        ? 'playlistmuse-youtube-settings-opened'
-        : 'playlistmuse-ai-settings-opened',
-    ));
+    const eventName = SETUP_STEP_EVENTS[step];
+    if (eventName) window.dispatchEvent(new Event(eventName));
   }
 
   function renderSetup() {
     const onboarding = state.setupMode === 'onboarding';
-    const aiStep = state.setupStep === 'ai';
+    const stepIndex = SETUP_STEPS.indexOf(state.setupStep);
+    const lastStep = stepIndex === SETUP_STEPS.length - 1;
     const intro = $('setup-intro');
 
     $('setup-eyebrow').textContent = onboarding
@@ -206,26 +220,31 @@
       : 'Configuration';
     $('setup-title').textContent = onboarding
       ? 'Set up PlaylistMuse'
-      : aiStep ? 'AI Settings' : 'YouTube Music Settings';
+      : SETUP_STEP_TITLES[state.setupStep];
 
     intro.textContent = onboarding
-      ? 'Configure the AI provider first, then optionally connect YouTube Music for direct playlist publishing.'
+      ? "Start with an AI provider — it's required to generate playlists. "
+        + 'YouTube Music and Last.fm are optional and can be connected now or later from Settings.'
       : '';
     intro.classList.toggle('hidden', !onboarding);
 
     $('setup-progress').classList.toggle('hidden', !onboarding);
     $('setup-navigation').classList.toggle('hidden', !onboarding);
-    $('setup-ai-step').classList.toggle('hidden', !aiStep);
-    $('setup-youtube-step').classList.toggle('hidden', aiStep);
+    $('setup-ai-step').classList.toggle('hidden', state.setupStep !== 'ai');
+    $('setup-youtube-step').classList.toggle('hidden', state.setupStep !== 'youtube');
+    $('setup-lastfm-step')?.classList.toggle('hidden', state.setupStep !== 'lastfm');
 
-    $('setup-progress-ai').classList.toggle('active', aiStep);
-    $('setup-progress-ai').classList.toggle('complete', !aiStep);
-    $('setup-progress-youtube').classList.toggle('active', !aiStep);
-    $('setup-progress-youtube').classList.remove('complete');
+    SETUP_STEPS.forEach((step, index) => {
+      const item = $(`setup-progress-${step}`);
+      if (!item) return;
+      item.classList.toggle('active', step === state.setupStep);
+      item.classList.toggle('complete', index < stepIndex);
+    });
 
-    $('setup-back').classList.toggle('hidden', aiStep);
-    $('setup-next').classList.toggle('hidden', !aiStep);
-    $('setup-finish').classList.toggle('hidden', aiStep);
+    $('setup-back').classList.toggle('hidden', stepIndex === 0);
+    $('setup-next').classList.toggle('hidden', lastStep);
+    $('setup-next').textContent = SETUP_NEXT_LABELS[state.setupStep] || 'Continue';
+    $('setup-finish').classList.toggle('hidden', !lastStep);
 
     dispatchSetupStepEvent(state.setupStep);
   }
@@ -551,11 +570,13 @@
   $('setup-skip').addEventListener('click', closeSetup);
   $('setup-finish').addEventListener('click', closeSetup);
   $('setup-next').addEventListener('click', () => {
-    state.setupStep = 'youtube';
+    const nextIndex = SETUP_STEPS.indexOf(state.setupStep) + 1;
+    state.setupStep = SETUP_STEPS[Math.min(nextIndex, SETUP_STEPS.length - 1)];
     renderSetup();
   });
   $('setup-back').addEventListener('click', () => {
-    state.setupStep = 'ai';
+    const previousIndex = SETUP_STEPS.indexOf(state.setupStep) - 1;
+    state.setupStep = SETUP_STEPS[Math.max(previousIndex, 0)];
     renderSetup();
   });
 

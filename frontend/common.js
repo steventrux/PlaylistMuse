@@ -142,13 +142,16 @@
     navigation.setAttribute('aria-label', 'Primary playlist navigation');
 
     links.forEach((link) => {
+      const icon = link.querySelector('svg');
       const label = link.querySelector('span')?.textContent?.trim()
         || link.textContent.trim();
       const active = link.getAttribute('aria-current') === 'page';
 
       link.className = 'primary-page-link';
       link.classList.toggle('active', active);
-      link.replaceChildren(label);
+      const labelSpan = document.createElement('span');
+      labelSpan.textContent = label;
+      link.replaceChildren(...(icon ? [icon] : []), labelSpan);
       navigation.append(link);
     });
 

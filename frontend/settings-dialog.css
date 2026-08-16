@@ -20,8 +20,8 @@
 .settings-dialog-card .ai-active-summary,
 .settings-dialog-card .youtube-account-summary,
 .settings-dialog-card .settings-summary {
-  margin: 0 0 20px;
-  padding: 14px 0;
+  margin: 0 0 16px;
+  padding: 12px 0;
   border-bottom: 1px solid var(--border);
 }
 
@@ -98,7 +98,7 @@
 .settings-dialog-card .settings-state.error {
   border-color: rgba(251, 113, 133, .4);
   background: rgba(127, 29, 29, .2);
-  color: var(--error);
+  color: #fda4af;
 }
 
 .settings-dialog-card .ai-active-status.error::before,
@@ -124,7 +124,7 @@
 
 .settings-dialog-card .settings-fields,
 .settings-dialog-card .youtube-settings-fields {
-  gap: 16px;
+  gap: 14px;
   margin-top: 0;
 }
 

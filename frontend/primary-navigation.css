@@ -1,7 +1,8 @@
-/* Minimal primary page navigation beneath the PlaylistMuse wordmark. */
+/* Primary page navigation beneath the PlaylistMuse wordmark: minimal text links
+   with a small icon, underlined with the brand gradient when active. */
 
 .app-header.has-primary-page-navigation {
-  margin-bottom: 48px;
+  margin-bottom: 46px;
 }
 
 .primary-page-navigation {
@@ -9,9 +10,9 @@
   left: 0;
   bottom: -28px;
   z-index: 2;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 24px;
+  gap: 26px;
   margin: 0;
   padding: 0;
 }
@@ -19,9 +20,10 @@
 .primary-page-link {
   position: relative;
   display: inline-flex;
-  min-height: 26px;
-  padding: 0 0 7px;
   align-items: center;
+  gap: 7px;
+  min-height: 26px;
+  padding: 0 0 9px;
   border: 0;
   background: transparent;
   color: var(--text-muted);
@@ -33,6 +35,19 @@
   transition: color 160ms ease;
 }
 
+.primary-page-link svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: .75;
+  transition: opacity 160ms ease;
+}
+
 .primary-page-link:hover,
 .primary-page-link:focus-visible {
   color: var(--text-secondary);
@@ -41,6 +56,11 @@
 .primary-page-link.active,
 .primary-page-link[aria-current="page"] {
   color: var(--text-primary);
+}
+
+.primary-page-link.active svg,
+.primary-page-link[aria-current="page"] svg {
+  opacity: 1;
 }
 
 .primary-page-link.active::after,
@@ -59,7 +79,7 @@
 @media (max-width: 650px),
   (hover: none) and (pointer: coarse) and (orientation: landscape) and (max-height: 650px) {
   .app-header.has-primary-page-navigation {
-    margin-bottom: 46px;
+    margin-bottom: 44px;
   }
 
   .primary-page-navigation {
@@ -71,6 +91,11 @@
     min-height: 25px;
     padding-bottom: 7px;
     font-size: .76rem;
+  }
+
+  .primary-page-link svg {
+    width: 14px;
+    height: 14px;
   }
 }
 

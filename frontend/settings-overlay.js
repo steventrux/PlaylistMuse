@@ -25,10 +25,17 @@
     return SECTIONS.has(section) ? section : 'ai';
   }
 
+  // settings.html has no query-string version of its own, so the iframe URL never
+  // changes across deploys and browsers can keep serving a stale cached copy
+  // (no explicit Cache-Control is set on /static/*). Bump this whenever
+  // settings.html or a stylesheet/script it depends on changes.
+  const SETTINGS_FRAME_VERSION = '2';
+
   function settingsFrameUrl(section) {
     const target = new URL('/static/settings.html', window.location.origin);
     target.searchParams.set('embedded', '1');
     target.searchParams.set('section', normalizeSection(section));
+    target.searchParams.set('v', SETTINGS_FRAME_VERSION);
     return `${target.pathname}${target.search}`;
   }
 
