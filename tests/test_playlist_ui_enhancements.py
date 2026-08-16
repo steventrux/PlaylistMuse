@@ -72,7 +72,7 @@ def test_results_page_reuses_shared_navigation_controls_and_card_palette() -> No
 
     assert '/static/style.css?v=10' in html
     assert '/static/controls.css?v=8' in html
-    assert '/static/header-navigation.css?v=11' in html
+    assert '/static/header-navigation.css?v=12' in html
     assert '/static/playlist-cards.css?v=4' in html
     assert '/static/playlist-header.css?v=12' in html
     assert 'class="playlist-toolbar"' not in html

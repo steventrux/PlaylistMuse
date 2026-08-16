@@ -144,7 +144,7 @@
 
   function ensureStatusStyles() {
     ensureStylesheet('/static/layout.css', '/static/layout.css?v=5');
-    ensureStylesheet('/static/header-navigation.css', '/static/header-navigation.css?v=11');
+    ensureStylesheet('/static/header-navigation.css', '/static/header-navigation.css?v=12');
     ensureStylesheet('/static/settings-dialog.css', '/static/settings-dialog.css?v=6');
     ensureStylesheet('/static/settings-overlay.css', '/static/settings-overlay.css?v=1');
   }
