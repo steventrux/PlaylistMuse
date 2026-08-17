@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import time
+
 import pytest
 
 import backend.youtube as youtube_module
+from backend.youtube import _write_youtube_cache as _real_write_youtube_cache
 
 
 DEFAULT_EXCLUSIONS = {
@@ -233,3 +236,29 @@ def test_live_version_is_allowed_when_filter_is_disabled(monkeypatch) -> None:
 
     assert track is not None
     assert track["video_id"] == "live-version"
+
+
+def test_write_youtube_cache_purges_expired_rows_after_interval(tmp_path, monkeypatch):
+    cache_path = tmp_path / "youtube_resolution_cache.sqlite3"
+    monkeypatch.setattr(youtube_module._core, "_youtube_cache_last_purge_at", 0.0)
+
+    with youtube_module._youtube_cache_connect(cache_path) as connection:
+        connection.execute(
+            "INSERT INTO youtube_resolution_cache(cache_key, payload, expires_at) "
+            "VALUES (?, ?, ?)",
+            ("stale-key", None, time.time() - 10),
+        )
+
+    candidate = {"title": "Fresh Track", "artist": "Fresh Artist"}
+    _real_write_youtube_cache(
+        candidate, DEFAULT_EXCLUSIONS, {"video_id": "abc"}, path=cache_path
+    )
+
+    with youtube_module._youtube_cache_connect(cache_path) as connection:
+        remaining = {
+            row["cache_key"]
+            for row in connection.execute(
+                "SELECT cache_key FROM youtube_resolution_cache"
+            ).fetchall()
+        }
+    assert "stale-key" not in remaining

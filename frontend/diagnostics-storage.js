@@ -10,6 +10,7 @@
   const logsValue = document.getElementById('storage-logs');
   const cacheValue = document.getElementById('storage-cache');
   const totalValue = document.getElementById('storage-total');
+  const cacheNote = document.getElementById('storage-cache-note');
 
   function formatBytes(bytes) {
     const value = Number(bytes) || 0;
@@ -24,6 +25,22 @@
     return `${scaled.toFixed(scaled >= 10 ? 0 : 1)} ${units[unitIndex]}`;
   }
 
+  function renderCacheNote(payload) {
+    if (!cacheNote) return;
+    const usage = payload.usage || {};
+    const base = "Caches already clean themselves up automatically every hour, removing expired entries. Clearing manually is rarely needed.";
+    if (usage.estimate_reliable) {
+      const generations = usage.total_generations || 0;
+      const days = usage.days_active || 0;
+      const estimate = formatBytes(payload.caches_estimated_steady_state_total_bytes);
+      cacheNote.textContent =
+        `${base} Based on this installation's actual usage (${generations} generation${generations === 1 ? '' : 's'} over ${days} day${days === 1 ? '' : 's'}), total cache size should level off around ${estimate}.`;
+    } else {
+      cacheNote.textContent = `${base} A few more days of usage are needed before a reliable size estimate can be shown.`;
+    }
+    cacheNote.classList.remove('hidden');
+  }
+
   function renderStorage(payload) {
     const database = payload.database || {};
     databaseValue.textContent =
@@ -33,6 +50,7 @@
     cacheValue.textContent = `${formatBytes(payload.caches_total_bytes)} · ${cacheCount} files`;
     totalValue.textContent = formatBytes(payload.data_dir_total_bytes);
     breakdown.classList.remove('hidden');
+    renderCacheNote(payload);
     status.textContent = 'Storage usage';
     status.classList.remove('error');
   }
@@ -46,6 +64,7 @@
       status.textContent = 'Storage usage is unavailable.';
       status.classList.add('error');
       breakdown.classList.add('hidden');
+      if (cacheNote) cacheNote.classList.add('hidden');
     }
   }
 

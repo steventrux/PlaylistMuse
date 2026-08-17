@@ -164,6 +164,7 @@ def _write_youtube_cache(
                     time.time() + ttl,
                 ),
             )
+            _core._maybe_purge_youtube_cache(connection)
     except (sqlite3.Error, TypeError, ValueError):
         return
 

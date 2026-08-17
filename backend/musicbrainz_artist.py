@@ -17,6 +17,9 @@ from backend.version import USER_AGENT
 API_ROOT = "https://musicbrainz.org/ws/2"
 CACHE_TTL_SECONDS = 90 * 24 * 60 * 60
 NEGATIVE_TTL_SECONDS = 24 * 60 * 60
+PURGE_INTERVAL_SECONDS = 3600
+
+_last_purge_at = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +73,7 @@ def _cache_get(artist_mbid: str) -> ArtistOrigin | None:
 
 
 def _cache_put(artist_mbid: str, origin: ArtistOrigin) -> None:
+    global _last_purge_at
     ttl = CACHE_TTL_SECONDS if origin.country or origin.area else NEGATIVE_TTL_SECONDS
     try:
         with _connect() as connection:
@@ -84,6 +88,12 @@ def _cache_put(artist_mbid: str, origin: ArtistOrigin) -> None:
                 """,
                 (artist_mbid, origin.country, origin.area, time.time() + ttl),
             )
+            now = time.time()
+            if now - _last_purge_at > PURGE_INTERVAL_SECONDS:
+                connection.execute(
+                    "DELETE FROM artist_origin_cache WHERE expires_at <= ?", (now,)
+                )
+                _last_purge_at = now
     except (OSError, sqlite3.Error):
         return
 

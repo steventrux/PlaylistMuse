@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 
 import backend.diagnostics as diagnostics
+import backend.generation_counter as generation_counter
 from backend.application import app
 from backend.playlist_library import PlaylistLibrary
 
@@ -151,7 +152,10 @@ def _patch_storage_paths(monkeypatch, tmp_path: Path, database_path: Path, log_p
     monkeypatch.setattr(
         diagnostics,
         "CACHE_FILES",
-        (("Metadata validation", cache_one), ("YouTube resolution", cache_two)),
+        (("Metadata validation", cache_one, 90), ("YouTube resolution", cache_two, 30)),
+    )
+    monkeypatch.setattr(
+        generation_counter, "GENERATION_COUNTER_PATH", tmp_path / "generation_counter.json"
     )
     return cache_one, cache_two
 
@@ -207,3 +211,58 @@ def test_clear_cache_deletes_only_cache_files(tmp_path: Path, monkeypatch) -> No
     assert not cache_two.exists()
     assert database_path.exists()
     assert log_path.exists()
+
+
+def test_storage_estimate_projects_from_real_usage(tmp_path: Path, monkeypatch) -> None:
+    database_path = tmp_path / "playlists.db"
+    PlaylistLibrary(database_path)
+    log_path = tmp_path / "playlistmuse.log"
+    log_path.write_text("log\n", encoding="utf-8")
+
+    cache_one, cache_two = _patch_storage_paths(monkeypatch, tmp_path, database_path, log_path)
+    monkeypatch.setattr(diagnostics, "_usage_days_active", lambda: 10)
+    monkeypatch.setattr(diagnostics, "total_generations", lambda: 42)
+
+    response = TestClient(app).get("/api/diagnostics/storage")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["usage"] == {
+        "total_generations": 42,
+        "days_active": 10,
+        "estimate_reliable": True,
+    }
+    metadata_cache = next(c for c in payload["caches"] if c["name"] == "Metadata validation")
+    assert metadata_cache["estimated_steady_state_bytes"] == round(
+        cache_one.stat().st_size * (90 / 10)
+    )
+    youtube_cache = next(c for c in payload["caches"] if c["name"] == "YouTube resolution")
+    assert youtube_cache["estimated_steady_state_bytes"] == round(
+        cache_two.stat().st_size * (30 / 10)
+    )
+    assert payload["caches_estimated_steady_state_total_bytes"] == (
+        metadata_cache["estimated_steady_state_bytes"]
+        + youtube_cache["estimated_steady_state_bytes"]
+    )
+
+
+def test_storage_estimate_is_unreliable_with_too_little_usage_history(
+    tmp_path: Path, monkeypatch
+) -> None:
+    database_path = tmp_path / "playlists.db"
+    PlaylistLibrary(database_path)
+    log_path = tmp_path / "playlistmuse.log"
+    log_path.write_text("log\n", encoding="utf-8")
+
+    cache_one, cache_two = _patch_storage_paths(monkeypatch, tmp_path, database_path, log_path)
+    monkeypatch.setattr(diagnostics, "_usage_days_active", lambda: 1)
+    monkeypatch.setattr(diagnostics, "total_generations", lambda: 2)
+
+    response = TestClient(app).get("/api/diagnostics/storage")
+
+    payload = response.json()
+    assert payload["usage"]["estimate_reliable"] is False
+    metadata_cache = next(c for c in payload["caches"] if c["name"] == "Metadata validation")
+    assert metadata_cache["estimated_steady_state_bytes"] == round(
+        cache_one.stat().st_size * 90
+    )

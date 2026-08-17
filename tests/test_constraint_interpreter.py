@@ -162,3 +162,27 @@ def test_all_models_rate_limited_degrades_to_none_without_raising(monkeypatch) -
     )
 
     assert interpreted is None
+
+
+def test_write_cache_purges_expired_rows_after_interval(tmp_path, monkeypatch):
+    cache_path = tmp_path / "constraint_interpretation_cache.sqlite3"
+    monkeypatch.setattr(constraint_interpreter, "_cache_path", lambda: cache_path)
+    monkeypatch.setattr(constraint_interpreter, "_last_purge_at", 0.0)
+
+    with constraint_interpreter._connect() as connection:
+        connection.execute(
+            "INSERT INTO constraint_interpretation_cache(cache_key, payload, expires_at) "
+            "VALUES (?, ?, ?)",
+            ("stale-key", "{}", time.time() - 10),
+        )
+
+    constraint_interpreter._write_cache(_config(), "Fresh prompt", {"confidence": "low"})
+
+    with constraint_interpreter._connect() as connection:
+        remaining = {
+            row["cache_key"]
+            for row in connection.execute(
+                "SELECT cache_key FROM constraint_interpretation_cache"
+            ).fetchall()
+        }
+    assert "stale-key" not in remaining
