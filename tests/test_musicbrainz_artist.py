@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 from backend import musicbrainz_artist
 
@@ -76,3 +77,29 @@ def test_artist_origin_lookup_caches_successful_missing_country(tmp_path, monkey
     assert second == first
     assert calls == 1
     assert cache_path.exists()
+
+
+def test_cache_put_purges_expired_rows_after_interval(tmp_path, monkeypatch):
+    cache_path = tmp_path / "musicbrainz_artist_cache.sqlite3"
+    monkeypatch.setattr(musicbrainz_artist, "_cache_path", lambda: cache_path)
+    monkeypatch.setattr(musicbrainz_artist, "_last_purge_at", 0.0)
+
+    with musicbrainz_artist._connect() as connection:
+        connection.execute(
+            "INSERT INTO artist_origin_cache(artist_mbid, country, area, expires_at) "
+            "VALUES (?, ?, ?, ?)",
+            ("stale-mbid", "IT", "Rome", time.time() - 10),
+        )
+
+    musicbrainz_artist._cache_put(
+        "fresh-mbid", musicbrainz_artist.ArtistOrigin(country="FR", area="Paris")
+    )
+
+    with musicbrainz_artist._connect() as connection:
+        remaining = {
+            row["artist_mbid"]
+            for row in connection.execute(
+                "SELECT artist_mbid FROM artist_origin_cache"
+            ).fetchall()
+        }
+    assert "stale-mbid" not in remaining

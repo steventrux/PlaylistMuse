@@ -31,6 +31,9 @@ MIN_MATCH_SCORE = 0.78
 HIGH_MATCH_SCORE = 0.90
 MIN_CONSTRAINT_CONFIDENCE = 0.85
 METADATA_CACHE_VERSION = "6"
+PURGE_INTERVAL_SECONDS = 3600
+
+_last_purge_at = 0.0
 
 ValidationStatus = Literal["valid", "invalid", "unknown"]
 
@@ -432,6 +435,7 @@ def _write_cache(
     ttl: int,
     path: Path | None = None,
 ) -> None:
+    global _last_purge_at
     with _connect(path) as connection:
         connection.execute(
             """INSERT INTO track_metadata_cache(cache_key, payload, expires_at)
@@ -443,6 +447,12 @@ def _write_cache(
                 time.time() + ttl,
             ),
         )
+        now = time.time()
+        if now - _last_purge_at > PURGE_INTERVAL_SECONDS:
+            connection.execute(
+                "DELETE FROM track_metadata_cache WHERE expires_at <= ?", (now,)
+            )
+            _last_purge_at = now
 
 
 _TITLE_EDITION_SUFFIX_TERMS = r"remaster(?:ed)?|radio\s+edit|\blive\b|\w+\s+version"

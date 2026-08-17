@@ -1,5 +1,7 @@
 import asyncio
+import time
 
+from backend import entity_resolution
 from backend.entity_resolution import canonicalize_interpretation
 
 
@@ -45,3 +47,29 @@ def test_uncertain_artist_resolution_keeps_original_name(monkeypatch):
     assert result is not None
     assert result["allowed_artists"] == ["Phoenix"]
     assert result["canonical_artist_entities"] == []
+
+
+def test_write_cache_purges_expired_rows_after_interval(tmp_path, monkeypatch):
+    cache_path = tmp_path / "entity_resolution_cache.sqlite3"
+    monkeypatch.setattr(entity_resolution, "_cache_path", lambda: cache_path)
+    monkeypatch.setattr(entity_resolution, "_last_purge_at", 0.0)
+
+    with entity_resolution._connect() as connection:
+        connection.execute(
+            "INSERT INTO artist_entity_cache(normalized_name, payload, expires_at) "
+            "VALUES (?, ?, ?)",
+            ("stale-artist", "{}", time.time() - 10),
+        )
+
+    entity_resolution._write_cache(
+        "Fresh Artist", {"input": "Fresh Artist", "name": "Fresh Artist", "mbid": "x", "score": "100"}
+    )
+
+    with entity_resolution._connect() as connection:
+        remaining = {
+            row["normalized_name"]
+            for row in connection.execute(
+                "SELECT normalized_name FROM artist_entity_cache"
+            ).fetchall()
+        }
+    assert "stale-artist" not in remaining

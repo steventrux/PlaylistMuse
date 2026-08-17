@@ -19,6 +19,9 @@ API_ROOT = "https://musicbrainz.org/ws/2"
 CACHE_TTL_SECONDS = 180 * 24 * 60 * 60
 MIN_API_SCORE = 90
 MAX_NAMES_PER_REQUEST = 8
+PURGE_INTERVAL_SECONDS = 3600
+
+_last_purge_at = 0.0
 
 
 def _cache_path() -> Path:
@@ -59,6 +62,7 @@ def _read_cache(name: str) -> dict[str, str] | None:
 
 
 def _write_cache(name: str, payload: dict[str, str]) -> None:
+    global _last_purge_at
     try:
         with _connect() as connection:
             connection.execute(
@@ -75,6 +79,12 @@ def _write_cache(name: str, payload: dict[str, str]) -> None:
                     time.time() + CACHE_TTL_SECONDS,
                 ),
             )
+            now = time.time()
+            if now - _last_purge_at > PURGE_INTERVAL_SECONDS:
+                connection.execute(
+                    "DELETE FROM artist_entity_cache WHERE expires_at <= ?", (now,)
+                )
+                _last_purge_at = now
     except (sqlite3.Error, TypeError, ValueError):
         return
 
