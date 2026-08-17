@@ -84,7 +84,9 @@ def test_compute_stats_aggregates_across_the_library(monkeypatch, tmp_path: Path
 
     errors_path = tmp_path / "generation_errors.json"
     monkeypatch.setattr(generation_errors, "GENERATION_ERRORS_PATH", errors_path)
-    generation_errors.record_generation_error(ValueError("insufficient tracks"))
+    generation_errors.record_generation_error(
+        ValueError("insufficient tracks"), provider="gemini"
+    )
 
     stats = playlist_stats.compute_stats()
 
@@ -103,24 +105,37 @@ def test_compute_stats_aggregates_across_the_library(monkeypatch, tmp_path: Path
     assert general["playlists_by_month"] == {current_month: 4}
     assert sum(general["playlists_by_month"].values()) == general["total_generated"]
 
-    nerd = stats["nerd"]
-    assert nerd["provider_breakdown"] == {"gemini": 1, "openai": 1, "unknown": 1}
-    assert nerd["duration_sample_size"] == 2
-    assert nerd["avg_generation_ms"] == 3000
-    assert nerd["median_generation_ms"] == 3000
-    assert nerd["tag_coverage_percent"] == round(100 * 2 / 3, 1)
-    assert nerd["draft_vs_published"] == {"draft": 2, "published": 1}
-    assert nerd["error_breakdown"] == {"ValueError": 1}
-    assert nerd["total_errors"] == 1
-    assert "top_moods" not in nerd
-    assert "top_periods" not in nerd
-    assert nerd["stage_timings"]["ai_draft"] == {
-        "avg_ms": 800,
-        "median_ms": 800,
+    by_provider = stats["nerd"]["by_provider"]
+    assert set(by_provider) == {"gemini", "openai", "unknown"}
+
+    gemini = by_provider["gemini"]
+    assert gemini["playlist_count"] == 1
+    assert gemini["duration_sample_size"] == 1
+    assert gemini["avg_generation_ms"] == 4000
+    assert gemini["median_generation_ms"] == 4000
+    assert gemini["tag_coverage_percent"] == 100.0
+    assert gemini["draft_vs_published"] == {"draft": 1, "published": 0}
+    assert gemini["error_breakdown"] == {"ValueError": 1}
+    assert gemini["total_errors"] == 1
+    assert gemini["stage_timings"]["ai_draft"] == {
+        "avg_ms": 1000,
+        "median_ms": 1000,
         "p95_ms": 1000,
-        "sample_size": 2,
+        "sample_size": 1,
     }
-    assert nerd["stage_timings"]["youtube_resolution"]["sample_size"] == 2
+
+    openai = by_provider["openai"]
+    assert openai["playlist_count"] == 1
+    assert openai["avg_generation_ms"] == 2000
+    assert openai["draft_vs_published"] == {"draft": 0, "published": 1}
+    assert openai["error_breakdown"] == {}
+    assert openai["total_errors"] == 0
+
+    unknown = by_provider["unknown"]
+    assert unknown["playlist_count"] == 1
+    assert unknown["avg_generation_ms"] is None
+    assert unknown["tag_coverage_percent"] == 0.0
+    assert unknown["draft_vs_published"] == {"draft": 1, "published": 0}
 
 
 def test_compute_stats_handles_an_empty_library(monkeypatch, tmp_path: Path) -> None:
@@ -139,8 +154,4 @@ def test_compute_stats_handles_an_empty_library(monkeypatch, tmp_path: Path) -> 
     assert stats["general"]["top_genres"] == []
     assert stats["general"]["top_moods"] == []
     assert stats["general"]["playlists_by_month"] == {}
-    assert stats["nerd"]["avg_generation_ms"] is None
-    assert stats["nerd"]["tag_coverage_percent"] is None
-    assert stats["nerd"]["error_breakdown"] == {}
-    assert stats["nerd"]["total_errors"] == 0
-    assert stats["nerd"]["stage_timings"] == {}
+    assert stats["nerd"]["by_provider"] == {}

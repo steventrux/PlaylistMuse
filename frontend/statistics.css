@@ -311,15 +311,15 @@ a.stats-section-link:focus-visible .stats-section-cta {
   text-align: right;
 }
 
-.stats-nerd-link {
+.stats-advanced-link {
   color: var(--text-muted);
   font-size: .76rem;
   font-weight: 650;
   text-decoration: none;
 }
 
-.stats-nerd-link:hover,
-.stats-nerd-link:focus-visible {
+.stats-advanced-link:hover,
+.stats-advanced-link:focus-visible {
   color: var(--text-secondary);
 }
 

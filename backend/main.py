@@ -1150,10 +1150,10 @@ async def generate_playlist(request: GenerateRequest) -> dict:
             lambda: _generate(request.prompt, request.track_count, request.options)
         )
     except ValueError as error:
-        record_generation_error(error)
+        record_generation_error(error, provider=load_config().provider)
         raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
     except Exception as error:
-        record_generation_error(error)
+        record_generation_error(error, provider=load_config().provider)
         raise HTTPException(
             status_code=502,
             detail="Playlist generation failed. Please try again.",
@@ -1293,10 +1293,10 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
             lambda: _generate_from_seed_playlist(request)
         )
     except ValueError as error:
-        record_generation_error(error)
+        record_generation_error(error, provider=load_config().provider)
         raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
     except Exception as error:
-        record_generation_error(error)
+        record_generation_error(error, provider=load_config().provider)
         raise HTTPException(
             status_code=502,
             detail="Playlist generation failed. Please try again.",
@@ -1333,7 +1333,7 @@ async def _stream_generation(
             result = await work()
             await queue.put(("result", {"playlist": result}))
         except ValueError as error:
-            record_generation_error(error)
+            record_generation_error(error, provider=load_config().provider)
             await queue.put((
                 "error",
                 {
@@ -1343,7 +1343,7 @@ async def _stream_generation(
                 },
             ))
         except Exception as error:  # noqa: BLE001 - translated into one safe SSE error event.
-            record_generation_error(error)
+            record_generation_error(error, provider=load_config().provider)
             await queue.put((
                 "error",
                 {

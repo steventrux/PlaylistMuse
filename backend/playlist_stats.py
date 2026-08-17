@@ -2,10 +2,12 @@
 
 Nothing here is sent anywhere -- it only reads what is already stored on disk to
 answer "what has this installation generated so far". `general` covers music-taste
-data (genres, artists, moods, periods); `nerd` covers technical data (AI provider
-usage, generation timing, error counts). Provider, duration and error data only
-exist for playlists/failures recorded after that tracking was added, so anything
-lacking it is reported as "unknown" rather than assumed.
+data (genres, artists, moods, periods); `nerd` covers technical data (generation
+timing, track/tag coverage, error counts), broken down per AI provider so each
+provider's own effectiveness can be judged separately rather than blended into one
+average. Provider, duration and error data only exist for playlists/failures
+recorded after that tracking was added, so anything lacking it is reported under
+the "unknown" provider rather than assumed.
 """
 
 from __future__ import annotations
@@ -65,6 +67,17 @@ def _percentile(values: list[int], percentile: float) -> int | None:
     return ordered[index]
 
 
+def _new_provider_bucket() -> dict[str, Any]:
+    return {
+        "playlist_count": 0,
+        "published": 0,
+        "tagged": 0,
+        "durations_ms": [],
+        "durations_by_stage": {},
+        "track_counts": [],
+    }
+
+
 def compute_stats() -> dict[str, Any]:
     """Read the whole library once and aggregate every dimension in one pass."""
     rows: list[sqlite3.Row] = []
@@ -78,24 +91,20 @@ def compute_stats() -> dict[str, Any]:
     moods: Counter[str] = Counter()
     periods: Counter[str] = Counter()
     artists: Counter[str] = Counter()
-    providers: Counter[str] = Counter()
+    by_provider: dict[str, dict[str, Any]] = {}
 
-    published = 0
-    tagged = 0
-    durations_ms: list[int] = []
-    durations_by_stage: dict[str, list[int]] = {}
-    track_counts: list[int] = []
-
+    published_total = 0
     for row in rows:
         playlist = _decode(row["playlist_json"])
 
         tags = playlist.get("tags")
+        tagged_row = False
         if isinstance(tags, dict):
             genre_list = tags.get("genre") or []
             mood_list = tags.get("mood") or []
             period_list = tags.get("period") or []
             if genre_list or mood_list or period_list:
-                tagged += 1
+                tagged_row = True
             genres.update(str(value) for value in genre_list if value)
             moods.update(str(value) for value in mood_list if value)
             periods.update(str(value) for value in period_list if value)
@@ -110,33 +119,76 @@ def compute_stats() -> dict[str, Any]:
 
         meta = playlist.get("generation_meta")
         provider = "unknown"
+        duration: Any = None
+        stage_timings: Any = None
         if isinstance(meta, dict):
             provider = str(meta.get("provider") or "").strip() or "unknown"
             duration = meta.get("duration_ms")
-            if isinstance(duration, int | float) and duration >= 0:
-                durations_ms.append(int(duration))
             stage_timings = meta.get("stage_timings_ms")
-            if isinstance(stage_timings, dict):
-                for stage, stage_duration in stage_timings.items():
-                    if isinstance(stage_duration, int | float) and stage_duration >= 0:
-                        durations_by_stage.setdefault(str(stage), []).append(
-                            int(stage_duration)
-                        )
-        providers[provider] += 1
 
+        bucket = by_provider.setdefault(provider, _new_provider_bucket())
+        bucket["playlist_count"] += 1
+        if tagged_row:
+            bucket["tagged"] += 1
+        if isinstance(duration, int | float) and duration >= 0:
+            bucket["durations_ms"].append(int(duration))
+        if isinstance(stage_timings, dict):
+            for stage, stage_duration in stage_timings.items():
+                if isinstance(stage_duration, int | float) and stage_duration >= 0:
+                    bucket["durations_by_stage"].setdefault(str(stage), []).append(
+                        int(stage_duration)
+                    )
         if row["status"] == "published":
-            published += 1
-        track_counts.append(int(row["track_count"] or 0))
+            bucket["published"] += 1
+            published_total += 1
+        bucket["track_counts"].append(int(row["track_count"] or 0))
 
     saved = len(rows)
+    errors_by_provider = error_breakdown()
 
-    errors = error_breakdown()
+    provider_stats: dict[str, dict[str, Any]] = {}
+    for provider in set(by_provider) | set(errors_by_provider):
+        bucket = by_provider.get(provider) or _new_provider_bucket()
+        errors = errors_by_provider.get(provider, {})
+        provider_saved = bucket["playlist_count"]
+        provider_stats[provider] = {
+            "playlist_count": provider_saved,
+            "avg_generation_ms": (
+                round(statistics.fmean(bucket["durations_ms"]))
+                if bucket["durations_ms"]
+                else None
+            ),
+            "median_generation_ms": (
+                round(statistics.median(bucket["durations_ms"]))
+                if bucket["durations_ms"]
+                else None
+            ),
+            "p95_generation_ms": _percentile(bucket["durations_ms"], 95),
+            "duration_sample_size": len(bucket["durations_ms"]),
+            "stage_timings": _stage_timings_summary(bucket["durations_by_stage"]),
+            "avg_track_count": (
+                round(statistics.fmean(bucket["track_counts"]), 1)
+                if bucket["track_counts"]
+                else None
+            ),
+            "tag_coverage_percent": (
+                round(100 * bucket["tagged"] / provider_saved, 1)
+                if provider_saved
+                else None
+            ),
+            "draft_vs_published": {
+                "draft": provider_saved - bucket["published"],
+                "published": bucket["published"],
+            },
+            "error_breakdown": errors,
+            "total_errors": sum(errors.values()),
+        }
 
     return {
         "general": {
             "total_generated": total_generations(),
             "total_saved": saved,
-            "total_published": published,
+            "total_published": published_total,
             "top_genres": _top(genres),
             "top_artists": _top(artists),
             "top_moods": _top(moods),
@@ -144,22 +196,6 @@ def compute_stats() -> dict[str, Any]:
             "playlists_by_month": dict(sorted(generations_by_month().items())),
         },
         "nerd": {
-            "provider_breakdown": dict(providers),
-            "avg_generation_ms": (
-                round(statistics.fmean(durations_ms)) if durations_ms else None
-            ),
-            "median_generation_ms": (
-                round(statistics.median(durations_ms)) if durations_ms else None
-            ),
-            "p95_generation_ms": _percentile(durations_ms, 95),
-            "duration_sample_size": len(durations_ms),
-            "stage_timings": _stage_timings_summary(durations_by_stage),
-            "avg_track_count": (
-                round(statistics.fmean(track_counts), 1) if track_counts else None
-            ),
-            "tag_coverage_percent": round(100 * tagged / saved, 1) if saved else None,
-            "draft_vs_published": {"draft": saved - published, "published": published},
-            "error_breakdown": errors,
-            "total_errors": sum(errors.values()),
+            "by_provider": provider_stats,
         },
     }
