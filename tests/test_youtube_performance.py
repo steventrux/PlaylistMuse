@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 import backend.youtube as youtube
+from backend.generation_stage_timing import reset_stage_timings, stage_timings_snapshot
 
 
 def _candidate(index: int) -> dict[str, str]:
@@ -120,6 +121,37 @@ def test_resolve_candidates_uses_bounded_parallelism_and_preserves_order(monkeyp
     assert [track["video_id"] for track in resolved] == [
         f"video-{index}" for index in range(8)
     ]
+
+
+def test_resolve_candidates_records_separate_youtube_and_metadata_stage_timings(
+    monkeypatch,
+):
+    candidates = [_candidate(1)]
+
+    async def bypass_metadata(items):
+        return list(items), []
+
+    def fake_resolve(candidate, exclusions):
+        index = int(candidate["title"].split()[-1])
+        return _track(index)
+
+    monkeypatch.setattr(youtube, "_metadata_filter", bypass_metadata)
+    monkeypatch.setattr(youtube, "_resolve_one", fake_resolve)
+
+    async def scenario():
+        reset_stage_timings()
+        await youtube.resolve_candidates(
+            candidates,
+            {"exclude_live": True, "exclude_covers": True, "exclude_remixes": True},
+        )
+        return stage_timings_snapshot()
+
+    snapshot = asyncio.run(scenario())
+
+    assert "youtube_resolution" in snapshot
+    assert "metadata_validation" in snapshot
+    assert snapshot["youtube_resolution"] >= 0
+    assert snapshot["metadata_validation"] >= 0
 
 
 def test_concurrency_setting_is_clamped(monkeypatch):

@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 import backend.diagnostics as diagnostics
 import backend.generation_counter as generation_counter
+from backend import cache_metrics
 from backend.application import app
 from backend.playlist_library import PlaylistLibrary
 
@@ -190,6 +191,34 @@ def test_storage_endpoint_reports_database_logs_and_cache_sizes(
     assert len(payload["caches"]) == 2
     assert payload["logs"]["size_bytes"] == log_path.stat().st_size
     assert payload["data_dir_total_bytes"] >= payload["caches_total_bytes"]
+
+
+def test_storage_endpoint_reports_cache_hit_miss_metrics(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    database_path = tmp_path / "playlists.db"
+    PlaylistLibrary(database_path)
+    log_path = tmp_path / "playlistmuse.log"
+    log_path.write_text("log\n", encoding="utf-8")
+
+    _patch_storage_paths(monkeypatch, tmp_path, database_path, log_path)
+    before = cache_metrics.snapshot().get(
+        "Metadata validation", {"hits": 0, "misses": 0}
+    )
+    cache_metrics.record_hit("Metadata validation")
+    cache_metrics.record_hit("Metadata validation")
+    cache_metrics.record_miss("Metadata validation")
+
+    response = TestClient(app).get("/api/diagnostics/storage")
+
+    assert response.status_code == 200
+    metadata_cache = next(
+        c for c in response.json()["caches"] if c["name"] == "Metadata validation"
+    )
+    assert metadata_cache["hits"] == before["hits"] + 2
+    assert metadata_cache["misses"] == before["misses"] + 1
+    assert 0 < metadata_cache["hit_rate"] < 1
 
 
 def test_clear_cache_deletes_only_cache_files(tmp_path: Path, monkeypatch) -> None:

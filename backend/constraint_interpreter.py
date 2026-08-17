@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 
+from backend import cache_metrics
 from backend.config import AppConfig
 from backend.provider_rate_limits import (
     ProviderRateLimitedError,
@@ -189,14 +190,17 @@ def _read_cache(config: AppConfig, prompt: str) -> dict[str, Any] | None:
                 (cache_key,),
             ).fetchone()
             if not row:
+                cache_metrics.record_miss("Constraint interpretation")
                 return None
             if float(row["expires_at"]) <= time.time():
                 connection.execute(
                     "DELETE FROM constraint_interpretation_cache WHERE cache_key = ?",
                     (cache_key,),
                 )
+                cache_metrics.record_miss("Constraint interpretation")
                 return None
             payload = json.loads(str(row["payload"]))
+            cache_metrics.record_hit("Constraint interpretation")
             return payload if isinstance(payload, dict) else None
     except (sqlite3.Error, ValueError, TypeError, json.JSONDecodeError):
         return None

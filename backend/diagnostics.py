@@ -24,6 +24,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
+from backend import cache_metrics
 from backend.build_info import current_build_info
 from backend.config import DATA_DIR, load_config
 from backend.generation_counter import generations_by_month, total_generations
@@ -377,6 +378,17 @@ def _estimated_steady_state_bytes(size_bytes: int, ttl_days: int, days_active: i
     return round(size_bytes * (ttl_days / days_active))
 
 
+def _cache_metrics_for(name: str) -> dict[str, Any]:
+    counts = cache_metrics.snapshot().get(name, {"hits": 0, "misses": 0})
+    hits, misses = counts["hits"], counts["misses"]
+    total = hits + misses
+    return {
+        "hits": hits,
+        "misses": misses,
+        "hit_rate": round(hits / total, 3) if total else None,
+    }
+
+
 def _cache_metadata() -> dict[str, Any]:
     days_active = _usage_days_active()
     caches: list[dict[str, Any]] = []
@@ -398,6 +410,7 @@ def _cache_metadata() -> dict[str, Any]:
                 "size_bytes": size,
                 "present": present,
                 "estimated_steady_state_bytes": estimate,
+                **_cache_metrics_for(name),
             }
         )
     return {

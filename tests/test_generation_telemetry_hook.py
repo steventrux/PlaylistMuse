@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 
 import backend.main as main_module
+from backend.generation_stage_timing import record_stage_ms
 
 
 class _FakeConfig:
@@ -29,6 +30,27 @@ def test_generate_with_telemetry_tags_the_result_and_records_once(monkeypatch) -
     assert result["generation_meta"]["provider"] == "gemini"
     assert isinstance(result["generation_meta"]["duration_ms"], int)
     assert result["generation_meta"]["duration_ms"] >= 0
+    assert result["generation_meta"]["stage_timings_ms"] == {}
+
+
+def test_generate_with_telemetry_captures_stage_timings_recorded_during_work(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(main_module, "load_config", lambda: _FakeConfig())
+    monkeypatch.setattr(main_module, "record_generation", lambda: None)
+    monkeypatch.setattr(main_module, "telemetry_enabled", lambda: False)
+
+    async def work() -> dict:
+        record_stage_ms("ai_draft", 120)
+        record_stage_ms("youtube_resolution", 45)
+        return {"tracks": []}
+
+    result = asyncio.run(main_module._generate_with_telemetry(work))
+
+    assert result["generation_meta"]["stage_timings_ms"] == {
+        "ai_draft": 120,
+        "youtube_resolution": 45,
+    }
 
 
 def test_generate_with_telemetry_pings_only_when_opted_in(monkeypatch) -> None:

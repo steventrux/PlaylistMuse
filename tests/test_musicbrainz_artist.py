@@ -1,7 +1,7 @@
 import asyncio
 import time
 
-from backend import musicbrainz_artist
+from backend import cache_metrics, musicbrainz_artist
 
 
 class FakeResponse:
@@ -103,3 +103,23 @@ def test_cache_put_purges_expired_rows_after_interval(tmp_path, monkeypatch):
             ).fetchall()
         }
     assert "stale-mbid" not in remaining
+
+
+def test_cache_get_records_hit_and_miss_metrics(tmp_path, monkeypatch):
+    cache_path = tmp_path / "musicbrainz_artist_cache.sqlite3"
+    monkeypatch.setattr(musicbrainz_artist, "_cache_path", lambda: cache_path)
+
+    before = cache_metrics.snapshot().get(
+        "MusicBrainz artist origin", {"hits": 0, "misses": 0}
+    )
+
+    assert musicbrainz_artist._cache_get("never-cached-mbid") is None
+    after_miss = cache_metrics.snapshot()["MusicBrainz artist origin"]
+    assert after_miss["misses"] == before["misses"] + 1
+
+    musicbrainz_artist._cache_put(
+        "hit-mbid", musicbrainz_artist.ArtistOrigin(country="IT", area="Rome")
+    )
+    assert musicbrainz_artist._cache_get("hit-mbid") is not None
+    after_hit = cache_metrics.snapshot()["MusicBrainz artist origin"]
+    assert after_hit["hits"] == before["hits"] + 1

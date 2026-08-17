@@ -44,13 +44,21 @@ def _seed_library(database_path: Path) -> PlaylistLibrary:
         name="Synth Drive",
         artists=["Tame Impala", "MGMT"],
         tags={"genre": ["Synthwave"], "mood": ["Dreamy"], "period": ["1980s"]},
-        generation_meta={"provider": "gemini", "duration_ms": 4000},
+        generation_meta={
+            "provider": "gemini",
+            "duration_ms": 4000,
+            "stage_timings_ms": {"ai_draft": 1000, "youtube_resolution": 3000},
+        },
     ))
     library.create(_playlist(
         name="Focus Flow",
         artists=["Tame Impala"],
         tags={"genre": ["Synthwave", "Ambient"], "mood": [], "period": []},
-        generation_meta={"provider": "openai", "duration_ms": 2000},
+        generation_meta={
+            "provider": "openai",
+            "duration_ms": 2000,
+            "stage_timings_ms": {"ai_draft": 600, "youtube_resolution": 1400},
+        },
         youtube=True,
     ))
     library.create(_playlist(
@@ -106,6 +114,13 @@ def test_compute_stats_aggregates_across_the_library(monkeypatch, tmp_path: Path
     assert nerd["total_errors"] == 1
     assert "top_moods" not in nerd
     assert "top_periods" not in nerd
+    assert nerd["stage_timings"]["ai_draft"] == {
+        "avg_ms": 800,
+        "median_ms": 800,
+        "p95_ms": 1000,
+        "sample_size": 2,
+    }
+    assert nerd["stage_timings"]["youtube_resolution"]["sample_size"] == 2
 
 
 def test_compute_stats_handles_an_empty_library(monkeypatch, tmp_path: Path) -> None:
@@ -128,3 +143,4 @@ def test_compute_stats_handles_an_empty_library(monkeypatch, tmp_path: Path) -> 
     assert stats["nerd"]["tag_coverage_percent"] is None
     assert stats["nerd"]["error_breakdown"] == {}
     assert stats["nerd"]["total_errors"] == 0
+    assert stats["nerd"]["stage_timings"] == {}

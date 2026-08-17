@@ -11,6 +11,7 @@ from pathlib import Path
 
 import httpx
 
+from backend import cache_metrics
 from backend.musicbrainz_client import rate_limited_get
 from backend.version import USER_AGENT
 
@@ -68,7 +69,9 @@ def _cache_get(artist_mbid: str) -> ArtistOrigin | None:
     except (OSError, sqlite3.Error):
         return None
     if not row or float(row["expires_at"]) <= time.time():
+        cache_metrics.record_miss("MusicBrainz artist origin")
         return None
+    cache_metrics.record_hit("MusicBrainz artist origin")
     return ArtistOrigin(country=row["country"], area=row["area"])
 
 

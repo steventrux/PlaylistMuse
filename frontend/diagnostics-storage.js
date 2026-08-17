@@ -11,6 +11,7 @@
   const cacheValue = document.getElementById('storage-cache');
   const totalValue = document.getElementById('storage-total');
   const cacheNote = document.getElementById('storage-cache-note');
+  const cacheMetrics = document.getElementById('storage-cache-metrics');
 
   function formatBytes(bytes) {
     const value = Number(bytes) || 0;
@@ -41,6 +42,32 @@
     cacheNote.classList.remove('hidden');
   }
 
+  function renderCacheMetrics(caches) {
+    if (!cacheMetrics) return;
+    const active = (caches || []).filter((cache) => cache.hits + cache.misses > 0);
+    cacheMetrics.textContent = '';
+    if (!active.length) {
+      cacheMetrics.classList.add('hidden');
+      return;
+    }
+    for (const cache of active) {
+      const row = document.createElement('div');
+      row.className = 'storage-cache-metrics-row';
+      const label = document.createElement('span');
+      label.className = 'storage-cache-metrics-row-label';
+      label.textContent = cache.name;
+      const value = document.createElement('span');
+      value.className = 'storage-cache-metrics-row-value';
+      const hitRate = cache.hit_rate === null || cache.hit_rate === undefined
+        ? 'n/a'
+        : `${Math.round(cache.hit_rate * 100)}%`;
+      value.textContent = `${cache.hits} hits · ${cache.misses} misses · ${hitRate} hit rate`;
+      row.append(label, value);
+      cacheMetrics.append(row);
+    }
+    cacheMetrics.classList.remove('hidden');
+  }
+
   function renderStorage(payload) {
     const database = payload.database || {};
     databaseValue.textContent =
@@ -51,6 +78,7 @@
     totalValue.textContent = formatBytes(payload.data_dir_total_bytes);
     breakdown.classList.remove('hidden');
     renderCacheNote(payload);
+    renderCacheMetrics(payload.caches);
     status.textContent = 'Storage usage';
     status.classList.remove('error');
   }
@@ -65,6 +93,7 @@
       status.classList.add('error');
       breakdown.classList.add('hidden');
       if (cacheNote) cacheNote.classList.add('hidden');
+      if (cacheMetrics) cacheMetrics.classList.add('hidden');
     }
   }
 

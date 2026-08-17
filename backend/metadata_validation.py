@@ -16,6 +16,7 @@ from typing import Any, Literal
 
 import httpx
 
+from backend import cache_metrics
 from backend.musicbrainz_artist import lookup_artist_origin
 from backend.musicbrainz_client import rate_limited_get
 from backend.national_origin import infer_artist_country, normalize_country_to_iso
@@ -410,6 +411,7 @@ def _read_cache(
             (_cache_key(artist, title),),
         ).fetchone()
         if not row or float(row["expires_at"]) <= time.time():
+            cache_metrics.record_miss("Metadata validation")
             return None
         payload = json.loads(str(row["payload"]))
         payload.setdefault("artist_mbid", None)
@@ -417,6 +419,7 @@ def _read_cache(
         payload.setdefault("release_titles", [])
         payload.setdefault("release_group_primary_type", None)
         payload.setdefault("release_group_secondary_types", [])
+        cache_metrics.record_hit("Metadata validation")
         return TrackMetadata(**payload)
 
 
