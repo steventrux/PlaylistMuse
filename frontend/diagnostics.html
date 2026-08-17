@@ -12,8 +12,9 @@
   <link rel="stylesheet" href="/static/style.css?v=10">
   <link rel="stylesheet" href="/static/layout.css?v=5">
   <link rel="stylesheet" href="/static/controls.css?v=8">
-  <link rel="stylesheet" href="/static/settings-dialog.css?v=9">
+  <link rel="stylesheet" href="/static/settings-dialog.css?v=11">
   <link rel="stylesheet" href="/static/settings-page.css?v=5">
+  <link rel="stylesheet" href="/static/statistics.css?v=8">
   <link rel="stylesheet" href="/static/header-navigation.css?v=13">
 </head>
 <body>
@@ -87,40 +88,44 @@
           </div>
 
           <div class="storage-breakdown hidden" id="storage-breakdown">
-            <div class="storage-row">
-              <span class="storage-row-label">Playlist library</span>
-              <span class="storage-row-value" id="storage-database"></span>
+            <div class="stats-hero">
+              <div class="stats-hero-figure">
+                <span class="stats-hero-label">Total disk usage</span>
+                <span id="storage-total" class="storage-total-value"></span>
+              </div>
+              <div class="stats-hero-secondary">
+                <div class="stats-secondary-stat">
+                  <span id="storage-database" class="stats-secondary-value"></span>
+                  <span class="stats-secondary-label">Playlist library</span>
+                  <span id="storage-database-detail" class="storage-tile-detail"></span>
+                </div>
+                <div class="stats-secondary-stat">
+                  <span id="storage-logs" class="stats-secondary-value"></span>
+                  <span class="stats-secondary-label">Logs</span>
+                </div>
+                <div class="stats-secondary-stat">
+                  <span id="storage-cache" class="stats-secondary-value"></span>
+                  <span class="stats-secondary-label">Cache</span>
+                  <span id="storage-cache-detail" class="storage-tile-detail"></span>
+                </div>
+              </div>
             </div>
-            <div class="storage-row">
-              <span class="storage-row-label">Logs</span>
-              <span class="storage-row-value" id="storage-logs"></span>
-            </div>
-            <div class="storage-row">
-              <span class="storage-row-label">Cache</span>
-              <span class="storage-row-value" id="storage-cache"></span>
-            </div>
-            <div class="storage-row storage-row-total">
-              <span class="storage-row-label">Total</span>
-              <span class="storage-row-value" id="storage-total"></span>
-            </div>
-          </div>
 
-          <div id="storage-cache-metrics" class="storage-cache-metrics hidden"></div>
+            <p id="storage-cache-note" class="field-hint hidden"></p>
 
-          <p id="storage-cache-note" class="field-hint hidden"></p>
-
-          <div class="settings-actions">
-            <button id="clear-cache" class="secondary" type="button">Clear cache</button>
+            <div class="settings-actions">
+              <button id="clear-cache" class="secondary" type="button">Clear cache</button>
+            </div>
           </div>
         </section>
       </section>
     </div>
   </main>
 
-  <script src="/static/common.js?v=8"></script>
+  <script src="/static/common.js?v=9"></script>
   <script src="/static/diagnostics-client.js?v=1"></script>
   <script src="/static/support.js?v=3"></script>
-  <script src="/static/diagnostics-storage.js?v=4"></script>
+  <script src="/static/diagnostics-storage.js?v=7"></script>
   <script src="/static/diagnostics-page.js?v=1"></script>
   <script src="/static/home-status.js?v=26"></script>
 </body>

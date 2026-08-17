@@ -8,17 +8,26 @@ def _text(name: str) -> str:
     return (FRONTEND / name).read_text(encoding="utf-8")
 
 
-def test_overview_shows_top_five_and_links_to_the_full_detail_page() -> None:
+def test_music_rankings_show_top_five_and_expand_in_place() -> None:
+    # "See all" used to navigate to statistics-detail.html; it now expands the
+    # full ranking inline within the same panel instead of leaving the page.
     html = _text("statistics.html")
     script = _text("statistics.js")
 
-    assert 'href="/static/statistics-detail.html?dim=artists"' in html
-    assert 'href="/static/statistics-detail.html?dim=genres"' in html
-    assert 'href="/static/statistics-detail.html?dim=moods"' in html
-    assert 'href="/static/statistics-detail.html?dim=periods"' in html
+    for toggle_id in (
+        "stats-artist-list-toggle",
+        "stats-genre-chips-toggle",
+        "stats-mood-chips-toggle",
+        "stats-period-chips-toggle",
+    ):
+        assert f'id="{toggle_id}"' in html
+        assert f'<a class="stats-see-all-link" id="{toggle_id}"' not in html
     assert "See all" in html
+    assert "href=\"/static/statistics-detail.html" not in html
     assert "const OVERVIEW_LIMIT = 5;" in script
     assert "function top(items)" in script
+    assert "function toggleRanking(ranking)" in script
+    assert "state.expanded = !state.expanded;" in script
 
 
 def test_top_artists_is_shown_before_top_genres() -> None:
@@ -39,29 +48,53 @@ def test_detail_page_renders_the_untruncated_list_for_each_dimension() -> None:
     assert "renderRankList('stats-detail-list', 'stats-detail-empty', items);" in script
 
 
-def test_every_stat_is_normalized_to_a_numbered_list() -> None:
-    # Genres/moods/periods used to be chip clouds and the advanced page's provider/error
-    # breakdowns used to be horizontal bars -- every stat now renders through the
-    # same ranked-list component so the page doesn't mix three different visual
-    # languages for the same kind of data.
+def test_genres_moods_periods_avoid_chip_clouds() -> None:
+    # Genres/moods/periods used to be chip clouds -- the detail drill-down page
+    # (the untruncated "See all" list) still renders through the shared
+    # ranked-list component; the Music panels themselves use bar charts (see
+    # test_music_top_dimensions_use_bar_charts_like_advanced_stats below).
     render = _text("statistics-render.js")
     statistics_js = _text("statistics.js")
     detail_js = _text("statistics-detail.js")
-    advanced_html = _text("statistics-advanced.html")
-    advanced_js = _text("statistics-advanced.js")
-    advanced_style = _text("statistics-advanced.css")
     style = _text("statistics.css")
 
     assert "function renderChips" not in render
     assert "renderChips" not in statistics_js
     assert "renderChips" not in detail_js
-    assert "'stats-rank-list'" in advanced_js
-    assert "stats-mono-bar-list" not in advanced_html
-    assert "renderRankList" in advanced_js
-    assert "renderMonoBarList" not in advanced_js
-    assert ".stats-mono-bar-list" not in advanced_style
+    assert "renderRankList" in detail_js
     assert ".stats-chip-cloud" not in style
     assert ".stats-chip {" not in style
+
+
+def test_music_top_dimensions_use_bar_charts_like_advanced_stats() -> None:
+    # Top artists/genres/moods/periods now adopt the same horizontal-bar visual
+    # language as the Advanced/Cache panels (proportional bars, not numbered
+    # lists), per an explicit request to make every Music subcategory match the
+    # Advanced page's style.
+    html = _text("statistics.html")
+    statistics_js = _text("statistics.js")
+
+    assert "renderRankList" not in statistics_js
+    assert "function renderBarRanking(" in statistics_js
+    assert "stats-bar-row" in statistics_js
+    assert 'id="stats-artist-list" class="stats-bar-list"' in html
+    assert 'id="stats-genre-chips" class="stats-bar-list"' in html
+    assert 'id="stats-mood-chips" class="stats-bar-list"' in html
+    assert 'id="stats-period-chips" class="stats-bar-list"' in html
+
+
+def test_advanced_stats_uses_bar_charts_instead_of_ranked_lists() -> None:
+    # Advanced statistics visualizes proportional/comparative technical data
+    # (per-stage timing, cache hit rate) as horizontal bars rather than the
+    # ranked-list component used for rankings elsewhere -- a deliberate departure
+    # for this page's more visual, dashboard-style presentation.
+    advanced_js = _text("statistics-advanced.js")
+    advanced_style = _text("statistics-advanced.css")
+
+    assert "renderRankList" not in advanced_js
+    assert "stats-bar-list" in advanced_js
+    assert ".stats-bar-fill" in advanced_style
+    assert ".stats-bar-track" in advanced_style
 
 
 def test_telemetry_is_a_real_switch_with_an_explanation() -> None:
@@ -93,7 +126,7 @@ def test_the_local_only_note_is_folded_into_the_telemetry_explanation() -> None:
 
 
 def test_advanced_stats_has_no_recorded_since_hint() -> None:
-    html = _text("statistics-advanced.html")
+    html = _text("statistics.html")
     style = _text("statistics-advanced.css")
 
     assert "only recorded for generations" not in html
@@ -101,15 +134,36 @@ def test_advanced_stats_has_no_recorded_since_hint() -> None:
     assert "stats-nerd-hint" not in style
 
 
-def test_stat_section_cards_have_breathing_room_between_them() -> None:
-    # The section cards used to sit flush against each other (no gap between
-    # boxes); #stats-content is shared by statistics.html and statistics-advanced.html
-    # so both pick up the spacing.
+def test_multi_child_panels_have_breathing_room_between_their_sections() -> None:
+    # #stats-advanced-content and #stats-cache-content each stack more than one
+    # top-level block (tabs + detail card, or the cache card) inside one panel,
+    # so they need the same gap the old flush-card layout was missing.
     style = _text("statistics.css")
 
-    assert "#stats-content {" in style
     assert "display: grid;" in style
     assert "gap: 20px;" in style
+    assert "#stats-advanced-content," in style
+    assert "#stats-cache-content {" in style
+
+
+def test_statistics_page_is_organized_into_sidebar_categories() -> None:
+    # Statistics mirrors the Diagnostics page's shell: one page, a sidebar with
+    # icon + label categories grouped under "Music" and "Technical", and a
+    # single visible panel switched client-side instead of separate
+    # de-emphasized pages -- every music dimension (artists/genres/moods/
+    # periods/timeline) is its own subcategory of Music, not one long panel.
+    html = _text("statistics.html")
+    script = _text("statistics-page.js")
+
+    assert "settings-page-shell" in html
+    for section in ("overview", "timeline", "artists", "genres", "moods", "periods", "advanced", "cache"):
+        assert f'data-stats-section="{section}"' in html
+        assert f'id="stats-{section}-panel"' in html
+    assert (
+        "SECTIONS = new Set(['overview', 'timeline', 'artists', 'genres', "
+        "'moods', 'periods', 'advanced', 'cache'])"
+    ) in script
+    assert "function selectSection(section" in script
 
 
 def test_timeline_bar_height_reserves_room_for_the_month_label() -> None:

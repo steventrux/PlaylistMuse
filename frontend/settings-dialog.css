@@ -162,60 +162,20 @@
 .settings-dialog-card .storage-breakdown {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 20px;
   margin: 0 0 4px;
 }
 
-.settings-dialog-card .storage-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: .95rem;
-}
-
-.settings-dialog-card .storage-row-label {
-  color: var(--text-secondary);
-}
-
-.settings-dialog-card .storage-row-value {
-  font-weight: 700;
+.settings-dialog-card .storage-tile-detail {
+  color: var(--text-muted);
+  font-size: .7rem;
   text-align: right;
 }
 
-.settings-dialog-card .storage-row-total {
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
-}
-
-.settings-dialog-card .storage-row-total .storage-row-label,
-.settings-dialog-card .storage-row-total .storage-row-value {
+.settings-dialog-card .storage-total-value {
+  font-size: clamp(2.2rem, 5vw, 3rem);
+  font-weight: 850;
+  line-height: 1;
+  letter-spacing: -.03em;
   color: var(--text-primary);
-}
-
-.settings-dialog-card .storage-cache-metrics {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 4px 0 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-}
-
-.settings-dialog-card .storage-cache-metrics-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: .85rem;
-}
-
-.settings-dialog-card .storage-cache-metrics-row-label {
-  color: var(--text-secondary);
-}
-
-.settings-dialog-card .storage-cache-metrics-row-value {
-  font-weight: 600;
-  text-align: right;
 }
