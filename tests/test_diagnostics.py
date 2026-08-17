@@ -8,6 +8,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 
 import backend.diagnostics as diagnostics
+from backend.application import app
+from backend.playlist_library import PlaylistLibrary
 
 
 def test_sanitize_text_redacts_common_and_known_secrets() -> None:
@@ -134,3 +136,74 @@ def test_unhandled_server_error_gets_reference(monkeypatch) -> None:
     assert response.status_code == 500
     assert response.headers[diagnostics.ERROR_REFERENCE_HEADER] == "PM-20260811-DEF456"
     assert "Error reference: PM-20260811-DEF456" in response.json()["detail"]
+
+
+def _patch_storage_paths(monkeypatch, tmp_path: Path, database_path: Path, log_path: Path):
+    cache_one = tmp_path / "metadata_cache.sqlite3"
+    cache_one.write_bytes(b"x" * 100)
+    cache_two = tmp_path / "youtube_resolution_cache.sqlite3"
+    cache_two.write_bytes(b"y" * 50)
+
+    monkeypatch.setattr(diagnostics, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(diagnostics, "DATABASE_PATH", database_path)
+    monkeypatch.setattr(diagnostics, "LOG_PATH", log_path)
+    monkeypatch.setattr(diagnostics, "LOG_BACKUP_COUNT", 0)
+    monkeypatch.setattr(
+        diagnostics,
+        "CACHE_FILES",
+        (("Metadata validation", cache_one), ("YouTube resolution", cache_two)),
+    )
+    return cache_one, cache_two
+
+
+def test_storage_endpoint_reports_database_logs_and_cache_sizes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    database_path = tmp_path / "playlists.db"
+    library = PlaylistLibrary(database_path)
+    library.create(
+        {
+            "name": "Night drive",
+            "tracks": [
+                {"video_id": "a", "title": "One", "artists": "Artist"},
+                {"video_id": "b", "title": "Two", "artists": "Artist"},
+            ],
+        }
+    )
+    log_path = tmp_path / "playlistmuse.log"
+    log_path.write_text("log line\n", encoding="utf-8")
+
+    cache_one, cache_two = _patch_storage_paths(monkeypatch, tmp_path, database_path, log_path)
+
+    response = TestClient(app).get("/api/diagnostics/storage")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["database"]["playlist_count"] == 1
+    assert payload["database"]["track_count"] == 2
+    assert payload["caches_total_bytes"] == cache_one.stat().st_size + cache_two.stat().st_size
+    assert len(payload["caches"]) == 2
+    assert payload["logs"]["size_bytes"] == log_path.stat().st_size
+    assert payload["data_dir_total_bytes"] >= payload["caches_total_bytes"]
+
+
+def test_clear_cache_deletes_only_cache_files(tmp_path: Path, monkeypatch) -> None:
+    database_path = tmp_path / "playlists.db"
+    PlaylistLibrary(database_path)
+    log_path = tmp_path / "playlistmuse.log"
+    log_path.write_text("log line\n", encoding="utf-8")
+
+    cache_one, cache_two = _patch_storage_paths(monkeypatch, tmp_path, database_path, log_path)
+    bytes_before = cache_one.stat().st_size + cache_two.stat().st_size
+
+    response = TestClient(app).post("/api/diagnostics/storage/clear-cache")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["cleared"] is True
+    assert payload["bytes_freed"] == bytes_before
+    assert not cache_one.exists()
+    assert not cache_two.exists()
+    assert database_path.exists()
+    assert log_path.exists()

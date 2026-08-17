@@ -12,7 +12,8 @@
   <link rel="stylesheet" href="/static/style.css?v=10">
   <link rel="stylesheet" href="/static/layout.css?v=5">
   <link rel="stylesheet" href="/static/controls.css?v=8">
-  <link rel="stylesheet" href="/static/settings-dialog.css?v=7">
+  <link rel="stylesheet" href="/static/settings-dialog.css?v=8">
+  <link rel="stylesheet" href="/static/settings-page.css?v=5">
   <link rel="stylesheet" href="/static/header-navigation.css?v=13">
 </head>
 <body>
@@ -25,29 +26,98 @@
   </header>
 
   <main>
-    <section class="card settings-dialog-card" aria-label="Diagnostics">
-      <div class="settings-summary">
-        <h3>Bug reports and diagnostics</h3>
-        <p class="field-hint">
-          If PlaylistMuse behaves unexpectedly, download a diagnostic report and attach it to a GitHub bug report together with the steps needed to reproduce the problem.
-        </p>
-        <p id="support-build-info" class="settings-status">Checking running version&hellip;</p>
-      </div>
+    <div class="settings-page-shell">
+      <aside class="settings-page-navigation" aria-label="Diagnostics sections">
+        <div class="settings-page-title-block">
+          <p class="eyebrow">PlaylistMuse</p>
+          <h1>Diagnostics</h1>
+        </div>
 
-      <div class="settings-actions">
-        <a id="download-diagnostics" class="secondary" href="/api/diagnostics/report">Download diagnostic report</a>
-        <a id="report-bug" class="primary" href="https://github.com/steventrux/PlaylistMuse/issues/new?template=bug_report.yml" target="_blank" rel="noopener noreferrer">Report a bug on GitHub</a>
-      </div>
+        <nav class="settings-section-navigation" aria-label="PlaylistMuse diagnostics">
+          <p class="settings-section-label">Support</p>
+          <button class="settings-section-link" type="button" data-diagnostics-section="bugs">
+            <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+              <ellipse cx="16" cy="18" rx="7" ry="9" />
+              <path d="M9 15c0-3.9 3.1-7 7-7s7 3.1 7 7" />
+              <path d="M16 9V6M13 6.5l-1.6-1.6M19 6.5l1.6-1.6M9 14H4M9 20H4M23 14h5M23 20h5M12.5 26l-1.8 1.8M19.5 26l1.8 1.8" />
+            </svg>
+            <span>Bug reports</span>
+          </button>
+          <button class="settings-section-link" type="button" data-diagnostics-section="storage">
+            <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+              <ellipse cx="16" cy="8" rx="10" ry="4" />
+              <path d="M6 8v16c0 2.2 4.5 4 10 4s10-1.8 10-4V8" />
+              <path d="M6 16c0 2.2 4.5 4 10 4s10-1.8 10-4" />
+            </svg>
+            <span>Storage</span>
+          </button>
+        </nav>
+      </aside>
 
-      <p class="field-hint">
-        The report contains build information, configuration state and recent application errors. Known credentials and common secret formats are redacted automatically. Review the archive before sharing it and never upload your <code>.env</code>, raw configuration files or OAuth token files.
-      </p>
-    </section>
+      <section class="settings-page-content settings-dialog-card" aria-live="polite">
+        <div class="settings-page-content-heading">
+          <p id="diagnostics-section-eyebrow" class="eyebrow">Support</p>
+          <h2 id="diagnostics-section-title">Bug reports</h2>
+        </div>
+
+        <section id="diagnostics-bugs-panel" class="settings-page-panel" aria-label="Bug reports">
+          <div class="settings-summary">
+            <p class="field-hint">
+              If PlaylistMuse behaves unexpectedly, download a diagnostic report and attach it to a GitHub bug report together with the steps needed to reproduce the problem.
+            </p>
+            <p id="support-build-info" class="settings-status">Checking running version&hellip;</p>
+          </div>
+
+          <div class="settings-actions">
+            <a id="download-diagnostics" class="secondary" href="/api/diagnostics/report">Download diagnostic report</a>
+            <a id="report-bug" class="primary" href="https://github.com/steventrux/PlaylistMuse/issues/new?template=bug_report.yml" target="_blank" rel="noopener noreferrer">Report a bug on GitHub</a>
+          </div>
+
+          <p class="field-hint">
+            The report contains build information, configuration state and recent application errors. Known credentials and common secret formats are redacted automatically. Review the archive before sharing it and never upload your <code>.env</code>, raw configuration files or OAuth token files.
+          </p>
+        </section>
+
+        <section id="diagnostics-storage-panel" class="settings-page-panel hidden" aria-label="Storage">
+          <div class="settings-summary">
+            <p class="field-hint">
+              PlaylistMuse caches lookups on disk (YouTube catalogue matches, metadata checks) to speed up future playlist generation. Clearing the cache never deletes saved playlists or statistics.
+            </p>
+            <p id="storage-status" class="settings-status">Checking storage usage&hellip;</p>
+          </div>
+
+          <div class="storage-breakdown hidden" id="storage-breakdown">
+            <div class="storage-row">
+              <span class="storage-row-label">Playlist library</span>
+              <span class="storage-row-value" id="storage-database"></span>
+            </div>
+            <div class="storage-row">
+              <span class="storage-row-label">Logs</span>
+              <span class="storage-row-value" id="storage-logs"></span>
+            </div>
+            <div class="storage-row">
+              <span class="storage-row-label">Cache</span>
+              <span class="storage-row-value" id="storage-cache"></span>
+            </div>
+            <div class="storage-row storage-row-total">
+              <span class="storage-row-label">Total</span>
+              <span class="storage-row-value" id="storage-total"></span>
+            </div>
+          </div>
+
+          <div class="settings-actions">
+            <button id="clear-cache" class="secondary" type="button">Clear cache</button>
+          </div>
+        </section>
+      </section>
+    </div>
   </main>
 
   <script src="/static/common.js?v=7"></script>
   <script src="/static/diagnostics-client.js?v=1"></script>
   <script src="/static/support.js?v=3"></script>
+  <script src="/static/diagnostics-storage.js?v=1"></script>
+  <script src="/static/diagnostics-page.js?v=1"></script>
   <script src="/static/home-status.js?v=26"></script>
 </body>
 </html>
