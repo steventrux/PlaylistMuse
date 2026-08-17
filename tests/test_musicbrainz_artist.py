@@ -14,7 +14,7 @@ class FakeResponse:
         return self._payload
 
 
-def test_artist_origin_lookup_resolves_country_and_reuses_cache(monkeypatch):
+def test_artist_origin_lookup_resolves_country_and_reuses_cache(tmp_path, monkeypatch):
     calls = 0
 
     async def fake_get(client, url, params):
@@ -31,6 +31,8 @@ def test_artist_origin_lookup_resolves_country_and_reuses_cache(monkeypatch):
             }
         )
 
+    cache_path = tmp_path / "musicbrainz_artist_cache.sqlite3"
+    monkeypatch.setattr(musicbrainz_artist, "_cache_path", lambda: cache_path)
     musicbrainz_artist.clear_artist_origin_cache()
     monkeypatch.setattr(musicbrainz_artist, "rate_limited_get", fake_get)
 
@@ -46,9 +48,10 @@ def test_artist_origin_lookup_resolves_country_and_reuses_cache(monkeypatch):
     assert first.area == "Rome"
     assert second == first
     assert calls == 1
+    assert cache_path.exists()
 
 
-def test_artist_origin_lookup_caches_successful_missing_country(monkeypatch):
+def test_artist_origin_lookup_caches_successful_missing_country(tmp_path, monkeypatch):
     calls = 0
 
     async def fake_get(client, url, params):
@@ -56,6 +59,8 @@ def test_artist_origin_lookup_caches_successful_missing_country(monkeypatch):
         calls += 1
         return FakeResponse({"id": "artist-mbid", "name": "Unknown origin"})
 
+    cache_path = tmp_path / "musicbrainz_artist_cache.sqlite3"
+    monkeypatch.setattr(musicbrainz_artist, "_cache_path", lambda: cache_path)
     musicbrainz_artist.clear_artist_origin_cache()
     monkeypatch.setattr(musicbrainz_artist, "rate_limited_get", fake_get)
 
@@ -70,3 +75,4 @@ def test_artist_origin_lookup_caches_successful_missing_country(monkeypatch):
     assert first.country is None
     assert second == first
     assert calls == 1
+    assert cache_path.exists()

@@ -158,3 +158,37 @@
     text-align: center;
   }
 }
+
+.settings-dialog-card .storage-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 4px;
+}
+
+.settings-dialog-card .storage-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: .95rem;
+}
+
+.settings-dialog-card .storage-row-label {
+  color: var(--text-secondary);
+}
+
+.settings-dialog-card .storage-row-value {
+  font-weight: 700;
+  text-align: right;
+}
+
+.settings-dialog-card .storage-row-total {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-dialog-card .storage-row-total .storage-row-label,
+.settings-dialog-card .storage-row-total .storage-row-value {
+  color: var(--text-primary);
+}

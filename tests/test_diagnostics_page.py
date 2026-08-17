@@ -16,7 +16,7 @@ def test_diagnostics_page_exposes_the_moved_support_content() -> None:
     assert 'id="support-build-info"' in html
     assert 'href="/api/diagnostics/report"' in html
     assert 'template=bug_report.yml' in html
-    assert 'class="card settings-dialog-card"' in html
+    assert 'class="settings-page-content settings-dialog-card"' in html
     assert '/static/diagnostics-client.js?v=1' in html
     assert '/static/support.js?v=' in html
 
