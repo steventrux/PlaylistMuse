@@ -40,26 +40,26 @@ def test_detail_page_renders_the_untruncated_list_for_each_dimension() -> None:
 
 
 def test_every_stat_is_normalized_to_a_numbered_list() -> None:
-    # Genres/moods/periods used to be chip clouds and the nerd page's provider/error
+    # Genres/moods/periods used to be chip clouds and the advanced page's provider/error
     # breakdowns used to be horizontal bars -- every stat now renders through the
     # same ranked-list component so the page doesn't mix three different visual
     # languages for the same kind of data.
     render = _text("statistics-render.js")
     statistics_js = _text("statistics.js")
     detail_js = _text("statistics-detail.js")
-    nerd_html = _text("statistics-nerd.html")
-    nerd_js = _text("statistics-nerd.js")
-    nerd_style = _text("statistics-nerd.css")
+    advanced_html = _text("statistics-advanced.html")
+    advanced_js = _text("statistics-advanced.js")
+    advanced_style = _text("statistics-advanced.css")
     style = _text("statistics.css")
 
     assert "function renderChips" not in render
     assert "renderChips" not in statistics_js
     assert "renderChips" not in detail_js
-    assert "class=\"stats-rank-list\"" in nerd_html
-    assert "stats-mono-bar-list" not in nerd_html
-    assert "renderRankList" in nerd_js
-    assert "renderMonoBarList" not in nerd_js
-    assert ".stats-mono-bar-list" not in nerd_style
+    assert "'stats-rank-list'" in advanced_js
+    assert "stats-mono-bar-list" not in advanced_html
+    assert "renderRankList" in advanced_js
+    assert "renderMonoBarList" not in advanced_js
+    assert ".stats-mono-bar-list" not in advanced_style
     assert ".stats-chip-cloud" not in style
     assert ".stats-chip {" not in style
 
@@ -92,9 +92,9 @@ def test_the_local_only_note_is_folded_into_the_telemetry_explanation() -> None:
     assert ".stats-privacy-note" not in style
 
 
-def test_nerd_stats_has_no_recorded_since_hint() -> None:
-    html = _text("statistics-nerd.html")
-    style = _text("statistics-nerd.css")
+def test_advanced_stats_has_no_recorded_since_hint() -> None:
+    html = _text("statistics-advanced.html")
+    style = _text("statistics-advanced.css")
 
     assert "only recorded for generations" not in html
     assert "stats-nerd-hint" not in html
@@ -103,7 +103,7 @@ def test_nerd_stats_has_no_recorded_since_hint() -> None:
 
 def test_stat_section_cards_have_breathing_room_between_them() -> None:
     # The section cards used to sit flush against each other (no gap between
-    # boxes); #stats-content is shared by statistics.html and statistics-nerd.html
+    # boxes); #stats-content is shared by statistics.html and statistics-advanced.html
     # so both pick up the spacing.
     style = _text("statistics.css")
 

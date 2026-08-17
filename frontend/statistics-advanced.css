@@ -1,9 +1,9 @@
-/* Technical/"nerd" statistics -- reached only via a de-emphasized link from the
+/* Advanced (technical) statistics -- reached only via a de-emphasized link from the
    main Statistics page, never from the sidebar. Reuses statistics.css's section
    rhythm, secondary-stat and ranked-list styling; overrides only what doesn't
    fit a 6-tile grid. */
 
-.stats-nerd-tiles {
+.stats-advanced-tiles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 18px 24px;
@@ -11,11 +11,11 @@
   border-bottom: 1px solid var(--border);
 }
 
-.stats-nerd-tiles .stats-secondary-stat {
+.stats-advanced-tiles .stats-secondary-stat {
   align-items: flex-start;
 }
 
-.stats-nerd-tiles .stats-secondary-label {
+.stats-advanced-tiles .stats-secondary-label {
   text-align: left;
 }
 
@@ -40,4 +40,21 @@
 .stats-stage-row-value {
   font-weight: 700;
   text-align: right;
+}
+
+#stats-provider-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.stats-provider-card .stats-advanced-tiles {
+  margin-top: 4px;
+}
+
+.stats-provider-card h4 {
+  margin: 20px 0 10px;
+  color: var(--text-primary);
+  font-size: .92rem;
+  font-weight: 750;
 }
