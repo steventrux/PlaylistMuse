@@ -13,6 +13,7 @@ the "unknown" provider rather than assumed.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import statistics
 from collections import Counter
@@ -21,6 +22,29 @@ from typing import Any
 from backend.generation_counter import generations_by_month, total_generations
 from backend.generation_errors import error_breakdown
 from backend.playlist_library import DATABASE_PATH
+
+_DECADE_RE = re.compile(r"^\d{3,4}0s$")
+
+
+def _normalize_tag(value: str) -> str:
+    """Fold casing variants (e.g. "energetic" / "Energetic") into one label."""
+    return value.strip().title()
+
+
+def _expand_period(value: str) -> list[str]:
+    """Split a combined range like "1970s-1980s" into its individual decades.
+
+    Only splits when every hyphen-separated part actually looks like a decade
+    (e.g. "1970s") -- anything else (a single decade, or a value that merely
+    contains a hyphen) is returned unchanged.
+    """
+    text = value.strip()
+    if not text:
+        return []
+    parts = [part.strip() for part in text.split("-")]
+    if len(parts) > 1 and all(_DECADE_RE.match(part) for part in parts):
+        return parts
+    return [text]
 
 
 def _connect() -> sqlite3.Connection:
@@ -105,9 +129,11 @@ def compute_stats() -> dict[str, Any]:
             period_list = tags.get("period") or []
             if genre_list or mood_list or period_list:
                 tagged_row = True
-            genres.update(str(value) for value in genre_list if value)
-            moods.update(str(value) for value in mood_list if value)
-            periods.update(str(value) for value in period_list if value)
+            genres.update(_normalize_tag(str(value)) for value in genre_list if value)
+            moods.update(_normalize_tag(str(value)) for value in mood_list if value)
+            for value in period_list:
+                if value:
+                    periods.update(_expand_period(str(value)))
 
         for track in playlist.get("tracks") or []:
             if not isinstance(track, dict):

@@ -3,20 +3,22 @@
 
   const $ = (id) => document.getElementById(id);
   const {readJson} = window.PlaylistMuseCommon;
-  const {formatCount, renderRankList} = window.PlaylistMuseStatsRender;
+  const {formatCount} = window.PlaylistMuseStatsRender;
+
+  const ACCENTS = ['violet', 'magenta', 'cyan'];
+
+  function accentFor(index) {
+    return ACCENTS[index % ACCENTS.length];
+  }
 
   function formatDuration(ms) {
-    if (ms === null || ms === undefined) return '—';
+    if (ms === null || ms === undefined) return 'n/a';
     if (ms < 1000) return `${Math.round(ms)} ms`;
     return `${(ms / 1000).toFixed(1)} s`;
   }
 
   function formatPercent(value) {
-    return value === null || value === undefined ? '—' : `${value}%`;
-  }
-
-  function slugify(value) {
-    return String(value).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'unknown';
+    return value === null || value === undefined ? 'n/a' : `${value}%`;
   }
 
   const STAGE_LABELS = {
@@ -32,30 +34,60 @@
     return STAGE_LABELS[stage] || stage;
   }
 
-  function renderStageTimings(stageTimings, containerId, emptyId) {
-    const container = $(containerId);
-    const empty = $(emptyId);
+  function barRow(label, valueText, fraction) {
+    const row = document.createElement('div');
+    row.className = 'stats-bar-row';
+    const labelEl = document.createElement('span');
+    labelEl.className = 'stats-bar-label';
+    labelEl.textContent = label;
+    const track = document.createElement('div');
+    track.className = 'stats-bar-track';
+    const fill = document.createElement('div');
+    fill.className = 'stats-bar-fill';
+    fill.style.width = `${Math.max(4, Math.round(fraction * 100))}%`;
+    track.append(fill);
+    const value = document.createElement('span');
+    value.className = 'stats-bar-value';
+    value.textContent = valueText;
+    row.append(labelEl, track, value);
+    return row;
+  }
+
+  function renderStageBars(stageTimings, container) {
     const entries = Object.entries(stageTimings || {});
     container.textContent = '';
     if (!entries.length) {
-      container.classList.add('hidden');
-      empty.classList.remove('hidden');
+      const empty = document.createElement('p');
+      empty.className = 'field-hint';
+      empty.textContent = 'No per-stage timing recorded yet.';
+      container.append(empty);
       return;
     }
-    empty.classList.add('hidden');
-    container.classList.remove('hidden');
+    const maxAvg = Math.max(...entries.map(([, summary]) => summary.avg_ms || 0), 1);
     for (const [stage, summary] of entries) {
-      const row = document.createElement('div');
-      row.className = 'stats-stage-row';
-      const label = document.createElement('span');
-      label.className = 'stats-stage-row-label';
-      label.textContent = stageLabel(stage);
-      const value = document.createElement('span');
-      value.className = 'stats-stage-row-value';
-      value.textContent =
-        `avg ${formatDuration(summary.avg_ms)} · median ${formatDuration(summary.median_ms)} · p95 ${formatDuration(summary.p95_ms)}`;
-      row.append(label, value);
-      container.append(row);
+      container.append(barRow(
+        stageLabel(stage),
+        `avg ${formatDuration(summary.avg_ms)}`,
+        (summary.avg_ms || 0) / maxAvg,
+      ));
+    }
+  }
+
+  function errorBadges(breakdown, container) {
+    container.textContent = '';
+    const entries = Object.entries(breakdown || {}).sort((a, b) => b[1] - a[1]);
+    if (!entries.length) {
+      const empty = document.createElement('p');
+      empty.className = 'field-hint';
+      empty.textContent = 'No generation errors recorded.';
+      container.append(empty);
+      return;
+    }
+    for (const [label, count] of entries) {
+      const badge = document.createElement('span');
+      badge.className = 'stats-error-badge';
+      badge.textContent = `${label} × ${count}`;
+      container.append(badge);
     }
   }
 
@@ -72,23 +104,16 @@
     return wrap;
   }
 
-  function renderProviderCard(provider, stats, container) {
-    // Built and appended to `container` before the stage-timing/error-list content is
-    // filled in, since renderStageTimings()/renderRankList() look their targets up via
-    // document.getElementById() -- which only finds nodes already attached to the live
-    // document, not ones still sitting in a detached DOM fragment.
-    const slug = slugify(provider);
+  function renderProviderDetail(provider, stats, accent) {
+    const detail = $('stats-provider-detail');
+    detail.textContent = '';
+    detail.dataset.accent = accent;
+
     const card = document.createElement('div');
-    card.className = 'stats-section stats-provider-card';
+    card.className = 'stats-section stats-provider-detail-card';
 
     const heading = document.createElement('h3');
-    const name = document.createElement('span');
-    name.textContent = provider;
-    const count = document.createElement('span');
-    count.className = 'stats-section-cta';
-    const playlists = stats.playlist_count || 0;
-    count.textContent = `${formatCount(playlists)} playlist${playlists === 1 ? '' : 's'}`;
-    heading.append(name, count);
+    heading.textContent = provider;
     card.append(heading);
 
     const tiles = document.createElement('div');
@@ -97,7 +122,7 @@
       tile(formatDuration(stats.avg_generation_ms), 'Average generation time'),
       tile(formatDuration(stats.median_generation_ms), 'Median generation time'),
       tile(formatDuration(stats.p95_generation_ms), 'P95 generation time'),
-      tile(stats.avg_track_count ?? '—', 'Average tracks per playlist'),
+      tile(stats.avg_track_count ?? 'n/a', 'Average tracks per playlist'),
       tile(formatPercent(stats.tag_coverage_percent), 'Tag coverage'),
       tile(formatCount(stats.total_errors), 'Generation errors'),
     );
@@ -105,64 +130,81 @@
 
     const stageHeading = document.createElement('h4');
     stageHeading.textContent = 'Time per generation stage';
-    const stageContainer = document.createElement('div');
-    stageContainer.className = 'stats-stage-timings';
-    stageContainer.id = `stats-stage-timings-${slug}`;
-    const stageEmpty = document.createElement('p');
-    stageEmpty.className = 'field-hint hidden';
-    stageEmpty.id = `stats-stage-timings-${slug}-empty`;
-    stageEmpty.textContent = 'No per-stage timing recorded yet.';
-    card.append(stageHeading, stageContainer, stageEmpty);
+    const stageBars = document.createElement('div');
+    stageBars.className = 'stats-bar-list';
+    card.append(stageHeading, stageBars);
+    renderStageBars(stats.stage_timings, stageBars);
 
     const errorsHeading = document.createElement('h4');
     errorsHeading.textContent = 'Generation errors';
-    const errorsList = document.createElement('ol');
-    errorsList.className = 'stats-rank-list';
-    errorsList.id = `stats-error-breakdown-${slug}`;
-    const errorsEmpty = document.createElement('p');
-    errorsEmpty.className = 'field-hint hidden';
-    errorsEmpty.id = `stats-error-breakdown-${slug}-empty`;
-    errorsEmpty.textContent = 'No generation errors recorded.';
-    card.append(errorsHeading, errorsList, errorsEmpty);
+    const errorsRow = document.createElement('div');
+    errorsRow.className = 'stats-error-badges';
+    card.append(errorsHeading, errorsRow);
+    errorBadges(stats.error_breakdown, errorsRow);
 
-    container.append(card);
+    detail.append(card);
+  }
 
-    renderStageTimings(stats.stage_timings, stageContainer.id, stageEmpty.id);
-    const errors = Object.entries(stats.error_breakdown || {})
-      .map(([label, errorCount]) => ({label, count: errorCount}))
-      .sort((a, b) => b.count - a.count);
-    renderRankList(errorsList.id, errorsEmpty.id, errors);
+  function selectProvider(providers, provider) {
+    const index = providers.findIndex(([name]) => name === provider);
+    if (index === -1) return;
+    document.querySelectorAll('.stats-provider-tab').forEach((button) => {
+      button.classList.toggle('active', button.dataset.provider === provider);
+    });
+    renderProviderDetail(provider, providers[index][1], accentFor(index));
+  }
+
+  function renderTabs(providers) {
+    const tabs = $('stats-provider-tabs');
+    tabs.textContent = '';
+    providers.forEach(([provider, stats], index) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'stats-provider-tab';
+      button.dataset.accent = accentFor(index);
+      button.dataset.provider = provider;
+      const name = document.createElement('span');
+      name.textContent = provider;
+      const count = document.createElement('span');
+      count.className = 'stats-provider-tab-count';
+      count.textContent = formatCount(stats.playlist_count || 0);
+      button.append(name, count);
+      button.addEventListener('click', () => selectProvider(providers, provider));
+      tabs.append(button);
+    });
   }
 
   function renderNerd(nerd) {
-    const container = $('stats-provider-cards');
+    const tabs = $('stats-provider-tabs');
+    const detail = $('stats-provider-detail');
     const empty = $('stats-provider-cards-empty');
-    container.textContent = '';
 
     const providers = Object.entries(nerd.by_provider || {})
+      .filter(([provider, stats]) => provider !== 'unknown' && (stats.playlist_count || 0) > 0)
       .sort(([, a], [, b]) => (b.playlist_count || 0) - (a.playlist_count || 0));
 
     if (!providers.length) {
-      container.classList.add('hidden');
+      tabs.classList.add('hidden');
+      detail.classList.add('hidden');
       empty.classList.remove('hidden');
       return;
     }
     empty.classList.add('hidden');
-    container.classList.remove('hidden');
-    for (const [provider, stats] of providers) {
-      renderProviderCard(provider, stats, container);
-    }
+    tabs.classList.remove('hidden');
+    detail.classList.remove('hidden');
+    renderTabs(providers);
+    selectProvider(providers, providers[0][0]);
   }
 
   async function loadStats() {
     try {
       const data = await readJson(await fetch('/api/stats', {cache: 'no-store'}));
       renderNerd(data.nerd || {});
-      $('stats-status').classList.add('hidden');
-      $('stats-content').classList.remove('hidden');
+      $('stats-advanced-status').classList.add('hidden');
+      $('stats-advanced-content').classList.remove('hidden');
     } catch (error) {
-      $('stats-status').textContent = error.message || 'Statistics are unavailable right now.';
-      $('stats-status').classList.add('error');
+      $('stats-advanced-status').textContent = error.message || 'Statistics are unavailable right now.';
+      $('stats-advanced-status').classList.add('error');
     }
   }
 

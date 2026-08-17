@@ -7,11 +7,12 @@
   if (!status || !breakdown) return;
 
   const databaseValue = document.getElementById('storage-database');
+  const databaseDetail = document.getElementById('storage-database-detail');
   const logsValue = document.getElementById('storage-logs');
   const cacheValue = document.getElementById('storage-cache');
+  const cacheDetail = document.getElementById('storage-cache-detail');
   const totalValue = document.getElementById('storage-total');
   const cacheNote = document.getElementById('storage-cache-note');
-  const cacheMetrics = document.getElementById('storage-cache-metrics');
 
   function formatBytes(bytes) {
     const value = Number(bytes) || 0;
@@ -42,44 +43,19 @@
     cacheNote.classList.remove('hidden');
   }
 
-  function renderCacheMetrics(caches) {
-    if (!cacheMetrics) return;
-    const active = (caches || []).filter((cache) => cache.hits + cache.misses > 0);
-    cacheMetrics.textContent = '';
-    if (!active.length) {
-      cacheMetrics.classList.add('hidden');
-      return;
-    }
-    for (const cache of active) {
-      const row = document.createElement('div');
-      row.className = 'storage-cache-metrics-row';
-      const label = document.createElement('span');
-      label.className = 'storage-cache-metrics-row-label';
-      label.textContent = cache.name;
-      const value = document.createElement('span');
-      value.className = 'storage-cache-metrics-row-value';
-      const hitRate = cache.hit_rate === null || cache.hit_rate === undefined
-        ? 'n/a'
-        : `${Math.round(cache.hit_rate * 100)}%`;
-      value.textContent = `${cache.hits} hits · ${cache.misses} misses · ${hitRate} hit rate`;
-      row.append(label, value);
-      cacheMetrics.append(row);
-    }
-    cacheMetrics.classList.remove('hidden');
-  }
-
   function renderStorage(payload) {
     const database = payload.database || {};
-    databaseValue.textContent =
-      `${formatBytes(database.size_bytes)} · ${database.playlist_count || 0} playlists · ${database.track_count || 0} tracks`;
+    databaseValue.textContent = formatBytes(database.size_bytes);
+    databaseDetail.textContent =
+      `${database.playlist_count || 0} playlists · ${database.track_count || 0} tracks`;
     logsValue.textContent = formatBytes((payload.logs || {}).size_bytes);
     const cacheCount = Array.isArray(payload.caches) ? payload.caches.length : 0;
-    cacheValue.textContent = `${formatBytes(payload.caches_total_bytes)} · ${cacheCount} files`;
+    cacheValue.textContent = formatBytes(payload.caches_total_bytes);
+    cacheDetail.textContent = `${cacheCount} file${cacheCount === 1 ? '' : 's'}`;
     totalValue.textContent = formatBytes(payload.data_dir_total_bytes);
     breakdown.classList.remove('hidden');
     renderCacheNote(payload);
-    renderCacheMetrics(payload.caches);
-    status.textContent = 'Storage usage';
+    status.classList.add('hidden');
     status.classList.remove('error');
   }
 
@@ -89,11 +65,11 @@
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       renderStorage(await response.json());
     } catch {
+      status.classList.remove('hidden');
       status.textContent = 'Storage usage is unavailable.';
       status.classList.add('error');
       breakdown.classList.add('hidden');
       if (cacheNote) cacheNote.classList.add('hidden');
-      if (cacheMetrics) cacheMetrics.classList.add('hidden');
     }
   }
 
@@ -107,6 +83,7 @@
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       renderStorage(await response.json());
     } catch {
+      status.classList.remove('hidden');
       status.textContent = 'Could not clear the cache.';
       status.classList.add('error');
     } finally {

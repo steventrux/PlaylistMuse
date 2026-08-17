@@ -124,7 +124,6 @@
       path.endsWith('/library.html')
       || path.endsWith('/playlist.html')
       || path.endsWith('/statistics.html')
-      || path.endsWith('/statistics-advanced.html')
       || path.endsWith('/statistics-detail.html')
       || path.endsWith('/diagnostics.html')
       || path.endsWith('/settings.html')

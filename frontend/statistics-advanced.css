@@ -1,13 +1,19 @@
-/* Advanced (technical) statistics -- reached only via a de-emphasized link from the
-   main Statistics page, never from the sidebar. Reuses statistics.css's section
-   rhythm, secondary-stat and ranked-list styling; overrides only what doesn't
-   fit a 6-tile grid. */
+/* Shared styling for the "Advanced" and "Cache" panels of the Statistics page
+   (frontend/statistics.html), both reached via the sidebar built by
+   statistics-page.js. Reuses statistics.css's section rhythm and secondary-stat
+   tile styling; provider identity comes from a small brand-color accent cycle
+   (violet/magenta/cyan) applied via [data-accent]. */
+
+[data-accent="violet"] { --accent: var(--violet); --accent-soft: rgba(139, 92, 246, .16); }
+[data-accent="magenta"] { --accent: var(--magenta); --accent-soft: rgba(236, 72, 153, .16); }
+[data-accent="cyan"] { --accent: var(--cyan); --accent-soft: rgba(56, 189, 248, .16); }
 
 .stats-advanced-tiles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 18px 24px;
-  padding-bottom: 24px;
+  gap: 20px 28px;
+  padding-bottom: 26px;
+  margin-top: 4px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -19,42 +25,159 @@
   text-align: left;
 }
 
-.stats-stage-timings {
+/* Provider tabs */
+
+.stats-provider-tabs {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
-.stats-stage-row {
+.stats-provider-tab {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: .95rem;
-}
-
-.stats-stage-row-label {
+  align-items: center;
+  gap: 9px;
+  padding: 9px 16px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
   color: var(--text-secondary);
+  font: inherit;
+  font-size: .88rem;
+  font-weight: 750;
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease, color 150ms ease;
 }
 
-.stats-stage-row-value {
+.stats-provider-tab:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.stats-provider-tab-count {
+  padding: 1px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .07);
+  color: var(--text-muted);
+  font-size: .74rem;
   font-weight: 700;
-  text-align: right;
 }
 
-#stats-provider-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+.stats-provider-tab.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text-primary);
 }
 
-.stats-provider-card .stats-advanced-tiles {
-  margin-top: 4px;
+.stats-provider-tab.active .stats-provider-tab-count {
+  background: var(--accent);
+  color: var(--bg-primary);
 }
 
-.stats-provider-card h4 {
-  margin: 20px 0 10px;
+/* Provider detail panel */
+
+.stats-provider-detail-card {
+  border-color: var(--accent-soft, var(--border));
+}
+
+.stats-provider-detail-card h3 {
+  margin: 0 0 4px;
+  color: var(--accent, var(--text-primary));
+  font-size: 1.15rem;
+  font-weight: 850;
+  letter-spacing: -.01em;
+}
+
+.stats-provider-detail-card h4 {
+  margin: 26px 0 12px;
   color: var(--text-primary);
   font-size: .92rem;
   font-weight: 750;
+}
+
+/* Horizontal bars (stage timing + cache hit rate) */
+
+.stats-bar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stats-cache-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.stats-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.stats-bar-label {
+  flex: 0 0 190px;
+  color: var(--text-secondary);
+  font-size: .85rem;
+}
+
+.stats-bar-track {
+  flex: 1 1 auto;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .06);
+  overflow: hidden;
+}
+
+.stats-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 200ms ease;
+}
+
+.stats-bar-list .stats-bar-fill,
+.stats-cache-bars .stats-bar-fill {
+  background: var(--accent, var(--violet));
+}
+
+.stats-bar-value {
+  flex: 0 0 auto;
+  min-width: 150px;
+  text-align: right;
+  color: var(--text-secondary);
+  font-size: .8rem;
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .stats-bar-label {
+    flex-basis: 120px;
+  }
+
+  .stats-bar-value {
+    min-width: 110px;
+  }
+}
+
+/* Error badges */
+
+.stats-error-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stats-error-badge {
+  padding: 5px 12px;
+  border: 1px solid rgba(251, 113, 133, .35);
+  border-radius: 999px;
+  background: rgba(251, 113, 133, .12);
+  color: var(--error);
+  font-size: .78rem;
+  font-weight: 750;
+}
+
+#stats-cache-empty {
+  margin-top: 18px;
 }

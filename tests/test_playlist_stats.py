@@ -138,6 +138,61 @@ def test_compute_stats_aggregates_across_the_library(monkeypatch, tmp_path: Path
     assert unknown["draft_vs_published"] == {"draft": 1, "published": 0}
 
 
+def test_compute_stats_normalizes_genre_and_mood_casing(monkeypatch, tmp_path: Path) -> None:
+    database_path = tmp_path / "playlists.db"
+    library = PlaylistLibrary(database_path)
+    library.create(_playlist(
+        name="Morning Run",
+        artists=["Artist A"],
+        tags={"genre": ["synthwave"], "mood": ["energetic"], "period": []},
+    ))
+    library.create(_playlist(
+        name="Evening Run",
+        artists=["Artist B"],
+        tags={"genre": ["Synthwave"], "mood": ["Energetic"], "period": []},
+    ))
+    library.create(_playlist(
+        name="Night Run",
+        artists=["Artist C"],
+        tags={"genre": ["SYNTHWAVE"], "mood": ["ENERGETIC"], "period": []},
+    ))
+    monkeypatch.setattr(playlist_stats, "DATABASE_PATH", database_path)
+
+    stats = playlist_stats.compute_stats()
+
+    assert stats["general"]["top_genres"] == [{"label": "Synthwave", "count": 3}]
+    assert stats["general"]["top_moods"] == [{"label": "Energetic", "count": 3}]
+
+
+def test_compute_stats_splits_combined_period_ranges(monkeypatch, tmp_path: Path) -> None:
+    database_path = tmp_path / "playlists.db"
+    library = PlaylistLibrary(database_path)
+    library.create(_playlist(
+        name="Retro Mix",
+        artists=["Artist A"],
+        tags={"genre": [], "mood": [], "period": ["1970s-1980s"]},
+    ))
+    library.create(_playlist(
+        name="Eighties Only",
+        artists=["Artist B"],
+        tags={"genre": [], "mood": [], "period": ["1980s"]},
+    ))
+    monkeypatch.setattr(playlist_stats, "DATABASE_PATH", database_path)
+
+    stats = playlist_stats.compute_stats()
+
+    periods = {entry["label"]: entry["count"] for entry in stats["general"]["top_periods"]}
+    assert periods == {"1970s": 1, "1980s": 2}
+
+
+def test_expand_period_only_splits_genuine_decade_ranges() -> None:
+    assert playlist_stats._expand_period("1970s-1980s") == ["1970s", "1980s"]
+    assert playlist_stats._expand_period("1980s") == ["1980s"]
+    # A hyphenated value that isn't a decade-to-decade range is left untouched
+    # rather than being split apart.
+    assert playlist_stats._expand_period("Post-2000") == ["Post-2000"]
+
+
 def test_compute_stats_handles_an_empty_library(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(playlist_stats, "DATABASE_PATH", tmp_path / "missing.db")
     monkeypatch.setattr(
