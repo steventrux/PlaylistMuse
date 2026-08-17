@@ -11,6 +11,7 @@ from typing import Any
 
 import httpx
 
+from backend import cache_metrics
 from backend.musicbrainz_client import rate_limited_get
 from backend.text_normalization import normalize_identity
 from backend.version import USER_AGENT
@@ -62,14 +63,17 @@ def _read_cache(album: str, artist: str) -> dict[str, Any] | None:
                 (key,),
             ).fetchone()
             if not row:
+                cache_metrics.record_miss("Constraint relationships")
                 return None
             if float(row["expires_at"]) <= time.time():
                 connection.execute(
                     "DELETE FROM album_artist_pair_cache WHERE pair_key = ?",
                     (key,),
                 )
+                cache_metrics.record_miss("Constraint relationships")
                 return None
             payload = json.loads(str(row["payload"]))
+            cache_metrics.record_hit("Constraint relationships")
             return payload if isinstance(payload, dict) else None
     except (sqlite3.Error, ValueError, TypeError, json.JSONDecodeError):
         return None

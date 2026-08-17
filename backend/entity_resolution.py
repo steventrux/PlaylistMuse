@@ -11,6 +11,7 @@ from typing import Any
 
 import httpx
 
+from backend import cache_metrics
 from backend.musicbrainz_client import rate_limited_get
 from backend.text_normalization import normalize_identity as _normalize
 from backend.version import USER_AGENT
@@ -54,8 +55,10 @@ def _read_cache(name: str) -> dict[str, str] | None:
                 (_normalize(name),),
             ).fetchone()
             if not row or float(row["expires_at"]) <= time.time():
+                cache_metrics.record_miss("Entity resolution")
                 return None
             payload = json.loads(str(row["payload"]))
+            cache_metrics.record_hit("Entity resolution")
             return payload if isinstance(payload, dict) else None
     except (sqlite3.Error, ValueError, TypeError, json.JSONDecodeError):
         return None

@@ -43,6 +43,20 @@ def _top(counter: Counter[str]) -> list[dict[str, Any]]:
     return [{"label": label, "count": count} for label, count in counter.most_common()]
 
 
+def _stage_timings_summary(
+    durations_by_stage: dict[str, list[int]],
+) -> dict[str, dict[str, Any]]:
+    return {
+        stage: {
+            "avg_ms": round(statistics.fmean(values)),
+            "median_ms": round(statistics.median(values)),
+            "p95_ms": _percentile(values, 95),
+            "sample_size": len(values),
+        }
+        for stage, values in durations_by_stage.items()
+    }
+
+
 def _percentile(values: list[int], percentile: float) -> int | None:
     if not values:
         return None
@@ -69,6 +83,7 @@ def compute_stats() -> dict[str, Any]:
     published = 0
     tagged = 0
     durations_ms: list[int] = []
+    durations_by_stage: dict[str, list[int]] = {}
     track_counts: list[int] = []
 
     for row in rows:
@@ -100,6 +115,13 @@ def compute_stats() -> dict[str, Any]:
             duration = meta.get("duration_ms")
             if isinstance(duration, int | float) and duration >= 0:
                 durations_ms.append(int(duration))
+            stage_timings = meta.get("stage_timings_ms")
+            if isinstance(stage_timings, dict):
+                for stage, stage_duration in stage_timings.items():
+                    if isinstance(stage_duration, int | float) and stage_duration >= 0:
+                        durations_by_stage.setdefault(str(stage), []).append(
+                            int(stage_duration)
+                        )
         providers[provider] += 1
 
         if row["status"] == "published":
@@ -131,6 +153,7 @@ def compute_stats() -> dict[str, Any]:
             ),
             "p95_generation_ms": _percentile(durations_ms, 95),
             "duration_sample_size": len(durations_ms),
+            "stage_timings": _stage_timings_summary(durations_by_stage),
             "avg_track_count": (
                 round(statistics.fmean(track_counts), 1) if track_counts else None
             ),

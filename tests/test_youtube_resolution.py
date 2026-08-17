@@ -4,6 +4,7 @@ import time
 
 import pytest
 
+from backend import cache_metrics
 import backend.youtube as youtube_module
 from backend.youtube import _write_youtube_cache as _real_write_youtube_cache
 
@@ -262,3 +263,29 @@ def test_write_youtube_cache_purges_expired_rows_after_interval(tmp_path, monkey
             ).fetchall()
         }
     assert "stale-key" not in remaining
+
+
+def test_read_youtube_cache_entry_records_hit_and_miss_metrics(tmp_path):
+    cache_path = tmp_path / "youtube_resolution_cache.sqlite3"
+    before = cache_metrics.snapshot().get(
+        "YouTube resolution", {"hits": 0, "misses": 0}
+    )
+
+    candidate = {"title": "Never Cached", "artist": "Nobody"}
+    hit, _track, _diagnostic = youtube_module._read_youtube_cache_entry(
+        candidate, DEFAULT_EXCLUSIONS, path=cache_path
+    )
+    assert hit is False
+    after_miss = cache_metrics.snapshot()["YouTube resolution"]
+    assert after_miss["misses"] == before["misses"] + 1
+
+    hit_candidate = {"title": "Cached Track", "artist": "Cached Artist"}
+    _real_write_youtube_cache(
+        hit_candidate, DEFAULT_EXCLUSIONS, {"video_id": "abc"}, path=cache_path
+    )
+    hit, _track, _diagnostic = youtube_module._read_youtube_cache_entry(
+        hit_candidate, DEFAULT_EXCLUSIONS, path=cache_path
+    )
+    assert hit is True
+    after_hit = cache_metrics.snapshot()["YouTube resolution"]
+    assert after_hit["hits"] == before["hits"] + 1

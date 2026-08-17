@@ -18,3 +18,26 @@
 .stats-nerd-tiles .stats-secondary-label {
   text-align: left;
 }
+
+.stats-stage-timings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stats-stage-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: .95rem;
+}
+
+.stats-stage-row-label {
+  color: var(--text-secondary);
+}
+
+.stats-stage-row-value {
+  font-weight: 700;
+  text-align: right;
+}

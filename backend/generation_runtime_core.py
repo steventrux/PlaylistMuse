@@ -10,6 +10,8 @@ from contextvars import ContextVar
 from dataclasses import asdict
 from typing import Any
 
+from backend.generation_stage_timing import record_stage_ms
+
 logger = logging.getLogger("playlistmuse.performance")
 
 MAX_CREATIVE_REPAIR_ROUNDS = 1
@@ -307,6 +309,7 @@ def _diversity_rank(
 
 def _log_stage(stage: str, started_at: float, **details: Any) -> None:
     elapsed_ms = round((time.perf_counter() - started_at) * 1000)
+    record_stage_ms(stage, elapsed_ms)
     suffix = " ".join(f"{key}={value}" for key, value in details.items())
     logger.info(
         "playlist_stage stage=%s elapsed_ms=%s %s", stage, elapsed_ms, suffix

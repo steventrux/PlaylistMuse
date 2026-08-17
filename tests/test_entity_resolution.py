@@ -1,7 +1,7 @@
 import asyncio
 import time
 
-from backend import entity_resolution
+from backend import cache_metrics, entity_resolution
 from backend.entity_resolution import canonicalize_interpretation
 
 
@@ -73,3 +73,23 @@ def test_write_cache_purges_expired_rows_after_interval(tmp_path, monkeypatch):
             ).fetchall()
         }
     assert "stale-artist" not in remaining
+
+
+def test_read_cache_records_hit_and_miss_metrics(tmp_path, monkeypatch):
+    cache_path = tmp_path / "entity_resolution_cache.sqlite3"
+    monkeypatch.setattr(entity_resolution, "_cache_path", lambda: cache_path)
+
+    before = cache_metrics.snapshot().get(
+        "Entity resolution", {"hits": 0, "misses": 0}
+    )
+
+    assert entity_resolution._read_cache("Never Cached Artist") is None
+    after_miss = cache_metrics.snapshot()["Entity resolution"]
+    assert after_miss["misses"] == before["misses"] + 1
+
+    entity_resolution._write_cache(
+        "Cached Artist", {"input": "Cached Artist", "name": "Cached Artist"}
+    )
+    assert entity_resolution._read_cache("Cached Artist") is not None
+    after_hit = cache_metrics.snapshot()["Entity resolution"]
+    assert after_hit["hits"] == before["hits"] + 1

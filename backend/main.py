@@ -27,6 +27,7 @@ from backend.config import (
 )
 from backend.constraint_interpreter import interpret_constraints
 from backend.generation_counter import record_generation
+from backend.generation_stage_timing import reset_stage_timings, stage_timings_snapshot
 from backend.generation_errors import record_generation_error
 from backend.generation_runtime import (
     _LAST_INTERPRETED_CONSTRAINTS,
@@ -1127,12 +1128,14 @@ async def _generate_with_telemetry(work: Callable[[], Any]) -> dict:
     once if the AI reproduces the seed track) -- hooking inside `_generate()` would
     double-count those retries as separate playlists.
     """
+    reset_stage_timings()
     started = time.perf_counter()
     result = await work()
     elapsed_ms = round((time.perf_counter() - started) * 1000)
     result["generation_meta"] = {
         "provider": load_config().provider or "unknown",
         "duration_ms": elapsed_ms,
+        "stage_timings_ms": stage_timings_snapshot(),
     }
     record_generation()
     if telemetry_enabled():

@@ -192,3 +192,30 @@
 .settings-dialog-card .storage-row-total .storage-row-value {
   color: var(--text-primary);
 }
+
+.settings-dialog-card .storage-cache-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.settings-dialog-card .storage-cache-metrics-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: .85rem;
+}
+
+.settings-dialog-card .storage-cache-metrics-row-label {
+  color: var(--text-secondary);
+}
+
+.settings-dialog-card .storage-cache-metrics-row-value {
+  font-weight: 600;
+  text-align: right;
+}
