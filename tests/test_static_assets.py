@@ -22,6 +22,31 @@ def _style(name: str) -> str:
     return (FRONTEND / name).read_text(encoding="utf-8")
 
 
+def test_ensure_status_styles_fallback_versions_match_the_static_html() -> None:
+    """Regression test: home-status.js's ensureStatusStyles() hardcodes its own
+    cache-busting versions for layout.css/header-navigation.css/settings-dialog.css
+    as a fallback for pages that don't declare those <link> tags themselves. Those
+    hardcoded versions silently drifted behind the real ones bumped in every page's
+    <head> for most of a session (ensureStylesheet() overwrites an existing <link>'s
+    href with its own value if it differs), which would re-point browsers at a
+    stale cached version on the next content change. This keeps them in sync."""
+    home_status = _script("home-status.js")
+    reference_html = _html("favorites.html")
+
+    for asset in ("layout.css", "header-navigation.css", "settings-dialog.css"):
+        html_match = re.search(rf'href="/static/{re.escape(asset)}\?v=(\d+)"', reference_html)
+        js_match = re.search(
+            rf"ensureStylesheet\('/static/{re.escape(asset)}', '/static/{re.escape(asset)}\?v=(\d+)'\)",
+            home_status,
+        )
+        assert html_match, f"{asset} not found in favorites.html"
+        assert js_match, f"{asset} not found in ensureStatusStyles()"
+        assert html_match.group(1) == js_match.group(1), (
+            f"{asset}: favorites.html has v={html_match.group(1)} but "
+            f"ensureStatusStyles() hardcodes v={js_match.group(1)}"
+        )
+
+
 def test_html_static_references_exist() -> None:
     for html_name in ("index.html", "playlist.html", "library.html", "settings.html"):
         for relative_path in STATIC_REFERENCE_RE.findall(_html(html_name)):
@@ -34,8 +59,8 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     index = _html("index.html")
     playlist = _html("playlist.html")
     settings = _html("settings.html")
-    common = '<script src="/static/common.js?v=9"></script>'
-    home_status = '<script src="/static/home-status.js?v=26"></script>'
+    common = '<script src="/static/common.js?v=17"></script>'
+    home_status = '<script src="/static/home-status.js?v=34"></script>'
     generation_state = '<script src="/static/generation-state.js?v=3"></script>'
     app = '<script src="/static/app.js?v=21"></script>'
 
@@ -54,10 +79,10 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
 
     playlist_home_status = (
         '<script data-playlistmuse-footer-status '
-        'src="/static/home-status.js?v=26"></script>'
+        'src="/static/home-status.js?v=34"></script>'
     )
     assert playlist.index(common) < playlist.index(
-        '<script src="/static/playlist.js?v=20"></script>'
+        '<script src="/static/playlist.js?v=22"></script>'
     )
     assert playlist.index(common) < playlist.index(playlist_home_status)
     assert playlist.index(playlist_home_status) < playlist.index(
@@ -165,8 +190,8 @@ def test_header_home_and_results_share_content_width() -> None:
     playlist = _html("playlist.html")
     layout = _style("layout.css")
 
-    assert '<link rel="stylesheet" href="/static/layout.css?v=5">' in index
-    assert '<link rel="stylesheet" href="/static/layout.css?v=5">' in playlist
+    assert '<link rel="stylesheet" href="/static/layout.css?v=7">' in index
+    assert '<link rel="stylesheet" href="/static/layout.css?v=7">' in playlist
     assert ".app-header,\nmain,\n.playlist-shell" in layout
     assert "width: min(860px, calc(100% - 32px));" in layout
     assert ".hero" in layout
@@ -210,8 +235,8 @@ def test_header_uses_exact_uploaded_banner() -> None:
     brand = _style("brand.css")
     banner = (FRONTEND / "playlistmuse-banner.svg").read_bytes()
 
-    assert '/static/home-status.js?v=26' in index
-    assert '/static/home-status.js?v=26' in playlist
+    assert '/static/home-status.js?v=34' in index
+    assert '/static/home-status.js?v=34' in playlist
     assert "const HEADER_BANNER_URL = '/static/playlistmuse-banner.svg?v=1';" in status
     assert "function installBrandBanner()" in status
     assert "header.querySelector('.brand-banner')" in status
@@ -325,7 +350,7 @@ def test_results_page_opens_ai_settings_via_shared_navigation_helper() -> None:
     assert 'id="youtube-settings-dialog"' not in playlist
     assert '/static/ai-results-settings.js' not in playlist
     assert '/static/ai-settings.js' not in playlist
-    assert '/static/home-status.js?v=26' in playlist
+    assert '/static/home-status.js?v=34' in playlist
     assert "window.PlaylistMuseCommon.openSettings(section);" in status
 
 
@@ -399,7 +424,7 @@ def test_published_playlist_hides_track_replacement_controls() -> None:
     playlist_script = _script("playlist.js")
     youtube_publish = _script("youtube-publish.js")
 
-    assert '/static/playlist.js?v=20' in playlist
+    assert '/static/playlist.js?v=22' in playlist
     assert '/static/youtube-publish.js?v=15' in playlist
     assert 'id="youtube-publish-account"' not in playlist
     assert "YouTube Music account connected" not in playlist

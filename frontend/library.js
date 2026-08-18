@@ -18,6 +18,8 @@
 
   const initialParams = new URLSearchParams(window.location.search);
   let artistFilter = initialParams.get('artist') || null;
+  let trackFilter = initialParams.get('track') || null;
+  let trackFilterLabel = initialParams.get('title') || trackFilter;
   if (initialParams.get('tag')) tagTools?.presetFilter(initialParams.get('tag'));
 
   function clearArtistFilter() {
@@ -29,18 +31,45 @@
     void loadLibrary();
   }
 
-  function filterChip(text, onClear) {
+  function clearTrackFilter() {
+    trackFilter = null;
+    trackFilterLabel = null;
+    const url = new URL(window.location.href);
+    url.searchParams.delete('track');
+    url.searchParams.delete('title');
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+    renderActiveFiltersHint();
+    void loadLibrary();
+  }
+
+  function filterRemoveIcon() {
+    return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m6.5 7 1 13h9l1-13"/><path d="M10 11v5M14 11v5"/></svg>';
+  }
+
+  function filterChip(value, onClear) {
     const chip = document.createElement('span');
     chip.className = 'library-active-filter';
     const label = document.createElement('span');
-    label.textContent = text;
+    label.textContent = value;
     const clear = document.createElement('button');
     clear.type = 'button';
     clear.className = 'library-artist-filter-clear';
-    clear.textContent = 'Clear filter';
+    clear.innerHTML = filterRemoveIcon();
+    clear.setAttribute('aria-label', `Remove filter: ${value}`);
+    clear.title = `Remove filter: ${value}`;
     clear.addEventListener('click', onClear);
     chip.append(label, clear);
     return chip;
+  }
+
+  function filterGroup(labelText, chips) {
+    const group = document.createElement('span');
+    group.className = 'library-active-filter-group';
+    const label = document.createElement('span');
+    label.className = 'library-active-filter-group-label';
+    label.textContent = labelText;
+    group.append(label, ...chips);
+    return group;
   }
 
   function renderActiveFiltersHint() {
@@ -48,16 +77,21 @@
     if (!hint) return;
     const tagFilters = tagTools?.activeFilters() || [];
     hint.textContent = '';
-    if (!artistFilter && !tagFilters.length) {
+    if (!artistFilter && !trackFilter && !tagFilters.length) {
       hint.classList.add('hidden');
       return;
     }
     hint.classList.remove('hidden');
     if (artistFilter) {
-      hint.append(filterChip(`Filtered by artist: ${artistFilter}`, clearArtistFilter));
+      hint.append(filterGroup('Filtered by artist:', [filterChip(artistFilter, clearArtistFilter)]));
     }
-    for (const {key, label} of tagFilters) {
-      hint.append(filterChip(`Filtered by tag: ${label}`, () => tagTools.clearFilter(key)));
+    if (trackFilter) {
+      hint.append(filterGroup('Filtered by song:', [filterChip(trackFilterLabel, clearTrackFilter)]));
+    }
+    if (tagFilters.length) {
+      hint.append(filterGroup('Filtered by tag:', tagFilters.map(
+        ({key, label}) => filterChip(label, () => tagTools.clearFilter(key)),
+      )));
     }
   }
 
@@ -457,12 +491,23 @@
     });
   }
 
+  function countNumber(value) {
+    const strong = document.createElement('strong');
+    strong.className = 'library-count-number';
+    strong.textContent = String(value);
+    return strong;
+  }
+
   function updateLibraryCount(visibleCount) {
     const totalCount = libraryItems.length;
-    const totalLabel = `${totalCount} ${totalCount === 1 ? 'playlist' : 'playlists'}`;
-    $('library-count').textContent = visibleCount === totalCount
-      ? totalLabel
-      : `${visibleCount} of ${totalLabel}`;
+    const noun = ` ${totalCount === 1 ? 'playlist' : 'playlists'}`;
+    const count = $('library-count');
+    count.replaceChildren();
+    if (visibleCount === totalCount) {
+      count.append(countNumber(totalCount), noun);
+    } else {
+      count.append(countNumber(visibleCount), ' of ', countNumber(totalCount), noun);
+    }
   }
 
   function createPageButton(pageNumber) {
@@ -580,6 +625,7 @@
       const sort = $('library-sort').value;
       const params = new URLSearchParams({sort});
       if (artistFilter) params.set('artist', artistFilter);
+      if (trackFilter) params.set('video_id', trackFilter);
       const payload = await readJson(await fetch(`${ENDPOINT}?${params}`, {
         cache: 'no-store',
       }));

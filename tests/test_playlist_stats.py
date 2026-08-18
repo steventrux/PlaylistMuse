@@ -70,6 +70,26 @@ def _seed_library(database_path: Path) -> PlaylistLibrary:
     return library
 
 
+def test_top_artists_keeps_a_comma_in_a_band_name_intact(monkeypatch, tmp_path: Path) -> None:
+    """Regression test: "Earth, Wind & Fire" must not be split into "Earth" and
+    "Wind & Fire" the way a genuine two-artist credit like "Daft Punk, Julian
+    Casablancas" should be."""
+    database_path = tmp_path / "playlists.db"
+    library = PlaylistLibrary(database_path)
+    library.create(_playlist(name="Groove", artists=["Earth, Wind & Fire"]))
+    library.create(_playlist(name="Collab", artists=["Daft Punk, Julian Casablancas"]))
+    monkeypatch.setattr(playlist_stats, "DATABASE_PATH", database_path)
+
+    stats = playlist_stats.compute_stats()
+
+    top_artists = stats["general"]["top_artists"]
+    assert {"label": "Earth, Wind & Fire", "count": 1} in top_artists
+    assert {"label": "Earth", "count": 1} not in top_artists
+    assert {"label": "Wind & Fire", "count": 1} not in top_artists
+    assert {"label": "Daft Punk", "count": 1} in top_artists
+    assert {"label": "Julian Casablancas", "count": 1} in top_artists
+
+
 def test_compute_stats_aggregates_across_the_library(monkeypatch, tmp_path: Path) -> None:
     database_path = tmp_path / "playlists.db"
     _seed_library(database_path)

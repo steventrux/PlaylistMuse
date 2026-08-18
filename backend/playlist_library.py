@@ -23,6 +23,27 @@ SCHEMA_VERSION = 1
 SortOrder = Literal["updated_desc", "created_desc", "title_asc", "title_desc"]
 LOGGER = logging.getLogger("playlistmuse.library")
 
+# Well-known artist/band names that contain a comma as part of the proper name,
+# not as a separator between multiple collaborating artists on a track (e.g.
+# "Daft Punk, Julian Casablancas" is two credited artists; "Earth, Wind & Fire"
+# is one act). There is no reliable way to tell these apart from text alone, so
+# this is a small curated exception list rather than a general heuristic.
+_ARTIST_NAMES_WITH_COMMA = frozenset({
+    "earth, wind & fire",
+    "crosby, stills & nash",
+    "crosby, stills, nash & young",
+    "emerson, lake & palmer",
+    "blood, sweat & tears",
+})
+
+
+def split_artist_credit(raw_artists: str) -> list[str]:
+    """Split a track's combined artist-credit string into individual artist names."""
+    cleaned = raw_artists.strip()
+    if cleaned.casefold() in _ARTIST_NAMES_WITH_COMMA:
+        return [cleaned]
+    return [name.strip() for name in cleaned.split(",") if name.strip()]
+
 router = APIRouter(prefix="/library/playlists", tags=["playlist-library"])
 
 
@@ -240,7 +261,11 @@ class PlaylistLibrary:
         return self.get(playlist_id)
 
     def list(
-        self, sort: SortOrder = "updated_desc", *, artist: str | None = None
+        self,
+        sort: SortOrder = "updated_desc",
+        *,
+        artist: str | None = None,
+        video_id: str | None = None,
     ) -> list[dict[str, Any]]:
         order = self._SORT_SQL[sort]
         with self._connect() as connection:
@@ -250,6 +275,9 @@ class PlaylistLibrary:
         artist_key = artist.strip().casefold() if artist else None
         if artist_key:
             rows = [row for row in rows if self._has_artist(row, artist_key)]
+        track_key = video_id.strip() if video_id else None
+        if track_key:
+            rows = [row for row in rows if self._has_track(row, track_key)]
         return [self._record(row, include_document=False) for row in rows]
 
     def _has_artist(self, row: sqlite3.Row, artist_key: str) -> bool:
@@ -258,9 +286,16 @@ class PlaylistLibrary:
             if not isinstance(track, dict):
                 continue
             raw_artists = str(track.get("artists", "")).strip()
-            for name in raw_artists.split(","):
-                if name.strip().casefold() == artist_key:
+            for name in split_artist_credit(raw_artists):
+                if name.casefold() == artist_key:
                     return True
+        return False
+
+    def _has_track(self, row: sqlite3.Row, video_id: str) -> bool:
+        playlist = self._decode(row["playlist_json"], {})
+        for track in playlist.get("tracks") or []:
+            if isinstance(track, dict) and str(track.get("video_id", "")).strip() == video_id:
+                return True
         return False
 
     def get(self, playlist_id: str) -> dict[str, Any]:
@@ -358,8 +393,9 @@ def _not_found(playlist_id: str) -> HTTPException:
 async def list_playlists(
     sort: Annotated[SortOrder, Query()] = "updated_desc",
     artist: Annotated[str | None, Query()] = None,
+    video_id: Annotated[str | None, Query()] = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    return {"items": get_library().list(sort, artist=artist)}
+    return {"items": get_library().list(sort, artist=artist, video_id=video_id)}
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

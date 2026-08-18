@@ -132,3 +132,12 @@
     transition: none;
   }
 }
+
+.favorite-toggle-button .compact-action-icon svg {
+  stroke: #ffffff;
+}
+
+.favorite-toggle-button.is-favorited .compact-action-icon svg {
+  fill: #ffffff;
+  stroke: #ffffff;
+}

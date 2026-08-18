@@ -7,9 +7,11 @@
 
   const OVERVIEW_LIMIT = 5;
   const monthFormatter = new Intl.DateTimeFormat('en-US', {month: 'short'});
+  const FAVORITES_ENDPOINT = '/api/favorites';
+  let favoriteArtistKeys = new Set();
 
   const RANKINGS = [
-    {key: 'artists', containerId: 'stats-artist-list', emptyId: 'stats-artist-list-empty', toggleId: 'stats-artist-list-toggle', linkParam: 'artist'},
+    {key: 'artists', containerId: 'stats-artist-list', emptyId: 'stats-artist-list-empty', toggleId: 'stats-artist-list-toggle', linkParam: 'artist', favoritable: true},
     {key: 'genres', containerId: 'stats-genre-chips', emptyId: 'stats-genre-chips-empty', toggleId: 'stats-genre-chips-toggle', linkParam: 'tag'},
     {key: 'moods', containerId: 'stats-mood-chips', emptyId: 'stats-mood-chips-empty', toggleId: 'stats-mood-chips-toggle', linkParam: 'tag'},
     {key: 'periods', containerId: 'stats-period-chips', emptyId: 'stats-period-chips-empty', toggleId: 'stats-period-chips-toggle', linkParam: 'tag'},
@@ -91,7 +93,33 @@
     });
   }
 
-  function renderBarRanking(containerId, emptyId, items, linkParam) {
+  async function toggleFavoriteArtist(name, button) {
+    button.disabled = true;
+    try {
+      const key = name.toLocaleLowerCase();
+      if (favoriteArtistKeys.has(key)) {
+        await readJson(await fetch(`${FAVORITES_ENDPOINT}/artists?name=${encodeURIComponent(name)}`, {method: 'DELETE'}));
+        favoriteArtistKeys.delete(key);
+      } else {
+        await readJson(await fetch(`${FAVORITES_ENDPOINT}/artists`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({name}),
+        }));
+        favoriteArtistKeys.add(key);
+      }
+      window.PlaylistMuseActionControls?.decorateFavoriteToggle(
+        button,
+        {favorited: favoriteArtistKeys.has(key), label: 'artist'},
+      );
+    } catch (error) {
+      window.alert(error.message || String(error));
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  function renderBarRanking(containerId, emptyId, items, linkParam, favoritable) {
     const container = $(containerId);
     const empty = $(emptyId);
     container.textContent = '';
@@ -123,6 +151,23 @@
       const value = document.createElement('span');
       value.className = 'stats-bar-value';
       value.textContent = formatCount(item.count);
+
+      if (favoritable) {
+        const favorite = document.createElement('button');
+        favorite.type = 'button';
+        favorite.className = 'stats-bar-favorite';
+        window.PlaylistMuseActionControls?.decorateFavoriteToggle(
+          favorite,
+          {favorited: favoriteArtistKeys.has(item.label.toLocaleLowerCase()), label: 'artist'},
+        );
+        favorite.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void toggleFavoriteArtist(item.label, favorite);
+        });
+        row.append(favorite);
+      }
+
       row.append(label, track, value);
       container.append(row);
     }
@@ -132,7 +177,7 @@
     const state = rankingState.get(ranking.key);
     state.full = full;
     const items = state.expanded ? full : top(full);
-    renderBarRanking(ranking.containerId, ranking.emptyId, items, ranking.linkParam);
+    renderBarRanking(ranking.containerId, ranking.emptyId, items, ranking.linkParam, ranking.favoritable);
 
     const toggle = $(ranking.toggleId);
     if (!toggle) return;
@@ -233,6 +278,20 @@
     void saveTelemetrySetting(event.currentTarget);
   });
 
+  async function loadFavoriteArtists() {
+    try {
+      const payload = await readJson(await fetch(FAVORITES_ENDPOINT, {cache: 'no-store'}));
+      favoriteArtistKeys = new Set(
+        (payload.artists || []).map((entry) => String(entry.name || '').toLocaleLowerCase()),
+      );
+      const artistsRanking = RANKINGS.find((ranking) => ranking.key === 'artists');
+      renderRanking(artistsRanking, rankingState.get('artists').full);
+    } catch (error) {
+      console.warn('Favorite artists could not be loaded:', error);
+    }
+  }
+
   void loadStats();
   void loadTelemetrySetting();
+  void loadFavoriteArtists();
 })();

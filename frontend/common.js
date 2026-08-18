@@ -127,6 +127,7 @@
       || path.endsWith('/statistics-detail.html')
       || path.endsWith('/diagnostics.html')
       || path.endsWith('/settings.html')
+      || path.endsWith('/favorites.html')
       || path === '/'
       || path.endsWith('/index.html')
     ) {
@@ -143,17 +144,31 @@
     document.head.append(stylesheet);
   }
 
+  const PRIMARY_PAGES = [
+    {
+      page: 'create',
+      href: '/',
+      label: 'Create playlist',
+      icon: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 18V6l10-2v12" /><circle cx="6.5" cy="18" r="2.5" /><circle cx="16.5" cy="16" r="2.5" /></svg>',
+    },
+    {
+      page: 'library',
+      href: '/static/library.html',
+      label: 'My playlists',
+      icon: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="5" cy="7" r="1" fill="currentColor" stroke="none" /><path d="M9 7h10" /><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" /><path d="M9 12h10" /><circle cx="5" cy="17" r="1" fill="currentColor" stroke="none" /><path d="M9 17h10" /></svg>',
+    },
+  ];
+
+  function primaryPage() {
+    const path = window.location.pathname;
+    if (path.endsWith('/library.html')) return 'library';
+    if (path === '/' || path.endsWith('/index.html') || path.endsWith('/playlist.html')) return 'create';
+    return '';
+  }
+
   function installPrimaryNavigation() {
     const host = primaryNavigationHost();
     if (!host || host.querySelector('.primary-page-navigation')) return;
-
-    const pageGroup = document.querySelector(
-      '.playlistmuse-sidebar .sidebar-group[aria-labelledby="sidebar-pages-label"]',
-    );
-    if (!pageGroup) return;
-
-    const links = Array.from(pageGroup.querySelectorAll('.sidebar-link'));
-    if (!links.length) return;
 
     ensurePrimaryNavigationStyles();
 
@@ -161,25 +176,22 @@
     navigation.className = 'primary-page-navigation';
     navigation.setAttribute('aria-label', 'Primary playlist navigation');
 
-    links.forEach((link) => {
-      const icon = link.querySelector('svg');
-      const label = link.querySelector('span')?.textContent?.trim()
-        || link.textContent.trim();
-      const active = link.getAttribute('aria-current') === 'page';
-
+    const active = primaryPage();
+    PRIMARY_PAGES.forEach((entry) => {
+      const link = document.createElement('a');
       link.className = 'primary-page-link';
-      link.classList.toggle('active', active);
+      link.href = entry.href;
+      link.dataset.page = entry.page;
+      if (entry.page === active) {
+        link.classList.add('active');
+        link.setAttribute('aria-current', 'page');
+      }
+      link.innerHTML = entry.icon;
       const labelSpan = document.createElement('span');
-      labelSpan.textContent = label;
-      link.replaceChildren(...(icon ? [icon] : []), labelSpan);
+      labelSpan.textContent = entry.label;
+      link.append(labelSpan);
       navigation.append(link);
     });
-
-    const sidebar = pageGroup.closest('.playlistmuse-sidebar');
-    const sidebarNav = pageGroup.closest('.sidebar-nav');
-    pageGroup.remove();
-    if (sidebar) sidebar.setAttribute('aria-label', 'PlaylistMuse settings');
-    if (sidebarNav) sidebarNav.setAttribute('aria-label', 'Settings and integrations');
 
     host.classList.add('has-primary-page-navigation');
     host.append(navigation);
@@ -209,10 +221,11 @@
       activeLink?.setAttribute('aria-current', 'page');
     }
 
-    // Statistics (Insights) stays the last group in the sidebar, right above the
-    // footer, so Support is inserted before it rather than appended at the end.
-    const insightsGroup = sidebarNav.querySelector('[aria-labelledby="sidebar-insights-label"]');
-    if (insightsGroup) insightsGroup.before(group);
+    // Support stays the last group in the sidebar, right above the footer, so
+    // it's inserted after Library rather than appended blindly (in case a
+    // future group gets added after Library too).
+    const libraryGroup = sidebarNav.querySelector('[aria-labelledby="sidebar-library-label"]');
+    if (libraryGroup) libraryGroup.after(group);
     else sidebarNav.append(group);
   }
 

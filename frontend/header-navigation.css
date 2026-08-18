@@ -321,6 +321,7 @@ body.sidebar-open .playlistmuse-sidebar {
   overflow: hidden;
   text-overflow: ellipsis;
   opacity: 1;
+  visibility: visible;
   pointer-events: none;
   transform: none;
   transition: none;

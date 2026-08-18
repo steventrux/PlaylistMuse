@@ -40,8 +40,7 @@ def test_primary_pages_use_minimal_navigation_beneath_brand() -> None:
     assert "path.endsWith('/playlist.html')" in script
     assert "function installPrimaryNavigation()" in script
     assert "/static/primary-navigation.css?v=2" in script
-    assert 'aria-labelledby="sidebar-pages-label"' in script
-    assert "pageGroup.remove();" in script
+    assert "const PRIMARY_PAGES = [" in script
     assert "host.classList.add('has-primary-page-navigation');" in script
     assert "host.append(navigation);" in script
     assert "installPrimaryNavigation();" in script
@@ -72,7 +71,7 @@ def test_results_page_reuses_shared_navigation_controls_and_card_palette() -> No
 
     assert '/static/style.css?v=10' in html
     assert '/static/controls.css?v=8' in html
-    assert '/static/header-navigation.css?v=13' in html
+    assert '/static/header-navigation.css?v=21' in html
     assert '/static/playlist-cards.css?v=4' in html
     assert '/static/playlist-header.css?v=12' in html
     assert 'class="playlist-toolbar"' not in html
@@ -107,8 +106,8 @@ def test_library_cards_match_compact_result_card_proportions_and_expand() -> Non
     script = _text("library.js")
     style = _text("library.css")
 
-    assert "/static/library.js?v=13" in html
-    assert "/static/library.css?v=11" in html
+    assert "/static/library.js?v=15" in html
+    assert "/static/library.css?v=12" in html
     assert "let expandedLibraryId = null;" in script
     assert "function toggleLibraryCard(card, item)" in script
     assert "function setLibraryCardExpanded(card, expanded)" in script
@@ -180,7 +179,7 @@ def test_library_count_sits_below_filters_and_reports_filtered_total() -> None:
     script = _text("library.js")
     style = _text("library-heading.css")
 
-    assert "/static/library-heading.css?v=3" in html
+    assert "/static/library-heading.css?v=4" in html
     assert '<h2 id="library-heading">My playlists</h2>' not in html
     assert 'class="library-count-row"' in html
     assert 'id="library-count"' in html
@@ -188,10 +187,11 @@ def test_library_count_sits_below_filters_and_reports_filtered_total() -> None:
     assert "function updateLibraryCount(visibleCount)" in script
     assert "const totalCount = libraryItems.length;" in script
     assert "visibleCount === totalCount" in script
-    assert "`${visibleCount} of ${totalLabel}`" in script
+    assert "count.append(countNumber(visibleCount), ' of ', countNumber(totalCount), noun);" in script
     assert "updateLibraryCount(items.length);" in script
     assert ".library-count-row" in style
     assert ".library-count" in style
+    assert ".library-count-number" in style
     assert "border:" not in style
     assert "background:" not in style
     assert "color: var(--text-muted);" in style
