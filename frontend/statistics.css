@@ -501,6 +501,7 @@
   }
 
   .stats-hero-secondary {
+    flex-wrap: wrap;
     gap: 20px;
   }
 
@@ -514,6 +515,45 @@
 
   .stats-telemetry {
     flex-direction: column;
+  }
+
+  /* Overview panel's hero/counts rows use higher-specificity ID-scoped
+     selectors (#stats-overview-panel ...) for their desktop gaps, which
+     otherwise beat the generic mobile rules above -- repeat the same
+     specificity here so the rows actually wrap on narrow screens instead
+     of overflowing horizontally. */
+  #stats-overview-panel .stats-hero-secondary {
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+
+  #stats-overview-panel .stats-overview-counts {
+    flex-wrap: wrap;
+    gap: 18px 28px;
+    margin-top: 28px;
+  }
+
+  /* Top artists/genres/moods/periods bar rows: the desktop label width
+     (220px) is fixed via a higher-specificity .stats-music-panel selector,
+     so the generic .stats-bar-label mobile rule in statistics-advanced.css
+     can't shrink it -- without this, the label alone exceeds the available
+     width on a phone and the row overflows. */
+  .stats-music-panel .stats-section {
+    padding: 20px 18px;
+  }
+
+  .stats-music-panel .stats-bar-row {
+    gap: 10px;
+  }
+
+  .stats-music-panel .stats-bar-label {
+    flex-basis: 96px;
+    font-size: .82rem;
+  }
+
+  .stats-music-panel .stats-bar-value {
+    min-width: 60px;
+    font-size: .78rem;
   }
 }
 
