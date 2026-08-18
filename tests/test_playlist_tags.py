@@ -276,7 +276,7 @@ def test_library_tag_ui_is_read_only_but_keeps_search_filters() -> None:
     assert 'id="library-mood-filter"' not in page
     assert 'id="library-period-filter"' not in page
     assert "/static/library-tags.css?v=3" in page
-    assert "/static/library-tags.js?v=3" in page
+    assert "/static/library-tags.js?v=4" in page
     assert "tagTools?.searchValues(item)" in library_script
     assert "tagTools?.matchesFilters(item)" in library_script
     assert "const activeTagFilters = new Set();" in tags_script
@@ -290,6 +290,31 @@ def test_library_tag_ui_is_read_only_but_keeps_search_filters() -> None:
     assert ".library-tag-chip.active" in tags_style
 
 
+def test_library_tag_filter_expands_combined_period_ranges() -> None:
+    # A playlist stored with a combined range like "1970s-1980s" as its one
+    # period tag must still match a filter for "1970s" or "1980s" alone --
+    # those are exactly the labels Statistics links to, since it splits
+    # combined ranges into separate buckets (see backend/playlist_stats.py's
+    # _expand_period). Without this, clicking a period in Statistics silently
+    # filtered out every playlist tagged with a combined range.
+    tags_script = (FRONTEND / "library-tags.js").read_text(encoding="utf-8")
+
+    assert "function expandPeriod(value)" in tags_script
+    assert "const periods = tags.period.flatMap(expandPeriod);" in tags_script
+
+
+def test_library_active_filters_are_listed_with_a_clear_action() -> None:
+    library_script = (FRONTEND / "library.js").read_text(encoding="utf-8")
+    tags_script = (FRONTEND / "library-tags.js").read_text(encoding="utf-8")
+
+    assert "function activeFilters()" in tags_script
+    assert "function clearFilter(key)" in tags_script
+    assert "tagTools?.activeFilters()" in library_script
+    assert "tagTools.clearFilter(key)" in library_script
+    assert "Filtered by artist: " in library_script
+    assert "Filtered by tag: " in library_script
+
+
 def test_playlist_page_shows_ai_and_personal_tags_with_shared_controls() -> None:
     page = (FRONTEND / "playlist.html").read_text(encoding="utf-8")
     script = (FRONTEND / "playlist.js").read_text(encoding="utf-8")
@@ -298,7 +323,7 @@ def test_playlist_page_shows_ai_and_personal_tags_with_shared_controls() -> None
     assert 'id="playlist-tags"' in page
     assert 'id="playlist-tags-status"' in page
     assert "/static/library-tags.css?v=3" in page
-    assert "/static/library-tags.js?v=3" in page
+    assert "/static/library-tags.js?v=4" in page
     assert "/static/playlist.js?v=20" in page
     assert "const tagTools = window.PlaylistMuseTags" in script
     assert "function renderPlaylistTags()" in script

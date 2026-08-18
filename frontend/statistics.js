@@ -9,11 +9,11 @@
   const monthFormatter = new Intl.DateTimeFormat('en-US', {month: 'short'});
 
   const RANKINGS = [
-    {key: 'artists', containerId: 'stats-artist-list', emptyId: 'stats-artist-list-empty', toggleId: 'stats-artist-list-toggle'},
-    {key: 'genres', containerId: 'stats-genre-chips', emptyId: 'stats-genre-chips-empty', toggleId: 'stats-genre-chips-toggle'},
-    {key: 'moods', containerId: 'stats-mood-chips', emptyId: 'stats-mood-chips-empty', toggleId: 'stats-mood-chips-toggle'},
-    {key: 'periods', containerId: 'stats-period-chips', emptyId: 'stats-period-chips-empty', toggleId: 'stats-period-chips-toggle'},
-    {key: 'customTags', containerId: 'stats-custom-tag-list', emptyId: 'stats-custom-tag-list-empty', toggleId: 'stats-custom-tag-list-toggle'},
+    {key: 'artists', containerId: 'stats-artist-list', emptyId: 'stats-artist-list-empty', toggleId: 'stats-artist-list-toggle', linkParam: 'artist'},
+    {key: 'genres', containerId: 'stats-genre-chips', emptyId: 'stats-genre-chips-empty', toggleId: 'stats-genre-chips-toggle', linkParam: 'tag'},
+    {key: 'moods', containerId: 'stats-mood-chips', emptyId: 'stats-mood-chips-empty', toggleId: 'stats-mood-chips-toggle', linkParam: 'tag'},
+    {key: 'periods', containerId: 'stats-period-chips', emptyId: 'stats-period-chips-empty', toggleId: 'stats-period-chips-toggle', linkParam: 'tag'},
+    {key: 'customTags', containerId: 'stats-custom-tag-list', emptyId: 'stats-custom-tag-list-empty', toggleId: 'stats-custom-tag-list-toggle', linkParam: 'tag'},
   ];
   const rankingState = new Map(RANKINGS.map((ranking) => [ranking.key, {full: [], expanded: false}]));
 
@@ -91,7 +91,7 @@
     });
   }
 
-  function renderBarRanking(containerId, emptyId, items) {
+  function renderBarRanking(containerId, emptyId, items, linkParam) {
     const container = $(containerId);
     const empty = $(emptyId);
     container.textContent = '';
@@ -105,8 +105,12 @@
 
     const max = Math.max(...items.map((item) => item.count || 0), 1);
     for (const item of items) {
-      const row = document.createElement('div');
+      const row = document.createElement(linkParam ? 'a' : 'div');
       row.className = 'stats-bar-row';
+      if (linkParam) {
+        row.href = `/static/library.html?${linkParam}=${encodeURIComponent(item.label)}`;
+        row.title = `Show playlists with ${item.label} in Library`;
+      }
       const label = document.createElement('span');
       label.className = 'stats-bar-label';
       label.textContent = item.label;
@@ -128,7 +132,7 @@
     const state = rankingState.get(ranking.key);
     state.full = full;
     const items = state.expanded ? full : top(full);
-    renderBarRanking(ranking.containerId, ranking.emptyId, items);
+    renderBarRanking(ranking.containerId, ranking.emptyId, items, ranking.linkParam);
 
     const toggle = $(ranking.toggleId);
     if (!toggle) return;

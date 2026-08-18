@@ -239,13 +239,29 @@ class PlaylistLibrary:
             )
         return self.get(playlist_id)
 
-    def list(self, sort: SortOrder = "updated_desc") -> list[dict[str, Any]]:
+    def list(
+        self, sort: SortOrder = "updated_desc", *, artist: str | None = None
+    ) -> list[dict[str, Any]]:
         order = self._SORT_SQL[sort]
         with self._connect() as connection:
             rows = connection.execute(
                 f"SELECT * FROM playlists ORDER BY {order}"  # noqa: S608
             ).fetchall()
+        artist_key = artist.strip().casefold() if artist else None
+        if artist_key:
+            rows = [row for row in rows if self._has_artist(row, artist_key)]
         return [self._record(row, include_document=False) for row in rows]
+
+    def _has_artist(self, row: sqlite3.Row, artist_key: str) -> bool:
+        playlist = self._decode(row["playlist_json"], {})
+        for track in playlist.get("tracks") or []:
+            if not isinstance(track, dict):
+                continue
+            raw_artists = str(track.get("artists", "")).strip()
+            for name in raw_artists.split(","):
+                if name.strip().casefold() == artist_key:
+                    return True
+        return False
 
     def get(self, playlist_id: str) -> dict[str, Any]:
         with self._connect() as connection:
@@ -341,8 +357,9 @@ def _not_found(playlist_id: str) -> HTTPException:
 @router.get("")
 async def list_playlists(
     sort: Annotated[SortOrder, Query()] = "updated_desc",
+    artist: Annotated[str | None, Query()] = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    return {"items": get_library().list(sort)}
+    return {"items": get_library().list(sort, artist=artist)}
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
