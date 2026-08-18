@@ -19,6 +19,7 @@ def test_music_rankings_show_top_five_and_expand_in_place() -> None:
         "stats-genre-chips-toggle",
         "stats-mood-chips-toggle",
         "stats-period-chips-toggle",
+        "stats-custom-tag-list-toggle",
     ):
         assert f'id="{toggle_id}"' in html
         assert f'<a class="stats-see-all-link" id="{toggle_id}"' not in html
@@ -81,6 +82,7 @@ def test_music_top_dimensions_use_bar_charts_like_advanced_stats() -> None:
     assert 'id="stats-genre-chips" class="stats-bar-list"' in html
     assert 'id="stats-mood-chips" class="stats-bar-list"' in html
     assert 'id="stats-period-chips" class="stats-bar-list"' in html
+    assert 'id="stats-custom-tag-list" class="stats-bar-list"' in html
 
 
 def test_advanced_stats_uses_bar_charts_instead_of_ranked_lists() -> None:
@@ -156,12 +158,14 @@ def test_statistics_page_is_organized_into_sidebar_categories() -> None:
     script = _text("statistics-page.js")
 
     assert "settings-page-shell" in html
-    for section in ("overview", "timeline", "artists", "genres", "moods", "periods", "advanced", "cache"):
+    for section in (
+        "overview", "timeline", "artists", "genres", "moods", "periods", "tags", "advanced", "cache",
+    ):
         assert f'data-stats-section="{section}"' in html
         assert f'id="stats-{section}-panel"' in html
     assert (
         "SECTIONS = new Set(['overview', 'timeline', 'artists', 'genres', "
-        "'moods', 'periods', 'advanced', 'cache'])"
+        "'moods', 'periods', 'tags', 'advanced', 'cache'])"
     ) in script
     assert "function selectSection(section" in script
 

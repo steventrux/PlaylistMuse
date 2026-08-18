@@ -2,7 +2,7 @@
 
 Nothing here is sent anywhere -- it only reads what is already stored on disk to
 answer "what has this installation generated so far". `general` covers music-taste
-data (genres, artists, moods, periods); `nerd` covers technical data (generation
+data (genres, artists, moods, periods, personal tags); `nerd` covers technical data (generation
 timing, track/tag coverage, error counts), broken down per AI provider so each
 provider's own effectiveness can be judged separately rather than blended into one
 average. Provider, duration and error data only exist for playlists/failures
@@ -115,6 +115,7 @@ def compute_stats() -> dict[str, Any]:
     moods: Counter[str] = Counter()
     periods: Counter[str] = Counter()
     artists: Counter[str] = Counter()
+    custom_tags: Counter[str] = Counter()
     by_provider: dict[str, dict[str, Any]] = {}
 
     published_total = 0
@@ -127,6 +128,7 @@ def compute_stats() -> dict[str, Any]:
             genre_list = tags.get("genre") or []
             mood_list = tags.get("mood") or []
             period_list = tags.get("period") or []
+            custom_list = tags.get("custom") or []
             if genre_list or mood_list or period_list:
                 tagged_row = True
             genres.update(_normalize_tag(str(value)) for value in genre_list if value)
@@ -134,6 +136,7 @@ def compute_stats() -> dict[str, Any]:
             for value in period_list:
                 if value:
                     periods.update(_expand_period(str(value)))
+            custom_tags.update(_normalize_tag(str(value)) for value in custom_list if value)
 
         for track in playlist.get("tracks") or []:
             if not isinstance(track, dict):
@@ -219,6 +222,7 @@ def compute_stats() -> dict[str, Any]:
             "top_artists": _top(artists),
             "top_moods": _top(moods),
             "top_periods": _top(periods),
+            "top_custom_tags": _top(custom_tags),
             "playlists_by_month": dict(sorted(generations_by_month().items())),
         },
         "nerd": {
