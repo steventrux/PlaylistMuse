@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 
 from backend.build_info import router as build_info_router
 from backend.diagnostics import diagnostics_middleware, router as diagnostics_router
+from backend.favorites import router as favorites_router
 from backend.main import app
 from backend.playlist_library import (
     PlaylistNotFoundError,
@@ -69,6 +70,7 @@ async def record_diagnostics(request: Request, call_next):
 
 app.include_router(build_info_router, prefix="/api")
 app.include_router(diagnostics_router, prefix="/api")
+app.include_router(favorites_router, prefix="/api")
 app.include_router(playlist_library_router, prefix="/api")
 app.include_router(playlist_refinement_router, prefix="/api")
 app.include_router(playlist_studio_router, prefix="/api")

@@ -45,7 +45,7 @@ def test_playlist_autosave_status_tracks_persistent_library_writes() -> None:
     style = _text("playlist-header.css")
 
     status_script = '<script src="/static/playlist-save-status.js?v=2"></script>'
-    playlist_script = '<script src="/static/playlist.js?v=20"></script>'
+    playlist_script = '<script src="/static/playlist.js?v=22"></script>'
     assert status_script in html
     assert html.index(status_script) < html.index(playlist_script)
     assert "saving: 'Saving…'" in script

@@ -4,9 +4,11 @@
   const STORAGE_KEY = 'playlistmuse-generated-playlist';
   const REQUEST_KEY = 'playlistmuse-generation-request';
   const LIBRARY_ENDPOINT = '/api/library/playlists';
+  const FAVORITES_ENDPOINT = '/api/favorites';
   const $ = (id) => document.getElementById(id);
   const {readJson, setLoadingButton} = window.PlaylistMuseCommon;
   const tagTools = window.PlaylistMuseTags || window.PlaylistMuseLibraryTags;
+  let favoriteTrackIds = new Set();
   let expandedIndex = null;
   let draggedIndex = null;
   let persistenceTimer = null;
@@ -237,6 +239,16 @@
       }
     } catch (error) {
       console.warn('Playlist tags could not be refreshed:', error);
+    }
+  }
+
+  async function loadFavorites() {
+    try {
+      const payload = await readJson(await fetch(FAVORITES_ENDPOINT, {cache: 'no-store'}));
+      favoriteTrackIds = new Set((payload.tracks || []).map((track) => track.video_id));
+      renderPlaylist();
+    } catch (error) {
+      console.warn('Favorites could not be loaded:', error);
     }
   }
 
@@ -514,6 +526,49 @@
     play.addEventListener('click', (event) => event.stopPropagation());
     actions.append(play);
 
+    if (track.video_id) {
+      const favorite = document.createElement('button');
+      favorite.type = 'button';
+      favorite.className = 'secondary track-action favorite-track-button';
+      const applyFavoriteState = () => window.PlaylistMuseActionControls?.decorateFavoriteToggle(
+        favorite,
+        {favorited: favoriteTrackIds.has(track.video_id), label: 'track'},
+      );
+      applyFavoriteState();
+      favorite.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        favorite.disabled = true;
+        try {
+          if (favoriteTrackIds.has(track.video_id)) {
+            await readJson(await fetch(
+              `${FAVORITES_ENDPOINT}/tracks/${encodeURIComponent(track.video_id)}`,
+              {method: 'DELETE'},
+            ));
+            favoriteTrackIds.delete(track.video_id);
+          } else {
+            await readJson(await fetch(`${FAVORITES_ENDPOINT}/tracks`, {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({
+                video_id: track.video_id,
+                title: track.title || '',
+                artists: track.artists || '',
+                album: track.album || '',
+                thumbnail_url: track.thumbnail_url || '',
+              }),
+            }));
+            favoriteTrackIds.add(track.video_id);
+          }
+          applyFavoriteState();
+        } catch (error) {
+          window.alert(error.message || String(error));
+        } finally {
+          favorite.disabled = false;
+        }
+      });
+      actions.append(favorite);
+    }
+
     detailsInner.append(explanation, actions);
 
     if (!isPublished()) {
@@ -629,4 +684,5 @@
 
   renderPlaylist();
   void refreshPlaylistTagsFromLibrary();
+  void loadFavorites();
 })();

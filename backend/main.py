@@ -864,6 +864,33 @@ def _replenishment_prompt(
     )
 
 
+def _favorites_guidance() -> str:
+    """Fold the user's bookmarked favorites into the prompt as a soft, secondary bias.
+
+    Reads the small local favorites.json once per request (same cost class as
+    load_config()) -- no network call, no per-request caching needed at this scale.
+    """
+    from backend.favorites import favorite_artist_names, favorite_track_summaries
+
+    artists = favorite_artist_names(limit=40)
+    tracks = favorite_track_summaries(limit=40)
+    if not artists and not tracks:
+        return ""
+
+    artist_lines = "\n".join(f"- {name}" for name in artists)
+    track_lines = "\n".join(f"- {t['artists']} — {t['title']}" for t in tracks)
+    return (
+        "\n\nUser's favorite artists and tracks (bookmarked by the listener). Treat "
+        "these as a soft, secondary bias only: never override an explicit constraint, "
+        "exclusion or quantity in the request to include them, and never force one in "
+        "if it does not fit this specific request. When multiple otherwise-equal "
+        "candidates are available, mildly prefer these artists or musically similar "
+        "songs.\n"
+        f"Favorite artists:\n{artist_lines or '- None'}\n"
+        f"Favorite tracks:\n{track_lines or '- None'}"
+    )
+
+
 def _initial_draft_overshoot(count: int) -> int:
     """Extra tracks to request in the very first draft, beyond the target `count`.
 
@@ -885,9 +912,11 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     lastfm_anchors = list(_SEED_ANCHORS.get())
     lastfm_candidates = list(_SEED_RECOMMENDATIONS.get())
 
+    favorites_guidance = _favorites_guidance()
     initial_prompt = _constraint_priority_prompt(prompt)
     if lastfm_candidates:
         initial_prompt += _seed_evidence_guidance(lastfm_candidates, seed_mode=seed_mode)
+    initial_prompt += favorites_guidance
 
     _emit_progress("llm_initial")
     draft = await generate_playlist_draft(
@@ -939,6 +968,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
             lastfm_candidates,
             seed_mode=seed_mode,
         )
+        refill_prompt += favorites_guidance
         _emit_progress("llm_replenishment")
         refill = await generate_playlist_draft(config, refill_prompt, pool_size)
         refill_tracks = _annotate_lastfm_sources(
@@ -1417,6 +1447,7 @@ async def replace_track(request: ReplaceTrackRequest) -> dict:
         "Do not return the current song or any song already in the playlist.\n"
         f"Songs to avoid:\n{avoided or '- None'}"
     )
+    replacement_prompt += _favorites_guidance()
 
     try:
         config = load_config()

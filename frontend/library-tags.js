@@ -54,8 +54,13 @@
     // A stored period can be a combined range ("1970s-1980s"), but Statistics
     // shows -- and links to -- each decade separately; expand it here so a
     // filter/search for "1980s" also matches a playlist only tagged with the
-    // combined range, not just an exact "1980s" tag.
-    const periods = tags.period.flatMap(expandPeriod);
+    // combined range, not just an exact "1980s" tag. Keep the original combined
+    // value too (not just its split decades), otherwise clicking the exact
+    // "1970s-1980s" chip shown on the card itself would no longer match.
+    const periods = tags.period.flatMap((period) => {
+      const expanded = expandPeriod(period);
+      return expanded.length > 1 ? [period, ...expanded] : expanded;
+    });
     return [...tags.genre, ...tags.mood, ...periods, ...tags.custom];
   }
 

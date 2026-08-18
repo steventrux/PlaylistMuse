@@ -21,6 +21,8 @@
     add: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg>',
     refine: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>',
     feedback: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 5.5h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-8l-5 3v-3H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z"/><path d="M8 10h8M8 13h5"/></svg>',
+    favorite: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 20.5s-7.5-4.6-10-9.1C.5 8 2 5 5.2 5c1.9 0 3.4 1 4.8 2.8C11.4 6 12.9 5 14.8 5 18 5 19.5 8 19.5 11.4c-2.5 4.5-7.5 9.1-7.5 9.1Z"/></svg>',
+    favorited: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="currentColor" stroke="none"><path d="M12 20.5s-7.5-4.6-10-9.1C.5 8 2 5 5.2 5c1.9 0 3.4 1 4.8 2.8C11.4 6 12.9 5 14.8 5 18 5 19.5 8 19.5 11.4c-2.5 4.5-7.5 9.1-7.5 9.1Z"/></svg>',
   });
 
   const ACTIONS = Object.freeze({
@@ -65,6 +67,25 @@
     element.dataset.compactAction = actionName;
     element.setAttribute('aria-label', action.label);
     element.title = action.label;
+  }
+
+  function decorateFavoriteToggle(element, {favorited, label = 'favorite'} = {}) {
+    if (!element) return;
+    const icon = document.createElement('span');
+    icon.className = 'compact-action-icon';
+    icon.innerHTML = favorited ? ICONS.favorited : ICONS.favorite;
+
+    const text = document.createElement('span');
+    text.className = 'compact-action-label';
+    text.textContent = favorited ? 'Favorited' : 'Favorite';
+
+    element.replaceChildren(icon, text);
+    element.classList.add('compact-action', 'favorite-toggle-button');
+    element.classList.toggle('is-favorited', Boolean(favorited));
+    element.setAttribute('aria-pressed', String(Boolean(favorited)));
+    const description = favorited ? `Remove ${label} from favorites` : `Add ${label} to favorites`;
+    element.setAttribute('aria-label', description);
+    element.title = description;
   }
 
   function compactActionName(element) {
@@ -114,4 +135,6 @@
   });
 
   observer.observe(document.body, {childList: true, subtree: true});
+
+  window.PlaylistMuseActionControls = {decorateFavoriteToggle};
 })();

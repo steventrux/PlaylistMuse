@@ -276,7 +276,7 @@ def test_library_tag_ui_is_read_only_but_keeps_search_filters() -> None:
     assert 'id="library-mood-filter"' not in page
     assert 'id="library-period-filter"' not in page
     assert "/static/library-tags.css?v=3" in page
-    assert "/static/library-tags.js?v=4" in page
+    assert "/static/library-tags.js?v=5" in page
     assert "tagTools?.searchValues(item)" in library_script
     assert "tagTools?.matchesFilters(item)" in library_script
     assert "const activeTagFilters = new Set();" in tags_script
@@ -297,10 +297,14 @@ def test_library_tag_filter_expands_combined_period_ranges() -> None:
     # combined ranges into separate buckets (see backend/playlist_stats.py's
     # _expand_period). Without this, clicking a period in Statistics silently
     # filtered out every playlist tagged with a combined range.
+    #
+    # Regression: expandPeriod() must not *replace* the combined value with its
+    # split decades -- searchValues() keeps the original "1970s-1980s" too, or
+    # clicking that exact chip on the card (not via Statistics) matches nothing.
     tags_script = (FRONTEND / "library-tags.js").read_text(encoding="utf-8")
 
     assert "function expandPeriod(value)" in tags_script
-    assert "const periods = tags.period.flatMap(expandPeriod);" in tags_script
+    assert "return expanded.length > 1 ? [period, ...expanded] : expanded;" in tags_script
 
 
 def test_library_active_filters_are_listed_with_a_clear_action() -> None:
@@ -311,8 +315,21 @@ def test_library_active_filters_are_listed_with_a_clear_action() -> None:
     assert "function clearFilter(key)" in tags_script
     assert "tagTools?.activeFilters()" in library_script
     assert "tagTools.clearFilter(key)" in library_script
-    assert "Filtered by artist: " in library_script
-    assert "Filtered by tag: " in library_script
+    assert "Filtered by artist:" in library_script
+    assert "Filtered by tag:" in library_script
+    assert "Filtered by song:" in library_script
+    assert "function clearTrackFilter()" in library_script
+    assert "params.set('video_id', trackFilter);" in library_script
+
+
+def test_active_filters_of_the_same_type_share_one_label() -> None:
+    # Multiple active tag filters must render under a single "Filtered by tag:"
+    # label with one removable chip per value, not one repeated label per tag.
+    library_script = (FRONTEND / "library.js").read_text(encoding="utf-8")
+
+    assert "function filterGroup(labelText, chips)" in library_script
+    assert "hint.append(filterGroup('Filtered by tag:', tagFilters.map(" in library_script
+    assert "function filterRemoveIcon()" in library_script
 
 
 def test_playlist_page_shows_ai_and_personal_tags_with_shared_controls() -> None:
@@ -323,8 +340,8 @@ def test_playlist_page_shows_ai_and_personal_tags_with_shared_controls() -> None
     assert 'id="playlist-tags"' in page
     assert 'id="playlist-tags-status"' in page
     assert "/static/library-tags.css?v=3" in page
-    assert "/static/library-tags.js?v=4" in page
-    assert "/static/playlist.js?v=20" in page
+    assert "/static/library-tags.js?v=5" in page
+    assert "/static/playlist.js?v=22" in page
     assert "const tagTools = window.PlaylistMuseTags" in script
     assert "function renderPlaylistTags()" in script
     assert "tagTools.editableSummary(data?.tags" in script

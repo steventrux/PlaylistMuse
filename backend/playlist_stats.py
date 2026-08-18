@@ -21,7 +21,7 @@ from typing import Any
 
 from backend.generation_counter import generations_by_month, total_generations
 from backend.generation_errors import error_breakdown
-from backend.playlist_library import DATABASE_PATH
+from backend.playlist_library import DATABASE_PATH, split_artist_credit
 
 _DECADE_RE = re.compile(r"^\d{3,4}0s$")
 
@@ -142,9 +142,8 @@ def compute_stats() -> dict[str, Any]:
             if not isinstance(track, dict):
                 continue
             raw_artists = str(track.get("artists", "")).strip()
-            for artist in (name.strip() for name in raw_artists.split(",")):
-                if artist:
-                    artists[artist] += 1
+            for artist in split_artist_credit(raw_artists):
+                artists[artist] += 1
 
         meta = playlist.get("generation_meta")
         provider = "unknown"

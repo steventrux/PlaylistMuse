@@ -9,6 +9,12 @@
   line-height: 1.35;
 }
 
+.library-count-number {
+  color: var(--text-primary);
+  font-size: 1.05rem;
+  font-weight: 850;
+}
+
 @media (max-width: 650px) {
   .library-count-row {
     margin: -4px 0 9px;
@@ -16,5 +22,9 @@
 
   .library-count {
     font-size: .74rem;
+  }
+
+  .library-count-number {
+    font-size: .92rem;
   }
 }

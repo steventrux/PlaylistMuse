@@ -1,7 +1,9 @@
+import backend.favorites as favorites_module
 from backend.main import (
     SeedGenerateRequest,
     SeedTrack,
     _constraint_priority_prompt,
+    _favorites_guidance,
     _replenishment_prompt,
     _seed_evidence_guidance,
     _seed_lastfm_evidence_params,
@@ -53,6 +55,41 @@ def test_replenishment_prompt_does_not_relax_constraints_to_fill_count():
     assert "remains mandatory during replenishment" in refill
     assert "Do not broaden dates, years, language, country" in refill
     assert "satisfy every original constraint" in refill
+
+
+def test_favorites_guidance_is_empty_when_no_favorites_are_saved(monkeypatch, tmp_path):
+    monkeypatch.setattr(favorites_module, "FAVORITES_PATH", tmp_path / "favorites.json")
+
+    assert _favorites_guidance() == ""
+
+
+def test_favorites_guidance_folds_favorite_artists_and_tracks_as_a_soft_bias(monkeypatch, tmp_path):
+    monkeypatch.setattr(favorites_module, "FAVORITES_PATH", tmp_path / "favorites.json")
+    favorites_module.add_favorite_artist("Radiohead")
+    favorites_module.add_favorite_track(
+        {"video_id": "abc123", "title": "Idioteque", "artists": "Radiohead"},
+    )
+
+    guidance = _favorites_guidance()
+
+    assert "Radiohead" in guidance
+    assert "Idioteque" in guidance
+    assert "soft, secondary bias" in guidance
+    assert "never override an explicit constraint" in guidance
+
+
+def test_favorites_guidance_is_wired_into_every_generation_prompt_site():
+    import inspect
+
+    import backend.main as main_module
+
+    generate_source = inspect.getsource(main_module._generate)
+    assert "favorites_guidance = _favorites_guidance()" in generate_source
+    assert "initial_prompt += favorites_guidance" in generate_source
+    assert "refill_prompt += favorites_guidance" in generate_source
+
+    replace_track_source = inspect.getsource(main_module.replace_track)
+    assert "replacement_prompt += _favorites_guidance()" in replace_track_source
 
 
 def test_seed_modes_have_distinct_similarity_rules():
