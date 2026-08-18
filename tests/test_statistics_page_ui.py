@@ -85,6 +85,17 @@ def test_music_top_dimensions_use_bar_charts_like_advanced_stats() -> None:
     assert 'id="stats-custom-tag-list" class="stats-bar-list"' in html
 
 
+def test_music_ranking_rows_link_to_a_filtered_library() -> None:
+    # Clicking an artist/genre/mood/period/personal-tag entry should navigate to
+    # the Library page pre-filtered to that value, rather than being inert text.
+    script = _text("statistics.js")
+
+    assert "linkParam: 'artist'" in script
+    assert "linkParam: 'tag'" in script
+    assert "document.createElement(linkParam ? 'a' : 'div')" in script
+    assert "/static/library.html?${linkParam}=${encodeURIComponent(item.label)}" in script
+
+
 def test_advanced_stats_uses_bar_charts_instead_of_ranked_lists() -> None:
     # Advanced statistics visualizes proportional/comparative technical data
     # (per-stage timing, cache hit rate) as horizontal bars rather than the

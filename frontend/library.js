@@ -16,6 +16,51 @@
   let activeStatusFilter = 'all';
   let currentPage = 1;
 
+  const initialParams = new URLSearchParams(window.location.search);
+  let artistFilter = initialParams.get('artist') || null;
+  if (initialParams.get('tag')) tagTools?.presetFilter(initialParams.get('tag'));
+
+  function clearArtistFilter() {
+    artistFilter = null;
+    const url = new URL(window.location.href);
+    url.searchParams.delete('artist');
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+    renderActiveFiltersHint();
+    void loadLibrary();
+  }
+
+  function filterChip(text, onClear) {
+    const chip = document.createElement('span');
+    chip.className = 'library-active-filter';
+    const label = document.createElement('span');
+    label.textContent = text;
+    const clear = document.createElement('button');
+    clear.type = 'button';
+    clear.className = 'library-artist-filter-clear';
+    clear.textContent = 'Clear filter';
+    clear.addEventListener('click', onClear);
+    chip.append(label, clear);
+    return chip;
+  }
+
+  function renderActiveFiltersHint() {
+    const hint = $('library-artist-filter');
+    if (!hint) return;
+    const tagFilters = tagTools?.activeFilters() || [];
+    hint.textContent = '';
+    if (!artistFilter && !tagFilters.length) {
+      hint.classList.add('hidden');
+      return;
+    }
+    hint.classList.remove('hidden');
+    if (artistFilter) {
+      hint.append(filterChip(`Filtered by artist: ${artistFilter}`, clearArtistFilter));
+    }
+    for (const {key, label} of tagFilters) {
+      hint.append(filterChip(`Filtered by tag: ${label}`, () => tagTools.clearFilter(key)));
+    }
+  }
+
   function readSessionJson(key) {
     try {
       return JSON.parse(sessionStorage.getItem(key) || 'null');
@@ -502,6 +547,7 @@
       expandedLibraryId = null;
     }
 
+    renderActiveFiltersHint();
     $('library-list').replaceChildren(...pageState.items.map(createLibraryItem));
     updateLibraryCount(items.length);
     renderPagination(pageState);
@@ -529,9 +575,12 @@
   async function loadLibrary() {
     setStatus('Loading playlists…');
     $('library-empty').classList.add('hidden');
+    renderActiveFiltersHint();
     try {
       const sort = $('library-sort').value;
-      const payload = await readJson(await fetch(`${ENDPOINT}?sort=${encodeURIComponent(sort)}`, {
+      const params = new URLSearchParams({sort});
+      if (artistFilter) params.set('artist', artistFilter);
+      const payload = await readJson(await fetch(`${ENDPOINT}?${params}`, {
         cache: 'no-store',
       }));
       libraryItems = Array.isArray(payload.items) ? payload.items : [];

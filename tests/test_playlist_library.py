@@ -96,6 +96,27 @@ def test_library_cover_uses_representative_tracks_and_refreshes_on_update(
     ]
 
 
+def test_list_filters_by_artist_case_insensitively(tmp_path: Path) -> None:
+    database = tmp_path / "playlists.db"
+    library = PlaylistLibrary(database)
+    library.create(sample_playlist("Night drive"))  # tracks: "Artist one", "Artist two"
+    library.create({
+        **sample_playlist("Focus flow"),
+        "tracks": [
+            {"video_id": "ghi789", "title": "Track three", "artists": "Artist Two, Artist Three"},
+        ],
+    })
+    library.create({
+        **sample_playlist("Untagged"),
+        "tracks": [{"video_id": "jkl012", "title": "Track four", "artists": "Someone Else"}],
+    })
+
+    matches = library.list(artist="artist two")
+    assert {item["name"] for item in matches} == {"Night drive", "Focus flow"}
+    assert library.list(artist="Artist Three")[0]["name"] == "Focus flow"
+    assert library.list(artist="Nonexistent") == []
+
+
 def test_duplicate_is_an_independent_draft(tmp_path: Path) -> None:
     library = PlaylistLibrary(tmp_path / "playlists.db")
     published = sample_playlist("Published playlist")
@@ -148,6 +169,11 @@ def test_library_api_crud_and_duplicate(tmp_path: Path, monkeypatch) -> None:
     listing = client.get("/api/library/playlists?sort=title_asc")
     assert listing.status_code == 200
     assert listing.json()["items"][0]["id"] == playlist_id
+
+    matching = client.get("/api/library/playlists?artist=Artist+one")
+    assert [item["id"] for item in matching.json()["items"]] == [playlist_id]
+    empty = client.get("/api/library/playlists?artist=Nobody")
+    assert empty.json()["items"] == []
 
     duplicate = client.post(f"/api/library/playlists/{playlist_id}/duplicate")
     assert duplicate.status_code == 201

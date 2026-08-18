@@ -89,6 +89,37 @@
   transform: none;
 }
 
+.library-artist-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 0 0 10px;
+}
+
+.library-active-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.library-artist-filter-clear {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: .82rem;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.library-artist-filter-clear:hover,
+.library-artist-filter-clear:focus-visible {
+  color: var(--cyan-light);
+}
+
 /* Match the compact result-card rhythm. */
 .library-list {
   display: grid;
