@@ -13,6 +13,7 @@
     {key: 'genres', containerId: 'stats-genre-chips', emptyId: 'stats-genre-chips-empty', toggleId: 'stats-genre-chips-toggle'},
     {key: 'moods', containerId: 'stats-mood-chips', emptyId: 'stats-mood-chips-empty', toggleId: 'stats-mood-chips-toggle'},
     {key: 'periods', containerId: 'stats-period-chips', emptyId: 'stats-period-chips-empty', toggleId: 'stats-period-chips-toggle'},
+    {key: 'customTags', containerId: 'stats-custom-tag-list', emptyId: 'stats-custom-tag-list-empty', toggleId: 'stats-custom-tag-list-toggle'},
   ];
   const rankingState = new Map(RANKINGS.map((ranking) => [ranking.key, {full: [], expanded: false}]));
 
@@ -154,6 +155,7 @@
     genres: 'top_genres',
     moods: 'top_moods',
     periods: 'top_periods',
+    customTags: 'top_custom_tags',
   };
 
   function renderGeneral(general) {

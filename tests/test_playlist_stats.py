@@ -164,6 +164,33 @@ def test_compute_stats_normalizes_genre_and_mood_casing(monkeypatch, tmp_path: P
     assert stats["general"]["top_moods"] == [{"label": "Energetic", "count": 3}]
 
 
+def test_compute_stats_aggregates_and_normalizes_custom_tags(monkeypatch, tmp_path: Path) -> None:
+    database_path = tmp_path / "playlists.db"
+    library = PlaylistLibrary(database_path)
+    library.create(_playlist(
+        name="Morning Run",
+        artists=["Artist A"],
+        tags={"genre": [], "mood": [], "period": [], "custom": ["road trip"]},
+    ))
+    library.create(_playlist(
+        name="Evening Run",
+        artists=["Artist B"],
+        tags={"genre": [], "mood": [], "period": [], "custom": ["Road Trip", "favorites"]},
+    ))
+    monkeypatch.setattr(playlist_stats, "DATABASE_PATH", database_path)
+
+    stats = playlist_stats.compute_stats()
+
+    custom_tags = {
+        entry["label"]: entry["count"] for entry in stats["general"]["top_custom_tags"]
+    }
+    assert custom_tags == {"Road Trip": 2, "Favorites": 1}
+    # Personal tags are freeform organization, not AI classification -- they must
+    # not count toward a provider's tag_coverage_percent.
+    unknown = stats["nerd"]["by_provider"]["unknown"]
+    assert unknown["tag_coverage_percent"] == 0.0
+
+
 def test_compute_stats_splits_combined_period_ranges(monkeypatch, tmp_path: Path) -> None:
     database_path = tmp_path / "playlists.db"
     library = PlaylistLibrary(database_path)
@@ -208,5 +235,6 @@ def test_compute_stats_handles_an_empty_library(monkeypatch, tmp_path: Path) -> 
     assert stats["general"]["total_saved"] == 0
     assert stats["general"]["top_genres"] == []
     assert stats["general"]["top_moods"] == []
+    assert stats["general"]["top_custom_tags"] == []
     assert stats["general"]["playlists_by_month"] == {}
     assert stats["nerd"]["by_provider"] == {}

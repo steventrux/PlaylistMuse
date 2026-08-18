@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="/static/controls.css?v=8">
   <link rel="stylesheet" href="/static/settings-dialog.css?v=11">
   <link rel="stylesheet" href="/static/settings-page.css?v=5">
-  <link rel="stylesheet" href="/static/statistics.css?v=9">
+  <link rel="stylesheet" href="/static/statistics.css?v=10">
   <link rel="stylesheet" href="/static/statistics-advanced.css?v=3">
   <link rel="stylesheet" href="/static/header-navigation.css?v=13">
 </head>
@@ -79,6 +79,13 @@
               <path d="M6 13h20M11 5v6M21 5v6" />
             </svg>
             <span>Top periods</span>
+          </button>
+          <button class="settings-section-link" type="button" data-stats-section="tags">
+            <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+              <path d="M17 5h9a1 1 0 0 1 1 1v9a1 1 0 0 1-.3.7L14.4 27a1 1 0 0 1-1.4 0l-8-8a1 1 0 0 1 0-1.4L17.3 5.3A1 1 0 0 1 17 5z" />
+              <circle cx="22" cy="10" r="1.6" />
+            </svg>
+            <span>Personal tags</span>
           </button>
 
           <p class="settings-section-label">Technical</p>
@@ -212,6 +219,15 @@
           <button type="button" id="stats-period-chips-toggle" class="stats-see-all-link hidden">See all &rarr;</button>
         </section>
 
+        <section id="stats-tags-panel" class="settings-page-panel hidden stats-music-panel" aria-label="Personal tags">
+          <p class="field-hint">The personal tags you add to playlists in the library, most used first.</p>
+          <div class="stats-section">
+            <div id="stats-custom-tag-list" class="stats-bar-list"></div>
+            <p id="stats-custom-tag-list-empty" class="field-hint hidden">No personal tags yet.</p>
+          </div>
+          <button type="button" id="stats-custom-tag-list-toggle" class="stats-see-all-link hidden">See all &rarr;</button>
+        </section>
+
         <section id="stats-advanced-panel" class="settings-page-panel hidden" aria-label="AI performance">
           <p id="stats-advanced-status" class="status" aria-live="polite">Loading statistics&hellip;</p>
 
@@ -239,10 +255,10 @@
 
   <script src="/static/common.js?v=9"></script>
   <script src="/static/statistics-render.js?v=2"></script>
-  <script src="/static/statistics.js?v=9"></script>
+  <script src="/static/statistics.js?v=10"></script>
   <script src="/static/statistics-advanced.js?v=3"></script>
   <script src="/static/statistics-cache.js?v=1"></script>
-  <script src="/static/statistics-page.js?v=2"></script>
+  <script src="/static/statistics-page.js?v=3"></script>
   <script src="/static/home-status.js?v=26"></script>
 </body>
 </html>
