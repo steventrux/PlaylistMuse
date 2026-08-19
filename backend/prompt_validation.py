@@ -206,9 +206,17 @@ def assess_interpretation(payload: dict[str, Any] | None) -> PromptAssessment:
 _FAVORITES_MENTION_RE = re.compile(
     r"favorit|favourite|preferit|favoris|préfér|prefere|lieblings", re.IGNORECASE
 )
+# The AI's own ambiguity reason doesn't reliably echo back "favorite"/"preferiti" even
+# when the ambiguity IS about missing artist identity (e.g. it may just say "no artist
+# specified in the request") -- an artist-identity reason is included too whenever the
+# *source prompt itself* explicitly asked for favorites (checked in the caller), since
+# that's the only case this resolves.
+_ARTIST_MENTION_RE = re.compile(r"artist|artiste|künstler", re.IGNORECASE)
 
 
-def _suppress_resolvable_favorites_ambiguity(assessment: PromptAssessment) -> PromptAssessment:
+def _suppress_resolvable_favorites_ambiguity(
+    assessment: PromptAssessment, prompt: str
+) -> PromptAssessment:
     """Drop ambiguity reasons the app can actually resolve from bookmarked favorites.
 
     `interpret_constraints()` has no visibility into this installation's saved
@@ -220,12 +228,24 @@ def _suppress_resolvable_favorites_ambiguity(assessment: PromptAssessment) -> Pr
     if assessment.status != "ambiguous" or not assessment.reasons:
         return assessment
 
-    from backend.favorites import favorite_artist_names, favorite_track_summaries
+    from backend.favorites import (
+        favorite_artist_names,
+        favorite_categories_explicitly_requested,
+        favorite_track_summaries,
+    )
 
+    explicit_artists, explicit_tracks = favorite_categories_explicitly_requested(prompt)
+    if not explicit_artists and not explicit_tracks:
+        return assessment
     if not favorite_artist_names(limit=1) and not favorite_track_summaries(limit=1):
         return assessment
 
-    kept = tuple(reason for reason in assessment.reasons if not _FAVORITES_MENTION_RE.search(reason))
+    def _resolved_by_favorites(reason: str) -> bool:
+        if _FAVORITES_MENTION_RE.search(reason):
+            return True
+        return explicit_artists and bool(_ARTIST_MENTION_RE.search(reason))
+
+    kept = tuple(reason for reason in assessment.reasons if not _resolved_by_favorites(reason))
     if kept == assessment.reasons:
         return assessment
     return PromptAssessment(
@@ -238,7 +258,7 @@ def _suppress_resolvable_favorites_ambiguity(assessment: PromptAssessment) -> Pr
 async def assess_prompt(config: AppConfig, prompt: str) -> PromptAssessment:
     """Classify local, interpreted and strongly verified cross-entity conflicts."""
     return _suppress_resolvable_favorites_ambiguity(
-        await _assess_prompt_uncached(config, prompt)
+        await _assess_prompt_uncached(config, prompt), prompt
     )
 
 
