@@ -61,6 +61,69 @@ def test_favorite_artist_allowlist_merges_into_constraints_during_llm_initial_st
     assert asyncio.run(scenario()) == ["AC/DC", "The Rolling Stones"]
 
 
+def test_favorite_artist_lock_merges_an_explicit_style_requirement_into_creative_intent(
+    monkeypatch,
+) -> None:
+    # When the artist pool is hard-locked to favorites, an explicit genre/style in the
+    # prompt (e.g. "house") must also be checked against the resulting tracks --
+    # otherwise the AI can be forced to pick genre-incompatible songs from the few
+    # allowed artists with no validation catching it (see backend.creative_intent's
+    # interpret_style_request docstring).
+    import backend.creative_intent as creative_intent_module
+    from backend.config import AppConfig
+
+    _stub_interpretation_pipeline(monkeypatch)
+
+    async def fake_style(config, prompt) -> creative_intent_module.CreativeIntent:
+        return creative_intent_module.CreativeIntent(("house",), 0.9)
+
+    monkeypatch.setattr(creative_intent_module, "interpret_style_request", fake_style)
+
+    async def fake_generate(config, submitted: str, count: int) -> dict:
+        return {"title": "Test", "description": "", "tracks": []}
+
+    monkeypatch.setattr(llm, "generate_playlist_draft", fake_generate)
+
+    async def scenario() -> creative_intent_module.CreativeIntent:
+        activate_favorite_artist_allowlist(["AC/DC"])
+        await generation_runtime.generate_playlist_draft(
+            AppConfig(provider="openai", api_key="sk-test", model="model"),
+            "Create a playlist house with my favorite artists",
+            5,
+        )
+        return creative_intent_module.active_creative_intent()
+
+    intent = asyncio.run(scenario())
+    assert intent.requirements == ("house",)
+
+
+def test_no_style_lookup_when_favorite_artist_lock_is_inactive(monkeypatch) -> None:
+    import backend.creative_intent as creative_intent_module
+    from backend.config import AppConfig
+
+    _stub_interpretation_pipeline(monkeypatch)
+
+    async def fail_style(config, prompt):
+        raise AssertionError("style should not be looked up without an active favorite lock")
+
+    monkeypatch.setattr(creative_intent_module, "interpret_style_request", fail_style)
+
+    async def fake_generate(config, submitted: str, count: int) -> dict:
+        return {"title": "Test", "description": "", "tracks": []}
+
+    monkeypatch.setattr(llm, "generate_playlist_draft", fake_generate)
+
+    async def scenario() -> None:
+        activate_favorite_artist_allowlist([])
+        await generation_runtime.generate_playlist_draft(
+            AppConfig(provider="openai", api_key="sk-test", model="model"),
+            "Create a playlist house",
+            5,
+        )
+
+    asyncio.run(scenario())
+
+
 def test_favorite_artist_allowlist_unions_with_an_interpreted_allowed_artist(
     monkeypatch,
 ) -> None:

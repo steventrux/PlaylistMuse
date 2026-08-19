@@ -378,8 +378,14 @@ async def _interpret_request(
     Returns (interpreted_payload, assessment, enforced_constraints) and raises ValueError
     when the interpreted request is impossible to satisfy.
     """
-    from backend.creative_intent import activate_creative_intent, interpret_creative_intent
+    from backend.creative_intent import (
+        activate_creative_intent,
+        interpret_creative_intent,
+        interpret_style_request,
+        merge_creative_intents,
+    )
     from backend.entity_resolution import canonicalize_interpretation
+    from backend.favorites import active_favorite_artist_allowlist
     from backend.metadata_validation import constraints_from_payload
     from backend.prompt_validation import assess_interpretation, assess_prompt
     from backend.recording_variants import activate_recording_policy, interpret_recording_policy
@@ -390,6 +396,13 @@ async def _interpret_request(
         interpret_recording_policy(config, source_prompt),
         interpret_creative_intent(config, source_prompt),
     )
+    if active_favorite_artist_allowlist():
+        # The artist pool is hard-restricted to bookmarked favorites below; if the
+        # prompt also names a genre/style, that pool may not actually contain any
+        # matching tracks, so it needs its own explicit check (see
+        # interpret_style_request's docstring).
+        style_intent = await interpret_style_request(config, source_prompt)
+        creative_intent = merge_creative_intents(creative_intent, style_intent)
     activate_recording_policy(recording_policy)
     activate_creative_intent(creative_intent)
     if assessment.status == "impossible":
