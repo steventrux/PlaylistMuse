@@ -27,6 +27,24 @@
     window.history.replaceState({favoritesSection: section}, '', `${url.pathname}${url.search}${url.hash}`);
   }
 
+  function clampTooltipShift() {
+    const infoIcon = $('favorites-section-info');
+    if (!infoIcon) return;
+    // .settings-page-shell clips overflow (rounded card), so the tooltip's real
+    // horizontal bound is that card's edge, not the viewport width.
+    const bounds = infoIcon.closest('.settings-page-shell') || document.documentElement;
+    const boundsRect = bounds.getBoundingClientRect();
+    const margin = 20;
+    const isNarrow = window.innerWidth <= 620;
+    const tooltipWidth = Math.min(isNarrow ? 220 : 280, boundsRect.width - margin * 2);
+    const iconLeft = infoIcon.getBoundingClientRect().left;
+    const maxLeft = boundsRect.right - margin - tooltipWidth;
+    const minLeft = boundsRect.left + margin;
+    const clampedLeft = Math.min(Math.max(iconLeft, minLeft), maxLeft);
+    infoIcon.style.setProperty('--tooltip-max-width', `${Math.round(tooltipWidth)}px`);
+    infoIcon.style.setProperty('--tooltip-shift', `${Math.round(clampedLeft - iconLeft)}px`);
+  }
+
   function selectSection(section, {updateUrl = true} = {}) {
     const selected = SECTIONS.has(section) ? section : 'overview';
 
@@ -51,6 +69,7 @@
       info.setAttribute('aria-label', sectionHints[selected]);
     }
     if (updateUrl) updateLocation(selected);
+    clampTooltipShift();
   }
 
   function removeIcon() {
@@ -264,6 +283,16 @@
   document.querySelectorAll('[data-favorites-section]').forEach((button) => {
     button.addEventListener('click', () => selectSection(button.dataset.favoritesSection));
   });
+
+  const infoIcon = $('favorites-section-info');
+  if (infoIcon) {
+    clampTooltipShift();
+    infoIcon.addEventListener('mouseenter', clampTooltipShift);
+    infoIcon.addEventListener('pointerdown', clampTooltipShift);
+    infoIcon.addEventListener('touchstart', clampTooltipShift, {passive: true});
+    infoIcon.addEventListener('focus', clampTooltipShift);
+    window.addEventListener('resize', clampTooltipShift);
+  }
 
   $('favorite-artist-list-toggle')?.addEventListener('click', () => {
     artistsExpanded = !artistsExpanded;
