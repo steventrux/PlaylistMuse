@@ -61,6 +61,7 @@
 }
 
 .playlist-draft-actions .compact-action,
+.playlist-export-actions .compact-action,
 .playlist-feedback-action.compact-action {
   flex: 0 0 auto;
   min-width: 40px;
@@ -96,6 +97,7 @@
 
   .track .track-action.compact-action,
   .playlist-draft-actions .compact-action,
+  .playlist-export-actions .compact-action,
   .playlist-feedback-action.compact-action {
     width: 44px;
     min-width: 44px;

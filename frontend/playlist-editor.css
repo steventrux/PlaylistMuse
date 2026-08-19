@@ -64,7 +64,8 @@
 }
 
 .playlist-toolbar-actions,
-.playlist-draft-actions {
+.playlist-draft-actions,
+.playlist-export-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -73,6 +74,7 @@
 }
 
 .playlist-draft-actions .secondary,
+.playlist-export-actions .secondary,
 .playlist-feedback-action {
   min-height: 36px;
   padding: 8px 12px;
@@ -217,11 +219,13 @@ body.playlist-readonly #playlist-tags .library-tag-add-form {
     justify-content: flex-start;
   }
 
-  .playlist-draft-actions {
+  .playlist-draft-actions,
+  .playlist-export-actions {
     width: auto;
   }
 
   .playlist-draft-actions .secondary,
+  .playlist-export-actions .secondary,
   .playlist-feedback-action {
     flex: 1 1 auto;
   }
