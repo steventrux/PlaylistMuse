@@ -41,7 +41,8 @@
   left: 0;
   z-index: 20;
   width: max-content;
-  max-width: min(320px, calc(100vw - 40px));
+  max-width: var(--tooltip-max-width, 320px);
+  transform: translateX(var(--tooltip-shift, 0px));
   padding: 8px 10px;
   border: 1px solid rgba(169, 155, 255, .24);
   border-radius: 10px;
@@ -130,6 +131,7 @@
     justify-content: center;
     gap: 10px;
   }
+
 }
 
 .favorites-list {

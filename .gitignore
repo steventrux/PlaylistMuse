@@ -12,6 +12,7 @@ data/*.db-shm
 data/*.db-wal
 data/*.sqlite3
 data/logs/
+.scratch-data/
 .DS_Store
 
 # Claude Code local runtime/settings (per-machine, not shared)
