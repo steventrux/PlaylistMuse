@@ -1039,6 +1039,18 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     }
     resolved_ids = {track.get("video_id") for track in tracks if track.get("video_id")}
 
+    from backend.creative_intent import active_creative_intent
+
+    # A hard-restricted favorite-artist pool (see backend.favorites) combined with an
+    # explicit mood/style requirement may simply have no matching tracks among those
+    # few artists -- every replenishment round would just retry the same impossible
+    # request against a real (often slow) AI call, so give up after one empty round
+    # instead of exhausting the full replenishment budget on an unwinnable request.
+    favorite_artist_creative_conflict = explicit_artists and bool(
+        active_creative_intent().requirements
+    )
+    stall_limit = 1 if favorite_artist_creative_conflict else MAX_STALLED_ROUNDS
+
     stalled_rounds = 0
     for round_index in range(MAX_REPLENISHMENT_ROUNDS):
         if skip_initial_ai:
@@ -1077,7 +1089,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
 
         if not fresh_candidates:
             stalled_rounds += 1
-            if stalled_rounds >= MAX_STALLED_ROUNDS:
+            if stalled_rounds >= stall_limit:
                 break
             continue
 
@@ -1114,13 +1126,25 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
             playlist_before=playlist_before,
         )
         stalled_rounds = 0 if added else stalled_rounds + 1
-        if stalled_rounds >= MAX_STALLED_ROUNDS:
+        if stalled_rounds >= stall_limit:
             break
 
-    allow_shortfall = explicit_tracks and not explicit_artists
-    if allow_shortfall and not tracks:
+    # A hard-restricted favorite-artist pool (see backend.favorites) combined with an
+    # explicit mood/style requirement may simply have no matching tracks among those
+    # few artists -- a shortfall (or, if nothing matches at all, a clear error) is the
+    # honest outcome, not padding the count with genre-incompatible picks.
+    allow_shortfall = (
+        explicit_tracks and not explicit_artists
+    ) or favorite_artist_creative_conflict
+    if explicit_tracks and not explicit_artists and not tracks:
         raise ValueError(
             "You asked for your favorite tracks, but you haven't bookmarked any yet."
+        )
+    if favorite_artist_creative_conflict and not tracks:
+        raise ValueError(
+            "None of your favorite artists have tracks matching what you asked for "
+            "in this request, so PlaylistMuse could not build this playlist. Try a "
+            "different style/mood, or drop the favorite-artists request."
         )
     if len(tracks) < count and not allow_shortfall:
         raise ValueError(
