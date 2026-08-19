@@ -1,4 +1,5 @@
 import backend.favorites as favorites_module
+from backend.favorites import favorite_categories_explicitly_requested
 from backend.main import (
     SeedGenerateRequest,
     SeedTrack,
@@ -78,18 +79,104 @@ def test_favorites_guidance_folds_favorite_artists_and_tracks_as_a_soft_bias(mon
     assert "never override an explicit constraint" in guidance
 
 
+def test_favorites_guidance_explicit_flags_produce_stronger_wording_per_category(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(favorites_module, "FAVORITES_PATH", tmp_path / "favorites.json")
+    favorites_module.add_favorite_artist("Radiohead")
+    favorites_module.add_favorite_track(
+        {"video_id": "abc123", "title": "Idioteque", "artists": "Radiohead"},
+    )
+
+    soft = _favorites_guidance()
+    artists_only = _favorites_guidance(explicit_artists=True)
+    tracks_only = _favorites_guidance(explicit_tracks=True)
+    both = _favorites_guidance(explicit_artists=True, explicit_tracks=True)
+
+    assert soft.count("soft, secondary bias") == 2
+    assert "explicitly asked to use their favorite artists" in artists_only
+    assert "explicitly asked to use their favorite tracks" not in artists_only
+    assert artists_only.count("soft, secondary bias") == 1  # tracks stay soft
+
+    assert "explicitly asked to use their favorite tracks" in tracks_only
+    assert "explicitly asked to use their favorite artists" not in tracks_only
+    assert tracks_only.count("soft, secondary bias") == 1  # artists stay soft
+
+    assert both.count("soft, secondary bias") == 0
+    assert "explicitly asked to use their favorite artists" in both
+    assert "explicitly asked to use their favorite tracks" in both
+
+
+def test_favorite_categories_explicitly_requested_detects_multilingual_phrasing_per_category():
+    artists_only_prompts = [
+        "include my favorite artists please",
+        "includi i miei artisti preferiti",
+        "ajoute mes artistes préférés",
+        "usa mis artistas favoritos",
+        "füge meine Lieblingskünstler hinzu",
+    ]
+    for prompt in artists_only_prompts:
+        artists, tracks = favorite_categories_explicitly_requested(prompt)
+        assert artists, prompt
+        assert not tracks, prompt
+
+    tracks_only_prompts = [
+        "add my favorite songs to this playlist",
+        "aggiungi le mie canzoni preferite",
+        "ajoute mes chansons préférées",
+        "incluye mis canciones favoritas",
+        "nutze meine Lieblingssongs",
+    ]
+    for prompt in tracks_only_prompts:
+        artists, tracks = favorite_categories_explicitly_requested(prompt)
+        assert tracks, prompt
+        assert not artists, prompt
+
+    generic_prompts = [
+        "use my favorites for this playlist",
+        "usa i miei preferiti per questa playlist",
+        "utilise mes favoris pour cette playlist",
+        "usa mis favoritos para esta playlist",
+        "nutze meine Favoriten für diese Playlist",
+    ]
+    for prompt in generic_prompts:
+        artists, tracks = favorite_categories_explicitly_requested(prompt)
+        assert artists, prompt
+        assert tracks, prompt
+
+    negative_prompts = [
+        "Italian summer hits released in 2026 only",
+        "my favorite genre is jazz, make me a playlist like that",
+        "make it feel like my favorite song, Bohemian Rhapsody",
+    ]
+    for prompt in negative_prompts:
+        artists, tracks = favorite_categories_explicitly_requested(prompt)
+        assert not artists, prompt
+        assert not tracks, prompt
+
+
 def test_favorites_guidance_is_wired_into_every_generation_prompt_site():
     import inspect
 
     import backend.main as main_module
 
     generate_source = inspect.getsource(main_module._generate)
-    assert "favorites_guidance = _favorites_guidance()" in generate_source
+    assert (
+        "explicit_artists, explicit_tracks = favorite_categories_explicitly_requested(prompt)"
+        in generate_source
+    )
+    assert "activate_favorite_artist_allowlist(" in generate_source
     assert "initial_prompt += favorites_guidance" in generate_source
     assert "refill_prompt += favorites_guidance" in generate_source
+    assert "_seed_favorite_tracks(options, limit=count)" in generate_source
 
     replace_track_source = inspect.getsource(main_module.replace_track)
-    assert "replacement_prompt += _favorites_guidance()" in replace_track_source
+    assert (
+        "replace_explicit_artists, replace_explicit_tracks = "
+        "favorite_categories_explicitly_requested(\n        request.prompt\n    )"
+        in replace_track_source
+    )
+    assert "activate_favorite_artist_allowlist(" in replace_track_source
 
 
 def test_seed_modes_have_distinct_similarity_rules():

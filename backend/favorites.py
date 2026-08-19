@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any
 
@@ -18,6 +20,72 @@ FAVORITES_PATH = DATA_DIR / "favorites.json"
 MAX_FAVORITE_ARTISTS = 300
 MAX_FAVORITE_TRACKS = 300
 MAX_FAVORITE_NAME_LENGTH = 120
+
+_FAVORITES_GENERIC_REQUEST_PATTERNS = (
+    # A generic reference to the bookmarked collection, not scoped to artists or
+    # tracks specifically -- treated as a request for both categories.
+    re.compile(r"\bmy\s+favorites\b", re.IGNORECASE),  # English
+    re.compile(r"\b(?:i\s+miei|le\s+mie)\s+preferit[ei]\b", re.IGNORECASE),  # Italian
+    re.compile(r"\bmes\s+favoris\b", re.IGNORECASE),  # French
+    re.compile(r"\bmis\s+favoritos\b", re.IGNORECASE),  # Spanish
+    re.compile(r"\bmeine\s+Favoriten\b", re.IGNORECASE),  # German
+)
+_FAVORITE_ARTISTS_REQUEST_PATTERNS = (
+    re.compile(r"\bmy\s+favorite\s+artists\b", re.IGNORECASE),
+    re.compile(r"\bartisti\s+preferit[ei]\b", re.IGNORECASE),
+    re.compile(r"\bmes\s+artistes\s+(?:favoris|préférés|préférées)\b", re.IGNORECASE),
+    re.compile(r"\bmis\s+artistas\s+(?:favoritos|preferidos)\b", re.IGNORECASE),
+    re.compile(r"\bmeine\s+Lieblingskünstler\b", re.IGNORECASE),
+)
+_FAVORITE_TRACKS_REQUEST_PATTERNS = (
+    re.compile(r"\bmy\s+favorite\s+(?:songs|tracks)\b", re.IGNORECASE),
+    re.compile(r"\b(?:canzoni|brani|tracce)\s+preferit[ei]\b", re.IGNORECASE),
+    re.compile(
+        r"\bmes\s+(?:chansons|morceaux|titres)\s+(?:favoris|préférés|préférées)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bmis\s+(?:canciones|temas|pistas)\s+(?:favoritos|favoritas|preferidos|preferidas)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bmeine\s+Lieblings(?:songs|lieder|titel|tracks)\b", re.IGNORECASE),
+)
+
+_FAVORITE_ARTIST_ALLOWLIST: ContextVar[tuple[str, ...]] = ContextVar(
+    "favorite_artist_allowlist", default=()
+)
+
+
+def favorite_categories_explicitly_requested(prompt: str) -> tuple[bool, bool]:
+    """Detect an explicit ask to use bookmarked favorite artists and/or tracks.
+
+    Returns (artists_explicit, tracks_explicit) so a prompt that names only one
+    category ("i miei artisti preferiti") strengthens/hard-restricts just that
+    category, while a generic reference ("my favorites") covers both. Regex-based
+    (no AI call): the actual restriction this feeds is a fast, local check, so the
+    low false-positive/negative risk of pattern matching is an acceptable trade for
+    avoiding extra generation latency. Deliberately narrow -- requires a clear
+    reference to the saved favorites collection, not a generic singular use of the
+    adjective ("my favorite song is...") which usually names one specific track, not
+    the bookmarked list.
+    """
+    generic = any(pattern.search(prompt) for pattern in _FAVORITES_GENERIC_REQUEST_PATTERNS)
+    artists = generic or any(
+        pattern.search(prompt) for pattern in _FAVORITE_ARTISTS_REQUEST_PATTERNS
+    )
+    tracks = generic or any(
+        pattern.search(prompt) for pattern in _FAVORITE_TRACKS_REQUEST_PATTERNS
+    )
+    return artists, tracks
+
+
+def activate_favorite_artist_allowlist(artists: list[str]) -> None:
+    """Set the hard artist allowlist for the current generation request/stage."""
+    _FAVORITE_ARTIST_ALLOWLIST.set(tuple(dict.fromkeys(name for name in artists if name)))
+
+
+def active_favorite_artist_allowlist() -> tuple[str, ...]:
+    return _FAVORITE_ARTIST_ALLOWLIST.get()
 
 
 def _now() -> str:
