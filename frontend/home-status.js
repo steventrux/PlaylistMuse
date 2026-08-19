@@ -48,13 +48,27 @@
   const $ = (id) => document.getElementById(id);
   const INDICATOR_STATES = ['pending', 'on', 'off', 'error'];
   const providerLabels = {
-    gemini: 'Google Gemini',
+    gemini: 'Gemini',
     openai: 'OpenAI',
     anthropic: 'Anthropic',
     openrouter_auto: 'OpenRouter Auto',
     openrouter_free: 'OpenRouter Free',
     ollama: 'Ollama',
-    custom: 'Custom AI endpoint',
+    custom: 'Custom',
+  };
+
+  // Friendly names for known OpenAI-compatible hosts, so a custom endpoint
+  // pointing at a recognizable provider isn't just labeled by its hostname.
+  const knownCustomHosts = {
+    'api.x.ai': 'Grok',
+    'api.groq.com': 'Groq',
+    'api.together.xyz': 'Together AI',
+    'api.together.ai': 'Together AI',
+    'api.deepseek.com': 'DeepSeek',
+    'api.mistral.ai': 'Mistral',
+    'api.fireworks.ai': 'Fireworks AI',
+    'api.perplexity.ai': 'Perplexity',
+    'api.cerebras.ai': 'Cerebras',
   };
 
   let closeNavigation = () => {};
@@ -368,10 +382,25 @@
     element.setAttribute('aria-label', tooltip);
   }
 
-  function setAiProviderIcon(element, provider) {
+  function setAiProviderIcon(element, provider, label) {
     if (!element) return;
     element.innerHTML = providerIcons[provider] || brainIcon;
     element.dataset.provider = provider || '';
+    element.dataset.providerLabel = label || '';
+  }
+
+  function resolveProviderLabel(provider, profile) {
+    if (provider === 'custom') {
+      let host = '';
+      try {
+        host = new URL(profile.base_url || '').hostname;
+      } catch {
+        host = '';
+      }
+      if (!host) return providerLabels.custom;
+      return knownCustomHosts[host] || `Custom · ${host}`;
+    }
+    return providerLabels[provider] || provider;
   }
 
   function setGenerationAvailability(state) {
@@ -406,12 +435,12 @@
       const profile = data.profiles?.[provider] || {};
       const configured = Boolean(provider && profile.configured);
 
-      setAiProviderIcon(indicator, configured ? provider : '');
+      setAiProviderIcon(indicator, configured ? provider : '', configured ? resolveProviderLabel(provider, profile) : '');
       setIndicatorState(
         indicator,
         configured ? 'on' : 'off',
         configured
-          ? `AI active · ${providerLabels[provider] || provider} · ${profile.model}`
+          ? `AI active · ${resolveProviderLabel(provider, profile)} · ${profile.model}`
           : 'AI not configured · click to open AI Settings',
       );
       setGenerationAvailability(configured ? 'configured' : 'unconfigured');

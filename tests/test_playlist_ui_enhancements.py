@@ -26,8 +26,9 @@ def test_sidebar_replaces_header_shortcuts_and_keeps_provider_status_dynamic() -
     assert "header-lastfm-status" in script
     assert "element.dataset.provider = provider || '';" in script
     assert "providerIcons[provider] || brainIcon" in script
-    assert '#header-ai-status.on[data-provider="openai"]::after' in style
-    assert '#header-ai-status.on[data-provider="gemini"]::after' in style
+    assert "element.dataset.providerLabel = label || '';" in script
+    assert "knownCustomHosts[host] || `Custom · ${host}`" in script
+    assert '#header-ai-status.on::after { content: attr(data-provider-label) " · Configured"; }' in style
     assert "Not configured" in style
     assert "Configuration error" in style
 
