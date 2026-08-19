@@ -544,6 +544,7 @@ async def generate_playlist_draft(
         active_constraints,
         extract_metadata_constraints,
     )
+    from backend.favorites import active_favorite_artist_allowlist
     from backend.playlist_policy import hard_allowed_artists, policy_from_payload
     from backend.policy_consistency import apply_playlist_policy
     from backend.policy_enforcement import _ACTIVE_POLICY
@@ -702,6 +703,11 @@ async def generate_playlist_draft(
                 policy,
                 prompt=source_prompt,
             )
+            favorite_allowlist = active_favorite_artist_allowlist()
+            if favorite_allowlist:
+                constraints.allowed_artists = list(
+                    dict.fromkeys([*constraints.allowed_artists, *favorite_allowlist])
+                )
             constraints.artist_name = (
                 constraints.allowed_artists[0]
                 if len(constraints.allowed_artists) == 1

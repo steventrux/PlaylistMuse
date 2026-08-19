@@ -59,7 +59,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     index = _html("index.html")
     playlist = _html("playlist.html")
     settings = _html("settings.html")
-    common = '<script src="/static/common.js?v=17"></script>'
+    common = '<script src="/static/common.js?v=18"></script>'
     home_status = '<script src="/static/home-status.js?v=34"></script>'
     generation_state = '<script src="/static/generation-state.js?v=3"></script>'
     app = '<script src="/static/app.js?v=21"></script>'
