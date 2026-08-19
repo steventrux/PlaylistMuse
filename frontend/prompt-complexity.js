@@ -4,6 +4,7 @@
   const DEBOUNCE_MS = 500;
   const FILTER_CONFLICT_PREFIX = 'FILTER_CONFLICT::';
   let latestFilterConflicts = [];
+  let latestScore = null;
   let ensureCurrentAnalysisImpl = async () => null;
 
   function complexityHue(value) {
@@ -128,10 +129,12 @@
       component.classList.add('hidden');
       setPopoverOpen(false);
       renderFilterConflicts([]);
+      latestScore = null;
     };
 
     const render = (result) => {
       const numericScore = Math.max(0, Math.min(100, Number(result.score) || 0));
+      latestScore = numericScore;
       const level = displayLevel(result.level);
       component.style.setProperty('--complexity-hue', complexityHue(numericScore));
       component.style.setProperty('--complexity-score', `${numericScore}%`);
@@ -246,6 +249,7 @@
     complexityHue,
     displayLevel,
     ensureCurrentAnalysis: () => ensureCurrentAnalysisImpl(),
+    currentScore: () => latestScore,
     filterConflicts,
     parseFilterConflict,
     debounceMs: DEBOUNCE_MS,

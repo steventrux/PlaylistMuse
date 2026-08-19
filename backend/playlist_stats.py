@@ -3,7 +3,7 @@
 Nothing here is sent anywhere -- it only reads what is already stored on disk to
 answer "what has this installation generated so far". `general` covers music-taste
 data (genres, artists, moods, periods, personal tags); `nerd` covers technical data (generation
-timing, track/tag coverage, error counts), broken down per AI provider so each
+timing, prompt complexity, track/tag coverage, error counts), broken down per AI provider so each
 provider's own effectiveness can be judged separately rather than blended into one
 average. Provider, duration and error data only exist for playlists/failures
 recorded after that tracking was added, so anything lacking it is reported under
@@ -99,6 +99,7 @@ def _new_provider_bucket() -> dict[str, Any]:
         "durations_ms": [],
         "durations_by_stage": {},
         "track_counts": [],
+        "complexity_scores": [],
     }
 
 
@@ -122,6 +123,11 @@ def _bucket_stats(bucket: dict[str, Any], errors: dict[str, int]) -> dict[str, A
         "avg_track_count": (
             round(statistics.fmean(bucket["track_counts"]), 1)
             if bucket["track_counts"]
+            else None
+        ),
+        "avg_complexity_score": (
+            round(statistics.fmean(bucket["complexity_scores"]), 1)
+            if bucket["complexity_scores"]
             else None
         ),
         "tag_coverage_percent": (
@@ -183,10 +189,12 @@ def compute_stats() -> dict[str, Any]:
         provider = "unknown"
         duration: Any = None
         stage_timings: Any = None
+        complexity_score: Any = None
         if isinstance(meta, dict):
             provider = str(meta.get("provider") or "").strip() or "unknown"
             duration = meta.get("duration_ms")
             stage_timings = meta.get("stage_timings_ms")
+            complexity_score = meta.get("complexity_score")
 
         bucket = by_provider.setdefault(provider, _new_provider_bucket())
         bucket["playlist_count"] += 1
@@ -200,6 +208,8 @@ def compute_stats() -> dict[str, Any]:
                     bucket["durations_by_stage"].setdefault(str(stage), []).append(
                         int(stage_duration)
                     )
+        if isinstance(complexity_score, int | float) and 0 <= complexity_score <= 100:
+            bucket["complexity_scores"].append(complexity_score)
         if row["status"] == "published":
             bucket["published"] += 1
             published_total += 1
@@ -222,6 +232,7 @@ def compute_stats() -> dict[str, Any]:
         all_bucket["tagged"] += bucket["tagged"]
         all_bucket["durations_ms"].extend(bucket["durations_ms"])
         all_bucket["track_counts"].extend(bucket["track_counts"])
+        all_bucket["complexity_scores"].extend(bucket["complexity_scores"])
         for stage, values in bucket["durations_by_stage"].items():
             all_bucket["durations_by_stage"].setdefault(stage, []).extend(values)
     for errors in errors_by_provider.values():

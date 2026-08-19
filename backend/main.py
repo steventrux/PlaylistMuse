@@ -246,6 +246,9 @@ class GenerateRequest(BaseModel):
     prompt: str = Field(min_length=3, max_length=1950)
     track_count: int = Field(default=25, ge=5, le=100)
     options: PlaylistOptions = Field(default_factory=PlaylistOptions)
+    # The score already shown to the user by /api/prompts/analyze before they clicked
+    # Generate -- not recomputed here, so recording it costs no extra AI call.
+    complexity_score: int | None = Field(default=None, ge=0, le=100)
 
     @field_validator("prompt")
     @classmethod
@@ -1268,7 +1271,9 @@ async def seed_search(
     return {"query": q, "results": songs}
 
 
-async def _generate_with_telemetry(work: Callable[[], Any]) -> dict:
+async def _generate_with_telemetry(
+    work: Callable[[], Any], *, complexity_score: int | None = None
+) -> dict:
     """Time one top-level generation, record it, and tag the result with which
     provider produced it.
 
@@ -1283,9 +1288,10 @@ async def _generate_with_telemetry(work: Callable[[], Any]) -> dict:
     result = await work()
     elapsed_ms = round((time.perf_counter() - started) * 1000)
     result["generation_meta"] = {
-        "provider": load_config().provider or "unknown",
+        "provider": load_config().stats_key,
         "duration_ms": elapsed_ms,
         "stage_timings_ms": stage_timings_snapshot(),
+        "complexity_score": complexity_score,
     }
     record_generation()
     if telemetry_enabled():
@@ -1297,13 +1303,14 @@ async def _generate_with_telemetry(work: Callable[[], Any]) -> dict:
 async def generate_playlist(request: GenerateRequest) -> dict:
     try:
         return await _generate_with_telemetry(
-            lambda: _generate(request.prompt, request.track_count, request.options)
+            lambda: _generate(request.prompt, request.track_count, request.options),
+            complexity_score=request.complexity_score,
         )
     except ValueError as error:
-        record_generation_error(error, provider=load_config().provider)
+        record_generation_error(error, provider=load_config().stats_key)
         raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
     except Exception as error:
-        record_generation_error(error, provider=load_config().provider)
+        record_generation_error(error, provider=load_config().stats_key)
         raise HTTPException(
             status_code=502,
             detail="Playlist generation failed. Please try again.",
@@ -1443,10 +1450,10 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
             lambda: _generate_from_seed_playlist(request)
         )
     except ValueError as error:
-        record_generation_error(error, provider=load_config().provider)
+        record_generation_error(error, provider=load_config().stats_key)
         raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
     except Exception as error:
-        record_generation_error(error, provider=load_config().provider)
+        record_generation_error(error, provider=load_config().stats_key)
         raise HTTPException(
             status_code=502,
             detail="Playlist generation failed. Please try again.",
@@ -1483,7 +1490,7 @@ async def _stream_generation(
             result = await work()
             await queue.put(("result", {"playlist": result}))
         except ValueError as error:
-            record_generation_error(error, provider=load_config().provider)
+            record_generation_error(error, provider=load_config().stats_key)
             await queue.put((
                 "error",
                 {
@@ -1493,7 +1500,7 @@ async def _stream_generation(
                 },
             ))
         except Exception as error:  # noqa: BLE001 - translated into one safe SSE error event.
-            record_generation_error(error, provider=load_config().provider)
+            record_generation_error(error, provider=load_config().stats_key)
             await queue.put((
                 "error",
                 {
@@ -1525,7 +1532,8 @@ async def generate_playlist_stream(request: GenerateRequest) -> StreamingRespons
     return StreamingResponse(
         _stream_generation(
             lambda: _generate_with_telemetry(
-                lambda: _generate(request.prompt, request.track_count, request.options)
+                lambda: _generate(request.prompt, request.track_count, request.options),
+                complexity_score=request.complexity_score,
             )
         ),
         media_type="text/event-stream",

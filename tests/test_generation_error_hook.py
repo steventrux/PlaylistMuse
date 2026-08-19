@@ -10,6 +10,7 @@ import backend.main as main_module
 
 class _FakeConfig:
     provider = "gemini"
+    stats_key = "gemini"
 
 
 def test_generate_route_records_a_value_error(monkeypatch, tmp_path: Path) -> None:

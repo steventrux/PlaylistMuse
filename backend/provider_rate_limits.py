@@ -130,20 +130,57 @@ def mark_rate_limited(provider: str, model: str, *, cooldown_seconds: float) -> 
     )
 
 
-def is_rate_limited(provider: str, model: str) -> bool:
+def seconds_remaining(provider: str, model: str) -> float | None:
+    """Return how many seconds remain before this model's cached cooldown clears.
+
+    Returns None once the cooldown has cleared (and evicts the now-stale entry) or if
+    the model was never marked as rate-limited to begin with.
+    """
     expires_at = _rate_limited_until.get((provider, model))
     if expires_at is None:
-        return False
-    if expires_at <= time.monotonic():
+        return None
+    remaining = expires_at - time.monotonic()
+    if remaining <= 0:
         del _rate_limited_until[(provider, model)]
+        return None
+    return remaining
+
+
+def is_rate_limited(provider: str, model: str) -> bool:
+    remaining = seconds_remaining(provider, model)
+    if remaining is None:
         return False
     logger.info(
         "provider_rate_limit_skip provider=%s model=%s remaining_seconds=%.0f",
         provider,
         model,
-        expires_at - time.monotonic(),
+        remaining,
     )
     return True
+
+
+def longest_remaining_cooldown(provider: str, models: list[str]) -> float | None:
+    """Return the longest cooldown left across every model, or None unless all are rate-limited.
+
+    Used to give a specific "come back in Xs" message only once there is truly no
+    available model left in the chain -- if even one model is not currently cooling
+    down, the caller should keep trying it rather than report a blanket cooldown.
+    """
+    if not models:
+        return None
+    remaining_times = [seconds_remaining(provider, model) for model in models]
+    if any(remaining is None for remaining in remaining_times):
+        return None
+    return max(remaining_times)
+
+
+def format_cooldown(seconds: float) -> str:
+    """Format a cooldown duration for a user-facing message, e.g. "3m 45s" or "48s"."""
+    total = max(1, round(seconds))
+    minutes, secs = divmod(total, 60)
+    if minutes:
+        return f"{minutes}m {secs}s" if secs else f"{minutes}m"
+    return f"{secs}s"
 
 
 def clear_rate_limits() -> None:

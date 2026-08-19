@@ -48,6 +48,7 @@ def _seed_library(database_path: Path) -> PlaylistLibrary:
             "provider": "gemini",
             "duration_ms": 4000,
             "stage_timings_ms": {"ai_draft": 1000, "youtube_resolution": 3000},
+            "complexity_score": 40,
         },
     ))
     library.create(_playlist(
@@ -133,6 +134,7 @@ def test_compute_stats_aggregates_across_the_library(monkeypatch, tmp_path: Path
     assert gemini["duration_sample_size"] == 1
     assert gemini["avg_generation_ms"] == 4000
     assert gemini["median_generation_ms"] == 4000
+    assert gemini["avg_complexity_score"] == 40
     assert gemini["tag_coverage_percent"] == 100.0
     assert gemini["draft_vs_published"] == {"draft": 1, "published": 0}
     assert gemini["error_breakdown"] == {"ValueError": 1}
@@ -147,6 +149,9 @@ def test_compute_stats_aggregates_across_the_library(monkeypatch, tmp_path: Path
     openai = by_provider["openai"]
     assert openai["playlist_count"] == 1
     assert openai["avg_generation_ms"] == 2000
+    # No complexity_score recorded for this playlist (e.g. seed-mode generation) --
+    # excluded from the average rather than counted as 0.
+    assert openai["avg_complexity_score"] is None
     assert openai["draft_vs_published"] == {"draft": 0, "published": 1}
     assert openai["error_breakdown"] == {}
     assert openai["total_errors"] == 0

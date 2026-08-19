@@ -7,6 +7,23 @@
 
   const ACCENTS = ['violet', 'magenta', 'cyan'];
 
+  const PROVIDER_LABELS = {
+    gemini: 'Google Gemini',
+    openai: 'OpenAI',
+    anthropic: 'Anthropic',
+    openrouter_auto: 'OpenRouter Auto',
+    openrouter_free: 'OpenRouter Free',
+    ollama: 'Ollama',
+    custom: 'Custom endpoint',
+  };
+
+  function providerLabel(provider) {
+    if (provider.startsWith('custom:')) {
+      return `Custom · ${provider.slice('custom:'.length)}`;
+    }
+    return PROVIDER_LABELS[provider] || provider;
+  }
+
   function accentFor(index) {
     return ACCENTS[index % ACCENTS.length];
   }
@@ -113,7 +130,7 @@
     card.className = 'stats-section stats-provider-detail-card';
 
     const heading = document.createElement('h3');
-    heading.textContent = provider;
+    heading.textContent = provider === ALL_LABEL ? provider : providerLabel(provider);
     card.append(heading);
 
     const tiles = document.createElement('div');
@@ -123,6 +140,12 @@
       tile(formatDuration(stats.median_generation_ms), 'Median generation time'),
       tile(formatDuration(stats.p95_generation_ms), 'P95 generation time'),
       tile(stats.avg_track_count ?? 'n/a', 'Average tracks per playlist'),
+      tile(
+        stats.avg_complexity_score === null || stats.avg_complexity_score === undefined
+          ? 'n/a'
+          : `${stats.avg_complexity_score}/100`,
+        'Average prompt complexity',
+      ),
       tile(formatPercent(stats.tag_coverage_percent), 'Tag coverage'),
       tile(formatCount(stats.total_errors), 'Generation errors'),
     );
@@ -166,7 +189,7 @@
       button.dataset.accent = accentFor(index);
       button.dataset.provider = provider;
       const name = document.createElement('span');
-      name.textContent = provider;
+      name.textContent = provider === ALL_LABEL ? provider : providerLabel(provider);
       const count = document.createElement('span');
       count.className = 'stats-provider-tab-count';
       count.textContent = formatCount(stats.playlist_count || 0);
