@@ -194,7 +194,14 @@
           render(result);
           return result;
         } catch (error) {
-          if (error.name !== 'AbortError' && sequence === requestSequence) hideComponent();
+          if (error.name !== 'AbortError' && sequence === requestSequence) {
+            // A failed re-analysis (timeout, rate limit, transient error) for a prompt
+            // that hasn't changed since the last successful render shouldn't blank out
+            // a score the user is already looking at -- keep showing the last good one
+            // rather than flashing to "n/a" for no visible reason on their end.
+            const promptUnchanged = key === currentPayloadKey();
+            if (!(promptUnchanged && latestScore !== null)) hideComponent();
+          }
           return null;
         } finally {
           if (controller === requestController) {
