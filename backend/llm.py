@@ -15,7 +15,9 @@ from backend.constraint_interpreter import _dated_system_prompt
 from backend.provider_rate_limits import (
     ProviderRateLimitedError,
     cooldown_seconds_for_response,
+    format_cooldown,
     is_rate_limited,
+    longest_remaining_cooldown,
     mark_rate_limited,
 )
 
@@ -655,6 +657,9 @@ async def _complete_in_batches(
                 break
 
     if len(tracks) < count:
+        rate_limit_message = _rate_limit_exhausted_message(config)
+        if rate_limit_message is not None:
+            raise ValueError(rate_limit_message)
         last_error = errors[-1] if errors else "No additional valid tracks were returned."
         raise ValueError(
             f"The AI provider produced {len(tracks)} of {count} unique tracks. "
@@ -663,12 +668,33 @@ async def _complete_in_batches(
     return {"title": title, "description": description, "tracks": tracks[:count]}
 
 
+def _rate_limit_exhausted_message(config: AppConfig) -> str | None:
+    """Return a clear "come back in Xs" message if every model in the chain is
+    currently rate-limited, or None if at least one is still available to try."""
+    cooldown = longest_remaining_cooldown(config.provider, config.model_chain)
+    if cooldown is None:
+        return None
+    fallback_count = len(config.model_chain) - 1
+    chain_desc = (
+        "the selected model"
+        if fallback_count <= 0
+        else f"the selected model and its {fallback_count} fallback"
+        f"{'s' if fallback_count > 1 else ''}"
+    )
+    return (
+        f"Rate limit reached on {chain_desc}. Try again in {format_cooldown(cooldown)}."
+    )
+
+
 async def generate_playlist_draft(
     config: AppConfig, prompt: str, count: int
 ) -> dict[str, Any]:
     """Try one complete response first, then batch only the missing tracks."""
     if not config.configured:
         raise ValueError("Configure a valid AI provider and API key before generating a playlist.")
+    rate_limit_message = _rate_limit_exhausted_message(config)
+    if rate_limit_message is not None:
+        raise ValueError(rate_limit_message)
     timeout = httpx.Timeout(150.0, connect=10.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
         complete, best_partial, errors = await _try_complete_request(

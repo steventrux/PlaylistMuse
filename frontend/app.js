@@ -487,7 +487,12 @@
       const prompt = normalizedPrompt();
       if (!prompt) return message('Describe the playlist you want.', true);
       endpoint = '/api/playlists/generate/stream';
-      request = {prompt, track_count: trackCount(), options: options()};
+      request = {
+        prompt,
+        track_count: trackCount(),
+        options: options(),
+        complexity_score: window.PlaylistMusePromptComplexity?.currentScore?.() ?? null,
+      };
     } else {
       if (!state.selectedSeed) return message('Search for and select a seed track first.', true);
       endpoint = '/api/playlists/generate-from-seed/stream';
