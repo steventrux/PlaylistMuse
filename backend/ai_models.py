@@ -118,6 +118,32 @@ def _is_ollama_chat_model(model: str) -> bool:
     return not any(term in lowered for term in excluded)
 
 
+def _is_custom_chat_model(model: str) -> bool:
+    """Conservative heuristic for arbitrary OpenAI-compatible endpoints.
+
+    Unlike the other providers there's no known naming scheme to allowlist by
+    prefix, so this only excludes id substrings that are near-universal markers
+    for non-chat model categories (speech, transcription, embeddings, safety/
+    guard classifiers) across compatible hosts like Groq, Together, Fireworks,
+    or DeepSeek -- it won't catch every provider-specific non-chat model name.
+    """
+    lowered = model.casefold()
+    excluded = (
+        "embed",
+        "whisper",
+        "transcribe",
+        "tts",
+        "text-to-speech",
+        "speech-to-text",
+        "rerank",
+        "moderation",
+        "guard",
+        "classifier",
+        "classify",
+    )
+    return not any(term in lowered for term in excluded)
+
+
 def _model_entries(payload: Any) -> list[dict[str, Any]]:
     if not isinstance(payload, dict):
         return []
@@ -394,7 +420,10 @@ async def _custom_models(client: httpx.AsyncClient, config: AppConfig) -> Provid
         headers=headers,
     )
     # An arbitrary endpoint has no known schema/semantics for recency -- no recommendation.
-    return ProviderModels(models=_openai_compatible_ids(payload))
+    models = [
+        model for model in _openai_compatible_ids(payload) if _is_custom_chat_model(model)
+    ]
+    return ProviderModels(models=models)
 
 
 MODEL_LOADERS: dict[str, ModelLoader] = {

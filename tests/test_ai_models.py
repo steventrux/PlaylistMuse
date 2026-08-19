@@ -13,6 +13,7 @@ from backend.ai_models import (
     _anthropic_models,
     _custom_models,
     _gemini_models,
+    _is_custom_chat_model,
     _is_gemini_text_model,
     _is_ollama_chat_model,
     _is_openai_chat_model,
@@ -343,6 +344,49 @@ def test_custom_loader_never_recommends_a_model() -> None:
     assert result.models == ["model-a", "model-b"]
     assert result.recommended_model is None
     assert result.fallback_order is None
+
+
+def test_custom_loader_excludes_known_non_chat_model_categories() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"id": "llama-3.1-70b-versatile"},
+                    {"id": "whisper-large-v3"},
+                    {"id": "text-embedding-3-small"},
+                    {"id": "meta-llama/llama-prompt-guard-2-22m"},
+                    {"id": "openai/gpt-oss-safeguard-20b"},
+                    {"id": "playai-tts"},
+                    {"id": "rerank-english-v3.0"},
+                ]
+            },
+        )
+
+    result = _run_loader(
+        _custom_models,
+        AppConfig(provider="custom", base_url="http://compatible.test"),
+        handler,
+    )
+    assert result.models == ["llama-3.1-70b-versatile"]
+
+
+@pytest.mark.parametrize(
+    ("model", "expected"),
+    [
+        ("llama-3.1-70b-versatile", True),
+        ("mixtral-8x7b-32768", True),
+        ("whisper-large-v3", False),
+        ("distil-whisper-large-v3-en", False),
+        ("text-embedding-3-small", False),
+        ("meta-llama/llama-prompt-guard-2-22m", False),
+        ("openai/gpt-oss-safeguard-20b", False),
+        ("playai-tts", False),
+        ("rerank-english-v3.0", False),
+    ],
+)
+def test_is_custom_chat_model(model: str, expected: bool) -> None:
+    assert _is_custom_chat_model(model) is expected
 
 
 def test_provider_requiring_key_fails_before_network_call() -> None:
