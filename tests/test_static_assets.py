@@ -65,7 +65,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     app = '<script src="/static/app.js?v=21"></script>'
 
     assert index.index(common) < index.index(
-        '<script src="/static/ai-settings.js?v=12"></script>'
+        '<script src="/static/ai-settings.js?v=13"></script>'
     )
     assert index.index(common) < index.index(
         '<script src="/static/youtube-account.js?v=5"></script>'
@@ -93,7 +93,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     assert '/static/youtube-account.js' not in playlist
 
     assert settings.index(common) < settings.index(
-        '<script src="/static/ai-settings.js?v=12"></script>'
+        '<script src="/static/ai-settings.js?v=13"></script>'
     )
     assert settings.index(common) < settings.index(
         '<script src="/static/youtube-account.js?v=5"></script>'

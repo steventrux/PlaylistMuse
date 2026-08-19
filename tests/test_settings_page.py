@@ -19,7 +19,7 @@ def test_settings_page_exposes_all_current_sections() -> None:
     assert 'id="setup-youtube-step"' in html
     assert 'id="settings-lastfm-host"' in html
     assert 'id="settings-support-panel"' not in html
-    assert '/static/ai-settings.js?v=12' in html
+    assert '/static/ai-settings.js?v=13' in html
     assert '/static/youtube-account.js?v=5' in html
     assert '/static/lastfm-settings.js?v=2' in html
     assert '/static/settings-page.css?v=' in html
