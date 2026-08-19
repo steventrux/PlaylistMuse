@@ -145,19 +145,21 @@
     detail.append(card);
   }
 
-  function selectProvider(providers, provider) {
-    const index = providers.findIndex(([name]) => name === provider);
+  const ALL_LABEL = 'All';
+
+  function selectProvider(entries, provider) {
+    const index = entries.findIndex(([name]) => name === provider);
     if (index === -1) return;
     document.querySelectorAll('.stats-provider-tab').forEach((button) => {
       button.classList.toggle('active', button.dataset.provider === provider);
     });
-    renderProviderDetail(provider, providers[index][1], accentFor(index));
+    renderProviderDetail(provider, entries[index][1], accentFor(index));
   }
 
-  function renderTabs(providers) {
+  function renderTabs(entries) {
     const tabs = $('stats-provider-tabs');
     tabs.textContent = '';
-    providers.forEach(([provider, stats], index) => {
+    entries.forEach(([provider, stats], index) => {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'stats-provider-tab';
@@ -169,7 +171,7 @@
       count.className = 'stats-provider-tab-count';
       count.textContent = formatCount(stats.playlist_count || 0);
       button.append(name, count);
-      button.addEventListener('click', () => selectProvider(providers, provider));
+      button.addEventListener('click', () => selectProvider(entries, provider));
       tabs.append(button);
     });
   }
@@ -192,8 +194,12 @@
     empty.classList.add('hidden');
     tabs.classList.remove('hidden');
     detail.classList.remove('hidden');
-    renderTabs(providers);
-    selectProvider(providers, providers[0][0]);
+
+    const entries = providers.length > 1
+      ? [[ALL_LABEL, nerd.totals || providers[0][1]], ...providers]
+      : providers;
+    renderTabs(entries);
+    selectProvider(entries, entries[0][0]);
   }
 
   async function loadStats() {
