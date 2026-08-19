@@ -109,6 +109,7 @@
     let controller = null;
     let activeRequestKey = null;
     let requestSequence = 0;
+    let pendingAnalysis = null;
 
     const settings = () => ({
       trackCount: document.getElementById('track-count')?.value,
@@ -178,28 +179,33 @@
       controller = requestController;
       activeRequestKey = key;
       const sequence = ++requestSequence;
-      try {
-        const response = await fetch('/api/prompts/analyze', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: key,
-          signal: requestController.signal,
-        });
-        if (!response.ok) throw new Error('Prompt analysis unavailable');
-        const result = await response.json();
-        if (sequence !== requestSequence) return null;
-        cache.set(key, result);
-        render(result);
-        return result;
-      } catch (error) {
-        if (error.name !== 'AbortError' && sequence === requestSequence) hideComponent();
-        return null;
-      } finally {
-        if (controller === requestController) {
-          controller = null;
-          activeRequestKey = null;
+      const request = (async () => {
+        try {
+          const response = await fetch('/api/prompts/analyze', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: key,
+            signal: requestController.signal,
+          });
+          if (!response.ok) throw new Error('Prompt analysis unavailable');
+          const result = await response.json();
+          if (sequence !== requestSequence) return null;
+          cache.set(key, result);
+          render(result);
+          return result;
+        } catch (error) {
+          if (error.name !== 'AbortError' && sequence === requestSequence) hideComponent();
+          return null;
+        } finally {
+          if (controller === requestController) {
+            controller = null;
+            activeRequestKey = null;
+          }
+          if (pendingAnalysis === request) pendingAnalysis = null;
         }
-      }
+      })();
+      pendingAnalysis = request;
+      return request;
     };
 
     ensureCurrentAnalysisImpl = async () => {
@@ -211,9 +217,11 @@
         render(cached);
         return cached;
       }
-      // Do not abort and duplicate the same request merely because Generate was clicked.
-      // The backend generation path independently enforces hard prompt/filter constraints.
-      if (controller && activeRequestKey === key) return null;
+      // Generate was clicked while the same prompt's analysis is already in flight --
+      // await that request instead of aborting/duplicating it or returning early with
+      // a stale/null score (the backend generation path independently enforces hard
+      // prompt/filter constraints, so this only affects the reported complexity score).
+      if (pendingAnalysis && controller && activeRequestKey === key) return pendingAnalysis;
       return analyze();
     };
 
