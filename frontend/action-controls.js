@@ -5,6 +5,8 @@
     '#add-track',
     '#refine-playlist',
     '#playlist-feedback',
+    '#export-playlist-m3u',
+    '#export-playlist-csv',
     'a.primary.track-action',
     '.replace-track-button',
     '.remove-track-button',
@@ -21,6 +23,7 @@
     add: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg>',
     refine: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>',
     feedback: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 5.5h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-8l-5 3v-3H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z"/><path d="M8 10h8M8 13h5"/></svg>',
+    export: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 4v11"/><path d="m7.5 11 4.5 4.5 4.5-4.5"/><path d="M4.5 18.5v1a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-1"/></svg>',
     favorite: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 20.5s-7.5-4.6-10-9.1C.5 8 2 5 5.2 5c1.9 0 3.4 1 4.8 2.8C11.4 6 12.9 5 14.8 5 18 5 19.5 8 19.5 11.4c-2.5 4.5-7.5 9.1-7.5 9.1Z"/></svg>',
     favorited: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="currentColor" stroke="none"><path d="M12 20.5s-7.5-4.6-10-9.1C.5 8 2 5 5.2 5c1.9 0 3.4 1 4.8 2.8C11.4 6 12.9 5 14.8 5 18 5 19.5 8 19.5 11.4c-2.5 4.5-7.5 9.1-7.5 9.1Z"/></svg>',
   });
@@ -34,6 +37,8 @@
     add: {label: 'Add track', icon: ICONS.add},
     refine: {label: 'Playlist Studio', icon: ICONS.refine},
     feedback: {label: 'Give feedback', icon: ICONS.feedback},
+    export_m3u: {label: 'Export M3U', icon: ICONS.export},
+    export_csv: {label: 'Export CSV', icon: ICONS.export},
   });
 
   function elementsWithin(root, selector) {
@@ -92,6 +97,8 @@
     if (element.id === 'add-track') return 'add';
     if (element.id === 'refine-playlist') return 'refine';
     if (element.id === 'playlist-feedback') return 'feedback';
+    if (element.id === 'export-playlist-m3u') return 'export_m3u';
+    if (element.id === 'export-playlist-csv') return 'export_csv';
     if (element.classList.contains('replace-track-button')) return 'replace';
     if (element.classList.contains('remove-track-button')) return 'remove';
     if (element.classList.contains('track-move-button')) {

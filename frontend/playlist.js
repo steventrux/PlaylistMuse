@@ -638,6 +638,76 @@
     renderPlaylistCover();
   }
 
+  function trackUrl(track) {
+    return track.url || (track.video_id
+      ? `https://music.youtube.com/watch?v=${encodeURIComponent(track.video_id)}`
+      : '');
+  }
+
+  function sanitizeFilename(name) {
+    const cleaned = String(name || '').replace(/[\\/:*?"<>|]+/g, '_').trim();
+    return cleaned || 'playlist';
+  }
+
+  function triggerDownload(filename, content, mimeType) {
+    const blob = new Blob([content], {type: mimeType});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function buildM3uPlaylist() {
+    const lines = ['#EXTM3U'];
+    if (data.name) lines.push(`#PLAYLIST:${data.name}`);
+    data.tracks.forEach((track) => {
+      const seconds = durationToSeconds(track.duration) || -1;
+      const label = [track.artists, track.title].filter(Boolean).join(' - ') || 'Unknown track';
+      lines.push(`#EXTINF:${seconds},${label}`);
+      lines.push(trackUrl(track));
+    });
+    return `${lines.join('\n')}\n`;
+  }
+
+  function csvField(value) {
+    const text = String(value ?? '');
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  }
+
+  function buildCsvPlaylist() {
+    const rows = [['#', 'Title', 'Artists', 'Album', 'Duration', 'URL'].map(csvField).join(',')];
+    data.tracks.forEach((track, index) => {
+      rows.push([
+        index + 1,
+        track.title || '',
+        track.artists || '',
+        track.album || '',
+        track.duration || '',
+        trackUrl(track),
+      ].map(csvField).join(','));
+    });
+    return '﻿' + rows.join('\r\n') + '\r\n';
+  }
+
+  function exportPlaylist(format) {
+    if (!data?.tracks?.length) return;
+    const filenameBase = sanitizeFilename(data.name);
+    if (format === 'csv') {
+      triggerDownload(`${filenameBase}.csv`, buildCsvPlaylist(), 'text/csv;charset=utf-8');
+    } else {
+      triggerDownload(`${filenameBase}.m3u8`, buildM3uPlaylist(), 'audio/x-mpegurl;charset=utf-8');
+    }
+  }
+
+  function initExportControls() {
+    $('export-playlist-m3u')?.addEventListener('click', () => exportPlaylist('m3u'));
+    $('export-playlist-csv')?.addEventListener('click', () => exportPlaylist('csv'));
+  }
+
   if (requestedLibraryId && data?.library_id !== requestedLibraryId) {
     $('playlist-summary').textContent = 'Loading playlist…';
     void loadRequestedPlaylist();
@@ -683,6 +753,7 @@
   });
 
   renderPlaylist();
+  initExportControls();
   void refreshPlaylistTagsFromLibrary();
   void loadFavorites();
 })();
