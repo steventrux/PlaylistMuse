@@ -102,6 +102,40 @@ def _new_provider_bucket() -> dict[str, Any]:
     }
 
 
+def _bucket_stats(bucket: dict[str, Any], errors: dict[str, int]) -> dict[str, Any]:
+    saved = bucket["playlist_count"]
+    return {
+        "playlist_count": saved,
+        "avg_generation_ms": (
+            round(statistics.fmean(bucket["durations_ms"]))
+            if bucket["durations_ms"]
+            else None
+        ),
+        "median_generation_ms": (
+            round(statistics.median(bucket["durations_ms"]))
+            if bucket["durations_ms"]
+            else None
+        ),
+        "p95_generation_ms": _percentile(bucket["durations_ms"], 95),
+        "duration_sample_size": len(bucket["durations_ms"]),
+        "stage_timings": _stage_timings_summary(bucket["durations_by_stage"]),
+        "avg_track_count": (
+            round(statistics.fmean(bucket["track_counts"]), 1)
+            if bucket["track_counts"]
+            else None
+        ),
+        "tag_coverage_percent": (
+            round(100 * bucket["tagged"] / saved, 1) if saved else None
+        ),
+        "draft_vs_published": {
+            "draft": saved - bucket["published"],
+            "published": bucket["published"],
+        },
+        "error_breakdown": errors,
+        "total_errors": sum(errors.values()),
+    }
+
+
 def compute_stats() -> dict[str, Any]:
     """Read the whole library once and aggregate every dimension in one pass."""
     rows: list[sqlite3.Row] = []
@@ -178,39 +212,21 @@ def compute_stats() -> dict[str, Any]:
     for provider in set(by_provider) | set(errors_by_provider):
         bucket = by_provider.get(provider) or _new_provider_bucket()
         errors = errors_by_provider.get(provider, {})
-        provider_saved = bucket["playlist_count"]
-        provider_stats[provider] = {
-            "playlist_count": provider_saved,
-            "avg_generation_ms": (
-                round(statistics.fmean(bucket["durations_ms"]))
-                if bucket["durations_ms"]
-                else None
-            ),
-            "median_generation_ms": (
-                round(statistics.median(bucket["durations_ms"]))
-                if bucket["durations_ms"]
-                else None
-            ),
-            "p95_generation_ms": _percentile(bucket["durations_ms"], 95),
-            "duration_sample_size": len(bucket["durations_ms"]),
-            "stage_timings": _stage_timings_summary(bucket["durations_by_stage"]),
-            "avg_track_count": (
-                round(statistics.fmean(bucket["track_counts"]), 1)
-                if bucket["track_counts"]
-                else None
-            ),
-            "tag_coverage_percent": (
-                round(100 * bucket["tagged"] / provider_saved, 1)
-                if provider_saved
-                else None
-            ),
-            "draft_vs_published": {
-                "draft": provider_saved - bucket["published"],
-                "published": bucket["published"],
-            },
-            "error_breakdown": errors,
-            "total_errors": sum(errors.values()),
-        }
+        provider_stats[provider] = _bucket_stats(bucket, errors)
+
+    all_bucket = _new_provider_bucket()
+    all_errors: Counter[str] = Counter()
+    for bucket in by_provider.values():
+        all_bucket["playlist_count"] += bucket["playlist_count"]
+        all_bucket["published"] += bucket["published"]
+        all_bucket["tagged"] += bucket["tagged"]
+        all_bucket["durations_ms"].extend(bucket["durations_ms"])
+        all_bucket["track_counts"].extend(bucket["track_counts"])
+        for stage, values in bucket["durations_by_stage"].items():
+            all_bucket["durations_by_stage"].setdefault(stage, []).extend(values)
+    for errors in errors_by_provider.values():
+        all_errors.update(errors)
+    totals_stats = _bucket_stats(all_bucket, dict(all_errors))
 
     return {
         "general": {
@@ -225,6 +241,7 @@ def compute_stats() -> dict[str, Any]:
             "playlists_by_month": dict(sorted(generations_by_month().items())),
         },
         "nerd": {
+            "totals": totals_stats,
             "by_provider": provider_stats,
         },
     }
