@@ -167,7 +167,7 @@ a.stats-bar-row {
   font-weight: 700;
 }
 
-.stats-bar-favorite {
+.stats-bar-row .stats-bar-favorite {
   flex: 0 0 auto;
   border: none;
   background: none;
