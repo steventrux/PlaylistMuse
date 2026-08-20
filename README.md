@@ -61,39 +61,35 @@ It runs entirely on infrastructure you control. The core application only needs 
 
 ## Screenshots
 
-<!--
-  Add screenshots here once available. A strong first set to cover:
+<p align="center">
+  <img src="docs/media/screenshot-generation.png" alt="Describing a playlist from a text prompt in PlaylistMuse" width="800">
+  <br><em>Describe the playlist you want, in plain language.</em>
+</p>
 
-  1. Prompt-to-playlist: a natural-language request producing a resolved track list.
-  2. Playlist Studio: reviewing, locking and refining tracks.
-  3. Library: saved playlists, ready to reopen or publish.
-  4. AI provider settings: connecting a provider in the interface.
+<p align="center">
+  <img src="docs/media/screenshot-playlist.png" alt="A generated playlist resolved against the real YouTube Music catalogue" width="800">
+  <br><em>Real tracks, resolved from the real catalogue and ready to review.</em>
+</p>
 
-  Recommended: PNG screenshots around 1400px wide, or a short GIF for the first one.
-  Save them under docs/media/ and uncomment the block below, one row per screenshot.
+<p align="center">
+  <img src="docs/media/screenshot-studio.png" alt="Reviewing and refining a playlist in Playlist Studio" width="800">
+  <br><em>Lock the tracks you like, refine only the rest with Playlist Studio.</em>
+</p>
 
-  <p align="center">
-    <img src="docs/media/screenshot-generation.png" alt="Generating a playlist from a text prompt in PlaylistMuse" width="800">
-    <br><em>Describe the playlist you want, in plain language.</em>
-  </p>
+<p align="center">
+  <img src="docs/media/screenshot-library.png" alt="The PlaylistMuse local playlist library" width="800">
+  <br><em>Every playlist stays in your local library.</em>
+</p>
 
-  <p align="center">
-    <img src="docs/media/screenshot-studio.png" alt="Reviewing and refining a playlist in Playlist Studio" width="800">
-    <br><em>Review, lock and refine before you publish.</em>
-  </p>
+<p align="center">
+  <img src="docs/media/screenshot-statistics.png" alt="PlaylistMuse statistics overview" width="800">
+  <br><em>See what you've generated over time, computed locally.</em>
+</p>
 
-  <p align="center">
-    <img src="docs/media/screenshot-library.png" alt="The PlaylistMuse local playlist library" width="800">
-    <br><em>Every playlist stays in your local library.</em>
-  </p>
-
-  <p align="center">
-    <img src="docs/media/screenshot-settings.png" alt="Connecting an AI provider in PlaylistMuse settings" width="800">
-    <br><em>Bring your own AI provider.</em>
-  </p>
--->
-
-*Screenshots coming soon.*
+<p align="center">
+  <img src="docs/media/screenshot-settings.png" alt="Connecting an AI provider in PlaylistMuse settings" width="800">
+  <br><em>Bring your own AI provider.</em>
+</p>
 
 ## Features
 
