@@ -26,7 +26,7 @@ def test_removed_artwork_backend_is_absent() -> None:
 def test_playlist_loads_mosaic_helper_before_playlist_code() -> None:
     html = (ROOT / "frontend/playlist.html").read_text(encoding="utf-8")
     helper = '<script src="/static/playlist-mosaic.js?v=1"></script>'
-    playlist = '<script src="/static/playlist.js?v=23"></script>'
+    playlist = '<script src="/static/playlist.js?v=24"></script>'
 
     assert helper in html
     assert playlist in html

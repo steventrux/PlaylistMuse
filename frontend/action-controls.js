@@ -5,8 +5,7 @@
     '#add-track',
     '#refine-playlist',
     '#playlist-feedback',
-    '#export-playlist-m3u',
-    '#export-playlist-csv',
+    '#export-playlist',
     'a.primary.track-action',
     '.replace-track-button',
     '.remove-track-button',
@@ -37,8 +36,7 @@
     add: {label: 'Add track', icon: ICONS.add},
     refine: {label: 'Playlist Studio', icon: ICONS.refine},
     feedback: {label: 'Give feedback', icon: ICONS.feedback},
-    export_m3u: {label: 'Export M3U', icon: ICONS.export},
-    export_csv: {label: 'Export CSV', icon: ICONS.export},
+    export: {label: 'Export', icon: ICONS.export},
   });
 
   function elementsWithin(root, selector) {
@@ -97,8 +95,7 @@
     if (element.id === 'add-track') return 'add';
     if (element.id === 'refine-playlist') return 'refine';
     if (element.id === 'playlist-feedback') return 'feedback';
-    if (element.id === 'export-playlist-m3u') return 'export_m3u';
-    if (element.id === 'export-playlist-csv') return 'export_csv';
+    if (element.id === 'export-playlist') return 'export';
     if (element.classList.contains('replace-track-button')) return 'replace';
     if (element.classList.contains('remove-track-button')) return 'remove';
     if (element.classList.contains('track-move-button')) {
