@@ -94,7 +94,8 @@
 
 /* Hero figure + secondary numbers */
 
-#stats-content {
+#stats-advanced-content,
+#stats-cache-content {
   display: grid;
   gap: 20px;
 }
@@ -133,6 +134,56 @@
   gap: 28px;
 }
 
+/* Overview panel: nothing follows the hero row anymore (Timeline/Top artists
+   etc. moved to their own sidebar panels), so it drops the trailing divider,
+   centers, and grows to read as a deliberate focal point instead of a
+   compact row sitting above empty space. The number also drops the brand
+   gradient -- a plain bold figure reads better for a page total than the
+   "hero" treatment used for a single headline metric. */
+
+#stats-overview-panel .stats-hero {
+  justify-content: center;
+  align-items: center;
+  gap: 72px;
+  padding: 64px 0 40px;
+  border-bottom: none;
+}
+
+#stats-overview-panel .stats-hero-value {
+  font-size: clamp(4rem, 10vw, 5.6rem);
+  background: none;
+  -webkit-background-clip: unset;
+  background-clip: unset;
+  color: var(--text-primary);
+}
+
+#stats-overview-panel .stats-hero-secondary {
+  gap: 60px;
+}
+
+#stats-overview-panel .stats-hero-secondary .stats-secondary-value {
+  font-size: 1.9rem;
+}
+
+#stats-overview-panel .stats-hero-secondary .stats-secondary-label {
+  font-size: .82rem;
+}
+
+#stats-overview-panel .stats-overview-counts {
+  justify-content: center;
+  gap: 52px;
+  margin-top: 40px;
+  padding-bottom: 32px;
+}
+
+#stats-overview-panel .stats-overview-counts .stats-secondary-value {
+  font-size: 1.4rem;
+}
+
+#stats-overview-panel .stats-overview-counts .stats-secondary-label {
+  font-size: .74rem;
+}
+
 .stats-secondary-stat {
   display: flex;
   flex-direction: column;
@@ -155,8 +206,7 @@
 }
 
 /* Shared section rhythm -- each is a card so the page reads as distinct blocks
-   rather than a flat stack of headings, and doubles as the clickable surface
-   that opens the full-detail page for that stat. */
+   rather than a flat stack of headings. */
 
 .stats-section {
   display: block;
@@ -165,20 +215,6 @@
   border-radius: 16px;
   background: rgba(139, 92, 246, .035);
   color: inherit;
-  text-decoration: none;
-  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
-}
-
-a.stats-section-link:hover,
-a.stats-section-link:focus-visible {
-  border-color: rgba(183, 156, 255, .4);
-  background: rgba(139, 92, 246, .08);
-  transform: translateY(-1px);
-}
-
-a.stats-section-link:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(15, 19, 42, .9), 0 0 0 4px rgba(183, 156, 255, .65);
 }
 
 .stats-section h3 {
@@ -193,15 +229,22 @@ a.stats-section-link:focus-visible {
   letter-spacing: -.01em;
 }
 
-.stats-section-cta {
-  flex: 0 0 auto;
+.stats-see-all-link {
+  display: inline-block;
+  margin-top: 14px;
+  padding: 0;
+  border: 0;
+  background: none;
   color: var(--text-muted);
-  font-size: .76rem;
+  font: inherit;
+  font-size: .82rem;
   font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
 }
 
-a.stats-section-link:hover .stats-section-cta,
-a.stats-section-link:focus-visible .stats-section-cta {
+.stats-see-all-link:hover,
+.stats-see-all-link:focus-visible {
   color: var(--cyan-light);
 }
 
@@ -211,13 +254,54 @@ a.stats-section-link:focus-visible .stats-section-cta {
 
 /* Monthly timeline */
 
-.stats-timeline {
+.stats-timeline-chart {
   display: flex;
+  align-items: stretch;
+  gap: 10px;
+  padding-top: 14px;
+}
+
+.stats-timeline-yaxis {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  justify-content: space-between;
+  padding-bottom: 20px;
+}
+
+.stats-timeline-axis-label {
+  color: var(--text-muted);
+  font-size: .68rem;
+  font-weight: 700;
+  line-height: 1;
+  text-align: right;
+}
+
+.stats-timeline {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
   align-items: flex-end;
   gap: 6px;
   height: 130px;
-  padding: 10px 2px 0;
-  border-bottom: 1px solid var(--border);
+  /* No top padding: bars are sized as a percentage of this box's content
+     height, while the gridlines (absolutely positioned) are placed as a
+     percentage of its padding box. Any top padding here would push the
+     bars down relative to the gridlines, so the tallest bar would stop
+     short of the line marking its own value instead of touching it. */
+  padding: 0 2px 0;
+}
+
+.stats-timeline-gridline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--border);
+  pointer-events: none;
+}
+
+.stats-timeline-gridline-baseline {
+  border-top-color: var(--border-strong);
 }
 
 .stats-timeline-col {
@@ -253,6 +337,74 @@ a.stats-section-link:focus-visible .stats-section-cta {
   font-weight: 700;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* Music sidebar subcategories (Timeline, Top artists/genres/moods/periods):
+   each gets a full panel to itself now instead of a compact card in a shared
+   scroll, so the chart/bars grow to use that room instead of sitting small
+   above empty space. */
+
+.stats-music-panel {
+  display: grid;
+  gap: 20px;
+}
+
+.stats-music-panel > .field-hint {
+  margin: 0;
+}
+
+.stats-music-panel .stats-section {
+  padding: 32px 36px;
+}
+
+.stats-music-panel .stats-bar-list {
+  gap: 22px;
+}
+
+.stats-music-panel .stats-bar-row {
+  gap: 18px;
+}
+
+.stats-music-panel .stats-bar-label {
+  flex-basis: 220px;
+  font-size: 1rem;
+}
+
+.stats-music-panel .stats-bar-track {
+  height: 12px;
+}
+
+.stats-music-panel .stats-bar-value {
+  min-width: 90px;
+  font-size: .92rem;
+}
+
+.stats-music-panel .stats-see-all-link {
+  margin-top: 0;
+  font-size: .88rem;
+}
+
+#stats-timeline-panel .stats-timeline-chart {
+  padding-top: 24px;
+}
+
+#stats-timeline-panel .stats-timeline {
+  height: 280px;
+  gap: 12px;
+  padding: 0 6px 0;
+}
+
+#stats-timeline-panel .stats-timeline-bar {
+  max-width: 48px;
+  border-radius: 6px 6px 0 0;
+}
+
+#stats-timeline-panel .stats-timeline-month {
+  font-size: .76rem;
+}
+
+#stats-timeline-panel .stats-timeline-axis-label {
+  font-size: .76rem;
 }
 
 /* Ranked list -- shared by every stat (artists, genres, moods, periods, and the
@@ -311,15 +463,15 @@ a.stats-section-link:focus-visible .stats-section-cta {
   text-align: right;
 }
 
-.stats-nerd-link {
+.stats-advanced-link {
   color: var(--text-muted);
   font-size: .76rem;
   font-weight: 650;
   text-decoration: none;
 }
 
-.stats-nerd-link:hover,
-.stats-nerd-link:focus-visible {
+.stats-advanced-link:hover,
+.stats-advanced-link:focus-visible {
   color: var(--text-secondary);
 }
 
@@ -349,6 +501,7 @@ a.stats-section-link:focus-visible .stats-section-cta {
   }
 
   .stats-hero-secondary {
+    flex-wrap: wrap;
     gap: 20px;
   }
 
@@ -362,6 +515,45 @@ a.stats-section-link:focus-visible .stats-section-cta {
 
   .stats-telemetry {
     flex-direction: column;
+  }
+
+  /* Overview panel's hero/counts rows use higher-specificity ID-scoped
+     selectors (#stats-overview-panel ...) for their desktop gaps, which
+     otherwise beat the generic mobile rules above -- repeat the same
+     specificity here so the rows actually wrap on narrow screens instead
+     of overflowing horizontally. */
+  #stats-overview-panel .stats-hero-secondary {
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+
+  #stats-overview-panel .stats-overview-counts {
+    flex-wrap: wrap;
+    gap: 18px 28px;
+    margin-top: 28px;
+  }
+
+  /* Top artists/genres/moods/periods bar rows: the desktop label width
+     (220px) is fixed via a higher-specificity .stats-music-panel selector,
+     so the generic .stats-bar-label mobile rule in statistics-advanced.css
+     can't shrink it -- without this, the label alone exceeds the available
+     width on a phone and the row overflows. */
+  .stats-music-panel .stats-section {
+    padding: 20px 18px;
+  }
+
+  .stats-music-panel .stats-bar-row {
+    gap: 10px;
+  }
+
+  .stats-music-panel .stats-bar-label {
+    flex-basis: 96px;
+    font-size: .82rem;
+  }
+
+  .stats-music-panel .stats-bar-value {
+    min-width: 60px;
+    font-size: .78rem;
   }
 }
 

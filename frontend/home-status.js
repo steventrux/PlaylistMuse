@@ -48,13 +48,27 @@
   const $ = (id) => document.getElementById(id);
   const INDICATOR_STATES = ['pending', 'on', 'off', 'error'];
   const providerLabels = {
-    gemini: 'Google Gemini',
+    gemini: 'Gemini',
     openai: 'OpenAI',
     anthropic: 'Anthropic',
     openrouter_auto: 'OpenRouter Auto',
     openrouter_free: 'OpenRouter Free',
     ollama: 'Ollama',
-    custom: 'Custom AI endpoint',
+    custom: 'Custom',
+  };
+
+  // Friendly names for known OpenAI-compatible hosts, so a custom endpoint
+  // pointing at a recognizable provider isn't just labeled by its hostname.
+  const knownCustomHosts = {
+    'api.x.ai': 'Grok',
+    'api.groq.com': 'Groq',
+    'api.together.xyz': 'Together AI',
+    'api.together.ai': 'Together AI',
+    'api.deepseek.com': 'DeepSeek',
+    'api.mistral.ai': 'Mistral',
+    'api.fireworks.ai': 'Fireworks AI',
+    'api.perplexity.ai': 'Perplexity',
+    'api.cerebras.ai': 'Cerebras',
   };
 
   let closeNavigation = () => {};
@@ -143,14 +157,15 @@
   }
 
   function ensureStatusStyles() {
-    ensureStylesheet('/static/layout.css', '/static/layout.css?v=5');
-    ensureStylesheet('/static/header-navigation.css', '/static/header-navigation.css?v=13');
-    ensureStylesheet('/static/settings-dialog.css', '/static/settings-dialog.css?v=7');
+    ensureStylesheet('/static/layout.css', '/static/layout.css?v=7');
+    ensureStylesheet('/static/header-navigation.css', '/static/header-navigation.css?v=21');
+    ensureStylesheet('/static/settings-dialog.css', '/static/settings-dialog.css?v=11');
   }
 
   function currentPage() {
     const path = window.location.pathname;
     if (path.endsWith('/library.html')) return 'library';
+    if (path.endsWith('/favorites.html')) return 'favorites';
     if (path.endsWith('/statistics.html')) return 'statistics';
     if (path === '/' || path.endsWith('/index.html') || path.endsWith('/playlist.html')) return 'create';
     return '';
@@ -232,34 +247,18 @@
         </button>
       </div>
       <nav class="sidebar-nav" aria-label="Main navigation">
-        <section class="sidebar-group" aria-labelledby="sidebar-pages-label">
-          <p id="sidebar-pages-label" class="sidebar-group-label">Pages</p>
-          <a class="sidebar-link" data-page="create" href="/">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M9 18V6l10-2v12" />
-              <circle cx="6.5" cy="18" r="2.5" />
-              <circle cx="16.5" cy="16" r="2.5" />
-            </svg>
-            <span>Create playlist</span>
-          </a>
-          <a class="sidebar-link" data-page="library" href="/static/library.html">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <circle cx="5" cy="7" r="1" fill="currentColor" stroke="none" />
-              <path d="M9 7h10" />
-              <circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" />
-              <path d="M9 12h10" />
-              <circle cx="5" cy="17" r="1" fill="currentColor" stroke="none" />
-              <path d="M9 17h10" />
-            </svg>
-            <span>My playlists</span>
-          </a>
-        </section>
         <section class="sidebar-group" aria-labelledby="sidebar-integrations-label">
           <p id="sidebar-integrations-label" class="sidebar-group-label">Integrations</p>
           <div class="header-actions header-service-status" aria-label="Service configuration status"></div>
         </section>
-        <section class="sidebar-group" aria-labelledby="sidebar-insights-label">
-          <p id="sidebar-insights-label" class="sidebar-group-label">Insights</p>
+        <section class="sidebar-group" aria-labelledby="sidebar-library-label">
+          <p id="sidebar-library-label" class="sidebar-group-label">Library</p>
+          <a class="sidebar-link" data-page="favorites" href="/static/favorites.html">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M12 20.5s-7.5-4.6-10-9.1C.5 8 2 5 5.2 5c1.9 0 3.4 1 4.8 2.8C11.4 6 12.9 5 14.8 5 18 5 19.5 8 19.5 11.4c-2.5 4.5-7.5 9.1-7.5 9.1Z" />
+            </svg>
+            <span>Favorites</span>
+          </a>
           <a class="sidebar-link" data-page="statistics" href="/static/statistics.html">
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path d="M5 19h14" />
@@ -380,14 +379,28 @@
     element.classList.remove(...INDICATOR_STATES);
     element.classList.add(state);
     element.dataset.tooltip = tooltip;
-    element.title = tooltip;
     element.setAttribute('aria-label', tooltip);
   }
 
-  function setAiProviderIcon(element, provider) {
+  function setAiProviderIcon(element, provider, label) {
     if (!element) return;
     element.innerHTML = providerIcons[provider] || brainIcon;
     element.dataset.provider = provider || '';
+    element.dataset.providerLabel = label || '';
+  }
+
+  function resolveProviderLabel(provider, profile) {
+    if (provider === 'custom') {
+      let host = '';
+      try {
+        host = new URL(profile.base_url || '').hostname;
+      } catch {
+        host = '';
+      }
+      if (!host) return providerLabels.custom;
+      return knownCustomHosts[host] || `Custom · ${host}`;
+    }
+    return providerLabels[provider] || provider;
   }
 
   function setGenerationAvailability(state) {
@@ -422,12 +435,12 @@
       const profile = data.profiles?.[provider] || {};
       const configured = Boolean(provider && profile.configured);
 
-      setAiProviderIcon(indicator, configured ? provider : '');
+      setAiProviderIcon(indicator, configured ? provider : '', configured ? resolveProviderLabel(provider, profile) : '');
       setIndicatorState(
         indicator,
         configured ? 'on' : 'off',
         configured
-          ? `AI active · ${providerLabels[provider] || provider} · ${profile.model}`
+          ? `AI active · ${resolveProviderLabel(provider, profile)} · ${profile.model}`
           : 'AI not configured · click to open AI Settings',
       );
       setGenerationAvailability(configured ? 'configured' : 'unconfigured');

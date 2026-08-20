@@ -13,9 +13,9 @@ def test_playlist_actions_are_compact_responsive_and_accessible() -> None:
     script = _text("action-controls.js")
     style = _text("action-controls.css")
 
-    assert '/static/action-controls.css?v=4' in html
-    assert '/static/action-controls.js?v=2' in html
-    assert html.index('/static/playlist-refine.js?v=7') < html.index('/static/action-controls.js?v=2')
+    assert '/static/action-controls.css?v=7' in html
+    assert '/static/action-controls.js?v=5' in html
+    assert html.index('/static/playlist-refine.js?v=7') < html.index('/static/action-controls.js?v=5')
 
     for label in (
         "Open in YouTube Music",
@@ -59,8 +59,8 @@ def test_library_uses_open_for_drafts_and_published_playlists() -> None:
     html = _text("library.html")
     script = _text("action-controls.js")
 
-    assert '/static/action-controls.js?v=2' in html
-    assert html.index('/static/library.js?v=12') < html.index('/static/action-controls.js?v=2')
+    assert '/static/action-controls.js?v=5' in html
+    assert html.index('/static/library.js?v=15') < html.index('/static/action-controls.js?v=5')
     assert "if (text === 'Edit') link.textContent = 'Open';" in script
     assert "if (text === 'Editing…') link.textContent = 'Opening…';" in script
     assert "if (ariaLabel.startsWith('Edit '))" in script

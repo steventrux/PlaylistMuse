@@ -10,6 +10,8 @@ from contextvars import ContextVar
 from dataclasses import asdict
 from typing import Any
 
+from backend.generation_stage_timing import record_stage_ms
+
 logger = logging.getLogger("playlistmuse.performance")
 
 MAX_CREATIVE_REPAIR_ROUNDS = 1
@@ -307,6 +309,7 @@ def _diversity_rank(
 
 def _log_stage(stage: str, started_at: float, **details: Any) -> None:
     elapsed_ms = round((time.perf_counter() - started_at) * 1000)
+    record_stage_ms(stage, elapsed_ms)
     suffix = " ".join(f"{key}={value}" for key, value in details.items())
     logger.info(
         "playlist_stage stage=%s elapsed_ms=%s %s", stage, elapsed_ms, suffix
@@ -375,8 +378,14 @@ async def _interpret_request(
     Returns (interpreted_payload, assessment, enforced_constraints) and raises ValueError
     when the interpreted request is impossible to satisfy.
     """
-    from backend.creative_intent import activate_creative_intent, interpret_creative_intent
+    from backend.creative_intent import (
+        activate_creative_intent,
+        interpret_creative_intent,
+        interpret_style_request,
+        merge_creative_intents,
+    )
     from backend.entity_resolution import canonicalize_interpretation
+    from backend.favorites import active_favorite_artist_allowlist
     from backend.metadata_validation import constraints_from_payload
     from backend.prompt_validation import assess_interpretation, assess_prompt
     from backend.recording_variants import activate_recording_policy, interpret_recording_policy
@@ -387,6 +396,13 @@ async def _interpret_request(
         interpret_recording_policy(config, source_prompt),
         interpret_creative_intent(config, source_prompt),
     )
+    if active_favorite_artist_allowlist():
+        # The artist pool is hard-restricted to bookmarked favorites below; if the
+        # prompt also names a genre/style, that pool may not actually contain any
+        # matching tracks, so it needs its own explicit check (see
+        # interpret_style_request's docstring).
+        style_intent = await interpret_style_request(config, source_prompt)
+        creative_intent = merge_creative_intents(creative_intent, style_intent)
     activate_recording_policy(recording_policy)
     activate_creative_intent(creative_intent)
     if assessment.status == "impossible":
@@ -541,6 +557,7 @@ async def generate_playlist_draft(
         active_constraints,
         extract_metadata_constraints,
     )
+    from backend.favorites import active_favorite_artist_allowlist
     from backend.playlist_policy import hard_allowed_artists, policy_from_payload
     from backend.policy_consistency import apply_playlist_policy
     from backend.policy_enforcement import _ACTIVE_POLICY
@@ -699,6 +716,11 @@ async def generate_playlist_draft(
                 policy,
                 prompt=source_prompt,
             )
+            favorite_allowlist = active_favorite_artist_allowlist()
+            if favorite_allowlist:
+                constraints.allowed_artists = list(
+                    dict.fromkeys([*constraints.allowed_artists, *favorite_allowlist])
+                )
             constraints.artist_name = (
                 constraints.allowed_artists[0]
                 if len(constraints.allowed_artists) == 1

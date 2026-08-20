@@ -16,7 +16,8 @@ from typing import Any
 
 import httpx
 
-from backend import youtube_core as _core
+from backend import cache_metrics, youtube_core as _core
+from backend.generation_stage_timing import record_stage_ms
 from backend.metadata_runtime import (
     MetadataServiceUnavailableError,
     metadata_lookup_limit,
@@ -103,16 +104,21 @@ def _read_youtube_cache_entry(
                 (_youtube_cache_key(candidate, exclusions),),
             ).fetchone()
             if not row or float(row["expires_at"]) <= time.time():
+                cache_metrics.record_miss("YouTube resolution")
                 return False, None, None
             payload = row["payload"]
             if not payload:
+                cache_metrics.record_hit("YouTube resolution")
                 return True, None, None
             decoded = json.loads(str(payload))
             if isinstance(decoded, dict) and _CACHE_DIAGNOSTIC_KEY in decoded:
                 diagnostic = decoded.get(_CACHE_DIAGNOSTIC_KEY)
                 if isinstance(diagnostic, dict) and "best_pair" not in diagnostic:
+                    cache_metrics.record_miss("YouTube resolution")
                     return False, None, None
+                cache_metrics.record_hit("YouTube resolution")
                 return True, None, diagnostic if isinstance(diagnostic, dict) else None
+            cache_metrics.record_hit("YouTube resolution")
             return True, decoded if isinstance(decoded, dict) else None, None
     except (sqlite3.Error, ValueError, TypeError, json.JSONDecodeError):
         return False, None, None
@@ -164,6 +170,7 @@ def _write_youtube_cache(
                     time.time() + ttl,
                 ),
             )
+            _core._maybe_purge_youtube_cache(connection)
     except (sqlite3.Error, TypeError, ValueError):
         return
 
@@ -561,8 +568,12 @@ async def resolve_candidates(
             )
             return candidate, track, diagnostic
 
+    youtube_started_at = time.perf_counter()
     resolution_results = await asyncio.gather(
         *(resolve(candidate) for candidate in unique_candidates)
+    )
+    record_stage_ms(
+        "youtube_resolution", (time.perf_counter() - youtube_started_at) * 1000
     )
 
     unresolved: list[dict[str, Any]] = []
@@ -593,6 +604,7 @@ async def resolve_candidates(
         )
 
     metadata_target = _incremental_metadata_target(len(canonical_candidates))
+    metadata_started_at = time.perf_counter()
     if metadata_target is None:
         validated_candidates, metadata_rejected = await _metadata_filter(
             canonical_candidates
@@ -602,6 +614,9 @@ async def resolve_candidates(
             canonical_candidates,
             max_valid=metadata_target,
         )
+    record_stage_ms(
+        "metadata_validation", (time.perf_counter() - metadata_started_at) * 1000
+    )
     accepted_by_key = {
         track_identity_key(candidate["title"], candidate["artist"]): candidate
         for candidate in validated_candidates

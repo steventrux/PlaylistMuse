@@ -124,10 +124,10 @@
       path.endsWith('/library.html')
       || path.endsWith('/playlist.html')
       || path.endsWith('/statistics.html')
-      || path.endsWith('/statistics-nerd.html')
       || path.endsWith('/statistics-detail.html')
       || path.endsWith('/diagnostics.html')
       || path.endsWith('/settings.html')
+      || path.endsWith('/favorites.html')
       || path === '/'
       || path.endsWith('/index.html')
     ) {
@@ -144,17 +144,31 @@
     document.head.append(stylesheet);
   }
 
+  const PRIMARY_PAGES = [
+    {
+      page: 'create',
+      href: '/',
+      label: 'Create playlist',
+      icon: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 18V6l10-2v12" /><circle cx="6.5" cy="18" r="2.5" /><circle cx="16.5" cy="16" r="2.5" /></svg>',
+    },
+    {
+      page: 'library',
+      href: '/static/library.html',
+      label: 'My playlists',
+      icon: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="5" cy="7" r="1" fill="currentColor" stroke="none" /><path d="M9 7h10" /><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" /><path d="M9 12h10" /><circle cx="5" cy="17" r="1" fill="currentColor" stroke="none" /><path d="M9 17h10" /></svg>',
+    },
+  ];
+
+  function primaryPage() {
+    const path = window.location.pathname;
+    if (path.endsWith('/library.html')) return 'library';
+    if (path === '/' || path.endsWith('/index.html') || path.endsWith('/playlist.html')) return 'create';
+    return '';
+  }
+
   function installPrimaryNavigation() {
     const host = primaryNavigationHost();
     if (!host || host.querySelector('.primary-page-navigation')) return;
-
-    const pageGroup = document.querySelector(
-      '.playlistmuse-sidebar .sidebar-group[aria-labelledby="sidebar-pages-label"]',
-    );
-    if (!pageGroup) return;
-
-    const links = Array.from(pageGroup.querySelectorAll('.sidebar-link'));
-    if (!links.length) return;
 
     ensurePrimaryNavigationStyles();
 
@@ -162,25 +176,22 @@
     navigation.className = 'primary-page-navigation';
     navigation.setAttribute('aria-label', 'Primary playlist navigation');
 
-    links.forEach((link) => {
-      const icon = link.querySelector('svg');
-      const label = link.querySelector('span')?.textContent?.trim()
-        || link.textContent.trim();
-      const active = link.getAttribute('aria-current') === 'page';
-
+    const active = primaryPage();
+    PRIMARY_PAGES.forEach((entry) => {
+      const link = document.createElement('a');
       link.className = 'primary-page-link';
-      link.classList.toggle('active', active);
+      link.href = entry.href;
+      link.dataset.page = entry.page;
+      if (entry.page === active) {
+        link.classList.add('active');
+        link.setAttribute('aria-current', 'page');
+      }
+      link.innerHTML = entry.icon;
       const labelSpan = document.createElement('span');
-      labelSpan.textContent = label;
-      link.replaceChildren(...(icon ? [icon] : []), labelSpan);
+      labelSpan.textContent = entry.label;
+      link.append(labelSpan);
       navigation.append(link);
     });
-
-    const sidebar = pageGroup.closest('.playlistmuse-sidebar');
-    const sidebarNav = pageGroup.closest('.sidebar-nav');
-    pageGroup.remove();
-    if (sidebar) sidebar.setAttribute('aria-label', 'PlaylistMuse settings');
-    if (sidebarNav) sidebarNav.setAttribute('aria-label', 'Settings and integrations');
 
     host.classList.add('has-primary-page-navigation');
     host.append(navigation);
@@ -210,178 +221,17 @@
       activeLink?.setAttribute('aria-current', 'page');
     }
 
-    // Statistics (Insights) stays the last group in the sidebar, right above the
-    // footer, so Support is inserted before it rather than appended at the end.
-    const insightsGroup = sidebarNav.querySelector('[aria-labelledby="sidebar-insights-label"]');
-    if (insightsGroup) insightsGroup.before(group);
+    // Support stays the last group in the sidebar, right above the footer, so
+    // it's inserted after Library rather than appended blindly (in case a
+    // future group gets added after Library too).
+    const libraryGroup = sidebarNav.querySelector('[aria-labelledby="sidebar-library-label"]');
+    if (libraryGroup) libraryGroup.after(group);
     else sidebarNav.append(group);
-  }
-
-  function installPromptAssessmentStyles() {
-    if (document.getElementById('prompt-assessment-styles')) return;
-    const style = document.createElement('style');
-    style.id = 'prompt-assessment-styles';
-    style.textContent = `
-      .prompt-assessment {
-        display: grid;
-        grid-template-columns: auto minmax(0, 1fr);
-        gap: .65rem;
-        align-items: start;
-        margin-top: .65rem;
-        padding: .75rem .85rem;
-        border: 1px solid transparent;
-        border-radius: .75rem;
-        font-size: .9rem;
-        line-height: 1.45;
-      }
-      .prompt-assessment.hidden { display: none; }
-      .prompt-assessment-icon {
-        font-size: 1.05rem;
-        line-height: 1.35;
-      }
-      .prompt-assessment-reasons {
-        display: grid;
-        gap: .2rem;
-      }
-      .prompt-assessment-impossible {
-        color: #fecaca;
-        background: rgba(127, 29, 29, .34);
-        border-color: rgba(248, 113, 113, .58);
-      }
-      .prompt-assessment-ambiguous {
-        color: #fde68a;
-        background: rgba(113, 63, 18, .34);
-        border-color: rgba(250, 204, 21, .52);
-      }
-    `;
-    document.head.append(style);
-  }
-
-  function ensurePromptAssessment() {
-    const prompt = document.getElementById('prompt');
-    if (!prompt) return null;
-    let assessment = document.getElementById('prompt-assessment');
-    if (assessment) return assessment;
-
-    assessment = document.createElement('div');
-    assessment.id = 'prompt-assessment';
-    assessment.className = 'prompt-assessment hidden';
-    assessment.setAttribute('role', 'alert');
-    assessment.setAttribute('aria-live', 'assertive');
-
-    const icon = document.createElement('span');
-    icon.className = 'prompt-assessment-icon';
-    icon.setAttribute('aria-hidden', 'true');
-
-    const reasons = document.createElement('div');
-    reasons.className = 'prompt-assessment-reasons';
-
-    assessment.append(icon, reasons);
-    prompt.insertAdjacentElement('afterend', assessment);
-    return assessment;
-  }
-
-  function clearPromptAssessment() {
-    const assessment = document.getElementById('prompt-assessment');
-    if (!assessment) return;
-    assessment.className = 'prompt-assessment hidden';
-    assessment.querySelector('.prompt-assessment-icon').textContent = '';
-    assessment.querySelector('.prompt-assessment-reasons').replaceChildren();
-  }
-
-  function renderPromptAssessment(status, reasons = []) {
-    const assessment = ensurePromptAssessment();
-    if (!assessment || status === 'valid') {
-      clearPromptAssessment();
-      return;
-    }
-
-    const impossible = status === 'impossible';
-    assessment.className = `prompt-assessment prompt-assessment-${status}`;
-    assessment.querySelector('.prompt-assessment-icon').textContent = impossible ? '⛔' : '⚠️';
-
-    const reasonsContainer = assessment.querySelector('.prompt-assessment-reasons');
-    reasonsContainer.replaceChildren();
-    const values = Array.isArray(reasons) && reasons.length
-      ? reasons
-      : [impossible
-        ? 'The request contains mutually incompatible constraints.'
-        : 'The request can be interpreted in more than one way.'];
-    values.forEach((reason) => {
-      const line = document.createElement('span');
-      line.textContent = String(reason);
-      reasonsContainer.append(line);
-    });
-  }
-
-  function installPromptPreflight() {
-    const prompt = document.getElementById('prompt');
-    const generate = document.getElementById('generate');
-    const promptPanel = document.getElementById('prompt-panel');
-    if (!prompt || !generate || !promptPanel) return;
-
-    installPromptAssessmentStyles();
-    ensurePromptAssessment();
-
-    prompt.addEventListener('input', () => {
-      delete generate.dataset.validatedPrompt;
-      clearPromptAssessment();
-    });
-
-    generate.addEventListener('click', async (event) => {
-      if (promptPanel.classList.contains('hidden')) return;
-      const normalized = prompt.value.trim().replace(/\s+/g, ' ');
-      if (!normalized || generate.dataset.validatedPrompt === normalized) {
-        delete generate.dataset.validatedPrompt;
-        return;
-      }
-
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      if (generate.dataset.assessing === 'true') return;
-
-      const previousText = generate.textContent;
-      generate.dataset.assessing = 'true';
-      generate.disabled = true;
-      generate.textContent = 'Checking request…';
-
-      try {
-        const response = await fetch('/api/playlists/validate-prompt', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({prompt: normalized}),
-        });
-        const result = await window.PlaylistMuseCommon.readJson(response, {
-          flattenValidationErrors: true,
-        });
-        renderPromptAssessment(result.status, result.reasons);
-        if (result.status === 'impossible') return;
-
-        generate.dataset.validatedPrompt = normalized;
-        generate.disabled = false;
-        generate.textContent = previousText;
-        generate.click();
-      } catch {
-        // Provider or validation failures must not make an otherwise valid request unusable.
-        clearPromptAssessment();
-        generate.dataset.validatedPrompt = normalized;
-        generate.disabled = false;
-        generate.textContent = previousText;
-        generate.click();
-      } finally {
-        delete generate.dataset.assessing;
-        if (generate.textContent === 'Checking request…') {
-          generate.disabled = false;
-          generate.textContent = previousText;
-        }
-      }
-    }, true);
   }
 
   function initializeEnhancements() {
     installPrimaryNavigation();
     installSupportNavigation();
-    installPromptPreflight();
     ensureLastFmStyles();
   }
 

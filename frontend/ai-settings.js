@@ -63,28 +63,21 @@
       firstNode.textContent = 'Model in use\n              ';
     }
 
-    let options = $('ai-model-options');
-    if (!options) {
-      options = document.createElement('datalist');
-      options.id = 'ai-model-options';
-      model.insertAdjacentElement('afterend', options);
+    // A real <select> is used instead of an <input list> + <datalist> because mobile
+    // Safari only opens a datalist's suggestion popup once the user starts typing --
+    // a tap/focus alone does nothing there, so the "dropdown" silently never appears.
+    // A native <select> opens its OS picker reliably on both iOS and Android.
+    let select = $('ai-model-select');
+    if (!select) {
+      select = document.createElement('select');
+      select.id = 'ai-model-select';
+      select.className = 'hidden';
+      select.setAttribute('aria-label', 'Primary model');
+      model.insertAdjacentElement('beforebegin', select);
+      select.addEventListener('change', () => {
+        model.value = select.value;
+      });
     }
-    model.setAttribute('list', options.id);
-
-    // Browsers filter datalist suggestions against the text already in the field, so a
-    // pre-filled value hides every option except the exact match. Clearing the value on
-    // focus lets the popup show the complete list; restore it on blur if nothing was chosen.
-    let valueBeforeFocus = '';
-    model.addEventListener('focus', () => {
-      if (model.readOnly) return;
-      valueBeforeFocus = model.value;
-      model.value = '';
-    });
-    model.addEventListener('blur', () => {
-      if (!model.value.trim()) {
-        model.value = valueBeforeFocus;
-      }
-    });
 
     let hint = $('ai-model-hint');
     if (!hint) {
@@ -92,7 +85,7 @@
       hint.id = 'ai-model-hint';
       hint.className = 'field-hint';
       hint.textContent = 'Checking models available to this API…';
-      options.insertAdjacentElement('afterend', hint);
+      model.insertAdjacentElement('afterend', hint);
     }
 
     const fallbackRow = $('fallback-row');
@@ -190,6 +183,48 @@
     });
   }
 
+  function showModelSelect() {
+    $('ai-model-select').classList.remove('hidden');
+    $('ai-model').classList.add('hidden');
+  }
+
+  function showModelInput() {
+    $('ai-model-select').classList.add('hidden');
+    $('ai-model').classList.remove('hidden');
+  }
+
+  // Renders the known models into the <select> and shows it; falls back to the free-text
+  // input when there's nothing to pick from (e.g. a custom endpoint with no models
+  // reported). The current value is kept even if it's not in the list, so switching
+  // providers or a stale saved model is never silently discarded.
+  function populateModelSelect(models, current) {
+    const select = $('ai-model-select');
+    select.replaceChildren();
+    if (!models.length) {
+      showModelInput();
+      return;
+    }
+    if (!current) {
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = 'Select a model…';
+      select.append(placeholder);
+    } else if (!models.includes(current)) {
+      const option = document.createElement('option');
+      option.value = current;
+      option.textContent = `${current} (saved)`;
+      select.append(option);
+    }
+    models.forEach((value) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = value;
+      select.append(option);
+    });
+    select.value = current || '';
+    showModelSelect();
+  }
+
   function applyProviderValues(provider) {
     const profile = profileFor(provider);
     $('ai-model').value = profile.model || '';
@@ -198,7 +233,8 @@
     }
     $('ai-base-url').value = profile.base_url || '';
     $('ai-key').value = '';
-    $('ai-model-options').replaceChildren();
+    $('ai-model-select').replaceChildren();
+    showModelInput();
     $('ai-model-hint').textContent = 'Checking models available to this API…';
   }
 
@@ -280,7 +316,7 @@
   }
 
   function availableModelValues() {
-    return Array.from($('ai-model-options').options)
+    return Array.from($('ai-model-select').options)
       .map((option) => option.value.trim())
       .filter(Boolean);
   }
@@ -331,15 +367,7 @@
 
   function renderAvailableModels(data) {
     const models = Array.isArray(data.models) ? data.models.filter(Boolean) : [];
-    const options = $('ai-model-options');
     const current = $('ai-model').value.trim();
-    options.replaceChildren();
-
-    models.forEach((model) => {
-      const option = document.createElement('option');
-      option.value = model;
-      options.append(option);
-    });
 
     const recommended =
       typeof data.recommended_model === 'string' ? data.recommended_model.trim() : '';
@@ -351,21 +379,27 @@
       $('ai-model').value = models[0];
       $('ai-model').readOnly = true;
       $('ai-model-hint').textContent = 'This OpenRouter mode uses a fixed automatic router.';
-    } else if (!current && recommended) {
-      // Only a verified recency signal (a provider's own alias or a real creation date)
-      // ever pre-selects a model -- never a guess based on a model's name.
-      $('ai-model').value = recommended;
-      $('ai-model-hint').textContent =
-        `${models.length} compatible models reported by this API. ` +
-        `Pre-selected the most recent: ${recommended}.`;
-    } else if (!current) {
-      $('ai-model-hint').textContent = models.length
-        ? `${models.length} compatible models reported by this API. Select one to continue.`
-        : 'No compatible models reported by this API. Select one to continue.';
-    } else if (current && !models.includes(current)) {
-      $('ai-model-hint').textContent = `${models.length} models reported by this API. The saved model is not currently listed.`;
+      $('ai-model-select').replaceChildren();
+      showModelInput();
     } else {
-      $('ai-model-hint').textContent = `${models.length} compatible models reported by this API.`;
+      $('ai-model').readOnly = false;
+      if (!current && recommended) {
+        // Only a verified recency signal (a provider's own alias or a real creation date)
+        // ever pre-selects a model -- never a guess based on a model's name.
+        $('ai-model').value = recommended;
+        $('ai-model-hint').textContent =
+          `${models.length} compatible models reported by this API. ` +
+          `Pre-selected the most recent: ${recommended}.`;
+      } else if (!current) {
+        $('ai-model-hint').textContent = models.length
+          ? `${models.length} compatible models reported by this API. Select one to continue.`
+          : 'No compatible models reported by this API. Select one to continue.';
+      } else if (current && !models.includes(current)) {
+        $('ai-model-hint').textContent = `${models.length} models reported by this API. The saved model is not currently listed.`;
+      } else {
+        $('ai-model-hint').textContent = `${models.length} compatible models reported by this API.`;
+      }
+      populateModelSelect(models, $('ai-model').value.trim());
     }
 
     reconcileHiddenFallbacks($('ai-provider').value, models, fallbackOrder);
@@ -392,7 +426,8 @@
       renderAvailableModels(data);
     } catch (error) {
       if (requestSequence !== modelRequestSequence || provider !== $('ai-provider').value) return;
-      $('ai-model-options').replaceChildren();
+      $('ai-model-select').replaceChildren();
+      showModelInput();
       $('ai-model-hint').textContent = error.message || String(error);
     } finally {
       if (requestSequence === modelRequestSequence) {

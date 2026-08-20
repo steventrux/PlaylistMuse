@@ -201,9 +201,15 @@ def _remember_successful_model(config: AppConfig, model: str) -> None:
 
 
 def _model_timeout(config: AppConfig) -> float:
+    # "openrouter_free" routes to whatever free-tier model OpenRouter currently has
+    # available -- those are congested/rate-limited by nature and routinely take far
+    # longer than a normal hosted API to respond (observed up to ~90s for a full
+    # generation call), so the short remote timeout below just times this analysis
+    # out on nearly every attempt. Give it the same generous budget as a self-hosted
+    # model instead of bumping the timeout for every remote provider.
     return (
         LOCAL_MODEL_TIMEOUT_SECONDS
-        if config.provider in {"ollama", "custom"}
+        if config.provider in {"ollama", "custom", "openrouter_free"}
         else REMOTE_MODEL_TIMEOUT_SECONDS
     )
 

@@ -16,8 +16,8 @@ def test_stable_release_gate_reads_version_without_runtime_dependencies() -> Non
 
 def test_stable_release_requires_curated_notes_for_current_version() -> None:
     version_source = (ROOT / "backend" / "version.py").read_text(encoding="utf-8")
-    assert 'APP_VERSION = "0.2.3"' in version_source
+    assert 'APP_VERSION = "0.3.0"' in version_source
 
-    notes = ROOT / ".github" / "release-notes" / "v0.2.3.md"
+    notes = ROOT / ".github" / "release-notes" / "v0.3.0.md"
     assert notes.is_file()
     assert notes.read_text(encoding="utf-8").strip()

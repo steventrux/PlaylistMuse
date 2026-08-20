@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from backend import constraint_interpreter
+from backend import cache_metrics, constraint_interpreter
 from backend.config import AppConfig
 from backend.constraint_interpreter import (
     _dated_system_prompt,
@@ -162,3 +162,45 @@ def test_all_models_rate_limited_degrades_to_none_without_raising(monkeypatch) -
     )
 
     assert interpreted is None
+
+
+def test_write_cache_purges_expired_rows_after_interval(tmp_path, monkeypatch):
+    cache_path = tmp_path / "constraint_interpretation_cache.sqlite3"
+    monkeypatch.setattr(constraint_interpreter, "_cache_path", lambda: cache_path)
+    monkeypatch.setattr(constraint_interpreter, "_last_purge_at", 0.0)
+
+    with constraint_interpreter._connect() as connection:
+        connection.execute(
+            "INSERT INTO constraint_interpretation_cache(cache_key, payload, expires_at) "
+            "VALUES (?, ?, ?)",
+            ("stale-key", "{}", time.time() - 10),
+        )
+
+    constraint_interpreter._write_cache(_config(), "Fresh prompt", {"confidence": "low"})
+
+    with constraint_interpreter._connect() as connection:
+        remaining = {
+            row["cache_key"]
+            for row in connection.execute(
+                "SELECT cache_key FROM constraint_interpretation_cache"
+            ).fetchall()
+        }
+    assert "stale-key" not in remaining
+
+
+def test_read_cache_records_hit_and_miss_metrics(tmp_path, monkeypatch):
+    cache_path = tmp_path / "constraint_interpretation_cache.sqlite3"
+    monkeypatch.setattr(constraint_interpreter, "_cache_path", lambda: cache_path)
+
+    before = cache_metrics.snapshot().get(
+        "Constraint interpretation", {"hits": 0, "misses": 0}
+    )
+
+    assert constraint_interpreter._read_cache(_config(), "Never cached prompt") is None
+    after_miss = cache_metrics.snapshot()["Constraint interpretation"]
+    assert after_miss["misses"] == before["misses"] + 1
+
+    constraint_interpreter._write_cache(_config(), "Cached prompt", {"confidence": "low"})
+    assert constraint_interpreter._read_cache(_config(), "Cached prompt") is not None
+    after_hit = cache_metrics.snapshot()["Constraint interpretation"]
+    assert after_hit["hits"] == before["hits"] + 1

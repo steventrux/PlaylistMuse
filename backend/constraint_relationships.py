@@ -11,6 +11,7 @@ from typing import Any
 
 import httpx
 
+from backend import cache_metrics
 from backend.musicbrainz_client import rate_limited_get
 from backend.text_normalization import normalize_identity
 from backend.version import USER_AGENT
@@ -20,6 +21,9 @@ CACHE_TTL_SECONDS = 180 * 24 * 60 * 60
 NEGATIVE_CACHE_TTL_SECONDS = 24 * 60 * 60
 MIN_API_SCORE = 90
 MAX_NAMES_PER_REQUEST = 8
+PURGE_INTERVAL_SECONDS = 3600
+
+_last_purge_at = 0.0
 
 
 def _cache_path() -> Path:
@@ -59,20 +63,24 @@ def _read_cache(album: str, artist: str) -> dict[str, Any] | None:
                 (key,),
             ).fetchone()
             if not row:
+                cache_metrics.record_miss("Constraint relationships")
                 return None
             if float(row["expires_at"]) <= time.time():
                 connection.execute(
                     "DELETE FROM album_artist_pair_cache WHERE pair_key = ?",
                     (key,),
                 )
+                cache_metrics.record_miss("Constraint relationships")
                 return None
             payload = json.loads(str(row["payload"]))
+            cache_metrics.record_hit("Constraint relationships")
             return payload if isinstance(payload, dict) else None
     except (sqlite3.Error, ValueError, TypeError, json.JSONDecodeError):
         return None
 
 
 def _write_cache(album: str, artist: str, payload: dict[str, Any]) -> None:
+    global _last_purge_at
     key = _pair_key(album, artist)
     if key == "|":
         return
@@ -89,6 +97,12 @@ def _write_cache(album: str, artist: str, payload: dict[str, Any]) -> None:
                 """,
                 (key, json.dumps(payload, ensure_ascii=False), time.time() + ttl),
             )
+            now = time.time()
+            if now - _last_purge_at > PURGE_INTERVAL_SECONDS:
+                connection.execute(
+                    "DELETE FROM album_artist_pair_cache WHERE expires_at <= ?", (now,)
+                )
+                _last_purge_at = now
     except (sqlite3.Error, TypeError, ValueError):
         return
 

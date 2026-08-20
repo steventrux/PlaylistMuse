@@ -24,8 +24,10 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
+from backend import cache_metrics
 from backend.build_info import current_build_info
 from backend.config import DATA_DIR, load_config
+from backend.generation_counter import generations_by_month, total_generations
 from backend.lastfm_settings import LASTFM_SETTINGS_PATH, lastfm_settings_response
 from backend.playlist_library import DATABASE_PATH, SCHEMA_VERSION
 from backend.storage import read_json_object
@@ -43,6 +45,18 @@ LOG_MAX_BYTES = 1_048_576
 LOG_BACKUP_COUNT = 3
 LOGGER_NAME = "playlistmuse"
 ERROR_REFERENCE_HEADER = "x-playlistmuse-error-reference"
+MIN_USAGE_DAYS_FOR_ESTIMATE = 3
+
+# (display name, on-disk path, TTL in days for the cache's normal/positive entries --
+# used only to project a steady-state size estimate from real usage, not for eviction).
+CACHE_FILES: tuple[tuple[str, Path, int], ...] = (
+    ("Metadata validation", DATA_DIR / "metadata_cache.sqlite3", 90),
+    ("YouTube resolution", DATA_DIR / "youtube_resolution_cache.sqlite3", 30),
+    ("Constraint interpretation", DATA_DIR / "constraint_interpretation_cache.sqlite3", 30),
+    ("Constraint relationships", DATA_DIR / "constraint_relationship_cache.sqlite3", 180),
+    ("Entity resolution", DATA_DIR / "entity_resolution_cache.sqlite3", 180),
+    ("MusicBrainz artist origin", DATA_DIR / "musicbrainz_artist_cache.sqlite3", 90),
+)
 
 _SENSITIVE_KEY_RE = re.compile(
     r"(?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|cookie|"
@@ -292,11 +306,24 @@ async def diagnostics_middleware(
 
 def _database_metadata() -> dict[str, Any]:
     if not DATABASE_PATH.exists():
-        return {"present": False, "schema_version": SCHEMA_VERSION, "size_bytes": 0}
+        return {
+            "present": False,
+            "schema_version": SCHEMA_VERSION,
+            "size_bytes": 0,
+            "playlist_count": 0,
+            "track_count": 0,
+        }
     actual_schema = None
+    playlist_count = 0
+    track_count = 0
     try:
         with sqlite3.connect(DATABASE_PATH) as connection:
             actual_schema = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            row = connection.execute(
+                "SELECT COUNT(*) AS playlists, COALESCE(SUM(track_count), 0) AS tracks "
+                "FROM playlists"
+            ).fetchone()
+            playlist_count, track_count = int(row[0]), int(row[1])
     except (OSError, sqlite3.Error, TypeError, ValueError):
         pass
     try:
@@ -308,6 +335,117 @@ def _database_metadata() -> dict[str, Any]:
         "schema_version": actual_schema,
         "expected_schema_version": SCHEMA_VERSION,
         "size_bytes": size,
+        "playlist_count": playlist_count,
+        "track_count": track_count,
+    }
+
+
+def _log_metadata() -> dict[str, Any]:
+    total = 0
+    for index in range(LOG_BACKUP_COUNT + 1):
+        path = LOG_PATH if index == 0 else Path(f"{LOG_PATH}.{index}")
+        try:
+            total += path.stat().st_size
+        except OSError:
+            continue
+    return {"size_bytes": total}
+
+
+def _usage_days_active() -> int:
+    """Days since this installation's earliest recorded generation month.
+
+    Approximates "how long has real usage been accumulating" from data already
+    tracked locally (see generation_counter.py) -- used only to project a
+    steady-state cache size from this installation's own usage, not a generic guess.
+    """
+    months = generations_by_month()
+    if not months:
+        return 0
+    earliest = min(months)
+    try:
+        start = datetime.strptime(earliest, "%Y-%m").replace(tzinfo=UTC)
+    except ValueError:
+        return 0
+    return max(0, (datetime.now(UTC) - start).days)
+
+
+def _estimated_steady_state_bytes(size_bytes: int, ttl_days: int, days_active: int) -> int:
+    """Project the size a cache will stabilize at once the hourly purge has been
+    running for a full TTL window, extrapolating this installation's own current
+    growth rate (size accumulated so far / days it's had to accumulate)."""
+    if days_active <= 0 or days_active >= ttl_days:
+        return size_bytes
+    return round(size_bytes * (ttl_days / days_active))
+
+
+def _cache_metrics_for(name: str) -> dict[str, Any]:
+    counts = cache_metrics.snapshot().get(name, {"hits": 0, "misses": 0})
+    hits, misses = counts["hits"], counts["misses"]
+    total = hits + misses
+    return {
+        "hits": hits,
+        "misses": misses,
+        "hit_rate": round(hits / total, 3) if total else None,
+    }
+
+
+def _cache_metadata() -> dict[str, Any]:
+    days_active = _usage_days_active()
+    caches: list[dict[str, Any]] = []
+    total = 0
+    estimated_total = 0
+    for name, path, ttl_days in CACHE_FILES:
+        try:
+            size = path.stat().st_size
+            present = True
+        except OSError:
+            size = 0
+            present = False
+        estimate = _estimated_steady_state_bytes(size, ttl_days, days_active)
+        total += size
+        estimated_total += estimate
+        caches.append(
+            {
+                "name": name,
+                "size_bytes": size,
+                "present": present,
+                "estimated_steady_state_bytes": estimate,
+                **_cache_metrics_for(name),
+            }
+        )
+    return {
+        "caches": caches,
+        "total_bytes": total,
+        "estimated_steady_state_total_bytes": estimated_total,
+    }
+
+
+def _data_dir_total_bytes() -> int:
+    try:
+        return sum(
+            path.stat().st_size for path in DATA_DIR.rglob("*") if path.is_file()
+        )
+    except OSError:
+        return 0
+
+
+def _storage_payload() -> dict[str, Any]:
+    cache_info = _cache_metadata()
+    days_active = _usage_days_active()
+    return {
+        "data_dir_total_bytes": _data_dir_total_bytes(),
+        "database": _database_metadata(),
+        "logs": _log_metadata(),
+        "caches": cache_info["caches"],
+        "caches_total_bytes": cache_info["total_bytes"],
+        "caches_estimated_steady_state_total_bytes": cache_info[
+            "estimated_steady_state_total_bytes"
+        ],
+        "usage": {
+            "total_generations": total_generations(),
+            "days_active": days_active,
+            "estimate_reliable": days_active >= MIN_USAGE_DAYS_FOR_ESTIMATE,
+        },
     }
 
 
@@ -424,6 +562,26 @@ async def download_diagnostic_report() -> StreamingResponse:
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/storage")
+async def get_storage() -> dict[str, Any]:
+    return _storage_payload()
+
+
+@router.post("/storage/clear-cache")
+async def clear_cache() -> dict[str, Any]:
+    bytes_freed = 0
+    for _name, path, _ttl_days in CACHE_FILES:
+        try:
+            bytes_freed += path.stat().st_size
+        except OSError:
+            continue
+        path.unlink(missing_ok=True)
+    payload = _storage_payload()
+    payload["cleared"] = True
+    payload["bytes_freed"] = bytes_freed
+    return payload
 
 
 __all__ = [

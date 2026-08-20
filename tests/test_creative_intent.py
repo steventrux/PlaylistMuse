@@ -14,6 +14,8 @@ from backend.creative_intent import (
     creative_repair_prompt,
     intent_from_payload,
     interpret_creative_intent,
+    interpret_style_request,
+    merge_creative_intents,
     reset_creative_intent,
 )
 from backend.lastfm_tags import LastfmTagEvidence
@@ -88,6 +90,42 @@ def test_interpret_creative_intent_is_semantic_and_provider_neutral(monkeypatch)
 
     assert intent.active is True
     assert intent.requirements == ("celebratory social atmosphere",)
+
+
+def test_interpret_style_request_captures_an_explicit_genre(monkeypatch) -> None:
+    async def fake_request(config, prompt, *, system_prompt, max_tokens, model):
+        assert "genre or style" in system_prompt
+        return json.dumps({"requirements": ["house"], "confidence": 0.9})
+
+    monkeypatch.setattr(creative_intent, "request_structured_json", fake_request)
+
+    intent = asyncio.run(interpret_style_request(_config(), "playlist house con i miei artisti"))
+
+    assert intent.requirements == ("house",)
+    assert intent.confidence == 0.9
+
+
+def test_merge_creative_intents_combines_and_dedupes() -> None:
+    base = CreativeIntent(("chill vibe",), 0.85)
+    extra = CreativeIntent(("house", "chill vibe"), 0.9)
+
+    merged = merge_creative_intents(base, extra)
+
+    assert merged.requirements == ("chill vibe", "house")
+    assert merged.confidence == 0.85  # min of both, since base already had a requirement
+
+
+def test_merge_creative_intents_adopts_extra_confidence_when_base_is_empty() -> None:
+    merged = merge_creative_intents(CreativeIntent(), CreativeIntent(("house",), 0.9))
+
+    assert merged.requirements == ("house",)
+    assert merged.confidence == 0.9
+
+
+def test_merge_creative_intents_is_a_noop_when_extra_has_no_requirements() -> None:
+    base = CreativeIntent(("chill vibe",), 0.85)
+
+    assert merge_creative_intents(base, CreativeIntent()) is base
 
 
 def test_creative_fit_refines_only_uncertain_tracks_with_audio_evidence(monkeypatch) -> None:

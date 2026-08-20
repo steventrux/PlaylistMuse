@@ -8,6 +8,10 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 
 import backend.diagnostics as diagnostics
+import backend.generation_counter as generation_counter
+from backend import cache_metrics
+from backend.application import app
+from backend.playlist_library import PlaylistLibrary
 
 
 def test_sanitize_text_redacts_common_and_known_secrets() -> None:
@@ -134,3 +138,160 @@ def test_unhandled_server_error_gets_reference(monkeypatch) -> None:
     assert response.status_code == 500
     assert response.headers[diagnostics.ERROR_REFERENCE_HEADER] == "PM-20260811-DEF456"
     assert "Error reference: PM-20260811-DEF456" in response.json()["detail"]
+
+
+def _patch_storage_paths(monkeypatch, tmp_path: Path, database_path: Path, log_path: Path):
+    cache_one = tmp_path / "metadata_cache.sqlite3"
+    cache_one.write_bytes(b"x" * 100)
+    cache_two = tmp_path / "youtube_resolution_cache.sqlite3"
+    cache_two.write_bytes(b"y" * 50)
+
+    monkeypatch.setattr(diagnostics, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(diagnostics, "DATABASE_PATH", database_path)
+    monkeypatch.setattr(diagnostics, "LOG_PATH", log_path)
+    monkeypatch.setattr(diagnostics, "LOG_BACKUP_COUNT", 0)
+    monkeypatch.setattr(
+        diagnostics,
+        "CACHE_FILES",
+        (("Metadata validation", cache_one, 90), ("YouTube resolution", cache_two, 30)),
+    )
+    monkeypatch.setattr(
+        generation_counter, "GENERATION_COUNTER_PATH", tmp_path / "generation_counter.json"
+    )
+    return cache_one, cache_two
+
+
+def test_storage_endpoint_reports_database_logs_and_cache_sizes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    database_path = tmp_path / "playlists.db"
+    library = PlaylistLibrary(database_path)
+    library.create(
+        {
+            "name": "Night drive",
+            "tracks": [
+                {"video_id": "a", "title": "One", "artists": "Artist"},
+                {"video_id": "b", "title": "Two", "artists": "Artist"},
+            ],
+        }
+    )
+    log_path = tmp_path / "playlistmuse.log"
+    log_path.write_text("log line\n", encoding="utf-8")
+
+    cache_one, cache_two = _patch_storage_paths(monkeypatch, tmp_path, database_path, log_path)
+
+    response = TestClient(app).get("/api/diagnostics/storage")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["database"]["playlist_count"] == 1
+    assert payload["database"]["track_count"] == 2
+    assert payload["caches_total_bytes"] == cache_one.stat().st_size + cache_two.stat().st_size
+    assert len(payload["caches"]) == 2
+    assert payload["logs"]["size_bytes"] == log_path.stat().st_size
+    assert payload["data_dir_total_bytes"] >= payload["caches_total_bytes"]
+
+
+def test_storage_endpoint_reports_cache_hit_miss_metrics(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    database_path = tmp_path / "playlists.db"
+    PlaylistLibrary(database_path)
+    log_path = tmp_path / "playlistmuse.log"
+    log_path.write_text("log\n", encoding="utf-8")
+
+    _patch_storage_paths(monkeypatch, tmp_path, database_path, log_path)
+    before = cache_metrics.snapshot().get(
+        "Metadata validation", {"hits": 0, "misses": 0}
+    )
+    cache_metrics.record_hit("Metadata validation")
+    cache_metrics.record_hit("Metadata validation")
+    cache_metrics.record_miss("Metadata validation")
+
+    response = TestClient(app).get("/api/diagnostics/storage")
+
+    assert response.status_code == 200
+    metadata_cache = next(
+        c for c in response.json()["caches"] if c["name"] == "Metadata validation"
+    )
+    assert metadata_cache["hits"] == before["hits"] + 2
+    assert metadata_cache["misses"] == before["misses"] + 1
+    assert 0 < metadata_cache["hit_rate"] < 1
+
+
+def test_clear_cache_deletes_only_cache_files(tmp_path: Path, monkeypatch) -> None:
+    database_path = tmp_path / "playlists.db"
+    PlaylistLibrary(database_path)
+    log_path = tmp_path / "playlistmuse.log"
+    log_path.write_text("log line\n", encoding="utf-8")
+
+    cache_one, cache_two = _patch_storage_paths(monkeypatch, tmp_path, database_path, log_path)
+    bytes_before = cache_one.stat().st_size + cache_two.stat().st_size
+
+    response = TestClient(app).post("/api/diagnostics/storage/clear-cache")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["cleared"] is True
+    assert payload["bytes_freed"] == bytes_before
+    assert not cache_one.exists()
+    assert not cache_two.exists()
+    assert database_path.exists()
+    assert log_path.exists()
+
+
+def test_storage_estimate_projects_from_real_usage(tmp_path: Path, monkeypatch) -> None:
+    database_path = tmp_path / "playlists.db"
+    PlaylistLibrary(database_path)
+    log_path = tmp_path / "playlistmuse.log"
+    log_path.write_text("log\n", encoding="utf-8")
+
+    cache_one, cache_two = _patch_storage_paths(monkeypatch, tmp_path, database_path, log_path)
+    monkeypatch.setattr(diagnostics, "_usage_days_active", lambda: 10)
+    monkeypatch.setattr(diagnostics, "total_generations", lambda: 42)
+
+    response = TestClient(app).get("/api/diagnostics/storage")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["usage"] == {
+        "total_generations": 42,
+        "days_active": 10,
+        "estimate_reliable": True,
+    }
+    metadata_cache = next(c for c in payload["caches"] if c["name"] == "Metadata validation")
+    assert metadata_cache["estimated_steady_state_bytes"] == round(
+        cache_one.stat().st_size * (90 / 10)
+    )
+    youtube_cache = next(c for c in payload["caches"] if c["name"] == "YouTube resolution")
+    assert youtube_cache["estimated_steady_state_bytes"] == round(
+        cache_two.stat().st_size * (30 / 10)
+    )
+    assert payload["caches_estimated_steady_state_total_bytes"] == (
+        metadata_cache["estimated_steady_state_bytes"]
+        + youtube_cache["estimated_steady_state_bytes"]
+    )
+
+
+def test_storage_estimate_is_unreliable_with_too_little_usage_history(
+    tmp_path: Path, monkeypatch
+) -> None:
+    database_path = tmp_path / "playlists.db"
+    PlaylistLibrary(database_path)
+    log_path = tmp_path / "playlistmuse.log"
+    log_path.write_text("log\n", encoding="utf-8")
+
+    cache_one, cache_two = _patch_storage_paths(monkeypatch, tmp_path, database_path, log_path)
+    monkeypatch.setattr(diagnostics, "_usage_days_active", lambda: 1)
+    monkeypatch.setattr(diagnostics, "total_generations", lambda: 2)
+
+    response = TestClient(app).get("/api/diagnostics/storage")
+
+    payload = response.json()
+    assert payload["usage"]["estimate_reliable"] is False
+    metadata_cache = next(c for c in payload["caches"] if c["name"] == "Metadata validation")
+    assert metadata_cache["estimated_steady_state_bytes"] == round(
+        cache_one.stat().st_size * 90
+    )

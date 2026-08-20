@@ -13,6 +13,7 @@ from backend.provider_rate_limits import (
     ProviderRateLimitedError,
     clear_rate_limits,
     is_rate_limited,
+    mark_rate_limited,
 )
 
 
@@ -148,3 +149,59 @@ def test_request_structured_json_marks_and_skips_a_rate_limited_gemini_model(
         assert calls == 1
 
     asyncio.run(run())
+
+
+def test_generate_playlist_draft_fails_fast_with_a_clear_message_when_the_whole_chain_is_limited() -> (
+    None
+):
+    config = AppConfig(
+        provider="custom",
+        api_key="test-key",
+        base_url="https://api.groq.com/openai/v1",
+        model="groq/compound",
+        fallback_1="groq/compound-mini",
+    )
+    mark_rate_limited("custom", "groq/compound", cooldown_seconds=48)
+    mark_rate_limited("custom", "groq/compound-mini", cooldown_seconds=225)
+
+    with pytest.raises(ValueError) as excinfo:
+        asyncio.run(llm.generate_playlist_draft(config, "prompt", 5))
+
+    message = str(excinfo.value)
+    assert "selected model and its 1 fallback" in message
+    assert "3m 45s" in message  # the longer of the two cooldowns (225s), not the shorter one
+
+
+def test_generate_playlist_draft_keeps_trying_when_only_some_models_are_limited(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_request_model(client, config, model, user_prompt, count, *, exact_count=False):
+        return json.dumps(
+            {
+                "title": "Focused Journey",
+                "description": "A coherent playlist with a deliberate musical arc.",
+                "tracks": [
+                    {
+                        "artist": f"Artist {index}",
+                        "title": f"Track {index}",
+                        "description": "sound",
+                        "reason": "reason",
+                    }
+                    for index in range(count)
+                ],
+            }
+        )
+
+    monkeypatch.setattr(llm, "_request_model", fake_request_model)
+    config = AppConfig(
+        provider="custom",
+        api_key="test-key",
+        base_url="https://api.groq.com/openai/v1",
+        model="groq/compound",
+        fallback_1="groq/compound-mini",
+    )
+    mark_rate_limited("custom", "groq/compound", cooldown_seconds=48)
+
+    result = asyncio.run(llm.generate_playlist_draft(config, "prompt", 5))
+
+    assert len(result["tracks"]) == 5

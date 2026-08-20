@@ -108,10 +108,6 @@
       render(result);
       if (result.status === 'impossible') return;
 
-      // common.js still contains a legacy prompt preflight for compatibility. Mark this
-      // prompt as already validated so its target-level click handler does not issue a
-      // second request (which previously could re-enter this guard a third time).
-      button.dataset.validatedPrompt = submittedPrompt;
       approvedClick = true;
       button.click();
     } catch (error) {

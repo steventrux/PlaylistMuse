@@ -321,6 +321,7 @@ body.sidebar-open .playlistmuse-sidebar {
   overflow: hidden;
   text-overflow: ellipsis;
   opacity: 1;
+  visibility: visible;
   pointer-events: none;
   transform: none;
   transition: none;
@@ -369,14 +370,11 @@ body.sidebar-open .playlistmuse-sidebar {
   color: #fda4af;
 }
 
-/* The active AI row exposes which provider is actually in use. */
-#header-ai-status.on[data-provider="gemini"]::after { content: "Gemini · Configured"; }
-#header-ai-status.on[data-provider="openai"]::after { content: "OpenAI · Configured"; }
-#header-ai-status.on[data-provider="anthropic"]::after { content: "Anthropic · Configured"; }
-#header-ai-status.on[data-provider="openrouter_auto"]::after { content: "OpenRouter Auto · Configured"; }
-#header-ai-status.on[data-provider="openrouter_free"]::after { content: "OpenRouter Free · Configured"; }
-#header-ai-status.on[data-provider="ollama"]::after { content: "Ollama · Configured"; }
-#header-ai-status.on[data-provider="custom"]::after { content: "Custom · Configured"; }
+/* The active AI row exposes which provider is actually in use; the label itself
+   (including, for a custom OpenAI-compatible endpoint, its hostname) comes from
+   home-status.js via the data-provider-label attribute so distinct custom
+   endpoints (e.g. Grok vs. Groq) don't all collapse into a bare "Custom". */
+#header-ai-status.on::after { content: attr(data-provider-label) " · Configured"; }
 
 .playlistmuse-sidebar .header-indicator.ai.on,
 .playlistmuse-sidebar .header-indicator.youtube.on,

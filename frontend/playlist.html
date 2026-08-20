@@ -10,10 +10,10 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css?v=10">
-  <link rel="stylesheet" href="/static/layout.css?v=5">
+  <link rel="stylesheet" href="/static/layout.css?v=7">
   <link rel="stylesheet" href="/static/controls.css?v=8">
   <link rel="stylesheet" href="/static/playlist.css?v=5">
-  <link rel="stylesheet" href="/static/playlist-editor.css?v=3">
+  <link rel="stylesheet" href="/static/playlist-editor.css?v=5">
   <link rel="stylesheet" href="/static/playlist-refine.css?v=7">
   <link rel="stylesheet" href="/static/playlist-cards.css?v=4">
   <link rel="stylesheet" href="/static/compact-cards.css?v=7">
@@ -24,8 +24,8 @@
   <link rel="stylesheet" href="/static/youtube-results.css?v=4">
   <link rel="stylesheet" href="/static/youtube-success.css?v=1">
   <link rel="stylesheet" href="/static/playlist-reorder.css?v=1">
-  <link rel="stylesheet" href="/static/action-controls.css?v=4">
-  <link rel="stylesheet" href="/static/header-navigation.css?v=13">
+  <link rel="stylesheet" href="/static/action-controls.css?v=7">
+  <link rel="stylesheet" href="/static/header-navigation.css?v=21">
 </head>
 <body>
   <header class="app-header">
@@ -109,6 +109,15 @@
               <button id="add-track" class="secondary" type="button">Add track</button>
               <button id="refine-playlist" class="secondary" type="button">Playlist Studio</button>
             </div>
+            <div id="playlist-export-actions" class="playlist-export-actions">
+              <div class="playlist-export-menu">
+                <button id="export-playlist" class="secondary" type="button" aria-haspopup="true" aria-expanded="false">Export</button>
+                <div id="export-playlist-menu" class="playlist-export-menu-panel hidden" role="menu" aria-label="Export format">
+                  <button type="button" class="playlist-export-option" data-format="m3u" role="menuitem">M3U</button>
+                  <button type="button" class="playlist-export-option" data-format="csv" role="menuitem">CSV</button>
+                </div>
+              </div>
+            </div>
             <button id="playlist-feedback" class="secondary playlist-feedback-action hidden" type="button">Give feedback</button>
           </div>
         </div>
@@ -121,16 +130,16 @@
   </main>
 
   <script src="/static/replacement-history.js?v=3"></script>
-  <script src="/static/common.js?v=7"></script>
+  <script src="/static/common.js?v=18"></script>
   <script src="/static/playlist-save-status.js?v=2"></script>
   <script src="/static/playlist-mosaic.js?v=1"></script>
-  <script src="/static/library-tags.js?v=3"></script>
-  <script src="/static/playlist.js?v=20"></script>
+  <script src="/static/library-tags.js?v=5"></script>
+  <script src="/static/playlist.js?v=24"></script>
   <script src="/static/playlist-add-track.js?v=2"></script>
   <script src="/static/playlist-refine.js?v=7"></script>
   <script src="/static/playlist-feedback.js?v=1"></script>
-  <script src="/static/action-controls.js?v=2"></script>
-  <script data-playlistmuse-footer-status src="/static/home-status.js?v=26"></script>
+  <script src="/static/action-controls.js?v=5"></script>
+  <script data-playlistmuse-footer-status src="/static/home-status.js?v=34"></script>
   <script src="/static/youtube-publish.js?v=15"></script>
 </body>
 </html>

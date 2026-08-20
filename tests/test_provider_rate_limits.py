@@ -12,8 +12,11 @@ from backend.provider_rate_limits import (
     MAX_SHORT_COOLDOWN_SECONDS,
     clear_rate_limits,
     cooldown_seconds_for_response,
+    format_cooldown,
     is_rate_limited,
+    longest_remaining_cooldown,
     mark_rate_limited,
+    seconds_remaining,
 )
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -129,3 +132,30 @@ def test_non_gemini_provider_respects_retry_after_header() -> None:
 def test_non_gemini_provider_without_hints_falls_back() -> None:
     response = httpx.Response(429, json={"error": "rate limited"})
     assert cooldown_seconds_for_response(response, "anthropic") == FALLBACK_COOLDOWN_SECONDS
+
+
+def test_seconds_remaining_is_none_until_marked() -> None:
+    assert seconds_remaining("gemini", "gemini-3.6-flash") is None
+    mark_rate_limited("gemini", "gemini-3.6-flash", cooldown_seconds=45)
+    assert seconds_remaining("gemini", "gemini-3.6-flash") == pytest.approx(45, abs=1)
+
+
+def test_longest_remaining_cooldown_requires_every_model_to_be_limited() -> None:
+    mark_rate_limited("custom", "model-a", cooldown_seconds=10)
+    # model-b is not rate-limited, so at least one model is still usable.
+    assert longest_remaining_cooldown("custom", ["model-a", "model-b"]) is None
+
+    mark_rate_limited("custom", "model-b", cooldown_seconds=90)
+    assert longest_remaining_cooldown("custom", ["model-a", "model-b"]) == pytest.approx(
+        90, abs=1
+    )
+
+
+def test_longest_remaining_cooldown_with_no_models_is_none() -> None:
+    assert longest_remaining_cooldown("custom", []) is None
+
+
+def test_format_cooldown_switches_to_minutes() -> None:
+    assert format_cooldown(48) == "48s"
+    assert format_cooldown(90) == "1m 30s"
+    assert format_cooldown(120) == "2m"

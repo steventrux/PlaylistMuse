@@ -27,6 +27,7 @@ from backend.config import (
 )
 from backend.constraint_interpreter import interpret_constraints
 from backend.generation_counter import record_generation
+from backend.generation_stage_timing import reset_stage_timings, stage_timings_snapshot
 from backend.generation_errors import record_generation_error
 from backend.generation_runtime import (
     _LAST_INTERPRETED_CONSTRAINTS,
@@ -34,6 +35,7 @@ from backend.generation_runtime import (
     generate_playlist_draft,
     resolve_candidates,
 )
+from backend.favorites import FavoritesRequestLevel
 from backend.llm import safe_error_message
 from backend.metadata_validation import extract_metadata_constraints
 from backend.playlist_ordering import (
@@ -245,6 +247,9 @@ class GenerateRequest(BaseModel):
     prompt: str = Field(min_length=3, max_length=1950)
     track_count: int = Field(default=25, ge=5, le=100)
     options: PlaylistOptions = Field(default_factory=PlaylistOptions)
+    # The score already shown to the user by /api/prompts/analyze before they clicked
+    # Generate -- not recomputed here, so recording it costs no extra AI call.
+    complexity_score: int | None = Field(default=None, ge=0, le=100)
 
     @field_validator("prompt")
     @classmethod
@@ -863,6 +868,104 @@ def _replenishment_prompt(
     )
 
 
+def _favorites_weight_instruction(*, level: FavoritesRequestLevel, noun: str) -> str:
+    if level is FavoritesRequestLevel.EXPLICIT:
+        return (
+            f"The user explicitly asked to use their favorite {noun} in this request. "
+            f"Treat these {noun} as a strong, primary preference: actively include as "
+            f"many of them (or songs musically similar to them) as you can while still "
+            f"satisfying every mandatory constraint, exclusion and quantity in the "
+            f"request -- do not merely use them as a tie-breaker between otherwise-equal "
+            f"candidates."
+        )
+    if level is FavoritesRequestLevel.INSPIRED:
+        return (
+            f"The user asked for a playlist inspired by their favorite {noun}. Treat "
+            f"these {noun} as a moderately strong bias -- noticeably more influential "
+            f"than a default tie-breaker: lean toward including them, or songs/artists "
+            f"musically similar to them, more often than not. This is not an exclusive "
+            f"list, so keep bringing in other well-fitting suggestions too, and never "
+            f"let this bias override an explicit constraint, exclusion or quantity in "
+            f"the request."
+        )
+    return (
+        f"Treat these {noun} as a soft, secondary bias only: never override an "
+        f"explicit constraint, exclusion or quantity in the request to include them, "
+        f"and never force one in if it does not fit this specific request. When "
+        f"multiple otherwise-equal candidates are available, mildly prefer these "
+        f"{noun} or musically similar ones."
+    )
+
+
+def _favorites_guidance(
+    *,
+    artists_level: FavoritesRequestLevel | None = None,
+    tracks_level: FavoritesRequestLevel | None = None,
+) -> str:
+    """Fold the user's bookmarked favorites into the prompt as generation guidance.
+
+    Reads the small local favorites.json once per request (same cost class as
+    load_config()) -- no network call, no per-request caching needed at this scale.
+    """
+    from backend.favorites import favorite_artist_names, favorite_track_summaries
+
+    artists_level = artists_level or FavoritesRequestLevel.NONE
+    tracks_level = tracks_level or FavoritesRequestLevel.NONE
+    artists = favorite_artist_names(limit=40)
+    tracks = favorite_track_summaries(limit=40)
+    if not artists and not tracks:
+        return ""
+
+    artist_lines = "\n".join(f"- {name}" for name in artists)
+    track_lines = "\n".join(f"- {t['artists']} — {t['title']}" for t in tracks)
+    return (
+        "\n\nUser's favorite artists and tracks (bookmarked by the listener).\n"
+        f"{_favorites_weight_instruction(level=artists_level, noun='artists')}\n"
+        f"Favorite artists:\n{artist_lines or '- None'}\n"
+        f"{_favorites_weight_instruction(level=tracks_level, noun='tracks')}\n"
+        f"Favorite tracks:\n{track_lines or '- None'}"
+    )
+
+
+def _seed_favorite_tracks(options: PlaylistOptions, limit: int) -> list[dict]:
+    """Return bookmarked favorite tracks as ready-made playlist entries.
+
+    Favorite tracks are already-resolved (real video_id, saved when the user
+    bookmarked them), so this bypasses the usual AI-suggest-then-catalogue-resolve
+    flow entirely -- re-resolving by title/artist search risks silently swapping in
+    a different recording than the one actually bookmarked.
+    """
+    from backend.favorites import list_favorite_tracks
+    from backend.recording_variants import track_matches_variant
+
+    seeded: list[dict] = []
+    for entry in list_favorite_tracks():
+        if options.exclude_live and track_matches_variant(entry, "live"):
+            continue
+        if options.exclude_covers and track_matches_variant(entry, "cover"):
+            continue
+        if options.exclude_remixes and track_matches_variant(entry, "remix"):
+            continue
+        video_id = entry.get("video_id", "")
+        if not video_id:
+            continue
+        seeded.append(
+            {
+                "video_id": video_id,
+                "title": entry.get("title", ""),
+                "artists": entry.get("artists", ""),
+                "album": entry.get("album") or None,
+                "thumbnail_url": entry.get("thumbnail_url", ""),
+                "url": f"https://music.youtube.com/watch?v={video_id}",
+                "description": "",
+                "reason": "Bookmarked favorite.",
+            }
+        )
+        if len(seeded) >= limit:
+            break
+    return seeded
+
+
 def _initial_draft_overshoot(count: int) -> int:
     """Extra tracks to request in the very first draft, beyond the target `count`.
 
@@ -884,26 +987,64 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     lastfm_anchors = list(_SEED_ANCHORS.get())
     lastfm_candidates = list(_SEED_RECOMMENDATIONS.get())
 
+    from backend.favorites import (
+        MAX_FAVORITE_ARTISTS,
+        activate_favorite_artist_allowlist,
+        favorite_artist_names,
+        favorite_categories_requested_levels,
+    )
+
+    artists_level, tracks_level = favorite_categories_requested_levels(prompt)
+    explicit_artists = artists_level is FavoritesRequestLevel.EXPLICIT
+    explicit_tracks = tracks_level is FavoritesRequestLevel.EXPLICIT
+    activate_favorite_artist_allowlist(
+        favorite_artist_names(limit=MAX_FAVORITE_ARTISTS) if explicit_artists else []
+    )
+    favorites_guidance = _favorites_guidance(artists_level=artists_level, tracks_level=tracks_level)
     initial_prompt = _constraint_priority_prompt(prompt)
     if lastfm_candidates:
         initial_prompt += _seed_evidence_guidance(lastfm_candidates, seed_mode=seed_mode)
+    initial_prompt += favorites_guidance
+    exclusions = options.model_dump()
 
-    _emit_progress("llm_initial")
-    draft = await generate_playlist_draft(
-        config,
-        initial_prompt,
-        count + _initial_draft_overshoot(count),
-        is_seed_generation=bool(lastfm_anchors),
-    )
+    tracks = _seed_favorite_tracks(options, limit=count) if explicit_tracks else []
+    # A pure "only my favorite tracks" request must never pad with AI suggestions --
+    # the AI is skipped entirely rather than asked for candidates that would only be
+    # discarded (see the allow_shortfall guard below for the matching count relaxation).
+    skip_initial_ai = explicit_tracks and not explicit_artists
+    missing_after_seed = count - len(tracks)
     guidance_applied = bool(lastfm_candidates)
 
-    draft_tracks = _annotate_lastfm_sources(
-        list(draft.get("tracks", [])),
-        lastfm_candidates,
-    )
-    exclusions = options.model_dump()
-    _emit_progress("catalogue_resolution_initial")
-    tracks, unresolved = await resolve_candidates(draft_tracks, exclusions)
+    if skip_initial_ai or missing_after_seed <= 0:
+        draft = {
+            "title": "Your Favorite Tracks",
+            "description": "A playlist built from your bookmarked favorite tracks.",
+        }
+        draft_tracks: list[dict] = []
+        unresolved: list[dict] = []
+        attempted_candidates: list[dict] = []
+        attempted_keys: set[str] = set()
+    else:
+        _emit_progress("llm_initial")
+        draft = await generate_playlist_draft(
+            config,
+            initial_prompt,
+            missing_after_seed + _initial_draft_overshoot(missing_after_seed),
+            is_seed_generation=bool(lastfm_anchors),
+        )
+        draft_tracks = _annotate_lastfm_sources(
+            list(draft.get("tracks", [])),
+            lastfm_candidates,
+        )
+        _emit_progress("catalogue_resolution_initial")
+        newly_resolved, unresolved = await resolve_candidates(draft_tracks, exclusions)
+        seeded_ids = {track["video_id"] for track in tracks}
+        tracks += [
+            track for track in newly_resolved if track.get("video_id") not in seeded_ids
+        ]
+        attempted_candidates = list(draft_tracks)
+        attempted_keys = {_candidate_key(candidate) for candidate in attempted_candidates}
+
     _log_catalogue_diagnostics(
         "initial",
         draft_tracks,
@@ -912,16 +1053,28 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
         playlist_before=0,
     )
 
-    attempted_candidates = list(draft_tracks)
-    attempted_keys = {_candidate_key(candidate) for candidate in attempted_candidates}
     resolved_keys = {
         track_identity_key(track.get("title", ""), track.get("artists", ""))
         for track in tracks
     }
     resolved_ids = {track.get("video_id") for track in tracks if track.get("video_id")}
 
+    from backend.creative_intent import active_creative_intent
+
+    # A hard-restricted favorite-artist pool (see backend.favorites) combined with an
+    # explicit mood/style requirement may simply have no matching tracks among those
+    # few artists -- every replenishment round would just retry the same impossible
+    # request against a real (often slow) AI call, so give up after one empty round
+    # instead of exhausting the full replenishment budget on an unwinnable request.
+    favorite_artist_creative_conflict = explicit_artists and bool(
+        active_creative_intent().requirements
+    )
+    stall_limit = 1 if favorite_artist_creative_conflict else MAX_STALLED_ROUNDS
+
     stalled_rounds = 0
     for round_index in range(MAX_REPLENISHMENT_ROUNDS):
+        if skip_initial_ai:
+            break
         missing = count - len(tracks)
         if missing <= 0:
             break
@@ -938,6 +1091,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
             lastfm_candidates,
             seed_mode=seed_mode,
         )
+        refill_prompt += favorites_guidance
         _emit_progress("llm_replenishment")
         refill = await generate_playlist_draft(config, refill_prompt, pool_size)
         refill_tracks = _annotate_lastfm_sources(
@@ -955,7 +1109,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
 
         if not fresh_candidates:
             stalled_rounds += 1
-            if stalled_rounds >= MAX_STALLED_ROUNDS:
+            if stalled_rounds >= stall_limit:
                 break
             continue
 
@@ -992,10 +1146,27 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
             playlist_before=playlist_before,
         )
         stalled_rounds = 0 if added else stalled_rounds + 1
-        if stalled_rounds >= MAX_STALLED_ROUNDS:
+        if stalled_rounds >= stall_limit:
             break
 
-    if len(tracks) < count:
+    # A hard-restricted favorite-artist pool (see backend.favorites) combined with an
+    # explicit mood/style requirement may simply have no matching tracks among those
+    # few artists -- a shortfall (or, if nothing matches at all, a clear error) is the
+    # honest outcome, not padding the count with genre-incompatible picks.
+    allow_shortfall = (
+        explicit_tracks and not explicit_artists
+    ) or favorite_artist_creative_conflict
+    if explicit_tracks and not explicit_artists and not tracks:
+        raise ValueError(
+            "You asked for your favorite tracks, but you haven't bookmarked any yet."
+        )
+    if favorite_artist_creative_conflict and not tracks:
+        raise ValueError(
+            "None of your favorite artists have tracks matching what you asked for "
+            "in this request, so PlaylistMuse could not build this playlist. Try a "
+            "different style/mood, or drop the favorite-artists request."
+        )
+    if len(tracks) < count and not allow_shortfall:
         raise ValueError(
             f"PlaylistMuse found only {len(tracks)} of {count} distinct tracks that "
             "could be verified on YouTube Music without deliberately relaxing the "
@@ -1039,7 +1210,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
         "description": with_playlist_signature(draft["description"]),
         "prompt": prompt,
         "requested_count": count,
-        "resolved_count": count,
+        "resolved_count": len(final_tracks),
         "tracks": final_tracks,
         "unresolved": unresolved,
         "lastfm": _lastfm_summary(
@@ -1117,7 +1288,9 @@ async def seed_search(
     return {"query": q, "results": songs}
 
 
-async def _generate_with_telemetry(work: Callable[[], Any]) -> dict:
+async def _generate_with_telemetry(
+    work: Callable[[], Any], *, complexity_score: int | None = None
+) -> dict:
     """Time one top-level generation, record it, and tag the result with which
     provider produced it.
 
@@ -1127,12 +1300,15 @@ async def _generate_with_telemetry(work: Callable[[], Any]) -> dict:
     once if the AI reproduces the seed track) -- hooking inside `_generate()` would
     double-count those retries as separate playlists.
     """
+    reset_stage_timings()
     started = time.perf_counter()
     result = await work()
     elapsed_ms = round((time.perf_counter() - started) * 1000)
     result["generation_meta"] = {
-        "provider": load_config().provider or "unknown",
+        "provider": load_config().stats_key,
         "duration_ms": elapsed_ms,
+        "stage_timings_ms": stage_timings_snapshot(),
+        "complexity_score": complexity_score,
     }
     record_generation()
     if telemetry_enabled():
@@ -1144,13 +1320,14 @@ async def _generate_with_telemetry(work: Callable[[], Any]) -> dict:
 async def generate_playlist(request: GenerateRequest) -> dict:
     try:
         return await _generate_with_telemetry(
-            lambda: _generate(request.prompt, request.track_count, request.options)
+            lambda: _generate(request.prompt, request.track_count, request.options),
+            complexity_score=request.complexity_score,
         )
     except ValueError as error:
-        record_generation_error(error)
+        record_generation_error(error, provider=load_config().stats_key)
         raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
     except Exception as error:
-        record_generation_error(error)
+        record_generation_error(error, provider=load_config().stats_key)
         raise HTTPException(
             status_code=502,
             detail="Playlist generation failed. Please try again.",
@@ -1290,10 +1467,10 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
             lambda: _generate_from_seed_playlist(request)
         )
     except ValueError as error:
-        record_generation_error(error)
+        record_generation_error(error, provider=load_config().stats_key)
         raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
     except Exception as error:
-        record_generation_error(error)
+        record_generation_error(error, provider=load_config().stats_key)
         raise HTTPException(
             status_code=502,
             detail="Playlist generation failed. Please try again.",
@@ -1330,7 +1507,7 @@ async def _stream_generation(
             result = await work()
             await queue.put(("result", {"playlist": result}))
         except ValueError as error:
-            record_generation_error(error)
+            record_generation_error(error, provider=load_config().stats_key)
             await queue.put((
                 "error",
                 {
@@ -1340,7 +1517,7 @@ async def _stream_generation(
                 },
             ))
         except Exception as error:  # noqa: BLE001 - translated into one safe SSE error event.
-            record_generation_error(error)
+            record_generation_error(error, provider=load_config().stats_key)
             await queue.put((
                 "error",
                 {
@@ -1372,7 +1549,8 @@ async def generate_playlist_stream(request: GenerateRequest) -> StreamingRespons
     return StreamingResponse(
         _stream_generation(
             lambda: _generate_with_telemetry(
-                lambda: _generate(request.prompt, request.track_count, request.options)
+                lambda: _generate(request.prompt, request.track_count, request.options),
+                complexity_score=request.complexity_score,
             )
         ),
         media_type="text/event-stream",
@@ -1413,6 +1591,23 @@ async def replace_track(request: ReplaceTrackRequest) -> dict:
         "Choose alternatives that preserve or improve that role while adding variety. "
         "Do not return the current song or any song already in the playlist.\n"
         f"Songs to avoid:\n{avoided or '- None'}"
+    )
+    from backend.favorites import (
+        MAX_FAVORITE_ARTISTS,
+        activate_favorite_artist_allowlist,
+        favorite_artist_names,
+        favorite_categories_requested_levels,
+    )
+
+    replace_artists_level, replace_tracks_level = favorite_categories_requested_levels(
+        request.prompt
+    )
+    replace_explicit_artists = replace_artists_level is FavoritesRequestLevel.EXPLICIT
+    activate_favorite_artist_allowlist(
+        favorite_artist_names(limit=MAX_FAVORITE_ARTISTS) if replace_explicit_artists else []
+    )
+    replacement_prompt += _favorites_guidance(
+        artists_level=replace_artists_level, tracks_level=replace_tracks_level
     )
 
     try:

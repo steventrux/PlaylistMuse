@@ -8,9 +8,15 @@ import backend.generation_errors as generation_errors
 import backend.main as main_module
 
 
+class _FakeConfig:
+    provider = "gemini"
+    stats_key = "gemini"
+
+
 def test_generate_route_records_a_value_error(monkeypatch, tmp_path: Path) -> None:
     path = tmp_path / "generation_errors.json"
     monkeypatch.setattr(generation_errors, "GENERATION_ERRORS_PATH", path)
+    monkeypatch.setattr(main_module, "load_config", lambda: _FakeConfig())
 
     async def failing_generate(prompt, count, options):
         raise ValueError("Describe the playlist you want.")
@@ -23,12 +29,13 @@ def test_generate_route_records_a_value_error(monkeypatch, tmp_path: Path) -> No
     )
 
     assert response.status_code == 400
-    assert generation_errors.error_breakdown() == {"ValueError": 1}
+    assert generation_errors.error_breakdown() == {"gemini": {"ValueError": 1}}
 
 
 def test_generate_route_records_an_unexpected_error(monkeypatch, tmp_path: Path) -> None:
     path = tmp_path / "generation_errors.json"
     monkeypatch.setattr(generation_errors, "GENERATION_ERRORS_PATH", path)
+    monkeypatch.setattr(main_module, "load_config", lambda: _FakeConfig())
 
     async def failing_generate(prompt, count, options):
         raise RuntimeError("the AI provider timed out")
@@ -41,4 +48,4 @@ def test_generate_route_records_an_unexpected_error(monkeypatch, tmp_path: Path)
     )
 
     assert response.status_code == 502
-    assert generation_errors.error_breakdown() == {"RuntimeError": 1}
+    assert generation_errors.error_breakdown() == {"gemini": {"RuntimeError": 1}}

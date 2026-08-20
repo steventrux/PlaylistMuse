@@ -3,7 +3,9 @@
 
   const LIMITS = {genre: 3, mood: 2, period: 1, custom: 20};
   const AI_CATEGORIES = ['genre', 'mood', 'period'];
+  const DECADE_RE = /^\d{3,4}0s$/;
   const activeTagFilters = new Set();
+  const activeTagLabels = new Map();
   let renderLibrary = null;
 
   function clean(value) {
@@ -12,6 +14,16 @@
 
   function keyFor(value) {
     return clean(value).toLocaleLowerCase();
+  }
+
+  function expandPeriod(value) {
+    const text = clean(value);
+    if (!text) return [];
+    const parts = text.split('-').map((part) => part.trim());
+    if (parts.length > 1 && parts.every((part) => DECADE_RE.test(part))) {
+      return parts;
+    }
+    return [text];
   }
 
   function valuesFor(tags, category) {
@@ -39,7 +51,17 @@
 
   function searchValues(item) {
     const tags = normalize(item?.tags);
-    return [...tags.genre, ...tags.mood, ...tags.period, ...tags.custom];
+    // A stored period can be a combined range ("1970s-1980s"), but Statistics
+    // shows -- and links to -- each decade separately; expand it here so a
+    // filter/search for "1980s" also matches a playlist only tagged with the
+    // combined range, not just an exact "1980s" tag. Keep the original combined
+    // value too (not just its split decades), otherwise clicking the exact
+    // "1970s-1980s" chip shown on the card itself would no longer match.
+    const periods = tags.period.flatMap((period) => {
+      const expanded = expandPeriod(period);
+      return expanded.length > 1 ? [period, ...expanded] : expanded;
+    });
+    return [...tags.genre, ...tags.mood, ...periods, ...tags.custom];
   }
 
   function matchesFilters(item) {
@@ -51,7 +73,10 @@
   function refreshFilters(items) {
     const available = new Set(items.flatMap((item) => searchValues(item)).map(keyFor));
     [...activeTagFilters].forEach((tag) => {
-      if (!available.has(tag)) activeTagFilters.delete(tag);
+      if (!available.has(tag)) {
+        activeTagFilters.delete(tag);
+        activeTagLabels.delete(tag);
+      }
     });
   }
 
@@ -64,9 +89,28 @@
     if (!key) return;
     if (activeTagFilters.has(key)) {
       activeTagFilters.delete(key);
+      activeTagLabels.delete(key);
     } else {
       activeTagFilters.add(key);
+      activeTagLabels.set(key, clean(value));
     }
+    renderLibrary?.();
+  }
+
+  function presetFilter(value) {
+    const key = keyFor(value);
+    if (!key) return;
+    activeTagFilters.add(key);
+    activeTagLabels.set(key, clean(value));
+  }
+
+  function activeFilters() {
+    return [...activeTagLabels.entries()].map(([key, label]) => ({key, label}));
+  }
+
+  function clearFilter(key) {
+    if (!activeTagFilters.delete(key)) return;
+    activeTagLabels.delete(key);
     renderLibrary?.();
   }
 
@@ -289,11 +333,14 @@
   }
 
   const api = {
+    activeFilters,
     addPersonal,
     bindFilters,
+    clearFilter,
     editableSummary,
     matchesFilters,
     normalize,
+    presetFilter,
     refreshFilters,
     removePersonal,
     searchValues,

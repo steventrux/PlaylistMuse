@@ -64,7 +64,8 @@
 }
 
 .playlist-toolbar-actions,
-.playlist-draft-actions {
+.playlist-draft-actions,
+.playlist-export-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -73,10 +74,52 @@
 }
 
 .playlist-draft-actions .secondary,
+.playlist-export-actions .secondary,
 .playlist-feedback-action {
   min-height: 36px;
   padding: 8px 12px;
   font-size: .8rem;
+}
+
+.playlist-export-menu {
+  position: relative;
+}
+
+.playlist-export-menu-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 2px;
+  min-width: 128px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(20, 24, 48, .97);
+  box-shadow: 0 14px 34px rgba(6, 8, 20, .45);
+}
+
+.playlist-export-menu-panel.hidden {
+  display: none;
+}
+
+.playlist-export-option {
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: .85rem;
+  font-weight: 620;
+  text-align: left;
+  cursor: pointer;
+}
+
+.playlist-export-option:hover,
+.playlist-export-option:focus-visible {
+  background: rgba(139, 92, 246, .16);
+  color: var(--cyan-light);
 }
 
 .playlist-editor-host:empty {
@@ -217,11 +260,13 @@ body.playlist-readonly #playlist-tags .library-tag-add-form {
     justify-content: flex-start;
   }
 
-  .playlist-draft-actions {
+  .playlist-draft-actions,
+  .playlist-export-actions {
     width: auto;
   }
 
   .playlist-draft-actions .secondary,
+  .playlist-export-actions .secondary,
   .playlist-feedback-action {
     flex: 1 1 auto;
   }
