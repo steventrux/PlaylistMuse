@@ -704,8 +704,42 @@
   }
 
   function initExportControls() {
-    $('export-playlist-m3u')?.addEventListener('click', () => exportPlaylist('m3u'));
-    $('export-playlist-csv')?.addEventListener('click', () => exportPlaylist('csv'));
+    const toggle = $('export-playlist');
+    const menu = $('export-playlist-menu');
+    if (!toggle || !menu) return;
+
+    const closeMenu = () => {
+      menu.classList.add('hidden');
+      toggle.setAttribute('aria-expanded', 'false');
+    };
+
+    toggle.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const isOpen = !menu.classList.contains('hidden');
+      if (isOpen) {
+        closeMenu();
+      } else {
+        menu.classList.remove('hidden');
+        toggle.setAttribute('aria-expanded', 'true');
+      }
+    });
+
+    menu.addEventListener('click', (event) => {
+      const option = event.target.closest('.playlist-export-option');
+      if (!option) return;
+      exportPlaylist(option.dataset.format);
+      closeMenu();
+    });
+
+    document.addEventListener('click', (event) => {
+      if (!menu.classList.contains('hidden') && !event.target.closest('.playlist-export-menu')) {
+        closeMenu();
+      }
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !menu.classList.contains('hidden')) closeMenu();
+    });
   }
 
   if (requestedLibraryId && data?.library_id !== requestedLibraryId) {
