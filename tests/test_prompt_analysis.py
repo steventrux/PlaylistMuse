@@ -2,7 +2,13 @@ import asyncio
 import json
 
 from backend.config import AppConfig
-from backend.prompt_analysis import analyze_prompt_semantics, parse_analysis
+from backend.prompt_analysis import (
+    LOCAL_MODEL_TIMEOUT_SECONDS,
+    REMOTE_MODEL_TIMEOUT_SECONDS,
+    _model_timeout,
+    analyze_prompt_semantics,
+    parse_analysis,
+)
 from backend.provider_rate_limits import ProviderRateLimitedError
 
 
@@ -159,3 +165,22 @@ def test_rate_limited_model_falls_back_to_next_model_instead_of_aborting(monkeyp
     )
 
     assert result["dimensions"] == ["genre"]
+
+
+def test_openrouter_free_gets_the_generous_local_analysis_timeout() -> None:
+    """OpenRouter's free-tier routing is congested/rate-limited by nature and
+    routinely takes far longer than a normal hosted API to answer -- the short
+    remote timeout used for fast providers just times this analysis out on nearly
+    every attempt, silently keeping "Average prompt complexity" empty for anyone
+    on that tier. It should get the same generous budget as a self-hosted model.
+    """
+    free_config = AppConfig(provider="openrouter_free", api_key="sk-or-test", model="openrouter/free")
+    assert _model_timeout(free_config) == LOCAL_MODEL_TIMEOUT_SECONDS
+
+    # Paid/auto OpenRouter routing and other hosted providers are fast and must
+    # keep the short timeout -- this fix is scoped to the free tier specifically.
+    auto_config = AppConfig(provider="openrouter_auto", api_key="sk-or-test", model="openrouter/auto")
+    assert _model_timeout(auto_config) == REMOTE_MODEL_TIMEOUT_SECONDS
+
+    gemini_config = AppConfig(provider="gemini", api_key="test-key", model="gemini-flash-latest")
+    assert _model_timeout(gemini_config) == REMOTE_MODEL_TIMEOUT_SECONDS
