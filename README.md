@@ -2,7 +2,7 @@
   <img alt="PlaylistMuse" src="frontend/playlistmuse-banner.svg" width="100%">
 
   <p>
-    Built for people who would rather describe a sound than manually assemble a queue.
+    <strong>Describe the playlist you want. Get real tracks, ready to refine and publish.</strong>
   </p>
 
   <br>
@@ -17,19 +17,25 @@
   <img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fstats.playlistmuse.workers.dev%2Fbadge.json&style=flat-square" alt="Playlists generated across all opted-in installations" height="24">
 
   <p>
-    Create, refine, save and publish YouTube Music playlists from a written idea or a reference song.
+    Create, refine, save and publish YouTube Music playlists from a written idea or a reference song, running entirely on your own server.
   </p>
 
   <p>
-    <a href="#overview"><strong>Overview</strong></a>
+    <a href="#why-playlistmuse"><strong>Why PlaylistMuse</strong></a>
+    &nbsp;·&nbsp;
+    <a href="#screenshots"><strong>Screenshots</strong></a>
     &nbsp;·&nbsp;
     <a href="#features"><strong>Features</strong></a>
+    &nbsp;·&nbsp;
+    <a href="#quick-start"><strong>Quick start</strong></a>
     &nbsp;·&nbsp;
     <a href="#installation"><strong>Installation</strong></a>
     &nbsp;·&nbsp;
     <a href="#configuration"><strong>Configuration</strong></a>
     &nbsp;·&nbsp;
     <a href="#data-backup-and-updates"><strong>Data, backup & updates</strong></a>
+    &nbsp;·&nbsp;
+    <a href="#roadmap"><strong>Roadmap</strong></a>
     &nbsp;·&nbsp;
     <a href="#support-and-feedback"><strong>Support & feedback</strong></a>
   </p>
@@ -39,11 +45,55 @@
 
 ## Overview
 
-PlaylistMuse is a self-hosted web application for creating music playlists with natural-language instructions.
+PlaylistMuse turns a written idea into a finished playlist. Describe the sound, mood, era, activity or musical direction you want, or hand it a reference track to build around, and PlaylistMuse takes it from there.
 
-Describe the sound, mood, era, activity or musical direction you want, or start from a reference track. PlaylistMuse uses the AI provider you choose to build a playlist from real catalogue tracks, lets you review and refine the result, stores your playlists locally and can publish finished playlists to YouTube Music.
+The AI provider you choose interprets that request, real catalogue data resolves it into actual, playable tracks, and you stay in control of the result: review it, edit it, refine it, keep it in your local library, or publish it straight to YouTube Music.
 
-The core application works with an AI provider only. Last.fm and YouTube Music are optional integrations that can be enabled independently.
+It runs entirely on infrastructure you control. The core application only needs an AI provider to work; Last.fm and YouTube Music are optional integrations you can turn on whenever you want them, independently of each other.
+
+## Why PlaylistMuse
+
+- **Your data stays on your server.** No account, no cloud sync, no third party storing your listening habits or your prompts.
+- **You choose the AI.** Bring your own Gemini, OpenAI, Anthropic, OpenRouter, Ollama, or any OpenAI-compatible endpoint, including fully local models, at no cost beyond what you already pay for that provider.
+- **Real tracks, not hallucinated ones.** Every generated playlist is resolved and validated against real catalogue data instead of trusting the AI's raw output.
+- **Built to be refined, not just generated.** Playlist Studio lets you lock the tracks you like and re-run a request against only the part you want to change.
+- **Free and open source.** MIT licensed, self-hosted, no subscription, no lock-in.
+
+## Screenshots
+
+<!--
+  Add screenshots here once available. A strong first set to cover:
+
+  1. Prompt-to-playlist: a natural-language request producing a resolved track list.
+  2. Playlist Studio: reviewing, locking and refining tracks.
+  3. Library: saved playlists, ready to reopen or publish.
+  4. AI provider settings: connecting a provider in the interface.
+
+  Recommended: PNG screenshots around 1400px wide, or a short GIF for the first one.
+  Save them under docs/media/ and uncomment the block below, one row per screenshot.
+
+  <p align="center">
+    <img src="docs/media/screenshot-generation.png" alt="Generating a playlist from a text prompt in PlaylistMuse" width="800">
+    <br><em>Describe the playlist you want, in plain language.</em>
+  </p>
+
+  <p align="center">
+    <img src="docs/media/screenshot-studio.png" alt="Reviewing and refining a playlist in Playlist Studio" width="800">
+    <br><em>Review, lock and refine before you publish.</em>
+  </p>
+
+  <p align="center">
+    <img src="docs/media/screenshot-library.png" alt="The PlaylistMuse local playlist library" width="800">
+    <br><em>Every playlist stays in your local library.</em>
+  </p>
+
+  <p align="center">
+    <img src="docs/media/screenshot-settings.png" alt="Connecting an AI provider in PlaylistMuse settings" width="800">
+    <br><em>Bring your own AI provider.</em>
+  </p>
+-->
+
+*Screenshots coming soon.*
 
 ## Features
 
@@ -60,6 +110,22 @@ The core application works with an AI provider only. Last.fm and YouTube Music a
 ### How it works
 
 PlaylistMuse starts from the musical direction you provide, either as a natural-language request or a reference song. The configured AI provider interprets that intent and, when enabled, optional discovery signals help broaden the selection. PlaylistMuse then resolves the proposed tracks against real catalogue data and presents the result for review. You can refine the playlist before keeping it in the local library or publishing it to YouTube Music when that integration is connected.
+
+## Quick start
+
+For a first try, the Docker image needs a persistent data folder and a single command:
+
+```bash
+mkdir -p playlistmuse/data && cd playlistmuse
+docker run -d \
+  --name playlistmuse \
+  --restart unless-stopped \
+  -p 5780:5780 \
+  -v "$(pwd)/data:/app/data" \
+  ghcr.io/steventrux/playlistmuse:latest
+```
+
+Open `http://localhost:5780`, add at least one AI provider from the settings page, and generate your first playlist. See [Installation](#installation) below for the full walkthrough, alternative setups and upgrade notes, and [Configuration](#configuration) for connecting Last.fm and YouTube Music.
 
 ## Installation
 
@@ -242,6 +308,8 @@ Supported provider types include:
 | **Ollama** | Ollama base URL and model |
 | **OpenAI-compatible endpoint** | Endpoint base URL, model and an API key when required by the service |
 
+Any OpenAI-compatible endpoint also covers other hosted providers, for example Groq, Mistral, DeepSeek or Qwen, as long as you point PlaylistMuse at the provider's base URL and API key.
+
 Where supported, optional fallback models can be saved together with the primary model.
 
 API keys are credentials. Do not include them in screenshots, issues or diagnostic attachments.
@@ -346,6 +414,19 @@ PlaylistMuse is self-hosted and may contain API credentials and account authoriz
 
 For access beyond the local host or trusted local network, use a secure private network or a properly configured HTTPS reverse proxy with authentication.
 
+## Roadmap
+
+PlaylistMuse is under active development. Areas currently planned or in progress include:
+
+- Excluded artists and tracks, with per-playlist overrides, alongside the existing favorites.
+- Appending generated tracks to an existing playlist instead of only creating new ones.
+- Importing a YouTube Music playlist by ID.
+- Light / dark / automatic theme.
+- A cache/storage usage indicator in the sidebar (usage is already visible and manageable from **Settings → Diagnostics → Storage**).
+- Dedicated setup profiles for additional AI providers.
+
+There are no fixed dates for these items. Feature requests and votes on priorities are welcome through [GitHub Issues](https://github.com/steventrux/PlaylistMuse/issues).
+
 ## Support and feedback
 
 GitHub Issues is the official place for PlaylistMuse support reports.
@@ -357,6 +438,16 @@ Use **Bug report** for errors, crashes, broken functionality or other reproducib
 Before sharing diagnostics, review the archive and remove anything you do not want to publish. Never attach `.env`, raw credential files, API keys, passwords, cookies or OAuth tokens to a public issue.
 
 See **[SUPPORT.md](SUPPORT.md)** for the complete support guide, troubleshooting steps, diagnostic information, privacy guidance and reporting checklist.
+
+## Contributing
+
+Contributions, bug reports and feature suggestions are welcome. Before opening a pull request:
+
+- Check open issues to avoid duplicate work.
+- Keep changes focused and, where practical, covered by tests.
+- Follow the existing code style in the file you are editing.
+
+If you are unsure whether a change fits the project's direction, open an issue to discuss it first.
 
 ## Disclaimer
 
