@@ -422,8 +422,6 @@ PlaylistMuse is under active development. Areas currently planned or in progress
 - Appending generated tracks to an existing playlist instead of only creating new ones.
 - Importing a YouTube Music playlist by ID.
 - Light / dark / automatic theme.
-- A cache/storage usage indicator in the sidebar (usage is already visible and manageable from **Settings → Diagnostics → Storage**).
-- Dedicated setup profiles for additional AI providers.
 
 There are no fixed dates for these items. Feature requests and votes on priorities are welcome through [GitHub Issues](https://github.com/steventrux/PlaylistMuse/issues).
 
