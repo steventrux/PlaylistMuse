@@ -1,0 +1,211 @@
+/* Shared styling for the "Advanced" and "Cache" panels of the Statistics page
+   (frontend/statistics.html), both reached via the sidebar built by
+   statistics-page.js. Reuses statistics.css's section rhythm and secondary-stat
+   tile styling; provider identity comes from a small brand-color accent cycle
+   (violet/magenta/cyan) applied via [data-accent]. */
+
+[data-accent="violet"] { --accent: var(--violet); --accent-soft: rgba(139, 92, 246, .16); }
+[data-accent="magenta"] { --accent: var(--magenta); --accent-soft: rgba(236, 72, 153, .16); }
+[data-accent="cyan"] { --accent: var(--cyan); --accent-soft: rgba(56, 189, 248, .16); }
+
+.stats-advanced-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 20px 28px;
+  padding-bottom: 26px;
+  margin-top: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.stats-advanced-tiles .stats-secondary-stat {
+  align-items: flex-start;
+}
+
+.stats-advanced-tiles .stats-secondary-label {
+  text-align: left;
+}
+
+/* Provider tabs */
+
+.stats-provider-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.stats-provider-tab {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 16px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: .88rem;
+  font-weight: 750;
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease, color 150ms ease;
+}
+
+.stats-provider-tab:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.stats-provider-tab-count {
+  padding: 1px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .07);
+  color: var(--text-muted);
+  font-size: .74rem;
+  font-weight: 700;
+}
+
+.stats-provider-tab.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text-primary);
+}
+
+.stats-provider-tab.active .stats-provider-tab-count {
+  background: var(--accent);
+  color: var(--bg-primary);
+}
+
+/* Provider detail panel */
+
+.stats-provider-detail-card {
+  border-color: var(--accent-soft, var(--border));
+}
+
+.stats-provider-detail-card h3 {
+  margin: 0 0 4px;
+  color: var(--accent, var(--text-primary));
+  font-size: 1.15rem;
+  font-weight: 850;
+  letter-spacing: -.01em;
+}
+
+.stats-provider-detail-card h4 {
+  margin: 26px 0 12px;
+  color: var(--text-primary);
+  font-size: .92rem;
+  font-weight: 750;
+}
+
+/* Horizontal bars (stage timing + cache hit rate) */
+
+.stats-bar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stats-cache-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.stats-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+a.stats-bar-row {
+  border-radius: 8px;
+  color: inherit;
+  text-decoration: none;
+  transition: background 150ms ease;
+}
+
+.stats-music-panel .stats-bar-list a.stats-bar-row:hover,
+.stats-music-panel .stats-bar-list a.stats-bar-row:focus-visible {
+  background: rgba(139, 92, 246, .08);
+}
+
+.stats-music-panel .stats-bar-list a.stats-bar-row:hover .stats-bar-label,
+.stats-music-panel .stats-bar-list a.stats-bar-row:focus-visible .stats-bar-label {
+  color: var(--cyan-light);
+}
+
+.stats-bar-label {
+  flex: 0 0 190px;
+  color: var(--text-secondary);
+  font-size: .85rem;
+}
+
+.stats-bar-track {
+  flex: 1 1 auto;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .06);
+  overflow: hidden;
+}
+
+.stats-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 200ms ease;
+}
+
+.stats-bar-list .stats-bar-fill,
+.stats-cache-bars .stats-bar-fill {
+  background: var(--accent, var(--violet));
+}
+
+.stats-bar-value {
+  flex: 0 0 auto;
+  min-width: 150px;
+  text-align: right;
+  color: var(--text-secondary);
+  font-size: .8rem;
+  font-weight: 700;
+}
+
+.stats-bar-row .stats-bar-favorite {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  box-shadow: none;
+  padding: 0 !important;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+}
+
+@media (max-width: 640px) {
+  .stats-bar-label {
+    flex-basis: 120px;
+  }
+
+  .stats-bar-value {
+    min-width: 110px;
+  }
+}
+
+/* Error badges */
+
+.stats-error-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stats-error-badge {
+  padding: 5px 12px;
+  border: 1px solid rgba(251, 113, 133, .35);
+  border-radius: 999px;
+  background: rgba(251, 113, 133, .12);
+  color: var(--error);
+  font-size: .78rem;
+  font-weight: 750;
+}
+
+#stats-cache-empty {
+  margin-top: 18px;
+}

@@ -14,7 +14,6 @@ HTML_ENTRY_POINTS = (
     "library.html",
     "settings.html",
     "statistics.html",
-    "statistics-nerd.html",
     "statistics-detail.html",
     "diagnostics.html",
 )

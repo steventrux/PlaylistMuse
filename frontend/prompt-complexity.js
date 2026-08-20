@@ -4,6 +4,7 @@
   const DEBOUNCE_MS = 500;
   const FILTER_CONFLICT_PREFIX = 'FILTER_CONFLICT::';
   let latestFilterConflicts = [];
+  let latestScore = null;
   let ensureCurrentAnalysisImpl = async () => null;
 
   function complexityHue(value) {
@@ -108,6 +109,7 @@
     let controller = null;
     let activeRequestKey = null;
     let requestSequence = 0;
+    let pendingAnalysis = null;
 
     const settings = () => ({
       trackCount: document.getElementById('track-count')?.value,
@@ -128,10 +130,12 @@
       component.classList.add('hidden');
       setPopoverOpen(false);
       renderFilterConflicts([]);
+      latestScore = null;
     };
 
     const render = (result) => {
       const numericScore = Math.max(0, Math.min(100, Number(result.score) || 0));
+      latestScore = numericScore;
       const level = displayLevel(result.level);
       component.style.setProperty('--complexity-hue', complexityHue(numericScore));
       component.style.setProperty('--complexity-score', `${numericScore}%`);
@@ -175,28 +179,40 @@
       controller = requestController;
       activeRequestKey = key;
       const sequence = ++requestSequence;
-      try {
-        const response = await fetch('/api/prompts/analyze', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: key,
-          signal: requestController.signal,
-        });
-        if (!response.ok) throw new Error('Prompt analysis unavailable');
-        const result = await response.json();
-        if (sequence !== requestSequence) return null;
-        cache.set(key, result);
-        render(result);
-        return result;
-      } catch (error) {
-        if (error.name !== 'AbortError' && sequence === requestSequence) hideComponent();
-        return null;
-      } finally {
-        if (controller === requestController) {
-          controller = null;
-          activeRequestKey = null;
+      const request = (async () => {
+        try {
+          const response = await fetch('/api/prompts/analyze', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: key,
+            signal: requestController.signal,
+          });
+          if (!response.ok) throw new Error('Prompt analysis unavailable');
+          const result = await response.json();
+          if (sequence !== requestSequence) return null;
+          cache.set(key, result);
+          render(result);
+          return result;
+        } catch (error) {
+          if (error.name !== 'AbortError' && sequence === requestSequence) {
+            // A failed re-analysis (timeout, rate limit, transient error) for a prompt
+            // that hasn't changed since the last successful render shouldn't blank out
+            // a score the user is already looking at -- keep showing the last good one
+            // rather than flashing to "n/a" for no visible reason on their end.
+            const promptUnchanged = key === currentPayloadKey();
+            if (!(promptUnchanged && latestScore !== null)) hideComponent();
+          }
+          return null;
+        } finally {
+          if (controller === requestController) {
+            controller = null;
+            activeRequestKey = null;
+          }
+          if (pendingAnalysis === request) pendingAnalysis = null;
         }
-      }
+      })();
+      pendingAnalysis = request;
+      return request;
     };
 
     ensureCurrentAnalysisImpl = async () => {
@@ -208,9 +224,11 @@
         render(cached);
         return cached;
       }
-      // Do not abort and duplicate the same request merely because Generate was clicked.
-      // The backend generation path independently enforces hard prompt/filter constraints.
-      if (controller && activeRequestKey === key) return null;
+      // Generate was clicked while the same prompt's analysis is already in flight --
+      // await that request instead of aborting/duplicating it or returning early with
+      // a stale/null score (the backend generation path independently enforces hard
+      // prompt/filter constraints, so this only affects the reported complexity score).
+      if (pendingAnalysis && controller && activeRequestKey === key) return pendingAnalysis;
       return analyze();
     };
 
@@ -246,6 +264,7 @@
     complexityHue,
     displayLevel,
     ensureCurrentAnalysis: () => ensureCurrentAnalysisImpl(),
+    currentScore: () => latestScore,
     filterConflicts,
     parseFilterConflict,
     debounceMs: DEBOUNCE_MS,

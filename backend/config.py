@@ -6,6 +6,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from backend.storage import read_json_object, write_secure_json
 
@@ -104,6 +105,21 @@ class AppConfig:
     @property
     def configured(self) -> bool:
         return _profile_is_configured(self.provider, self._own_profile(), self.api_key)
+
+    @property
+    def stats_key(self) -> str:
+        """Return the label used to bucket generation stats/errors by provider.
+
+        A manually configured OpenAI-compatible endpoint (provider == "custom") can
+        point at any host (Groq, Together, a local server, ...); folding them all
+        under the bare "custom" label would blend unrelated providers' timings and
+        error rates together, so differentiate by the endpoint's hostname instead.
+        """
+        provider = self.provider or "unknown"
+        if provider != "custom":
+            return provider
+        host = urlparse(self.base_url.strip()).hostname if self.base_url else None
+        return f"custom:{host}" if host else provider
 
     @property
     def model_chain(self) -> list[str]:

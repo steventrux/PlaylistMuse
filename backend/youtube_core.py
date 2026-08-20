@@ -8,6 +8,7 @@ import os
 import re
 import sqlite3
 import threading
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -48,7 +49,10 @@ MIN_COMBINED_SCORE = 72.0
 DEFAULT_YOUTUBE_RESOLUTION_CONCURRENCY = 6
 DEFAULT_YOUTUBE_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60
 DEFAULT_YOUTUBE_NEGATIVE_CACHE_TTL_SECONDS = 24 * 60 * 60
+YOUTUBE_CACHE_PURGE_INTERVAL_SECONDS = 3600
 YOUTUBE_CACHE_VERSION = "2"
+
+_youtube_cache_last_purge_at = 0.0
 MAX_METADATA_LOOKUP_ATTEMPTS = 4
 # MusicBrainz calls are paced through a single process-wide 1.05s-interval scheduler
 # (musicbrainz_client.rate_limited_get), so dispatching candidates in small concurrent
@@ -175,6 +179,17 @@ def _youtube_cache_connect(path: Path | None = None) -> sqlite3.Connection:
         """
     )
     return connection
+
+
+def _maybe_purge_youtube_cache(connection: sqlite3.Connection) -> None:
+    """Sweep rows past their own TTL at most once per PURGE interval."""
+    global _youtube_cache_last_purge_at
+    now = time.time()
+    if now - _youtube_cache_last_purge_at > YOUTUBE_CACHE_PURGE_INTERVAL_SECONDS:
+        connection.execute(
+            "DELETE FROM youtube_resolution_cache WHERE expires_at <= ?", (now,)
+        )
+        _youtube_cache_last_purge_at = now
 
 
 def _decorate_resolved_track(

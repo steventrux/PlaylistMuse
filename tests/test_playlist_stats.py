@@ -44,13 +44,22 @@ def _seed_library(database_path: Path) -> PlaylistLibrary:
         name="Synth Drive",
         artists=["Tame Impala", "MGMT"],
         tags={"genre": ["Synthwave"], "mood": ["Dreamy"], "period": ["1980s"]},
-        generation_meta={"provider": "gemini", "duration_ms": 4000},
+        generation_meta={
+            "provider": "gemini",
+            "duration_ms": 4000,
+            "stage_timings_ms": {"ai_draft": 1000, "youtube_resolution": 3000},
+            "complexity_score": 40,
+        },
     ))
     library.create(_playlist(
         name="Focus Flow",
         artists=["Tame Impala"],
         tags={"genre": ["Synthwave", "Ambient"], "mood": [], "period": []},
-        generation_meta={"provider": "openai", "duration_ms": 2000},
+        generation_meta={
+            "provider": "openai",
+            "duration_ms": 2000,
+            "stage_timings_ms": {"ai_draft": 600, "youtube_resolution": 1400},
+        },
         youtube=True,
     ))
     library.create(_playlist(
@@ -60,6 +69,26 @@ def _seed_library(database_path: Path) -> PlaylistLibrary:
         # feature existed.
     ))
     return library
+
+
+def test_top_artists_keeps_a_comma_in_a_band_name_intact(monkeypatch, tmp_path: Path) -> None:
+    """Regression test: "Earth, Wind & Fire" must not be split into "Earth" and
+    "Wind & Fire" the way a genuine two-artist credit like "Daft Punk, Julian
+    Casablancas" should be."""
+    database_path = tmp_path / "playlists.db"
+    library = PlaylistLibrary(database_path)
+    library.create(_playlist(name="Groove", artists=["Earth, Wind & Fire"]))
+    library.create(_playlist(name="Collab", artists=["Daft Punk, Julian Casablancas"]))
+    monkeypatch.setattr(playlist_stats, "DATABASE_PATH", database_path)
+
+    stats = playlist_stats.compute_stats()
+
+    top_artists = stats["general"]["top_artists"]
+    assert {"label": "Earth, Wind & Fire", "count": 1} in top_artists
+    assert {"label": "Earth", "count": 1} not in top_artists
+    assert {"label": "Wind & Fire", "count": 1} not in top_artists
+    assert {"label": "Daft Punk", "count": 1} in top_artists
+    assert {"label": "Julian Casablancas", "count": 1} in top_artists
 
 
 def test_compute_stats_aggregates_across_the_library(monkeypatch, tmp_path: Path) -> None:
@@ -76,7 +105,9 @@ def test_compute_stats_aggregates_across_the_library(monkeypatch, tmp_path: Path
 
     errors_path = tmp_path / "generation_errors.json"
     monkeypatch.setattr(generation_errors, "GENERATION_ERRORS_PATH", errors_path)
-    generation_errors.record_generation_error(ValueError("insufficient tracks"))
+    generation_errors.record_generation_error(
+        ValueError("insufficient tracks"), provider="gemini"
+    )
 
     stats = playlist_stats.compute_stats()
 
@@ -95,17 +126,123 @@ def test_compute_stats_aggregates_across_the_library(monkeypatch, tmp_path: Path
     assert general["playlists_by_month"] == {current_month: 4}
     assert sum(general["playlists_by_month"].values()) == general["total_generated"]
 
-    nerd = stats["nerd"]
-    assert nerd["provider_breakdown"] == {"gemini": 1, "openai": 1, "unknown": 1}
-    assert nerd["duration_sample_size"] == 2
-    assert nerd["avg_generation_ms"] == 3000
-    assert nerd["median_generation_ms"] == 3000
-    assert nerd["tag_coverage_percent"] == round(100 * 2 / 3, 1)
-    assert nerd["draft_vs_published"] == {"draft": 2, "published": 1}
-    assert nerd["error_breakdown"] == {"ValueError": 1}
-    assert nerd["total_errors"] == 1
-    assert "top_moods" not in nerd
-    assert "top_periods" not in nerd
+    by_provider = stats["nerd"]["by_provider"]
+    assert set(by_provider) == {"gemini", "openai", "unknown"}
+
+    gemini = by_provider["gemini"]
+    assert gemini["playlist_count"] == 1
+    assert gemini["duration_sample_size"] == 1
+    assert gemini["avg_generation_ms"] == 4000
+    assert gemini["median_generation_ms"] == 4000
+    assert gemini["avg_complexity_score"] == 40
+    assert gemini["tag_coverage_percent"] == 100.0
+    assert gemini["draft_vs_published"] == {"draft": 1, "published": 0}
+    assert gemini["error_breakdown"] == {"ValueError": 1}
+    assert gemini["total_errors"] == 1
+    assert gemini["stage_timings"]["ai_draft"] == {
+        "avg_ms": 1000,
+        "median_ms": 1000,
+        "p95_ms": 1000,
+        "sample_size": 1,
+    }
+
+    openai = by_provider["openai"]
+    assert openai["playlist_count"] == 1
+    assert openai["avg_generation_ms"] == 2000
+    # No complexity_score recorded for this playlist (e.g. seed-mode generation) --
+    # excluded from the average rather than counted as 0.
+    assert openai["avg_complexity_score"] is None
+    assert openai["draft_vs_published"] == {"draft": 0, "published": 1}
+    assert openai["error_breakdown"] == {}
+    assert openai["total_errors"] == 0
+
+    unknown = by_provider["unknown"]
+    assert unknown["playlist_count"] == 1
+    assert unknown["avg_generation_ms"] is None
+    assert unknown["tag_coverage_percent"] == 0.0
+    assert unknown["draft_vs_published"] == {"draft": 1, "published": 0}
+
+
+def test_compute_stats_normalizes_genre_and_mood_casing(monkeypatch, tmp_path: Path) -> None:
+    database_path = tmp_path / "playlists.db"
+    library = PlaylistLibrary(database_path)
+    library.create(_playlist(
+        name="Morning Run",
+        artists=["Artist A"],
+        tags={"genre": ["synthwave"], "mood": ["energetic"], "period": []},
+    ))
+    library.create(_playlist(
+        name="Evening Run",
+        artists=["Artist B"],
+        tags={"genre": ["Synthwave"], "mood": ["Energetic"], "period": []},
+    ))
+    library.create(_playlist(
+        name="Night Run",
+        artists=["Artist C"],
+        tags={"genre": ["SYNTHWAVE"], "mood": ["ENERGETIC"], "period": []},
+    ))
+    monkeypatch.setattr(playlist_stats, "DATABASE_PATH", database_path)
+
+    stats = playlist_stats.compute_stats()
+
+    assert stats["general"]["top_genres"] == [{"label": "Synthwave", "count": 3}]
+    assert stats["general"]["top_moods"] == [{"label": "Energetic", "count": 3}]
+
+
+def test_compute_stats_aggregates_and_normalizes_custom_tags(monkeypatch, tmp_path: Path) -> None:
+    database_path = tmp_path / "playlists.db"
+    library = PlaylistLibrary(database_path)
+    library.create(_playlist(
+        name="Morning Run",
+        artists=["Artist A"],
+        tags={"genre": [], "mood": [], "period": [], "custom": ["road trip"]},
+    ))
+    library.create(_playlist(
+        name="Evening Run",
+        artists=["Artist B"],
+        tags={"genre": [], "mood": [], "period": [], "custom": ["Road Trip", "favorites"]},
+    ))
+    monkeypatch.setattr(playlist_stats, "DATABASE_PATH", database_path)
+
+    stats = playlist_stats.compute_stats()
+
+    custom_tags = {
+        entry["label"]: entry["count"] for entry in stats["general"]["top_custom_tags"]
+    }
+    assert custom_tags == {"Road Trip": 2, "Favorites": 1}
+    # Personal tags are freeform organization, not AI classification -- they must
+    # not count toward a provider's tag_coverage_percent.
+    unknown = stats["nerd"]["by_provider"]["unknown"]
+    assert unknown["tag_coverage_percent"] == 0.0
+
+
+def test_compute_stats_splits_combined_period_ranges(monkeypatch, tmp_path: Path) -> None:
+    database_path = tmp_path / "playlists.db"
+    library = PlaylistLibrary(database_path)
+    library.create(_playlist(
+        name="Retro Mix",
+        artists=["Artist A"],
+        tags={"genre": [], "mood": [], "period": ["1970s-1980s"]},
+    ))
+    library.create(_playlist(
+        name="Eighties Only",
+        artists=["Artist B"],
+        tags={"genre": [], "mood": [], "period": ["1980s"]},
+    ))
+    monkeypatch.setattr(playlist_stats, "DATABASE_PATH", database_path)
+
+    stats = playlist_stats.compute_stats()
+
+    periods = {entry["label"]: entry["count"] for entry in stats["general"]["top_periods"]}
+    assert periods == {"1970s": 1, "1980s": 2}
+
+
+def test_expand_period_only_splits_genuine_decade_ranges() -> None:
+    assert playlist_stats._expand_period("1970s-1980s") == ["1970s", "1980s"]
+    assert playlist_stats._expand_period("1980s") == ["1980s"]
+    # A hyphenated value that isn't a decade-to-decade range is left untouched
+    # rather than being split apart.
+    assert playlist_stats._expand_period("Post-2000") == ["Post-2000"]
 
 
 def test_compute_stats_handles_an_empty_library(monkeypatch, tmp_path: Path) -> None:
@@ -123,8 +260,6 @@ def test_compute_stats_handles_an_empty_library(monkeypatch, tmp_path: Path) -> 
     assert stats["general"]["total_saved"] == 0
     assert stats["general"]["top_genres"] == []
     assert stats["general"]["top_moods"] == []
+    assert stats["general"]["top_custom_tags"] == []
     assert stats["general"]["playlists_by_month"] == {}
-    assert stats["nerd"]["avg_generation_ms"] is None
-    assert stats["nerd"]["tag_coverage_percent"] is None
-    assert stats["nerd"]["error_breakdown"] == {}
-    assert stats["nerd"]["total_errors"] == 0
+    assert stats["nerd"]["by_provider"] == {}

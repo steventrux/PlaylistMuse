@@ -30,6 +30,4 @@ def test_stats_endpoint_returns_general_and_nerd_sections(
     assert payload["general"]["total_generated"] == 0
     assert payload["general"]["top_genres"] == []
     assert payload["general"]["top_moods"] == []
-    assert payload["nerd"]["avg_generation_ms"] is None
-    assert payload["nerd"]["error_breakdown"] == {}
-    assert payload["nerd"]["total_errors"] == 0
+    assert payload["nerd"]["by_provider"] == {}

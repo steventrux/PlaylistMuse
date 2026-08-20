@@ -4,9 +4,11 @@
   const STORAGE_KEY = 'playlistmuse-generated-playlist';
   const REQUEST_KEY = 'playlistmuse-generation-request';
   const LIBRARY_ENDPOINT = '/api/library/playlists';
+  const FAVORITES_ENDPOINT = '/api/favorites';
   const $ = (id) => document.getElementById(id);
   const {readJson, setLoadingButton} = window.PlaylistMuseCommon;
   const tagTools = window.PlaylistMuseTags || window.PlaylistMuseLibraryTags;
+  let favoriteTrackIds = new Set();
   let expandedIndex = null;
   let draggedIndex = null;
   let persistenceTimer = null;
@@ -237,6 +239,16 @@
       }
     } catch (error) {
       console.warn('Playlist tags could not be refreshed:', error);
+    }
+  }
+
+  async function loadFavorites() {
+    try {
+      const payload = await readJson(await fetch(FAVORITES_ENDPOINT, {cache: 'no-store'}));
+      favoriteTrackIds = new Set((payload.tracks || []).map((track) => track.video_id));
+      renderPlaylist();
+    } catch (error) {
+      console.warn('Favorites could not be loaded:', error);
     }
   }
 
@@ -514,6 +526,49 @@
     play.addEventListener('click', (event) => event.stopPropagation());
     actions.append(play);
 
+    if (track.video_id) {
+      const favorite = document.createElement('button');
+      favorite.type = 'button';
+      favorite.className = 'secondary track-action favorite-track-button';
+      const applyFavoriteState = () => window.PlaylistMuseActionControls?.decorateFavoriteToggle(
+        favorite,
+        {favorited: favoriteTrackIds.has(track.video_id), label: 'track'},
+      );
+      applyFavoriteState();
+      favorite.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        favorite.disabled = true;
+        try {
+          if (favoriteTrackIds.has(track.video_id)) {
+            await readJson(await fetch(
+              `${FAVORITES_ENDPOINT}/tracks/${encodeURIComponent(track.video_id)}`,
+              {method: 'DELETE'},
+            ));
+            favoriteTrackIds.delete(track.video_id);
+          } else {
+            await readJson(await fetch(`${FAVORITES_ENDPOINT}/tracks`, {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({
+                video_id: track.video_id,
+                title: track.title || '',
+                artists: track.artists || '',
+                album: track.album || '',
+                thumbnail_url: track.thumbnail_url || '',
+              }),
+            }));
+            favoriteTrackIds.add(track.video_id);
+          }
+          applyFavoriteState();
+        } catch (error) {
+          window.alert(error.message || String(error));
+        } finally {
+          favorite.disabled = false;
+        }
+      });
+      actions.append(favorite);
+    }
+
     detailsInner.append(explanation, actions);
 
     if (!isPublished()) {
@@ -583,6 +638,110 @@
     renderPlaylistCover();
   }
 
+  function trackUrl(track) {
+    return track.url || (track.video_id
+      ? `https://music.youtube.com/watch?v=${encodeURIComponent(track.video_id)}`
+      : '');
+  }
+
+  function sanitizeFilename(name) {
+    const cleaned = String(name || '').replace(/[\\/:*?"<>|]+/g, '_').trim();
+    return cleaned || 'playlist';
+  }
+
+  function triggerDownload(filename, content, mimeType) {
+    const blob = new Blob([content], {type: mimeType});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function buildM3uPlaylist() {
+    const lines = ['#EXTM3U'];
+    if (data.name) lines.push(`#PLAYLIST:${data.name}`);
+    data.tracks.forEach((track) => {
+      const seconds = durationToSeconds(track.duration) || -1;
+      const label = [track.artists, track.title].filter(Boolean).join(' - ') || 'Unknown track';
+      lines.push(`#EXTINF:${seconds},${label}`);
+      lines.push(trackUrl(track));
+    });
+    return `${lines.join('\n')}\n`;
+  }
+
+  function csvField(value) {
+    const text = String(value ?? '');
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  }
+
+  function buildCsvPlaylist() {
+    const rows = [['#', 'Title', 'Artists', 'Album', 'Duration', 'URL'].map(csvField).join(',')];
+    data.tracks.forEach((track, index) => {
+      rows.push([
+        index + 1,
+        track.title || '',
+        track.artists || '',
+        track.album || '',
+        track.duration || '',
+        trackUrl(track),
+      ].map(csvField).join(','));
+    });
+    return '﻿' + rows.join('\r\n') + '\r\n';
+  }
+
+  function exportPlaylist(format) {
+    if (!data?.tracks?.length) return;
+    const filenameBase = sanitizeFilename(data.name);
+    if (format === 'csv') {
+      triggerDownload(`${filenameBase}.csv`, buildCsvPlaylist(), 'text/csv;charset=utf-8');
+    } else {
+      triggerDownload(`${filenameBase}.m3u8`, buildM3uPlaylist(), 'audio/x-mpegurl;charset=utf-8');
+    }
+  }
+
+  function initExportControls() {
+    const toggle = $('export-playlist');
+    const menu = $('export-playlist-menu');
+    if (!toggle || !menu) return;
+
+    const closeMenu = () => {
+      menu.classList.add('hidden');
+      toggle.setAttribute('aria-expanded', 'false');
+    };
+
+    toggle.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const isOpen = !menu.classList.contains('hidden');
+      if (isOpen) {
+        closeMenu();
+      } else {
+        menu.classList.remove('hidden');
+        toggle.setAttribute('aria-expanded', 'true');
+      }
+    });
+
+    menu.addEventListener('click', (event) => {
+      const option = event.target.closest('.playlist-export-option');
+      if (!option) return;
+      exportPlaylist(option.dataset.format);
+      closeMenu();
+    });
+
+    document.addEventListener('click', (event) => {
+      if (!menu.classList.contains('hidden') && !event.target.closest('.playlist-export-menu')) {
+        closeMenu();
+      }
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !menu.classList.contains('hidden')) closeMenu();
+    });
+  }
+
   if (requestedLibraryId && data?.library_id !== requestedLibraryId) {
     $('playlist-summary').textContent = 'Loading playlist…';
     void loadRequestedPlaylist();
@@ -628,5 +787,7 @@
   });
 
   renderPlaylist();
+  initExportControls();
   void refreshPlaylistTagsFromLibrary();
+  void loadFavorites();
 })();

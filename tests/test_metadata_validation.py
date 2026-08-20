@@ -1,5 +1,7 @@
+import time
 from pathlib import Path
 
+from backend import cache_metrics, metadata_validation
 from backend.metadata_validation import (
     MetadataConstraints,
     TrackMetadata,
@@ -310,3 +312,43 @@ def test_sqlite_cache_round_trip(tmp_path: Path):
     assert restored is not None
     assert restored.recording_mbid == "recording-id"
     assert restored.release_titles == ["Cached Album"]
+
+
+def test_read_cache_records_hit_and_miss_metrics(tmp_path: Path):
+    cache = tmp_path / "metrics.sqlite3"
+    before = cache_metrics.snapshot().get(
+        "Metadata validation", {"hits": 0, "misses": 0}
+    )
+
+    assert _read_cache("Never Cached", "Never Cached", path=cache) is None
+    after_miss = cache_metrics.snapshot()["Metadata validation"]
+    assert after_miss["misses"] == before["misses"] + 1
+
+    metadata = TrackMetadata(artist="Hit Artist", title="Hit Song")
+    _write_cache(metadata, ttl=60, path=cache)
+    assert _read_cache("Hit Artist", "Hit Song", path=cache) is not None
+    after_hit = cache_metrics.snapshot()["Metadata validation"]
+    assert after_hit["hits"] == before["hits"] + 1
+
+
+def test_write_cache_purges_expired_rows_after_interval(tmp_path: Path, monkeypatch):
+    cache = tmp_path / "metadata.sqlite3"
+    monkeypatch.setattr(metadata_validation, "_last_purge_at", 0.0)
+    with metadata_validation._connect(cache) as connection:
+        connection.execute(
+            "INSERT INTO track_metadata_cache(cache_key, payload, expires_at) "
+            "VALUES (?, ?, ?)",
+            ("stale-entry", "{}", time.time() - 10),
+        )
+
+    fresh = TrackMetadata(artist="Fresh Artist", title="Fresh Song")
+    _write_cache(fresh, ttl=60, path=cache)
+
+    with metadata_validation._connect(cache) as connection:
+        remaining = {
+            row["cache_key"]
+            for row in connection.execute(
+                "SELECT cache_key FROM track_metadata_cache"
+            ).fetchall()
+        }
+    assert "stale-entry" not in remaining

@@ -96,6 +96,70 @@ def test_library_cover_uses_representative_tracks_and_refreshes_on_update(
     ]
 
 
+def test_split_artist_credit_preserves_known_comma_containing_band_names() -> None:
+    from backend.playlist_library import split_artist_credit
+
+    assert split_artist_credit("Earth, Wind & Fire") == ["Earth, Wind & Fire"]
+    assert split_artist_credit("Daft Punk, Julian Casablancas") == [
+        "Daft Punk",
+        "Julian Casablancas",
+    ]
+    assert split_artist_credit("  Solo Artist  ") == ["Solo Artist"]
+    assert split_artist_credit("") == []
+
+
+def test_list_filters_by_artist_case_insensitively(tmp_path: Path) -> None:
+    database = tmp_path / "playlists.db"
+    library = PlaylistLibrary(database)
+    library.create(sample_playlist("Night drive"))  # tracks: "Artist one", "Artist two"
+    library.create({
+        **sample_playlist("Focus flow"),
+        "tracks": [
+            {"video_id": "ghi789", "title": "Track three", "artists": "Artist Two, Artist Three"},
+        ],
+    })
+    library.create({
+        **sample_playlist("Untagged"),
+        "tracks": [{"video_id": "jkl012", "title": "Track four", "artists": "Someone Else"}],
+    })
+
+    matches = library.list(artist="artist two")
+    assert {item["name"] for item in matches} == {"Night drive", "Focus flow"}
+    assert library.list(artist="Artist Three")[0]["name"] == "Focus flow"
+    assert library.list(artist="Nonexistent") == []
+
+
+def test_list_filters_by_a_band_name_containing_a_comma(tmp_path: Path) -> None:
+    database = tmp_path / "playlists.db"
+    library = PlaylistLibrary(database)
+    library.create({
+        **sample_playlist("Groove"),
+        "tracks": [
+            {"video_id": "mno345", "title": "September", "artists": "Earth, Wind & Fire"},
+        ],
+    })
+
+    assert library.list(artist="Earth, Wind & Fire")[0]["name"] == "Groove"
+    assert library.list(artist="Earth") == []
+    assert library.list(artist="Wind & Fire") == []
+
+
+def test_list_filters_by_track_video_id(tmp_path: Path) -> None:
+    database = tmp_path / "playlists.db"
+    library = PlaylistLibrary(database)
+    library.create(sample_playlist("Night drive"))  # tracks: video_id "abc123", "def456"
+    library.create({
+        **sample_playlist("Focus flow"),
+        "tracks": [
+            {"video_id": "ghi789", "title": "Track three", "artists": "Artist Three"},
+        ],
+    })
+
+    assert library.list(video_id="abc123")[0]["name"] == "Night drive"
+    assert library.list(video_id="ghi789")[0]["name"] == "Focus flow"
+    assert library.list(video_id="nonexistent") == []
+
+
 def test_duplicate_is_an_independent_draft(tmp_path: Path) -> None:
     library = PlaylistLibrary(tmp_path / "playlists.db")
     published = sample_playlist("Published playlist")
@@ -148,6 +212,16 @@ def test_library_api_crud_and_duplicate(tmp_path: Path, monkeypatch) -> None:
     listing = client.get("/api/library/playlists?sort=title_asc")
     assert listing.status_code == 200
     assert listing.json()["items"][0]["id"] == playlist_id
+
+    matching = client.get("/api/library/playlists?artist=Artist+one")
+    assert [item["id"] for item in matching.json()["items"]] == [playlist_id]
+    empty = client.get("/api/library/playlists?artist=Nobody")
+    assert empty.json()["items"] == []
+
+    track_matching = client.get("/api/library/playlists?video_id=abc123")
+    assert [item["id"] for item in track_matching.json()["items"]] == [playlist_id]
+    track_empty = client.get("/api/library/playlists?video_id=nonexistent")
+    assert track_empty.json()["items"] == []
 
     duplicate = client.post(f"/api/library/playlists/{playlist_id}/duplicate")
     assert duplicate.status_code == 201

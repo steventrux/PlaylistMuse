@@ -10,10 +10,14 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css?v=10">
-  <link rel="stylesheet" href="/static/layout.css?v=5">
+  <link rel="stylesheet" href="/static/layout.css?v=7">
   <link rel="stylesheet" href="/static/controls.css?v=8">
-  <link rel="stylesheet" href="/static/statistics.css?v=7">
-  <link rel="stylesheet" href="/static/header-navigation.css?v=13">
+  <link rel="stylesheet" href="/static/settings-dialog.css?v=11">
+  <link rel="stylesheet" href="/static/settings-page.css?v=5">
+  <link rel="stylesheet" href="/static/statistics.css?v=10">
+  <link rel="stylesheet" href="/static/statistics-advanced.css?v=7">
+  <link rel="stylesheet" href="/static/action-controls.css?v=7">
+  <link rel="stylesheet" href="/static/header-navigation.css?v=21">
 </head>
 <body>
   <header class="app-header">
@@ -25,89 +29,238 @@
   </header>
 
   <main>
-    <section class="card stats-card" aria-label="Statistics">
-      <div class="stats-privacy">
-        <div class="stats-telemetry">
-          <div class="stats-telemetry-copy">
-            <p class="stats-telemetry-title">Contribute to the public playlists-generated counter</p>
-            <p class="stats-telemetry-explain">
-              Every statistic on this page is computed locally and stays on this installation. This toggle is the one exception: when on, every playlist you generate sends one anonymous ping to a public counter shown on the project page &mdash; just a &ldquo;+1&rdquo;, with no request body, no installation ID, no prompt, and no playlist content attached. It cannot identify you or this installation, and generation itself never waits on it.
-            </p>
-          </div>
-          <button
-            type="button"
-            id="telemetry-toggle"
-            class="stats-switch"
-            role="switch"
-            aria-checked="false"
-            aria-label="Contribute to the public playlists-generated counter"
-          >
-            <span class="stats-switch-thumb"></span>
+    <div class="settings-page-shell">
+      <aside class="settings-page-navigation" aria-label="Statistics sections">
+        <div class="settings-page-title-block">
+          <p class="eyebrow">PlaylistMuse</p>
+          <h1>Statistics</h1>
+        </div>
+
+        <nav class="settings-section-navigation" aria-label="PlaylistMuse statistics">
+          <p class="settings-section-label">Music</p>
+          <button class="settings-section-link" type="button" data-stats-section="overview">
+            <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+              <path d="M12 22V8l14-3v14" />
+              <ellipse cx="9" cy="24" rx="4" ry="3" />
+              <ellipse cx="23" cy="21" rx="4" ry="3" />
+            </svg>
+            <span>Overview</span>
           </button>
+          <button class="settings-section-link" type="button" data-stats-section="timeline">
+            <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+              <path d="M6 24 12 15 17 19 26 6" />
+            </svg>
+            <span>Timeline</span>
+          </button>
+          <button class="settings-section-link" type="button" data-stats-section="artists">
+            <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+              <circle cx="16" cy="11" r="5" />
+              <path d="M6 27c0-6.5 4.5-10 10-10s10 3.5 10 10" />
+            </svg>
+            <span>Top artists</span>
+          </button>
+          <button class="settings-section-link" type="button" data-stats-section="genres">
+            <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+              <path d="M6 6h9l13 13-9 9L6 15z" />
+              <circle cx="12" cy="12" r="1.6" />
+            </svg>
+            <span>Top genres</span>
+          </button>
+          <button class="settings-section-link" type="button" data-stats-section="moods">
+            <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+              <circle cx="16" cy="16" r="11" />
+              <path d="M11.5 14h.01M20.5 14h.01" />
+              <path d="M10 20c1.8 2.6 9.2 2.6 11 0" />
+            </svg>
+            <span>Top moods</span>
+          </button>
+          <button class="settings-section-link" type="button" data-stats-section="periods">
+            <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+              <path d="M7 8h18a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" />
+              <path d="M6 13h20M11 5v6M21 5v6" />
+            </svg>
+            <span>Top periods</span>
+          </button>
+          <button class="settings-section-link" type="button" data-stats-section="tags">
+            <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+              <path d="M17 5h9a1 1 0 0 1 1 1v9a1 1 0 0 1-.3.7L14.4 27a1 1 0 0 1-1.4 0l-8-8a1 1 0 0 1 0-1.4L17.3 5.3A1 1 0 0 1 17 5z" />
+              <circle cx="22" cy="10" r="1.6" />
+            </svg>
+            <span>Personal tags</span>
+          </button>
+
+          <p class="settings-section-label">Technical</p>
+          <button class="settings-section-link" type="button" data-stats-section="advanced">
+            <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+              <path d="M8 26V14M16 26V6M24 26V18" />
+            </svg>
+            <span>AI performance</span>
+          </button>
+          <button class="settings-section-link" type="button" data-stats-section="cache">
+            <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+              <path d="M18 4 8 18h7l-3 10 12-16h-8z" />
+            </svg>
+            <span>Cache</span>
+          </button>
+        </nav>
+      </aside>
+
+      <section class="settings-page-content settings-dialog-card" aria-live="polite">
+        <div class="settings-page-content-heading">
+          <p id="stats-section-eyebrow" class="eyebrow">Music</p>
+          <h2 id="stats-section-title">Overview</h2>
         </div>
-        <p id="telemetry-status" class="field-hint stats-telemetry-status hidden"></p>
-      </div>
 
-      <p id="stats-status" class="status" aria-live="polite">Loading statistics&hellip;</p>
-
-      <div id="stats-content" class="hidden">
-        <div class="stats-hero">
-          <div class="stats-hero-figure">
-            <span class="stats-hero-label">Playlists generated</span>
-            <span id="stat-total-generated" class="stats-hero-value">&mdash;</span>
+        <section id="stats-overview-panel" class="settings-page-panel" aria-label="Overview">
+          <div class="stats-privacy">
+            <div class="stats-telemetry">
+              <div class="stats-telemetry-copy">
+                <p class="stats-telemetry-title">Contribute to the public playlists-generated counter</p>
+                <p class="stats-telemetry-explain">
+                  Every statistic on this page is computed locally and stays on this installation. This toggle is the one exception: when on, every playlist you generate sends one anonymous ping to a public counter shown on the project page &mdash; just a &ldquo;+1&rdquo;, with no request body, no installation ID, no prompt, and no playlist content attached. It cannot identify you or this installation, and generation itself never waits on it.
+                </p>
+              </div>
+              <button
+                type="button"
+                id="telemetry-toggle"
+                class="stats-switch"
+                role="switch"
+                aria-checked="false"
+                aria-label="Contribute to the public playlists-generated counter"
+              >
+                <span class="stats-switch-thumb"></span>
+              </button>
+            </div>
+            <p id="telemetry-status" class="field-hint stats-telemetry-status hidden"></p>
           </div>
-          <div class="stats-hero-secondary">
+
+          <p id="stats-status" class="status" aria-live="polite">Loading statistics&hellip;</p>
+
+          <div class="stats-hero">
+            <div class="stats-hero-figure">
+              <span class="stats-hero-label">Playlists generated</span>
+              <span id="stat-total-generated" class="stats-hero-value">&mdash;</span>
+            </div>
+            <div class="stats-hero-secondary">
+              <div class="stats-secondary-stat">
+                <span id="stat-total-saved" class="stats-secondary-value">&mdash;</span>
+                <span class="stats-secondary-label">Saved to library</span>
+              </div>
+              <div class="stats-secondary-stat">
+                <span id="stat-total-published" class="stats-secondary-value">&mdash;</span>
+                <span class="stats-secondary-label">Published to YouTube Music</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="stats-hero-secondary stats-overview-counts">
             <div class="stats-secondary-stat">
-              <span id="stat-total-saved" class="stats-secondary-value">&mdash;</span>
-              <span class="stats-secondary-label">Saved to library</span>
+              <span id="stat-total-artists" class="stats-secondary-value">&mdash;</span>
+              <span class="stats-secondary-label">Artists</span>
             </div>
             <div class="stats-secondary-stat">
-              <span id="stat-total-published" class="stats-secondary-value">&mdash;</span>
-              <span class="stats-secondary-label">Published to YouTube Music</span>
+              <span id="stat-total-genres" class="stats-secondary-value">&mdash;</span>
+              <span class="stats-secondary-label">Genres</span>
+            </div>
+            <div class="stats-secondary-stat">
+              <span id="stat-total-moods" class="stats-secondary-value">&mdash;</span>
+              <span class="stats-secondary-label">Moods</span>
+            </div>
+            <div class="stats-secondary-stat">
+              <span id="stat-total-periods" class="stats-secondary-value">&mdash;</span>
+              <span class="stats-secondary-label">Periods</span>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div class="stats-section">
-          <h3><span>Playlists over time</span></h3>
-          <div id="stats-timeline" class="stats-timeline"></div>
-          <p id="stats-timeline-empty" class="field-hint hidden">Not enough history yet.</p>
-        </div>
+        <section id="stats-timeline-panel" class="settings-page-panel hidden stats-music-panel" aria-label="Timeline">
+          <p class="field-hint">How many playlists you have generated each month.</p>
+          <div class="stats-section">
+            <div id="stats-timeline-chart" class="stats-timeline-chart">
+              <div id="stats-timeline-yaxis" class="stats-timeline-yaxis"></div>
+              <div id="stats-timeline" class="stats-timeline"></div>
+            </div>
+            <p id="stats-timeline-empty" class="field-hint hidden">Not enough history yet.</p>
+          </div>
+        </section>
 
-        <a class="stats-section stats-section-link" href="/static/statistics-detail.html?dim=artists" aria-label="View all artists">
-          <h3><span>Top artists</span><span class="stats-section-cta">See all &rarr;</span></h3>
-          <ol id="stats-artist-list" class="stats-rank-list"></ol>
-          <p id="stats-artist-list-empty" class="field-hint hidden">No saved playlists yet.</p>
-        </a>
+        <section id="stats-artists-panel" class="settings-page-panel hidden stats-music-panel" aria-label="Top artists">
+          <p class="field-hint">Your most generated artists across every playlist.</p>
+          <div class="stats-section">
+            <div id="stats-artist-list" class="stats-bar-list"></div>
+            <p id="stats-artist-list-empty" class="field-hint hidden">No saved playlists yet.</p>
+          </div>
+          <button type="button" id="stats-artist-list-toggle" class="stats-see-all-link hidden">See all &rarr;</button>
+        </section>
 
-        <a class="stats-section stats-section-link" href="/static/statistics-detail.html?dim=genres" aria-label="View all genres">
-          <h3><span>Top genres</span><span class="stats-section-cta">See all &rarr;</span></h3>
-          <ol id="stats-genre-chips" class="stats-rank-list"></ol>
-          <p id="stats-genre-chips-empty" class="field-hint hidden">No tagged playlists yet.</p>
-        </a>
+        <section id="stats-genres-panel" class="settings-page-panel hidden stats-music-panel" aria-label="Top genres">
+          <p class="field-hint">The genres that show up most often in your playlists.</p>
+          <div class="stats-section">
+            <div id="stats-genre-chips" class="stats-bar-list"></div>
+            <p id="stats-genre-chips-empty" class="field-hint hidden">No tagged playlists yet.</p>
+          </div>
+          <button type="button" id="stats-genre-chips-toggle" class="stats-see-all-link hidden">See all &rarr;</button>
+        </section>
 
-        <a class="stats-section stats-section-link" href="/static/statistics-detail.html?dim=moods" aria-label="View all moods">
-          <h3><span>Top moods</span><span class="stats-section-cta">See all &rarr;</span></h3>
-          <ol id="stats-mood-chips" class="stats-rank-list"></ol>
-          <p id="stats-mood-chips-empty" class="field-hint hidden">No tagged playlists yet.</p>
-        </a>
+        <section id="stats-moods-panel" class="settings-page-panel hidden stats-music-panel" aria-label="Top moods">
+          <p class="field-hint">The moods your playlists lean on the most.</p>
+          <div class="stats-section">
+            <div id="stats-mood-chips" class="stats-bar-list"></div>
+            <p id="stats-mood-chips-empty" class="field-hint hidden">No tagged playlists yet.</p>
+          </div>
+          <button type="button" id="stats-mood-chips-toggle" class="stats-see-all-link hidden">See all &rarr;</button>
+        </section>
 
-        <a class="stats-section stats-section-link" href="/static/statistics-detail.html?dim=periods" aria-label="View all periods">
-          <h3><span>Top periods</span><span class="stats-section-cta">See all &rarr;</span></h3>
-          <ol id="stats-period-chips" class="stats-rank-list"></ol>
-          <p id="stats-period-chips-empty" class="field-hint hidden">No tagged playlists yet.</p>
-        </a>
+        <section id="stats-periods-panel" class="settings-page-panel hidden stats-music-panel" aria-label="Top periods">
+          <p class="field-hint">The release periods your playlists draw from the most.</p>
+          <div class="stats-section">
+            <div id="stats-period-chips" class="stats-bar-list"></div>
+            <p id="stats-period-chips-empty" class="field-hint hidden">No tagged playlists yet.</p>
+          </div>
+          <button type="button" id="stats-period-chips-toggle" class="stats-see-all-link hidden">See all &rarr;</button>
+        </section>
 
-        <div class="stats-footer">
-          <a class="stats-nerd-link" href="/static/statistics-nerd.html">Nerd stats &rarr;</a>
-        </div>
-      </div>
-    </section>
+        <section id="stats-tags-panel" class="settings-page-panel hidden stats-music-panel" aria-label="Personal tags">
+          <p class="field-hint">The personal tags you add to playlists in the library, most used first.</p>
+          <div class="stats-section">
+            <div id="stats-custom-tag-list" class="stats-bar-list"></div>
+            <p id="stats-custom-tag-list-empty" class="field-hint hidden">No personal tags yet.</p>
+          </div>
+          <button type="button" id="stats-custom-tag-list-toggle" class="stats-see-all-link hidden">See all &rarr;</button>
+        </section>
+
+        <section id="stats-advanced-panel" class="settings-page-panel hidden" aria-label="AI performance">
+          <p id="stats-advanced-status" class="status" aria-live="polite">Loading statistics&hellip;</p>
+
+          <div id="stats-advanced-content" class="hidden">
+            <div id="stats-provider-tabs" class="stats-provider-tabs"></div>
+            <div id="stats-provider-detail"></div>
+            <p id="stats-provider-cards-empty" class="field-hint hidden">No generation data recorded yet.</p>
+          </div>
+        </section>
+
+        <section id="stats-cache-panel" class="settings-page-panel hidden" aria-label="Cache">
+          <p id="stats-cache-status" class="status" aria-live="polite">Loading statistics&hellip;</p>
+
+          <div id="stats-cache-content" class="hidden">
+            <div class="stats-section" id="stats-cache-section">
+              <h3>Cache hit rate since last restart</h3>
+              <div id="stats-cache-rows" class="stats-cache-bars"></div>
+              <p id="stats-cache-empty" class="field-hint hidden">No cache activity recorded since the app was last restarted.</p>
+            </div>
+          </div>
+        </section>
+      </section>
+    </div>
   </main>
 
-  <script src="/static/common.js?v=7"></script>
+  <script src="/static/common.js?v=18"></script>
+  <script src="/static/action-controls.js?v=5"></script>
   <script src="/static/statistics-render.js?v=2"></script>
-  <script src="/static/statistics.js?v=5"></script>
-  <script src="/static/home-status.js?v=26"></script>
+  <script src="/static/statistics.js?v=16"></script>
+  <script src="/static/statistics-advanced.js?v=4"></script>
+  <script src="/static/statistics-cache.js?v=1"></script>
+  <script src="/static/statistics-page.js?v=3"></script>
+  <script src="/static/home-status.js?v=34"></script>
 </body>
 </html>

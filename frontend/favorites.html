@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#070916">
+  <link rel="icon" type="image/png" href="/static/playlistmuse-favicon.png?v=1">
+  <title>Favorites · PlaylistMuse</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v=10">
+  <link rel="stylesheet" href="/static/layout.css?v=7">
+  <link rel="stylesheet" href="/static/controls.css?v=8">
+  <link rel="stylesheet" href="/static/settings-dialog.css?v=11">
+  <link rel="stylesheet" href="/static/settings-page.css?v=5">
+  <link rel="stylesheet" href="/static/favorites.css?v=19">
+  <link rel="stylesheet" href="/static/header-navigation.css?v=21">
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">AI playlist studio</p>
+      <h1>PlaylistMuse</h1>
+    </div>
+    <a class="secondary library-header-link" href="/" aria-label="Home" title="Home">Create playlist</a>
+  </header>
+
+  <main>
+    <div class="settings-page-shell">
+      <aside class="settings-page-navigation" aria-label="Favorites sections">
+        <div class="settings-page-title-block">
+          <p class="eyebrow">PlaylistMuse</p>
+          <h1>Favorites</h1>
+        </div>
+
+        <nav class="settings-section-navigation" aria-label="PlaylistMuse favorites">
+          <button class="settings-section-link" type="button" data-favorites-section="overview">
+            <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+              <rect x="5" y="7" width="22" height="4" rx="2" />
+              <rect x="5" y="15" width="16" height="4" rx="2" />
+              <rect x="5" y="23" width="10" height="4" rx="2" />
+            </svg>
+            <span>Overview</span>
+          </button>
+          <button class="settings-section-link" type="button" data-favorites-section="artists">
+            <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+              <circle cx="16" cy="11" r="5" />
+              <path d="M6 27c0-6.5 4.5-10 10-10s10 3.5 10 10" />
+            </svg>
+            <span>Artists</span>
+          </button>
+          <button class="settings-section-link" type="button" data-favorites-section="songs">
+            <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+              <circle cx="12" cy="23" r="3.2" />
+              <circle cx="24" cy="20" r="3.2" />
+              <path d="M15.2 23V9.5L27.2 7v13" />
+            </svg>
+            <span>Songs</span>
+          </button>
+        </nav>
+      </aside>
+
+      <section class="settings-page-content settings-dialog-card" aria-live="polite">
+        <div class="settings-page-content-heading">
+          <p id="favorites-section-eyebrow" class="eyebrow">Favorites</p>
+          <div class="favorites-title-row">
+            <h2 id="favorites-section-title">Overview</h2>
+            <button
+              type="button"
+              id="favorites-section-info"
+              class="favorites-info-icon"
+              aria-label="About this section"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 11v6M12 8v.01" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <section id="favorites-overview-panel" class="settings-page-panel" aria-label="Overview">
+          <div class="favorites-overview-row">
+            <div class="favorites-overview-figure">
+              <span id="favorites-artist-count" class="favorites-hero-value">&mdash;</span>
+              <span class="favorites-hero-label">Favorite artists</span>
+            </div>
+            <div class="favorites-overview-list">
+              <p class="favorites-subhead">Top 5 artists</p>
+              <div id="favorites-top-artists" class="favorites-list"></div>
+              <p id="favorites-top-artists-empty" class="field-hint hidden">No favorite artists yet.</p>
+            </div>
+          </div>
+
+          <div class="favorites-overview-row">
+            <div class="favorites-overview-figure">
+              <span id="favorites-track-count" class="favorites-hero-value">&mdash;</span>
+              <span class="favorites-hero-label">Favorite songs</span>
+            </div>
+            <div class="favorites-overview-list">
+              <p class="favorites-subhead">Top 5 songs</p>
+              <div id="favorites-top-tracks" class="favorites-list"></div>
+              <p id="favorites-top-tracks-empty" class="field-hint hidden">No favorite songs yet.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="favorites-artists-panel" class="settings-page-panel hidden" aria-label="Artists">
+          <div id="favorite-artist-list" class="favorites-list"></div>
+          <p id="favorite-artist-empty" class="field-hint hidden">No favorite artists yet.</p>
+          <button type="button" id="favorite-artist-list-toggle" class="favorites-see-all-link hidden">See all &rarr;</button>
+        </section>
+
+        <section id="favorites-songs-panel" class="settings-page-panel hidden" aria-label="Songs">
+          <div id="favorite-track-list" class="favorites-list"></div>
+          <p id="favorite-track-empty" class="field-hint hidden">No favorite songs yet.</p>
+          <button type="button" id="favorite-track-list-toggle" class="favorites-see-all-link hidden">See all &rarr;</button>
+        </section>
+      </section>
+    </div>
+  </main>
+
+  <script src="/static/common.js?v=18"></script>
+  <script src="/static/action-controls.js?v=5"></script>
+  <script src="/static/favorites.js?v=21"></script>
+  <script src="/static/home-status.js?v=34"></script>
+</body>
+</html>

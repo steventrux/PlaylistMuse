@@ -1,7 +1,13 @@
 import asyncio
 
+import backend.favorites as favorites_module
 import backend.main as main_module
 from backend.config import AppConfig, api_key_matches_provider
+from backend.creative_intent import (
+    CreativeIntent,
+    activate_creative_intent,
+    reset_creative_intent,
+)
 from backend.llm import safe_error_message
 
 
@@ -136,3 +142,250 @@ def test_generate_appends_a_discreet_signature_to_the_description(monkeypatch) -
 
     assert result["description"].startswith("A short, punchy description.")
     assert "Made with PlaylistMuse" in result["description"]
+
+
+def _no_ai_calls(monkeypatch):
+    async def fail_generate(config, prompt, count, is_seed_generation=False):
+        raise AssertionError("the AI must not be called for a pure favorite-tracks request")
+
+    async def fail_resolve(candidates, exclusions):
+        raise AssertionError("catalogue resolution must not run for pure favorite tracks")
+
+    monkeypatch.setattr(
+        main_module,
+        "load_config",
+        lambda: AppConfig(provider="openai", api_key="sk-test", model="model"),
+    )
+    monkeypatch.setattr(main_module, "generate_playlist_draft", fail_generate)
+    monkeypatch.setattr(main_module, "resolve_candidates", fail_resolve)
+
+
+def test_generate_pure_favorite_tracks_skips_ai_and_returns_only_bookmarked_tracks(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setattr(favorites_module, "FAVORITES_PATH", tmp_path / "favorites.json")
+    favorites_module.add_favorite_track(
+        {"video_id": "vid1", "title": "Back In Black", "artists": "AC/DC"}
+    )
+    favorites_module.add_favorite_track(
+        {"video_id": "vid2", "title": "Angie", "artists": "The Rolling Stones"}
+    )
+    favorites_module.add_favorite_track(
+        {"video_id": "vid3", "title": "Paint It Black", "artists": "The Rolling Stones"}
+    )
+    _no_ai_calls(monkeypatch)
+
+    result = asyncio.run(
+        main_module._generate(
+            "crea una playlist con le mie canzoni preferite", 10, main_module.PlaylistOptions()
+        )
+    )
+
+    assert {t["video_id"] for t in result["tracks"]} == {"vid1", "vid2", "vid3"}
+    assert result["resolved_count"] == 3
+    assert result["requested_count"] == 10
+
+
+def test_generate_pure_favorite_tracks_raises_when_none_are_saved(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(favorites_module, "FAVORITES_PATH", tmp_path / "favorites.json")
+    _no_ai_calls(monkeypatch)
+
+    try:
+        asyncio.run(
+            main_module._generate(
+                "crea una playlist con le mie canzoni preferite",
+                10,
+                main_module.PlaylistOptions(),
+            )
+        )
+    except ValueError as error:
+        assert "haven't bookmarked" in str(error)
+    else:
+        raise AssertionError("expected a ValueError when no favorite tracks are saved")
+
+
+def test_generate_combined_favorites_seeds_tracks_then_fills_remaining_with_ai(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setattr(favorites_module, "FAVORITES_PATH", tmp_path / "favorites.json")
+    favorites_module.add_favorite_artist("AC/DC")
+    favorites_module.add_favorite_track(
+        {"video_id": "vid1", "title": "Back In Black", "artists": "AC/DC"}
+    )
+    ai_calls: list[int] = []
+
+    async def fake_generate(config, prompt, count, is_seed_generation=False):
+        ai_calls.append(count)
+        return {
+            "title": "Test Playlist",
+            "description": "A test playlist.",
+            "tracks": [
+                {
+                    "artist": "AC/DC",
+                    "title": f"Extra {index}",
+                    "description": "Description.",
+                    "reason": "Reason.",
+                }
+                for index in range(count)
+            ],
+        }
+
+    async def fake_resolve(candidates, exclusions):
+        return (
+            [
+                {
+                    "video_id": f"video-{item['title']}",
+                    "title": item["title"],
+                    "artists": item["artist"],
+                    "album": "Album",
+                    "duration": "3:00",
+                    "thumbnail_url": "",
+                    "url": "https://music.youtube.com/watch?v=test",
+                    "description": item["description"],
+                    "reason": item["reason"],
+                }
+                for item in candidates
+            ],
+            [],
+        )
+
+    monkeypatch.setattr(
+        main_module,
+        "load_config",
+        lambda: AppConfig(provider="openai", api_key="sk-test", model="model"),
+    )
+    monkeypatch.setattr(main_module, "generate_playlist_draft", fake_generate)
+    monkeypatch.setattr(main_module, "resolve_candidates", fake_resolve)
+
+    result = asyncio.run(
+        main_module._generate(
+            "crea una playlist con i miei preferiti", 5, main_module.PlaylistOptions()
+        )
+    )
+
+    assert len(result["tracks"]) == 5
+    assert result["tracks"][0]["video_id"] == "vid1"  # bookmarked track seeded first
+    # only the shortfall (5 - 1 bookmarked) plus its own small overshoot was requested,
+    # not the full 5 -- confirms the bookmarked track reduced what the AI was asked for.
+    assert ai_calls[0] == 4 + main_module._initial_draft_overshoot(4)
+
+
+def test_generate_favorite_artist_lock_with_style_conflict_shortfalls_instead_of_forcing(
+    monkeypatch, tmp_path
+) -> None:
+    # Reproduces "create a playlist house with my favorite artists" when none of the
+    # bookmarked artists actually make that style: with the artist pool hard-locked to
+    # favorites (see backend.favorites), an active creative intent (mood or, as merged
+    # in generation_runtime_core._interpret_request, style) that the resolved tracks
+    # can't satisfy must shrink the playlist rather than pad it with mismatched picks.
+    monkeypatch.setattr(favorites_module, "FAVORITES_PATH", tmp_path / "favorites.json")
+    favorites_module.add_favorite_artist("AC/DC")
+    token = activate_creative_intent(CreativeIntent(("house music",), 0.9))
+
+    async def fake_generate(config, prompt, count, is_seed_generation=False):
+        return {
+            "title": "Test Playlist",
+            "description": "A test playlist.",
+            "tracks": [
+                {
+                    "artist": "AC/DC",
+                    "title": "Track 1",
+                    "description": "Description.",
+                    "reason": "Reason.",
+                }
+            ],
+        }
+
+    async def fake_resolve(candidates, exclusions):
+        return (
+            [
+                {
+                    "video_id": f"video-{item['title']}",
+                    "title": item["title"],
+                    "artists": item["artist"],
+                    "album": "Album",
+                    "duration": "3:00",
+                    "thumbnail_url": "",
+                    "url": "https://music.youtube.com/watch?v=test",
+                    "description": item["description"],
+                    "reason": item["reason"],
+                }
+                for item in candidates
+            ],
+            [],
+        )
+
+    monkeypatch.setattr(
+        main_module,
+        "load_config",
+        lambda: AppConfig(provider="openai", api_key="sk-test", model="model"),
+    )
+    monkeypatch.setattr(main_module, "generate_playlist_draft", fake_generate)
+    monkeypatch.setattr(main_module, "resolve_candidates", fake_resolve)
+
+    try:
+        result = asyncio.run(
+            main_module._generate(
+                "Create a playlist house with my favorite artists",
+                10,
+                main_module.PlaylistOptions(),
+            )
+        )
+    finally:
+        reset_creative_intent(token)
+        favorites_module.activate_favorite_artist_allowlist([])
+
+    assert len(result["tracks"]) == 1
+    assert result["resolved_count"] == 1
+
+
+def test_generate_favorite_artist_lock_with_style_conflict_raises_when_nothing_matches(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setattr(favorites_module, "FAVORITES_PATH", tmp_path / "favorites.json")
+    favorites_module.add_favorite_artist("AC/DC")
+    token = activate_creative_intent(CreativeIntent(("house music",), 0.9))
+
+    async def fake_generate(config, prompt, count, is_seed_generation=False):
+        return {
+            "title": "Test Playlist",
+            "description": "A test playlist.",
+            "tracks": [
+                {
+                    "artist": "AC/DC",
+                    "title": "Track 1",
+                    "description": "Description.",
+                    "reason": "Reason.",
+                }
+            ],
+        }
+
+    async def fake_resolve(candidates, exclusions):
+        return ([], candidates)
+
+    monkeypatch.setattr(
+        main_module,
+        "load_config",
+        lambda: AppConfig(provider="openai", api_key="sk-test", model="model"),
+    )
+    monkeypatch.setattr(main_module, "generate_playlist_draft", fake_generate)
+    monkeypatch.setattr(main_module, "resolve_candidates", fake_resolve)
+
+    try:
+        try:
+            asyncio.run(
+                main_module._generate(
+                    "Create a playlist house with my favorite artists",
+                    10,
+                    main_module.PlaylistOptions(),
+                )
+            )
+        except ValueError as error:
+            assert "None of your favorite artists" in str(error)
+        else:
+            raise AssertionError(
+                "expected a ValueError when no favorite-artist track matches the request"
+            )
+    finally:
+        reset_creative_intent(token)
+        favorites_module.activate_favorite_artist_allowlist([])

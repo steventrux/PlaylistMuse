@@ -1,6 +1,7 @@
 import asyncio
+import time
 
-from backend import constraint_relationships
+from backend import cache_metrics, constraint_relationships
 
 
 class _Response:
@@ -78,3 +79,45 @@ def test_pair_cache_key_distinguishes_artists():
     assert constraint_relationships._pair_key(
         "Load", "Metallica"
     ) != constraint_relationships._pair_key("Load", "Nirvana")
+
+
+def test_write_cache_purges_expired_rows_after_interval(tmp_path, monkeypatch):
+    cache_path = tmp_path / "constraint_relationship_cache.sqlite3"
+    monkeypatch.setattr(constraint_relationships, "_cache_path", lambda: cache_path)
+    monkeypatch.setattr(constraint_relationships, "_last_purge_at", 0.0)
+
+    with constraint_relationships._connect() as connection:
+        connection.execute(
+            "INSERT INTO album_artist_pair_cache(pair_key, payload, expires_at) "
+            "VALUES (?, ?, ?)",
+            ("stale-key", "{}", time.time() - 10),
+        )
+
+    constraint_relationships._write_cache("Fresh Album", "Fresh Artist", {"matches": False})
+
+    with constraint_relationships._connect() as connection:
+        remaining = {
+            row["pair_key"]
+            for row in connection.execute(
+                "SELECT pair_key FROM album_artist_pair_cache"
+            ).fetchall()
+        }
+    assert "stale-key" not in remaining
+
+
+def test_read_cache_records_hit_and_miss_metrics(tmp_path, monkeypatch):
+    cache_path = tmp_path / "constraint_relationship_cache.sqlite3"
+    monkeypatch.setattr(constraint_relationships, "_cache_path", lambda: cache_path)
+
+    before = cache_metrics.snapshot().get(
+        "Constraint relationships", {"hits": 0, "misses": 0}
+    )
+
+    assert constraint_relationships._read_cache("Never Cached", "Nobody") is None
+    after_miss = cache_metrics.snapshot()["Constraint relationships"]
+    assert after_miss["misses"] == before["misses"] + 1
+
+    constraint_relationships._write_cache("Cached Album", "Cached Artist", {"matches": False})
+    assert constraint_relationships._read_cache("Cached Album", "Cached Artist") is not None
+    after_hit = cache_metrics.snapshot()["Constraint relationships"]
+    assert after_hit["hits"] == before["hits"] + 1

@@ -89,6 +89,66 @@
   transform: none;
 }
 
+.library-artist-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 0 0 10px;
+}
+
+.library-active-filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.library-active-filter-group-label {
+  color: var(--text-muted);
+  font-size: .82rem;
+  font-weight: 700;
+}
+
+.library-active-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 10px;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, .12);
+}
+
+.library-artist-filter-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.library-artist-filter-clear:hover,
+.library-artist-filter-clear:focus-visible {
+  background: rgba(255, 255, 255, .08);
+  color: var(--cyan-light);
+}
+
+.library-artist-filter-clear svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 /* Match the compact result-card rhythm. */
 .library-list {
   display: grid;

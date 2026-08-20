@@ -1,5 +1,6 @@
 import asyncio
 
+import backend.favorites as favorites_module
 from backend.prompt_validation import (
     _augment_explicit_entity_constraints,
     _local_temporal_assessment,
@@ -173,3 +174,88 @@ def test_non_conflicting_album_artist_relationship_stays_valid(monkeypatch):
     )
 
     assert assessment.status == "valid"
+
+
+def _ambiguous_about(reason: str, monkeypatch):
+    async def interpreted(*_args, **_kwargs):
+        return {
+            "constraint_status": "ambiguous",
+            "status_reasons": [reason],
+        }
+
+    monkeypatch.setattr("backend.prompt_validation.interpret_constraints", interpreted)
+
+
+def test_ambiguous_favorites_reason_is_suppressed_when_favorites_are_saved(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(favorites_module, "FAVORITES_PATH", tmp_path / "favorites.json")
+    favorites_module.add_favorite_artist("Radiohead")
+    _ambiguous_about(
+        "La richiesta menziona 'i miei artisti preferiti' senza specificare quali "
+        "artisti debbano essere inclusi.",
+        monkeypatch,
+    )
+
+    assessment = asyncio.run(
+        assess_prompt(object(), "crea una playlist con i miei artisti preferiti")  # type: ignore[arg-type]
+    )
+
+    assert assessment.status == "valid"
+    assert assessment.reasons == ()
+
+
+def test_ambiguous_favorites_reason_stays_ambiguous_without_saved_favorites(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(favorites_module, "FAVORITES_PATH", tmp_path / "favorites.json")
+    _ambiguous_about(
+        "La richiesta menziona 'i miei artisti preferiti' senza specificare quali "
+        "artisti debbano essere inclusi.",
+        monkeypatch,
+    )
+
+    assessment = asyncio.run(
+        assess_prompt(object(), "crea una playlist con i miei artisti preferiti")  # type: ignore[arg-type]
+    )
+
+    assert assessment.status == "ambiguous"
+    assert assessment.reasons
+
+
+def test_ambiguous_reason_is_suppressed_even_when_it_never_says_favorite(
+    monkeypatch, tmp_path
+):
+    # Reproduces the real failure: the AI's own reason can be a generic "no artist
+    # specified" phrasing that never echoes back "favorite"/"preferiti" even though the
+    # ambiguity IS about the explicit favorite-artists request -- suppression must key
+    # off the source prompt (see favorite_categories_explicitly_requested), not off
+    # keyword-matching the AI's free-text reason.
+    monkeypatch.setattr(favorites_module, "FAVORITES_PATH", tmp_path / "favorites.json")
+    favorites_module.add_favorite_artist("Radiohead")
+    _ambiguous_about("Nessun artista specificato nella richiesta.", monkeypatch)
+
+    assessment = asyncio.run(
+        assess_prompt(object(), "Crea una playlist house con i miei artisti preferiti")  # type: ignore[arg-type]
+    )
+
+    assert assessment.status == "valid"
+    assert assessment.reasons == ()
+
+
+def test_unrelated_ambiguous_reason_is_not_suppressed_by_saved_favorites(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(favorites_module, "FAVORITES_PATH", tmp_path / "favorites.json")
+    favorites_module.add_favorite_artist("Radiohead")
+    _ambiguous_about(
+        "Non è chiaro se 'Europe' indichi la band o la provenienza geografica.",
+        monkeypatch,
+    )
+
+    assessment = asyncio.run(
+        assess_prompt(object(), "playlist a tema Europe")  # type: ignore[arg-type]
+    )
+
+    assert assessment.status == "ambiguous"
+    assert assessment.reasons

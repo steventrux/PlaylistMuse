@@ -158,3 +158,24 @@
     text-align: center;
   }
 }
+
+.settings-dialog-card .storage-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin: 0 0 4px;
+}
+
+.settings-dialog-card .storage-tile-detail {
+  color: var(--text-muted);
+  font-size: .7rem;
+  text-align: right;
+}
+
+.settings-dialog-card .storage-total-value {
+  font-size: clamp(2.2rem, 5vw, 3rem);
+  font-weight: 850;
+  line-height: 1;
+  letter-spacing: -.03em;
+  color: var(--text-primary);
+}

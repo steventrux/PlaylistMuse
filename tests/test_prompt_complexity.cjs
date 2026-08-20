@@ -11,12 +11,16 @@ const script = fs.readFileSync(
 vm.runInNewContext(script, context);
 const {
   analysisPayload,
+  currentScore,
   debounceMs,
   filterConflicts,
   parseFilterConflict,
 } = context.window.PlaylistMusePromptComplexity;
 
 assert.equal(debounceMs, 500);
+// No analysis has rendered yet (init() never ran in this DOM-less harness), so the
+// score sent along with a generate request defaults to null, not a stale value.
+assert.equal(currentScore(), null);
 
 const payload = analysisPayload('  音楽を作ってください  ', {
   trackCount: 25,
