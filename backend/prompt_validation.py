@@ -230,12 +230,12 @@ def _suppress_resolvable_favorites_ambiguity(
 
     from backend.favorites import (
         favorite_artist_names,
-        favorite_categories_explicitly_requested,
+        favorite_categories_mentioned,
         favorite_track_summaries,
     )
 
-    explicit_artists, explicit_tracks = favorite_categories_explicitly_requested(prompt)
-    if not explicit_artists and not explicit_tracks:
+    mentions_artists, mentions_tracks = favorite_categories_mentioned(prompt)
+    if not mentions_artists and not mentions_tracks:
         return assessment
     if not favorite_artist_names(limit=1) and not favorite_track_summaries(limit=1):
         return assessment
@@ -243,7 +243,7 @@ def _suppress_resolvable_favorites_ambiguity(
     def _resolved_by_favorites(reason: str) -> bool:
         if _FAVORITES_MENTION_RE.search(reason):
             return True
-        return explicit_artists and bool(_ARTIST_MENTION_RE.search(reason))
+        return mentions_artists and bool(_ARTIST_MENTION_RE.search(reason))
 
     kept = tuple(reason for reason in assessment.reasons if not _resolved_by_favorites(reason))
     if kept == assessment.reasons:

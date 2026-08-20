@@ -7,6 +7,7 @@ import re
 import sqlite3
 from contextvars import ContextVar
 from datetime import UTC, datetime
+from enum import Enum
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -24,21 +25,21 @@ MAX_FAVORITE_NAME_LENGTH = 120
 _FAVORITES_GENERIC_REQUEST_PATTERNS = (
     # A generic reference to the bookmarked collection, not scoped to artists or
     # tracks specifically -- treated as a request for both categories.
-    re.compile(r"\bmy\s+favorites\b", re.IGNORECASE),  # English
+    re.compile(r"\bmy\s+favou?rites\b", re.IGNORECASE),  # English (US/UK spelling)
     re.compile(r"\b(?:i\s+miei|le\s+mie)\s+preferit[ei]\b", re.IGNORECASE),  # Italian
     re.compile(r"\bmes\s+favoris\b", re.IGNORECASE),  # French
     re.compile(r"\bmis\s+favoritos\b", re.IGNORECASE),  # Spanish
     re.compile(r"\bmeine\s+Favoriten\b", re.IGNORECASE),  # German
 )
 _FAVORITE_ARTISTS_REQUEST_PATTERNS = (
-    re.compile(r"\bmy\s+favorite\s+artists\b", re.IGNORECASE),
+    re.compile(r"\bmy\s+favou?rite\s+artists\b", re.IGNORECASE),  # US/UK spelling
     re.compile(r"\bartisti\s+preferit[ei]\b", re.IGNORECASE),
     re.compile(r"\bmes\s+artistes\s+(?:favoris|préférés|préférées)\b", re.IGNORECASE),
     re.compile(r"\bmis\s+artistas\s+(?:favoritos|preferidos)\b", re.IGNORECASE),
     re.compile(r"\bmeine\s+Lieblingskünstler\b", re.IGNORECASE),
 )
 _FAVORITE_TRACKS_REQUEST_PATTERNS = (
-    re.compile(r"\bmy\s+favorite\s+(?:songs|tracks)\b", re.IGNORECASE),
+    re.compile(r"\bmy\s+favou?rite\s+(?:songs|tracks)\b", re.IGNORECASE),  # US/UK spelling
     re.compile(r"\b(?:canzoni|brani|tracce)\s+preferit[ei]\b", re.IGNORECASE),
     re.compile(
         r"\bmes\s+(?:chansons|morceaux|titres)\s+(?:favoris|préférés|préférées)\b",
@@ -50,33 +51,95 @@ _FAVORITE_TRACKS_REQUEST_PATTERNS = (
     ),
     re.compile(r"\bmeine\s+Lieblings(?:songs|lieder|titel|tracks)\b", re.IGNORECASE),
 )
+# A favorites reference softened by an "inspired by"-style qualifier -- the listener
+# wants the bookmarked collection to steer the generation more than the passive
+# default bias below, but explicitly declined to request it as a hard, exclusive ask
+# ("my favorite artists" alone). Matched independently of *where* in the prompt it
+# appears (not just immediately before the favorites phrase): a prompt combining the
+# two anywhere is read as one softened request, since demanding adjacency would miss
+# the common "inspired by X, using my favorite artists" phrasing.
+_INSPIRED_BY_QUALIFIER_PATTERNS = (
+    re.compile(r"\binspired\s+by\b", re.IGNORECASE),  # English
+    re.compile(r"\bispirat[oa]\s+(?:a|ai|alle?|da)\b", re.IGNORECASE),  # Italian
+    re.compile(r"\binspir[ée]e?\s+(?:par|de)\b", re.IGNORECASE),  # French
+    re.compile(r"\binspirad[oa]\s+(?:en|por)\b", re.IGNORECASE),  # Spanish
+    re.compile(r"\binspiriert\s+von\b", re.IGNORECASE),  # German
+)
 
 _FAVORITE_ARTIST_ALLOWLIST: ContextVar[tuple[str, ...]] = ContextVar(
     "favorite_artist_allowlist", default=()
 )
 
 
-def favorite_categories_explicitly_requested(prompt: str) -> tuple[bool, bool]:
-    """Detect an explicit ask to use bookmarked favorite artists and/or tracks.
+class FavoritesRequestLevel(str, Enum):
+    """How strongly a prompt asks for bookmarked favorites, per category.
 
-    Returns (artists_explicit, tracks_explicit) so a prompt that names only one
-    category ("i miei artisti preferiti") strengthens/hard-restricts just that
-    category, while a generic reference ("my favorites") covers both. Regex-based
-    (no AI call): the actual restriction this feeds is a fast, local check, so the
-    low false-positive/negative risk of pattern matching is an acceptable trade for
-    avoiding extra generation latency. Deliberately narrow -- requires a clear
-    reference to the saved favorites collection, not a generic singular use of the
-    adjective ("my favorite song is...") which usually names one specific track, not
-    the bookmarked list.
+    EXPLICIT: a direct, unqualified ask ("my favorite artists") -- hard-restricts
+    the artist pool and/or seeds bookmarked tracks verbatim (see backend.main).
+    INSPIRED: the same phrase softened by an "inspired by"-style qualifier -- the
+    generation prompt should weigh favorites noticeably more than the passive
+    default, but must never hard-restrict the pool or override an explicit
+    constraint, exclusion or quantity.
+    NONE: no reference to the bookmarked collection at all -- favorites (if any
+    are saved) are still folded in, but only as a mild, tie-breaking bias.
+    """
+
+    NONE = "none"
+    INSPIRED = "inspired"
+    EXPLICIT = "explicit"
+
+
+def favorite_categories_requested_levels(
+    prompt: str,
+) -> tuple[FavoritesRequestLevel, FavoritesRequestLevel]:
+    """Detect how strongly the prompt asks for bookmarked favorite artists/tracks.
+
+    Returns (artists_level, tracks_level) so a prompt that names only one category
+    ("i miei artisti preferiti") strengthens just that category, while a generic
+    reference ("my favorites") covers both. Regex-based (no AI call): the actual
+    restriction this feeds is a fast, local check, so the low false-positive/
+    negative risk of pattern matching is an acceptable trade for avoiding extra
+    generation latency. Deliberately narrow -- requires a clear reference to the
+    saved favorites collection, not a generic singular use of the adjective ("my
+    favorite song is...") which usually names one specific track, not the
+    bookmarked list.
     """
     generic = any(pattern.search(prompt) for pattern in _FAVORITES_GENERIC_REQUEST_PATTERNS)
-    artists = generic or any(
+    artists_matched = generic or any(
         pattern.search(prompt) for pattern in _FAVORITE_ARTISTS_REQUEST_PATTERNS
     )
-    tracks = generic or any(
+    tracks_matched = generic or any(
         pattern.search(prompt) for pattern in _FAVORITE_TRACKS_REQUEST_PATTERNS
     )
-    return artists, tracks
+    inspired = any(pattern.search(prompt) for pattern in _INSPIRED_BY_QUALIFIER_PATTERNS)
+
+    def _level(matched: bool) -> FavoritesRequestLevel:
+        if not matched:
+            return FavoritesRequestLevel.NONE
+        return FavoritesRequestLevel.INSPIRED if inspired else FavoritesRequestLevel.EXPLICIT
+
+    return _level(artists_matched), _level(tracks_matched)
+
+
+def favorite_categories_explicitly_requested(prompt: str) -> tuple[bool, bool]:
+    """Backward-compatible hard-request check -- True only at the EXPLICIT tier.
+
+    Used to gate behavior that must stay reserved for an unqualified ask (the
+    hard artist-pool restriction and the bookmarked-tracks-only shortcut in
+    backend.main) -- an "inspired by my favorites" prompt should not trigger
+    those, only the softer INSPIRED-tier guidance weighting.
+    """
+    artists_level, tracks_level = favorite_categories_requested_levels(prompt)
+    return (
+        artists_level is FavoritesRequestLevel.EXPLICIT,
+        tracks_level is FavoritesRequestLevel.EXPLICIT,
+    )
+
+
+def favorite_categories_mentioned(prompt: str) -> tuple[bool, bool]:
+    """Whether the prompt references bookmarked favorites at all (any tier)."""
+    artists_level, tracks_level = favorite_categories_requested_levels(prompt)
+    return artists_level is not FavoritesRequestLevel.NONE, tracks_level is not FavoritesRequestLevel.NONE
 
 
 def activate_favorite_artist_allowlist(artists: list[str]) -> None:

@@ -35,6 +35,7 @@ from backend.generation_runtime import (
     generate_playlist_draft,
     resolve_candidates,
 )
+from backend.favorites import FavoritesRequestLevel
 from backend.llm import safe_error_message
 from backend.metadata_validation import extract_metadata_constraints
 from backend.playlist_ordering import (
@@ -867,8 +868,8 @@ def _replenishment_prompt(
     )
 
 
-def _favorites_weight_instruction(*, explicit: bool, noun: str) -> str:
-    if explicit:
+def _favorites_weight_instruction(*, level: FavoritesRequestLevel, noun: str) -> str:
+    if level is FavoritesRequestLevel.EXPLICIT:
         return (
             f"The user explicitly asked to use their favorite {noun} in this request. "
             f"Treat these {noun} as a strong, primary preference: actively include as "
@@ -876,6 +877,16 @@ def _favorites_weight_instruction(*, explicit: bool, noun: str) -> str:
             f"satisfying every mandatory constraint, exclusion and quantity in the "
             f"request -- do not merely use them as a tie-breaker between otherwise-equal "
             f"candidates."
+        )
+    if level is FavoritesRequestLevel.INSPIRED:
+        return (
+            f"The user asked for a playlist inspired by their favorite {noun}. Treat "
+            f"these {noun} as a moderately strong bias -- noticeably more influential "
+            f"than a default tie-breaker: lean toward including them, or songs/artists "
+            f"musically similar to them, more often than not. This is not an exclusive "
+            f"list, so keep bringing in other well-fitting suggestions too, and never "
+            f"let this bias override an explicit constraint, exclusion or quantity in "
+            f"the request."
         )
     return (
         f"Treat these {noun} as a soft, secondary bias only: never override an "
@@ -886,7 +897,11 @@ def _favorites_weight_instruction(*, explicit: bool, noun: str) -> str:
     )
 
 
-def _favorites_guidance(*, explicit_artists: bool = False, explicit_tracks: bool = False) -> str:
+def _favorites_guidance(
+    *,
+    artists_level: FavoritesRequestLevel | None = None,
+    tracks_level: FavoritesRequestLevel | None = None,
+) -> str:
     """Fold the user's bookmarked favorites into the prompt as generation guidance.
 
     Reads the small local favorites.json once per request (same cost class as
@@ -894,6 +909,8 @@ def _favorites_guidance(*, explicit_artists: bool = False, explicit_tracks: bool
     """
     from backend.favorites import favorite_artist_names, favorite_track_summaries
 
+    artists_level = artists_level or FavoritesRequestLevel.NONE
+    tracks_level = tracks_level or FavoritesRequestLevel.NONE
     artists = favorite_artist_names(limit=40)
     tracks = favorite_track_summaries(limit=40)
     if not artists and not tracks:
@@ -903,9 +920,9 @@ def _favorites_guidance(*, explicit_artists: bool = False, explicit_tracks: bool
     track_lines = "\n".join(f"- {t['artists']} — {t['title']}" for t in tracks)
     return (
         "\n\nUser's favorite artists and tracks (bookmarked by the listener).\n"
-        f"{_favorites_weight_instruction(explicit=explicit_artists, noun='artists')}\n"
+        f"{_favorites_weight_instruction(level=artists_level, noun='artists')}\n"
         f"Favorite artists:\n{artist_lines or '- None'}\n"
-        f"{_favorites_weight_instruction(explicit=explicit_tracks, noun='tracks')}\n"
+        f"{_favorites_weight_instruction(level=tracks_level, noun='tracks')}\n"
         f"Favorite tracks:\n{track_lines or '- None'}"
     )
 
@@ -974,16 +991,16 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
         MAX_FAVORITE_ARTISTS,
         activate_favorite_artist_allowlist,
         favorite_artist_names,
-        favorite_categories_explicitly_requested,
+        favorite_categories_requested_levels,
     )
 
-    explicit_artists, explicit_tracks = favorite_categories_explicitly_requested(prompt)
+    artists_level, tracks_level = favorite_categories_requested_levels(prompt)
+    explicit_artists = artists_level is FavoritesRequestLevel.EXPLICIT
+    explicit_tracks = tracks_level is FavoritesRequestLevel.EXPLICIT
     activate_favorite_artist_allowlist(
         favorite_artist_names(limit=MAX_FAVORITE_ARTISTS) if explicit_artists else []
     )
-    favorites_guidance = _favorites_guidance(
-        explicit_artists=explicit_artists, explicit_tracks=explicit_tracks
-    )
+    favorites_guidance = _favorites_guidance(artists_level=artists_level, tracks_level=tracks_level)
     initial_prompt = _constraint_priority_prompt(prompt)
     if lastfm_candidates:
         initial_prompt += _seed_evidence_guidance(lastfm_candidates, seed_mode=seed_mode)
@@ -1579,17 +1596,18 @@ async def replace_track(request: ReplaceTrackRequest) -> dict:
         MAX_FAVORITE_ARTISTS,
         activate_favorite_artist_allowlist,
         favorite_artist_names,
-        favorite_categories_explicitly_requested,
+        favorite_categories_requested_levels,
     )
 
-    replace_explicit_artists, replace_explicit_tracks = favorite_categories_explicitly_requested(
+    replace_artists_level, replace_tracks_level = favorite_categories_requested_levels(
         request.prompt
     )
+    replace_explicit_artists = replace_artists_level is FavoritesRequestLevel.EXPLICIT
     activate_favorite_artist_allowlist(
         favorite_artist_names(limit=MAX_FAVORITE_ARTISTS) if replace_explicit_artists else []
     )
     replacement_prompt += _favorites_guidance(
-        explicit_artists=replace_explicit_artists, explicit_tracks=replace_explicit_tracks
+        artists_level=replace_artists_level, tracks_level=replace_tracks_level
     )
 
     try:
