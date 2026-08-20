@@ -61,35 +61,38 @@ It runs entirely on infrastructure you control. The core application only needs 
 
 ## Screenshots
 
-<p align="center">
-  <img src="docs/media/screenshot-generation.png" alt="Describing a playlist from a text prompt in PlaylistMuse" width="800">
-  <br><em>Describe the playlist you want, in plain language.</em>
-</p>
+Click any screenshot to open it at full size.
 
-<p align="center">
-  <img src="docs/media/screenshot-playlist.png" alt="A generated playlist resolved against the real YouTube Music catalogue" width="800">
-  <br><em>Real tracks, resolved from the real catalogue and ready to review.</em>
-</p>
-
-<p align="center">
-  <img src="docs/media/screenshot-studio.png" alt="Reviewing and refining a playlist in Playlist Studio" width="800">
-  <br><em>Lock the tracks you like, refine only the rest with Playlist Studio.</em>
-</p>
-
-<p align="center">
-  <img src="docs/media/screenshot-library.png" alt="The PlaylistMuse local playlist library" width="800">
-  <br><em>Every playlist stays in your local library.</em>
-</p>
-
-<p align="center">
-  <img src="docs/media/screenshot-statistics.png" alt="PlaylistMuse statistics overview" width="800">
-  <br><em>See what you've generated over time, computed locally.</em>
-</p>
-
-<p align="center">
-  <img src="docs/media/screenshot-settings.png" alt="Connecting an AI provider in PlaylistMuse settings" width="800">
-  <br><em>Bring your own AI provider.</em>
-</p>
+<table align="center">
+  <tr>
+    <td align="center" width="33%">
+      <a href="docs/media/screenshot-generation.png"><img src="docs/media/screenshot-generation.png" width="260"></a>
+      <br><sub>Describe the playlist you want, in plain, natural language.</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="docs/media/screenshot-playlist.png"><img src="docs/media/screenshot-playlist.png" width="260"></a>
+      <br><sub>Real tracks, resolved against the real music catalogue.</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="docs/media/screenshot-studio.png"><img src="docs/media/screenshot-studio.png" width="260"></a>
+      <br><sub>Lock the tracks you like, refine only the rest with Studio.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">
+      <a href="docs/media/screenshot-library.png"><img src="docs/media/screenshot-library.png" width="260"></a>
+      <br><sub>Every generated playlist is saved to your local library.</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="docs/media/screenshot-statistics.png"><img src="docs/media/screenshot-statistics.png" width="260"></a>
+      <br><sub>See what you've generated over time, computed locally.</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="docs/media/screenshot-settings.png"><img src="docs/media/screenshot-settings.png" width="260"></a>
+      <br><sub>Bring your own AI provider, including local models too.</sub>
+    </td>
+  </tr>
+</table>
 
 ## Features
 
