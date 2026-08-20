@@ -1,5 +1,10 @@
 import backend.favorites as favorites_module
-from backend.favorites import favorite_categories_explicitly_requested
+from backend.favorites import (
+    FavoritesRequestLevel,
+    favorite_categories_explicitly_requested,
+    favorite_categories_mentioned,
+    favorite_categories_requested_levels,
+)
 from backend.main import (
     SeedGenerateRequest,
     SeedTrack,
@@ -89,9 +94,11 @@ def test_favorites_guidance_explicit_flags_produce_stronger_wording_per_category
     )
 
     soft = _favorites_guidance()
-    artists_only = _favorites_guidance(explicit_artists=True)
-    tracks_only = _favorites_guidance(explicit_tracks=True)
-    both = _favorites_guidance(explicit_artists=True, explicit_tracks=True)
+    artists_only = _favorites_guidance(artists_level=FavoritesRequestLevel.EXPLICIT)
+    tracks_only = _favorites_guidance(tracks_level=FavoritesRequestLevel.EXPLICIT)
+    both = _favorites_guidance(
+        artists_level=FavoritesRequestLevel.EXPLICIT, tracks_level=FavoritesRequestLevel.EXPLICIT
+    )
 
     assert soft.count("soft, secondary bias") == 2
     assert "explicitly asked to use their favorite artists" in artists_only
@@ -107,9 +114,24 @@ def test_favorites_guidance_explicit_flags_produce_stronger_wording_per_category
     assert "explicitly asked to use their favorite tracks" in both
 
 
+def test_favorites_guidance_inspired_level_is_stronger_than_soft_but_not_explicit(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(favorites_module, "FAVORITES_PATH", tmp_path / "favorites.json")
+    favorites_module.add_favorite_artist("Radiohead")
+
+    inspired = _favorites_guidance(artists_level=FavoritesRequestLevel.INSPIRED)
+
+    assert "moderately strong bias" in inspired
+    assert "explicitly asked to use their favorite artists" not in inspired
+    assert inspired.count("soft, secondary bias") == 1  # tracks (unset) stay soft
+    assert "never let this bias override" in inspired
+
+
 def test_favorite_categories_explicitly_requested_detects_multilingual_phrasing_per_category():
     artists_only_prompts = [
         "include my favorite artists please",
+        "include my favourite artists please",  # British spelling
         "includi i miei artisti preferiti",
         "ajoute mes artistes préférés",
         "usa mis artistas favoritos",
@@ -122,6 +144,7 @@ def test_favorite_categories_explicitly_requested_detects_multilingual_phrasing_
 
     tracks_only_prompts = [
         "add my favorite songs to this playlist",
+        "add my favourite songs to this playlist",  # British spelling
         "aggiungi le mie canzoni preferite",
         "ajoute mes chansons préférées",
         "incluye mis canciones favoritas",
@@ -134,6 +157,7 @@ def test_favorite_categories_explicitly_requested_detects_multilingual_phrasing_
 
     generic_prompts = [
         "use my favorites for this playlist",
+        "use my favourites for this playlist",  # British spelling
         "usa i miei preferiti per questa playlist",
         "utilise mes favoris pour cette playlist",
         "usa mis favoritos para esta playlist",
@@ -155,6 +179,45 @@ def test_favorite_categories_explicitly_requested_detects_multilingual_phrasing_
         assert not tracks, prompt
 
 
+def test_favorite_categories_requested_levels_downgrades_inspired_by_phrasing():
+    inspired_prompts = [
+        "Create a playlist inspired by my favourite artists and songs.",
+        "Create a playlist inspired by my favorite artists and songs.",
+        "una playlist ispirata ai miei artisti preferiti",
+        "une playlist inspirée par mes artistes préférés",
+        "una playlist inspirada en mis artistas favoritos",
+        "eine Playlist inspiriert von meine Lieblingskünstler",
+    ]
+    for prompt in inspired_prompts:
+        artists_level, _tracks_level = favorite_categories_requested_levels(prompt)
+        assert artists_level is FavoritesRequestLevel.INSPIRED, prompt
+
+    explicit_prompts = [
+        "include my favorite artists please",
+        "include my favourite artists please",
+    ]
+    for prompt in explicit_prompts:
+        artists_level, _tracks_level = favorite_categories_requested_levels(prompt)
+        assert artists_level is FavoritesRequestLevel.EXPLICIT, prompt
+
+    artists_level, tracks_level = favorite_categories_requested_levels(
+        "Italian summer hits released in 2026 only"
+    )
+    assert artists_level is FavoritesRequestLevel.NONE
+    assert tracks_level is FavoritesRequestLevel.NONE
+
+
+def test_favorite_categories_mentioned_is_true_for_both_inspired_and_explicit_tiers():
+    assert favorite_categories_mentioned(
+        "Create a playlist inspired by my favourite artists and songs."
+    ) == (True, False)
+    assert favorite_categories_mentioned("include my favorite artists please") == (True, False)
+    assert favorite_categories_mentioned("Italian summer hits released in 2026 only") == (
+        False,
+        False,
+    )
+
+
 def test_favorites_guidance_is_wired_into_every_generation_prompt_site():
     import inspect
 
@@ -162,7 +225,7 @@ def test_favorites_guidance_is_wired_into_every_generation_prompt_site():
 
     generate_source = inspect.getsource(main_module._generate)
     assert (
-        "explicit_artists, explicit_tracks = favorite_categories_explicitly_requested(prompt)"
+        "artists_level, tracks_level = favorite_categories_requested_levels(prompt)"
         in generate_source
     )
     assert "activate_favorite_artist_allowlist(" in generate_source
@@ -172,9 +235,8 @@ def test_favorites_guidance_is_wired_into_every_generation_prompt_site():
 
     replace_track_source = inspect.getsource(main_module.replace_track)
     assert (
-        "replace_explicit_artists, replace_explicit_tracks = "
-        "favorite_categories_explicitly_requested(\n        request.prompt\n    )"
-        in replace_track_source
+        "replace_artists_level, replace_tracks_level = favorite_categories_requested_levels(\n"
+        "        request.prompt\n    )" in replace_track_source
     )
     assert "activate_favorite_artist_allowlist(" in replace_track_source
 
