@@ -9,6 +9,7 @@
   const {readJson, setLoadingButton} = window.PlaylistMuseCommon;
   const tagTools = window.PlaylistMuseTags || window.PlaylistMuseLibraryTags;
   let favoriteTrackIds = new Set();
+  let favoriteArtistKeys = new Set();
   let expandedIndex = null;
   let draggedIndex = null;
   let persistenceTimer = null;
@@ -246,6 +247,7 @@
     try {
       const payload = await readJson(await fetch(FAVORITES_ENDPOINT, {cache: 'no-store'}));
       favoriteTrackIds = new Set((payload.tracks || []).map((track) => track.video_id));
+      favoriteArtistKeys = new Set((payload.artists || []).map((artist) => (artist.name || '').toLocaleLowerCase()));
       renderPlaylist();
     } catch (error) {
       console.warn('Favorites could not be loaded:', error);
@@ -447,6 +449,163 @@
     return handle;
   }
 
+  // Menu panels are portaled to <body> with position:fixed (positioned via JS
+  // on open) instead of living inside the track card: the card and its
+  // details pane use overflow:hidden to drive the expand/collapse animation,
+  // which would silently clip an absolutely-positioned dropdown to nothing.
+  const favoriteMenuToggles = new WeakMap();
+
+  function closeFavoriteTrackMenus() {
+    document.querySelectorAll('.favorite-track-menu-panel:not(.hidden)').forEach((panel) => {
+      panel.classList.add('hidden');
+      favoriteMenuToggles.get(panel)?.setAttribute('aria-expanded', 'false');
+    });
+  }
+
+  function removeFavoriteTrackMenuPortals() {
+    document.querySelectorAll('.favorite-track-menu-panel').forEach((panel) => panel.remove());
+  }
+
+  function positionFavoriteTrackMenu(toggle, menu) {
+    const rect = toggle.getBoundingClientRect();
+    menu.style.top = `${Math.round(rect.bottom + 6)}px`;
+    const left = Math.min(
+      Math.max(8, rect.right - menu.offsetWidth),
+      window.innerWidth - menu.offsetWidth - 8,
+    );
+    menu.style.left = `${Math.round(left)}px`;
+  }
+
+  function buildFavoriteTrackMenu(track) {
+    const wrap = document.createElement('div');
+    wrap.className = 'favorite-track-menu';
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'secondary track-action favorite-track-button';
+    toggle.setAttribute('aria-haspopup', 'true');
+
+    const menu = document.createElement('div');
+    menu.className = 'favorite-track-menu-panel hidden';
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', 'Add to favorites');
+    favoriteMenuToggles.set(menu, toggle);
+
+    const trackOption = document.createElement('button');
+    trackOption.type = 'button';
+    trackOption.className = 'favorite-track-option';
+    trackOption.dataset.target = 'track';
+    trackOption.setAttribute('role', 'menuitem');
+    menu.append(trackOption);
+
+    const artistName = (track.artists || '').trim();
+    const artistOption = document.createElement('button');
+    if (artistName) {
+      artistOption.type = 'button';
+      artistOption.className = 'favorite-track-option';
+      artistOption.dataset.target = 'artist';
+      artistOption.setAttribute('role', 'menuitem');
+      menu.append(artistOption);
+    }
+
+    wrap.append(toggle);
+
+    const isTrackFavorited = () => favoriteTrackIds.has(track.video_id);
+    const isArtistFavorited = () => favoriteArtistKeys.has(artistName.toLocaleLowerCase());
+
+    const applyState = () => {
+      window.PlaylistMuseActionControls?.decorateFavoriteToggle(
+        toggle,
+        {favorited: isTrackFavorited() || isArtistFavorited(), label: 'track or artist'},
+      );
+      toggle.removeAttribute('aria-pressed');
+      toggle.setAttribute('aria-expanded', String(!menu.classList.contains('hidden')));
+
+      trackOption.textContent = isTrackFavorited() ? 'Remove track from favorites' : 'Add track to favorites';
+      trackOption.classList.toggle('is-favorited', isTrackFavorited());
+      if (artistName) {
+        artistOption.textContent = isArtistFavorited() ? 'Remove artist from favorites' : 'Add artist to favorites';
+        artistOption.classList.toggle('is-favorited', isArtistFavorited());
+      }
+    };
+    applyState();
+
+    toggle.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const isOpen = !menu.classList.contains('hidden');
+      closeFavoriteTrackMenus();
+      if (!isOpen) {
+        document.body.append(menu);
+        menu.classList.remove('hidden');
+        positionFavoriteTrackMenu(toggle, menu);
+        toggle.setAttribute('aria-expanded', 'true');
+      }
+    });
+
+    async function toggleFavoriteTrack() {
+      if (isTrackFavorited()) {
+        await readJson(await fetch(
+          `${FAVORITES_ENDPOINT}/tracks/${encodeURIComponent(track.video_id)}`,
+          {method: 'DELETE'},
+        ));
+        favoriteTrackIds.delete(track.video_id);
+      } else {
+        await readJson(await fetch(`${FAVORITES_ENDPOINT}/tracks`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            video_id: track.video_id,
+            title: track.title || '',
+            artists: track.artists || '',
+            album: track.album || '',
+            thumbnail_url: track.thumbnail_url || '',
+          }),
+        }));
+        favoriteTrackIds.add(track.video_id);
+      }
+    }
+
+    async function toggleFavoriteArtist() {
+      const key = artistName.toLocaleLowerCase();
+      if (isArtistFavorited()) {
+        await readJson(await fetch(
+          `${FAVORITES_ENDPOINT}/artists?name=${encodeURIComponent(artistName)}`,
+          {method: 'DELETE'},
+        ));
+        favoriteArtistKeys.delete(key);
+      } else {
+        await readJson(await fetch(`${FAVORITES_ENDPOINT}/artists`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({name: artistName}),
+        }));
+        favoriteArtistKeys.add(key);
+      }
+    }
+
+    menu.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      const option = event.target.closest('.favorite-track-option');
+      if (!option) return;
+      option.disabled = true;
+      try {
+        if (option.dataset.target === 'track') {
+          await toggleFavoriteTrack();
+        } else {
+          await toggleFavoriteArtist();
+        }
+        applyState();
+      } catch (error) {
+        window.alert(error.message || String(error));
+      } finally {
+        option.disabled = false;
+        closeFavoriteTrackMenus();
+      }
+    });
+
+    return wrap;
+  }
+
   function renderTrack(track, index) {
     const item = document.createElement('li');
     item.className = 'track track-result-card';
@@ -527,46 +686,7 @@
     actions.append(play);
 
     if (track.video_id) {
-      const favorite = document.createElement('button');
-      favorite.type = 'button';
-      favorite.className = 'secondary track-action favorite-track-button';
-      const applyFavoriteState = () => window.PlaylistMuseActionControls?.decorateFavoriteToggle(
-        favorite,
-        {favorited: favoriteTrackIds.has(track.video_id), label: 'track'},
-      );
-      applyFavoriteState();
-      favorite.addEventListener('click', async (event) => {
-        event.stopPropagation();
-        favorite.disabled = true;
-        try {
-          if (favoriteTrackIds.has(track.video_id)) {
-            await readJson(await fetch(
-              `${FAVORITES_ENDPOINT}/tracks/${encodeURIComponent(track.video_id)}`,
-              {method: 'DELETE'},
-            ));
-            favoriteTrackIds.delete(track.video_id);
-          } else {
-            await readJson(await fetch(`${FAVORITES_ENDPOINT}/tracks`, {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({
-                video_id: track.video_id,
-                title: track.title || '',
-                artists: track.artists || '',
-                album: track.album || '',
-                thumbnail_url: track.thumbnail_url || '',
-              }),
-            }));
-            favoriteTrackIds.add(track.video_id);
-          }
-          applyFavoriteState();
-        } catch (error) {
-          window.alert(error.message || String(error));
-        } finally {
-          favorite.disabled = false;
-        }
-      });
-      actions.append(favorite);
+      actions.append(buildFavoriteTrackMenu(track));
     }
 
     detailsInner.append(explanation, actions);
@@ -634,6 +754,7 @@
     updateSummary();
     $('playlist-description').textContent = data.description || data.prompt || '';
     renderPlaylistTags();
+    removeFavoriteTrackMenuPortals();
     $('track-list').replaceChildren(...data.tracks.map(renderTrack));
     renderPlaylistCover();
   }
@@ -741,6 +862,14 @@
       if (event.key === 'Escape' && !menu.classList.contains('hidden')) closeMenu();
     });
   }
+
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('.favorite-track-menu')) closeFavoriteTrackMenus();
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeFavoriteTrackMenus();
+  });
 
   if (requestedLibraryId && data?.library_id !== requestedLibraryId) {
     $('playlist-summary').textContent = 'Loading playlist…';

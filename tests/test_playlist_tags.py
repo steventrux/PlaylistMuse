@@ -341,7 +341,7 @@ def test_playlist_page_shows_ai_and_personal_tags_with_shared_controls() -> None
     assert 'id="playlist-tags-status"' in page
     assert "/static/library-tags.css?v=3" in page
     assert "/static/library-tags.js?v=5" in page
-    assert "/static/playlist.js?v=24" in page
+    assert "/static/playlist.js?v=25" in page
     assert "const tagTools = window.PlaylistMuseTags" in script
     assert "function renderPlaylistTags()" in script
     assert "tagTools.editableSummary(data?.tags" in script
