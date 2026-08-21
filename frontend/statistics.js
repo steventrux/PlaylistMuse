@@ -5,7 +5,8 @@
   const {readJson} = window.PlaylistMuseCommon;
   const {formatCount} = window.PlaylistMuseStatsRender;
 
-  const OVERVIEW_LIMIT = 5;
+  const OVERVIEW_LIMIT = 10;
+  const SHOW_MORE_INCREMENT = 10;
   const monthFormatter = new Intl.DateTimeFormat('en-US', {month: 'short'});
   const FAVORITES_ENDPOINT = '/api/favorites';
   let favoriteArtistKeys = new Set();
@@ -17,16 +18,12 @@
     {key: 'periods', containerId: 'stats-period-chips', emptyId: 'stats-period-chips-empty', toggleId: 'stats-period-chips-toggle', linkParam: 'tag'},
     {key: 'customTags', containerId: 'stats-custom-tag-list', emptyId: 'stats-custom-tag-list-empty', toggleId: 'stats-custom-tag-list-toggle', linkParam: 'tag'},
   ];
-  const rankingState = new Map(RANKINGS.map((ranking) => [ranking.key, {full: [], expanded: false}]));
+  const rankingState = new Map(RANKINGS.map((ranking) => [ranking.key, {full: [], visibleCount: OVERVIEW_LIMIT}]));
 
   function formatMonth(key) {
     const [year, month] = String(key).split('-').map(Number);
     if (!year || !month) return key;
     return monthFormatter.format(new Date(Date.UTC(year, month - 1, 1)));
-  }
-
-  function top(items) {
-    return (items || []).slice(0, OVERVIEW_LIMIT);
   }
 
   const TIMELINE_TICKS = 4;
@@ -176,7 +173,8 @@
   function renderRanking(ranking, full) {
     const state = rankingState.get(ranking.key);
     state.full = full;
-    const items = state.expanded ? full : top(full);
+    state.visibleCount = Math.min(Math.max(state.visibleCount, OVERVIEW_LIMIT), Math.max(full.length, OVERVIEW_LIMIT));
+    const items = full.slice(0, state.visibleCount);
     renderBarRanking(ranking.containerId, ranking.emptyId, items, ranking.linkParam, ranking.favoritable);
 
     const toggle = $(ranking.toggleId);
@@ -186,12 +184,14 @@
       return;
     }
     toggle.classList.remove('hidden');
-    toggle.textContent = state.expanded ? 'Show less ↑' : `See all ${formatCount(full.length)} →`;
+    toggle.textContent = state.visibleCount >= full.length ? 'Show less ↑' : 'Show more →';
   }
 
   function toggleRanking(ranking) {
     const state = rankingState.get(ranking.key);
-    state.expanded = !state.expanded;
+    state.visibleCount = state.visibleCount >= state.full.length
+      ? OVERVIEW_LIMIT
+      : Math.min(state.full.length, state.visibleCount + SHOW_MORE_INCREMENT);
     renderRanking(ranking, state.full);
   }
 

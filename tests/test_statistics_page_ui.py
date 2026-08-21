@@ -8,9 +8,11 @@ def _text(name: str) -> str:
     return (FRONTEND / name).read_text(encoding="utf-8")
 
 
-def test_music_rankings_show_top_five_and_expand_in_place() -> None:
-    # "See all" used to navigate to statistics-detail.html; it now expands the
-    # full ranking inline within the same panel instead of leaving the page.
+def test_music_rankings_show_top_ten_and_paginate_in_place() -> None:
+    # "See all" used to navigate to statistics-detail.html, then it expanded the
+    # full ranking inline in one jump; a list with 1000+ entries (e.g. artists)
+    # made that jump unwieldy, so it now reveals SHOW_MORE_INCREMENT items at a
+    # time instead of the whole list at once.
     html = _text("statistics.html")
     script = _text("statistics.js")
 
@@ -23,12 +25,12 @@ def test_music_rankings_show_top_five_and_expand_in_place() -> None:
     ):
         assert f'id="{toggle_id}"' in html
         assert f'<a class="stats-see-all-link" id="{toggle_id}"' not in html
-    assert "See all" in html
+    assert "Show more" in html
     assert "href=\"/static/statistics-detail.html" not in html
-    assert "const OVERVIEW_LIMIT = 5;" in script
-    assert "function top(items)" in script
+    assert "const OVERVIEW_LIMIT = 10;" in script
+    assert "const SHOW_MORE_INCREMENT = 10;" in script
     assert "function toggleRanking(ranking)" in script
-    assert "state.expanded = !state.expanded;" in script
+    assert "state.visibleCount + SHOW_MORE_INCREMENT" in script
 
 
 def test_top_artists_is_shown_before_top_genres() -> None:
