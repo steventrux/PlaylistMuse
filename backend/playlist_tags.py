@@ -31,7 +31,7 @@ Rules:
 - Output short English labels so playlists created in different languages share the same filters.
 - genre: zero to 3 concise musical genres or subgenres that best describe the playlist.
 - mood: zero to 2 concise emotional or atmospheric qualities. Do not create a separate energy, activity or listening-context label.
-- period: zero or 1 concise time label describing the music itself, such as a decade or a compact multi-decade range. Do not use the playlist creation date.
+- period: zero or 1 time label describing the music itself, not the playlist creation date. Use only a single 4-digit decade (e.g. "1990s") or a range of consecutive 4-digit decades joined with a hyphen (e.g. "1990s-2000s"). Never use shorthand decades (e.g. "90s"), open-ended ranges (e.g. "2000s-present"), or descriptive words (e.g. "Contemporary", "Modern", "Current", "Classic"). If the music is recent, use the actual current decade instead of a descriptive word.
 - Classify the completed playlist, using its title, description, original request and actual track list together.
 - Do not copy activities, places, journeys or occasions into tags.
 - Do not force a tag when the evidence is weak or the playlist is intentionally too broad for one useful label.
