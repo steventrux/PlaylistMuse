@@ -102,6 +102,7 @@ Click any screenshot to open it at full size.
 | 🧠 | **AI-powered curation** | Use the AI provider of your choice to interpret musical direction and constraints. |
 | ✨ | **Review and refinement** | Review the result, edit playlist content and refine drafts before publishing. |
 | 📚 | **Persistent library** | Keep generated playlists in local persistent storage and reopen them later. |
+| 📤 | **Export to CSV or M3U** | Export any playlist as a CSV or M3U file for use in other apps. |
 | 🌐 | **Music discovery** | Optionally use Last.fm to broaden discovery and provide additional music signals. |
 | ▶️ | **YouTube Music publishing** | Connect a YouTube Music account and publish completed playlists directly from PlaylistMuse. |
 | 🛡️ | **Validation and diagnostics** | Validate resolved tracks and requests, and collect sanitized diagnostics when technical support is needed. |
