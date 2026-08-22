@@ -516,7 +516,7 @@
     const applyState = () => {
       window.PlaylistMuseActionControls?.decorateFavoriteToggle(
         toggle,
-        {favorited: isTrackFavorited() || isArtistFavorited(), label: 'track or artist'},
+        {trackFavorited: isTrackFavorited(), artistFavorited: isArtistFavorited()},
       );
       toggle.removeAttribute('aria-pressed');
       toggle.setAttribute('aria-expanded', String(!menu.classList.contains('hidden')));
