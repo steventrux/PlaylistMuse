@@ -150,6 +150,57 @@ def test_prompt_complexity_reflects_the_artist_country_validation_cost(monkeypat
     assert any("Artist-origin" in note for note in with_country["performance_notes"])
 
 
+def test_prompt_complexity_reflects_the_energy_ordering_validation_cost(monkeypatch) -> None:
+    async def fake_analyze(config, prompt, *, track_count, options):
+        return _empty_semantics()
+
+    monkeypatch.setattr(main_module, "analyze_prompt_semantics", fake_analyze)
+    monkeypatch.setattr(main_module, "load_config", lambda: AppConfig())
+    client = TestClient(main_module.app)
+
+    baseline = client.post(
+        "/api/prompts/analyze",
+        json={"prompt": "Party playlist", "track_count": 15},
+    ).json()
+    with_energy = client.post(
+        "/api/prompts/analyze",
+        json={"prompt": "Rock playlist with increasing energy", "track_count": 15},
+    ).json()
+
+    assert with_energy["score"] > baseline["score"]
+    assert any("Sonic-energy ordering" in note for note in with_energy["performance_notes"])
+
+
+def test_prompt_complexity_energy_ordering_scales_with_track_count(monkeypatch) -> None:
+    async def fake_analyze(config, prompt, *, track_count, options):
+        return _empty_semantics()
+
+    monkeypatch.setattr(main_module, "analyze_prompt_semantics", fake_analyze)
+    monkeypatch.setattr(main_module, "load_config", lambda: AppConfig())
+    client = TestClient(main_module.app)
+
+    small = client.post(
+        "/api/prompts/analyze",
+        json={"prompt": "Rock playlist with increasing energy", "track_count": 10},
+    ).json()
+    medium = client.post(
+        "/api/prompts/analyze",
+        json={"prompt": "Rock playlist with increasing energy", "track_count": 25},
+    ).json()
+    large = client.post(
+        "/api/prompts/analyze",
+        json={"prompt": "Rock playlist with increasing energy", "track_count": 60},
+    ).json()
+
+    # This mirrors the real measured cost: ~20-25 tracks (the spike's reference case)
+    # lands exactly at "Very complex", matching the explicit product requirement that a
+    # request costing roughly double the normal generation time reads as very high
+    # complexity. Smaller/larger requests scale proportionally with the real added cost.
+    assert small["level"] == "Detailed"
+    assert medium["level"] == "Very complex"
+    assert large["level"] == "Extreme"
+
+
 def test_prompt_analysis_reports_general_conflicts_and_ambiguities(monkeypatch) -> None:
     async def fake_analyze(config, prompt, *, track_count, options):
         return {
