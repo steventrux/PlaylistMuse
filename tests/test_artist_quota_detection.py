@@ -69,6 +69,58 @@ def test_second_quota_with_elided_track_word_is_independent_in_italian():
     ]
 
 
+def test_extracts_consecutive_french_artist_minimums():
+    assert extract_artist_minimum_quotas(
+        "au moins 4 titres de Queen et 3 titres de David Bowie"
+    ) == [
+        ArtistMinimumQuota("Queen", 4),
+        ArtistMinimumQuota("David Bowie", 3),
+    ]
+
+    # Elided second track-word noun, same as the English/Italian regression above.
+    assert extract_artist_minimum_quotas(
+        "playlist avec au moins 6 chansons de Queen et 3 de David Bowie"
+    ) == [
+        ArtistMinimumQuota("Queen", 6),
+        ArtistMinimumQuota("David Bowie", 3),
+    ]
+
+
+def test_extracts_consecutive_spanish_artist_minimums():
+    assert extract_artist_minimum_quotas(
+        "al menos 4 temas de Queen y 3 temas de David Bowie"
+    ) == [
+        ArtistMinimumQuota("Queen", 4),
+        ArtistMinimumQuota("David Bowie", 3),
+    ]
+
+    assert extract_artist_minimum_quotas(
+        "playlist con al menos 6 canciones de Queen y 3 de David Bowie"
+    ) == [
+        ArtistMinimumQuota("Queen", 6),
+        ArtistMinimumQuota("David Bowie", 3),
+    ]
+
+
+def test_extracts_consecutive_german_artist_minimums():
+    assert extract_artist_minimum_quotas(
+        "mindestens 4 Titel von Queen und 3 Titel von David Bowie"
+    ) == [
+        ArtistMinimumQuota("Queen", 4),
+        ArtistMinimumQuota("David Bowie", 3),
+    ]
+
+    # "Liedern" is the dative plural of "Lieder" ("mit ... Liedern"), the grammatically
+    # natural form after "mit" -- the track-word pattern must accept the inflected form,
+    # not just the bare nominative "Lieder".
+    assert extract_artist_minimum_quotas(
+        "Playlist mit mindestens 6 Liedern von Queen und 3 von David Bowie"
+    ) == [
+        ArtistMinimumQuota("Queen", 6),
+        ArtistMinimumQuota("David Bowie", 3),
+    ]
+
+
 def test_artist_spelling_variants_are_deduplicated():
     prompt = (
         "almeno 3 canzoni devono essere degli AC/DC e "
