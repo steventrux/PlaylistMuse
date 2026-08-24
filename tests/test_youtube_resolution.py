@@ -208,7 +208,7 @@ def test_resolver_accepts_legitimate_artist_variant(monkeypatch, isolate_youtube
     assert track["video_id"] == "steppenwolf-version"
 
 
-def test_live_version_is_allowed_when_filter_is_disabled(monkeypatch) -> None:
+def test_live_version_is_allowed_when_filter_is_disabled(monkeypatch, isolate_youtube_resolution) -> None:
     class FakeClient:
         def search(self, query, filter, limit):
             return [
