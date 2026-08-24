@@ -9,12 +9,13 @@ from backend.artist_quota_detection import ArtistMinimumQuota
 
 _OPEN_ENDED_DECADE_PATTERNS = (
     re.compile(
-        r"\b(?:dagli|dai|a\s+partire\s+dagli)\s+anni\s+['’]?(?P<decade>\d{2})\s+"
-        r"(?:ad|a)\s+oggi\b",
+        r"\b(?:dagli|dai|a\s+partire\s+dagli)\s+anni\s+['’]?(?P<decade>\d{2}|19\d0|20\d0)\s+"
+        r"(?:ad|a|fino\s+ad?|fino\s+a)\s+(?:oggi|ora|adesso)\b",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\bfrom\s+the\s+['’]?(?P<decade>\d{2})s\s+(?:to|until)\s+today\b",
+        r"\bfrom\s+the\s+['’]?(?P<decade>\d{2}|19\d0|20\d0)s\s+"
+        r"(?:to|until|through)\s+(?:today|now|the\s+present)\b",
         re.IGNORECASE,
     ),
 )
@@ -66,7 +67,7 @@ def open_ended_year_range(
         if not match:
             continue
         decade = int(match.group("decade"))
-        start = 1900 + decade if decade >= 30 else 2000 + decade
+        start = decade if decade >= 1000 else (1900 + decade if decade >= 30 else 2000 + decade)
         if start <= end:
             return start, end
 
