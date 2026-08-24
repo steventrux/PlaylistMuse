@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 import re
 import time
@@ -18,12 +19,21 @@ from backend.metadata_validation import (
     lookup_track_metadata,
     validate_candidate,
 )
-from backend.reccobeats_features import audio_evidence_for_track
+from backend.reccobeats_features import ReccoBeatsAudioEvidence, audio_evidence_for_track
+
+LOGGER = logging.getLogger(__name__)
 
 ChronologicalOrder = Literal["oldest_first", "newest_first"]
 _MIN_ORDER_CONFIDENCE = 0.85
 
 EnergyOrder = Literal["increasing", "decreasing", "steady"]
+
+# Worst case (every track misses on first search) can hit ~6 serialized ReccoBeats
+# requests/track at ~0.5s pacing each, so a single-track budget of a few seconds is far
+# too small for a full playlist fetch. This is a generous overall budget for the whole
+# batch, not a per-track timeout: any track whose fetch hasn't completed by the deadline
+# is treated as unmatched (same as a genuine ReccoBeats catalogue miss).
+_ENERGY_FETCH_BUDGET_SECONDS = 110.0
 
 _INCREASING_ENERGY_PATTERNS = (
     re.compile(r"\b(?:increasing|rising|building|growing)\b.{0,30}\benergy\b", re.I),
@@ -41,8 +51,15 @@ _DECREASING_ENERGY_PATTERNS = (
 )
 
 _STEADY_ENERGY_PATTERNS = (
-    re.compile(r"\b(?:steady|consistent|even|constant)\b.{0,30}\benergy\b", re.I),
-    re.compile(r"\benergy\b.{0,30}\b(?:steady|consistent|even|constant)\b", re.I),
+    re.compile(r"\b(?:steady|constant)\b.{0,30}\benergy\b", re.I),
+    re.compile(r"\benergy\b.{0,30}\b(?:steady|constant)\b", re.I),
+    # "even" and "consistent" are common outside of a steady-energy request (e.g. "even
+    # the slow ones", "no consistent lulls"), so only match them directly modifying
+    # "energy" rather than anywhere within a loose window.
+    re.compile(r"\beven\s+energy\b", re.I),
+    re.compile(r"\benergy\s+level\s+even\b", re.I),
+    re.compile(r"\bconsistent\s+energy\b", re.I),
+    re.compile(r"\benergy\s+level\s+consistent\b", re.I),
     re.compile(r"\b(?:costante|stabile|uniforme)\b.{0,30}\benergia\b", re.I),
     re.compile(r"\benergia\b.{0,30}\b(?:costante|stabile|uniforme)\b", re.I),
 )
@@ -152,12 +169,15 @@ def _local_energy_order(prompt: str) -> EnergyOrder | None:
     normalized = " ".join(str(prompt).split())
     if not normalized:
         return None
-    if any(pattern.search(normalized) for pattern in _STEADY_ENERGY_PATTERNS):
-        return "steady"
+    # Explicit direction words are checked before steady-energy wording so a prompt that
+    # legitimately contains both (e.g. "energy building even higher") resolves to the
+    # explicit direction rather than the looser steady phrasing.
     if any(pattern.search(normalized) for pattern in _INCREASING_ENERGY_PATTERNS):
         return "increasing"
     if any(pattern.search(normalized) for pattern in _DECREASING_ENERGY_PATTERNS):
         return "decreasing"
+    if any(pattern.search(normalized) for pattern in _STEADY_ENERGY_PATTERNS):
+        return "steady"
     return None
 
 
@@ -470,14 +490,46 @@ async def order_tracks_by_energy(
     if direction is None or len(tracks) < 2:
         return list(tracks)
 
-    evidence = await asyncio.gather(
-        *(
+    fetch_tasks = [
+        asyncio.create_task(
             audio_evidence_for_track(_track_artist(track), _track_title(track))
-            for track in tracks
         )
+        for track in tracks
+    ]
+    _done, pending = await asyncio.wait(
+        fetch_tasks,
+        timeout=_ENERGY_FETCH_BUDGET_SECONDS,
     )
+    if pending:
+        LOGGER.info(
+            "Sonic-energy ordering fetch budget reached completed=%d total=%d "
+            "timeout_seconds=%s",
+            len(fetch_tasks) - len(pending),
+            len(fetch_tasks),
+            _ENERGY_FETCH_BUDGET_SECONDS,
+        )
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+
+    evidence: list[ReccoBeatsAudioEvidence] = []
+    for task in fetch_tasks:
+        if task.cancelled() or not task.done():
+            evidence.append(ReccoBeatsAudioEvidence())
+            continue
+        try:
+            result = task.result()
+        except Exception:  # noqa: BLE001 - third-party enrichment is intentionally fail-open.
+            result = ReccoBeatsAudioEvidence()
+        evidence.append(
+            result if isinstance(result, ReccoBeatsAudioEvidence) else ReccoBeatsAudioEvidence()
+        )
+
     energies: list[float | None] = [item.energy for item in evidence]
     matched_indices = [index for index, energy in enumerate(energies) if energy is not None]
+    LOGGER.info(
+        "Sonic-energy ordering matched %d/%d tracks", len(matched_indices), len(tracks)
+    )
     if len(matched_indices) < 2:
         return list(tracks)
 
