@@ -445,3 +445,71 @@ def test_energy_ordering_returns_tracks_unchanged_without_direction() -> None:
     tracks = [_track("A", "X"), _track("B", "Y")]
     result = asyncio.run(ordering.order_tracks_by_energy(tracks, None))
     assert result == tracks
+
+
+def test_energy_ordering_applies_chronological_order_within_energy_bands(monkeypatch) -> None:
+    tracks = [
+        _track("T1", "Artist"),
+        _track("T2", "Artist"),
+        _track("T3", "Artist"),
+        _track("T4", "Artist"),
+        _track("T5", "Artist"),
+        _track("T6", "Artist"),
+    ]
+    # Ranked by energy: T1 < T2 < T3 < T4 < T5 < T6 -> bands of 2: [T1,T2] [T3,T4] [T5,T6]
+    energies = {"T1": 0.10, "T2": 0.15, "T3": 0.40, "T4": 0.45, "T5": 0.80, "T6": 0.85}
+    years = {"T1": 2000, "T2": 1990, "T3": 2010, "T4": 1980, "T6": 1970}  # T5 unresolvable
+
+    async def fake_evidence(artist: str, title: str, **kwargs) -> ReccoBeatsAudioEvidence:
+        del artist, kwargs
+        return _evidence(energies[title])
+
+    async def fake_lookup(artist: str, title: str, **kwargs) -> TrackMetadata:
+        del kwargs
+        year = years.get(title)
+        return _metadata(artist, title, year=year, score=0.99 if year is not None else 0.20)
+
+    async def fake_validate(candidate, constraints, **kwargs) -> ValidationResult:
+        del constraints, kwargs
+        metadata = _metadata(candidate["artist"], candidate["title"], year=None, score=0.20)
+        return ValidationResult(status="unknown", violations=[], metadata=metadata)
+
+    monkeypatch.setattr(ordering, "audio_evidence_for_track", fake_evidence)
+    monkeypatch.setattr(ordering, "lookup_track_metadata", fake_lookup)
+    monkeypatch.setattr(ordering, "validate_candidate", fake_validate)
+
+    result = asyncio.run(
+        ordering.order_tracks_by_energy(
+            tracks,
+            "increasing",
+            chronological_direction="oldest_first",
+        )
+    )
+
+    # Band order follows energy (ascending). Within each band, oldest_first sorts by year;
+    # T5 has no resolvable year and keeps its slot ahead of T6 in its band.
+    assert [track["title"] for track in result] == ["T2", "T1", "T4", "T3", "T5", "T6"]
+
+
+def test_energy_ordering_steady_ignores_chronological_direction(monkeypatch) -> None:
+    tracks = [_track("A", "X"), _track("B", "X"), _track("C", "X")]
+    energies = {"A": 0.1, "B": 0.5, "C": 0.9}
+
+    async def fake_evidence(artist: str, title: str, **kwargs) -> ReccoBeatsAudioEvidence:
+        del artist, kwargs
+        return _evidence(energies[title])
+
+    async def unexpected_lookup(*args, **kwargs):
+        raise AssertionError("steady must never trigger a chronological lookup")
+
+    monkeypatch.setattr(ordering, "audio_evidence_for_track", fake_evidence)
+    monkeypatch.setattr(ordering, "lookup_track_metadata", unexpected_lookup)
+
+    result = asyncio.run(
+        ordering.order_tracks_by_energy(
+            tracks,
+            "steady",
+            chronological_direction="oldest_first",
+        )
+    )
+    assert [track["title"] for track in result] == ["B", "A", "C"]
