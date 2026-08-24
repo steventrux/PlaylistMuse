@@ -6,6 +6,7 @@ import pytest
 
 from backend import playlist_ordering as ordering
 from backend.metadata_validation import TrackMetadata, ValidationResult
+from backend.reccobeats_features import ReccoBeatsAudioEvidence
 
 
 def _track(title: str, artist: str) -> dict:
@@ -381,3 +382,66 @@ def test_local_fallback_recognizes_common_energy_requests() -> None:
         == "steady"
     )
     assert ordering.energy_order_from_payload(None, "A relaxing jazz playlist") is None
+
+
+def _evidence(energy: float | None) -> ReccoBeatsAudioEvidence:
+    if energy is None:
+        return ReccoBeatsAudioEvidence()
+    return ReccoBeatsAudioEvidence(energy=energy)
+
+
+def test_energy_ordering_sorts_matched_tracks_increasing_and_decreasing(monkeypatch) -> None:
+    tracks = [_track("Loud", "A"), _track("Quiet", "B"), _track("Medium", "C")]
+    energies = {"Loud": 0.9, "Quiet": 0.1, "Medium": 0.5}
+
+    async def fake_evidence(artist: str, title: str, **kwargs) -> ReccoBeatsAudioEvidence:
+        del artist, kwargs
+        return _evidence(energies[title])
+
+    monkeypatch.setattr(ordering, "audio_evidence_for_track", fake_evidence)
+
+    increasing = asyncio.run(ordering.order_tracks_by_energy(tracks, "increasing"))
+    decreasing = asyncio.run(ordering.order_tracks_by_energy(tracks, "decreasing"))
+
+    assert [track["title"] for track in increasing] == ["Quiet", "Medium", "Loud"]
+    assert [track["title"] for track in decreasing] == ["Loud", "Medium", "Quiet"]
+
+
+def test_energy_ordering_keeps_unmatched_tracks_in_original_position(monkeypatch) -> None:
+    tracks = [_track("Loud", "A"), _track("Unknown", "B"), _track("Quiet", "C")]
+    energies = {"Loud": 0.9, "Quiet": 0.1}
+
+    async def fake_evidence(artist: str, title: str, **kwargs) -> ReccoBeatsAudioEvidence:
+        del artist, kwargs
+        return _evidence(energies.get(title))
+
+    monkeypatch.setattr(ordering, "audio_evidence_for_track", fake_evidence)
+
+    result = asyncio.run(ordering.order_tracks_by_energy(tracks, "increasing"))
+
+    # "Unknown" has no ReccoBeats evidence and must keep its original slot (index 1);
+    # the matched tracks reorder around it.
+    assert [track["title"] for track in result] == ["Quiet", "Unknown", "Loud"]
+
+
+def test_energy_ordering_steady_chains_by_nearest_energy(monkeypatch) -> None:
+    tracks = [_track("A", "X"), _track("B", "X"), _track("C", "X"), _track("D", "X")]
+    energies = {"A": 0.10, "B": 0.30, "C": 0.50, "D": 0.90}
+
+    async def fake_evidence(artist: str, title: str, **kwargs) -> ReccoBeatsAudioEvidence:
+        del artist, kwargs
+        return _evidence(energies[title])
+
+    monkeypatch.setattr(ordering, "audio_evidence_for_track", fake_evidence)
+
+    result = asyncio.run(ordering.order_tracks_by_energy(tracks, "steady"))
+
+    # Chain starts at the median (C, index 2 of the 4 energy-sorted tracks), then always
+    # steps to the nearest remaining energy: C(0.50) -> B(0.30) -> A(0.10) -> D(0.90).
+    assert [track["title"] for track in result] == ["C", "B", "A", "D"]
+
+
+def test_energy_ordering_returns_tracks_unchanged_without_direction() -> None:
+    tracks = [_track("A", "X"), _track("B", "Y")]
+    result = asyncio.run(ordering.order_tracks_by_energy(tracks, None))
+    assert result == tracks

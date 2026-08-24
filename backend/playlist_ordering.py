@@ -17,6 +17,7 @@ from backend.metadata_validation import (
     lookup_track_metadata,
     validate_candidate,
 )
+from backend.reccobeats_features import audio_evidence_for_track
 
 ChronologicalOrder = Literal["oldest_first", "newest_first"]
 _MIN_ORDER_CONFIDENCE = 0.85
@@ -398,3 +399,80 @@ async def order_tracks_by_release_date(
         reverse=direction == "newest_first",
     )
     return [track for _, track in decorated]
+
+
+def _stable_sort_by_key(
+    positions: list[int],
+    keys: list[float | int | None],
+    *,
+    reverse: bool,
+) -> list[int]:
+    """Reorder `positions` by paired non-null keys, stably. A null-key position keeps its slot."""
+    pairs = list(zip(positions, keys, strict=True))
+    resolved = sorted(
+        (pair for pair in pairs if pair[1] is not None),
+        key=lambda pair: pair[1],
+        reverse=reverse,
+    )
+    resolved_positions = iter(position for position, _ in resolved)
+    return [
+        next(resolved_positions) if key is not None else position
+        for position, key in pairs
+    ]
+
+
+def _chained_by_energy(
+    tracks: list[dict[str, Any]],
+    energies: list[float],
+) -> list[dict[str, Any]]:
+    """Greedily chain tracks by nearest energy, starting from the median, to minimize jumps."""
+    remaining = sorted(zip(energies, tracks, strict=True), key=lambda item: item[0])
+    chain = [remaining.pop(len(remaining) // 2)]
+    while remaining:
+        last_energy, _ = chain[-1]
+        remaining.sort(key=lambda item: abs(item[0] - last_energy))
+        chain.append(remaining.pop(0))
+    return [track for _, track in chain]
+
+
+async def order_tracks_by_energy(
+    tracks: list[dict[str, Any]],
+    direction: EnergyOrder | None,
+) -> list[dict[str, Any]]:
+    """Return tracks reordered by ReccoBeats sonic energy, degrading gracefully on missing data.
+
+    Unlike order_tracks_by_release_date, a track with no resolvable energy evidence is never
+    a hard failure. ReccoBeats catalogue coverage is known to be partial (roughly 87% match
+    rate in a real measured sample, with classic/legacy catalogue attribution as the main
+    gap), so an unmatched track simply keeps its original position while matched tracks
+    reorder around it.
+    """
+    if direction is None or len(tracks) < 2:
+        return list(tracks)
+
+    evidence = await asyncio.gather(
+        *(
+            audio_evidence_for_track(_track_artist(track), _track_title(track))
+            for track in tracks
+        )
+    )
+    energies: list[float | None] = [item.energy for item in evidence]
+    if sum(1 for energy in energies if energy is not None) < 2:
+        return list(tracks)
+
+    if direction == "steady":
+        matched_indices = [index for index, energy in enumerate(energies) if energy is not None]
+        matched_tracks = [tracks[index] for index in matched_indices]
+        matched_energies = [energies[index] for index in matched_indices]
+        chained = _chained_by_energy(matched_tracks, matched_energies)
+        result = list(tracks)
+        for slot, track in zip(matched_indices, chained, strict=True):
+            result[slot] = track
+        return result
+
+    positions = _stable_sort_by_key(
+        list(range(len(tracks))),
+        energies,
+        reverse=direction == "decreasing",
+    )
+    return [tracks[position] for position in positions]
