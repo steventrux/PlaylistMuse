@@ -384,6 +384,43 @@ def test_local_fallback_recognizes_common_energy_requests() -> None:
     assert ordering.energy_order_from_payload(None, "A relaxing jazz playlist") is None
 
 
+def test_local_fallback_does_not_false_positive_on_loose_steady_wording() -> None:
+    """Regression test for final whole-branch review Finding 1.
+
+    A bare "even" or "consistent" anywhere near the word "energy" used to be
+    misdetected as a request for steady energy, even when the prompt clearly meant
+    something else (or explicitly asked for a direction other than steady).
+    """
+    assert (
+        ordering.energy_order_from_payload(
+            None,
+            "High energy party tracks, even the slow ones should hit hard",
+        )
+        is None
+    )
+    assert (
+        ordering.energy_order_from_payload(
+            None,
+            "Workout playlist, keep the energy building even higher toward the end",
+        )
+        == "increasing"
+    )
+    assert (
+        ordering.energy_order_from_payload(
+            None,
+            "Even in the low-energy moments keep it interesting",
+        )
+        is None
+    )
+    assert (
+        ordering.energy_order_from_payload(
+            None,
+            "Energy building throughout, no consistent lulls",
+        )
+        == "increasing"
+    )
+
+
 def _evidence(energy: float | None) -> ReccoBeatsAudioEvidence:
     if energy is None:
         return ReccoBeatsAudioEvidence()
