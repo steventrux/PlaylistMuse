@@ -45,6 +45,7 @@
     catalogue_resolution: 'Catalogue resolution (total)',
     youtube_resolution: 'YouTube resolution',
     metadata_validation: 'Metadata validation',
+    energy_ordering: 'Sonic energy ordering',
   };
 
   function stageLabel(stage) {

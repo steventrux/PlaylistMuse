@@ -6,6 +6,7 @@ import pytest
 
 from backend import playlist_ordering as ordering
 from backend.metadata_validation import TrackMetadata, ValidationResult
+from backend.reccobeats_features import ReccoBeatsAudioEvidence
 
 
 def _track(title: str, artist: str) -> dict:
@@ -350,3 +351,243 @@ def test_strip_version_suffix_recognizes_classic_and_extended_editions() -> None
     # Already-covered terms must keep working after widening the pattern.
     assert ordering._strip_version_suffix("Song (Remastered)") == "Song"
     assert ordering._strip_version_suffix("Take on Me") == "Take on Me"
+
+
+def test_structured_energy_order_requires_trusted_confidence() -> None:
+    increasing = {
+        "energy_order": "increasing",
+        "field_confidence": {"energy_order": 0.95},
+    }
+    uncertain = {
+        "energy_order": "decreasing",
+        "field_confidence": {"energy_order": 0.30},
+        "confidence": "medium",
+    }
+
+    assert ordering.energy_order_from_payload(increasing) == "increasing"
+    assert ordering.energy_order_from_payload(uncertain) is None
+
+
+def test_local_fallback_recognizes_common_energy_requests() -> None:
+    assert (
+        ordering.energy_order_from_payload(None, "Rock playlist with increasing energy")
+        == "increasing"
+    )
+    assert (
+        ordering.energy_order_from_payload(None, "Playlist rock con energia decrescente")
+        == "decreasing"
+    )
+    assert (
+        ordering.energy_order_from_payload(None, "Keep the energy steady throughout")
+        == "steady"
+    )
+    assert ordering.energy_order_from_payload(None, "A relaxing jazz playlist") is None
+
+
+def test_local_fallback_recognizes_energy_requests_in_french_spanish_german() -> None:
+    """Standing project requirement: prompt interpretation must cover English, Italian,
+    French, Spanish and German, not just the first two."""
+    assert (
+        ordering.energy_order_from_payload(None, "Playlist rock avec une énergie croissante")
+        == "increasing"
+    )
+    assert (
+        ordering.energy_order_from_payload(None, "Playlist avec une énergie décroissante")
+        == "decreasing"
+    )
+    assert (
+        ordering.energy_order_from_payload(None, "Playlist avec une énergie constante")
+        == "steady"
+    )
+    assert (
+        ordering.energy_order_from_payload(None, "Playlist con energía creciente")
+        == "increasing"
+    )
+    assert (
+        ordering.energy_order_from_payload(None, "Playlist con energía decreciente")
+        == "decreasing"
+    )
+    assert (
+        ordering.energy_order_from_payload(None, "Playlist con energía constante")
+        == "steady"
+    )
+    assert (
+        ordering.energy_order_from_payload(None, "Playlist mit steigender Energie")
+        == "increasing"
+    )
+    assert (
+        ordering.energy_order_from_payload(None, "Playlist mit abnehmender Energie")
+        == "decreasing"
+    )
+    assert (
+        ordering.energy_order_from_payload(None, "Playlist mit konstanter Energie")
+        == "steady"
+    )
+
+
+def test_local_fallback_does_not_false_positive_on_loose_steady_wording() -> None:
+    """Regression test for final whole-branch review Finding 1.
+
+    A bare "even" or "consistent" anywhere near the word "energy" used to be
+    misdetected as a request for steady energy, even when the prompt clearly meant
+    something else (or explicitly asked for a direction other than steady).
+    """
+    assert (
+        ordering.energy_order_from_payload(
+            None,
+            "High energy party tracks, even the slow ones should hit hard",
+        )
+        is None
+    )
+    assert (
+        ordering.energy_order_from_payload(
+            None,
+            "Workout playlist, keep the energy building even higher toward the end",
+        )
+        == "increasing"
+    )
+    assert (
+        ordering.energy_order_from_payload(
+            None,
+            "Even in the low-energy moments keep it interesting",
+        )
+        is None
+    )
+    assert (
+        ordering.energy_order_from_payload(
+            None,
+            "Energy building throughout, no consistent lulls",
+        )
+        == "increasing"
+    )
+
+
+def _evidence(energy: float | None) -> ReccoBeatsAudioEvidence:
+    if energy is None:
+        return ReccoBeatsAudioEvidence()
+    return ReccoBeatsAudioEvidence(energy=energy)
+
+
+def test_energy_ordering_sorts_matched_tracks_increasing_and_decreasing(monkeypatch) -> None:
+    tracks = [_track("Loud", "A"), _track("Quiet", "B"), _track("Medium", "C")]
+    energies = {"Loud": 0.9, "Quiet": 0.1, "Medium": 0.5}
+
+    async def fake_evidence(artist: str, title: str, **kwargs) -> ReccoBeatsAudioEvidence:
+        del artist, kwargs
+        return _evidence(energies[title])
+
+    monkeypatch.setattr(ordering, "audio_evidence_for_track", fake_evidence)
+
+    increasing = asyncio.run(ordering.order_tracks_by_energy(tracks, "increasing"))
+    decreasing = asyncio.run(ordering.order_tracks_by_energy(tracks, "decreasing"))
+
+    assert [track["title"] for track in increasing] == ["Quiet", "Medium", "Loud"]
+    assert [track["title"] for track in decreasing] == ["Loud", "Medium", "Quiet"]
+
+
+def test_energy_ordering_keeps_unmatched_tracks_in_original_position(monkeypatch) -> None:
+    tracks = [_track("Loud", "A"), _track("Unknown", "B"), _track("Quiet", "C")]
+    energies = {"Loud": 0.9, "Quiet": 0.1}
+
+    async def fake_evidence(artist: str, title: str, **kwargs) -> ReccoBeatsAudioEvidence:
+        del artist, kwargs
+        return _evidence(energies.get(title))
+
+    monkeypatch.setattr(ordering, "audio_evidence_for_track", fake_evidence)
+
+    result = asyncio.run(ordering.order_tracks_by_energy(tracks, "increasing"))
+
+    # "Unknown" has no ReccoBeats evidence and must keep its original slot (index 1);
+    # the matched tracks reorder around it.
+    assert [track["title"] for track in result] == ["Quiet", "Unknown", "Loud"]
+
+
+def test_energy_ordering_steady_chains_by_nearest_energy(monkeypatch) -> None:
+    tracks = [_track("A", "X"), _track("B", "X"), _track("C", "X"), _track("D", "X")]
+    energies = {"A": 0.10, "B": 0.30, "C": 0.50, "D": 0.90}
+
+    async def fake_evidence(artist: str, title: str, **kwargs) -> ReccoBeatsAudioEvidence:
+        del artist, kwargs
+        return _evidence(energies[title])
+
+    monkeypatch.setattr(ordering, "audio_evidence_for_track", fake_evidence)
+
+    result = asyncio.run(ordering.order_tracks_by_energy(tracks, "steady"))
+
+    # Chain starts at the median (C, index 2 of the 4 energy-sorted tracks), then always
+    # steps to the nearest remaining energy: C(0.50) -> B(0.30) -> A(0.10) -> D(0.90).
+    assert [track["title"] for track in result] == ["C", "B", "A", "D"]
+
+
+def test_energy_ordering_returns_tracks_unchanged_without_direction() -> None:
+    tracks = [_track("A", "X"), _track("B", "Y")]
+    result = asyncio.run(ordering.order_tracks_by_energy(tracks, None))
+    assert result == tracks
+
+
+def test_energy_ordering_applies_chronological_order_within_energy_bands(monkeypatch) -> None:
+    tracks = [
+        _track("T1", "Artist"),
+        _track("T2", "Artist"),
+        _track("T3", "Artist"),
+        _track("T4", "Artist"),
+        _track("T5", "Artist"),
+        _track("T6", "Artist"),
+    ]
+    # Ranked by energy: T1 < T2 < T3 < T4 < T5 < T6 -> bands of 2: [T1,T2] [T3,T4] [T5,T6]
+    energies = {"T1": 0.10, "T2": 0.15, "T3": 0.40, "T4": 0.45, "T5": 0.80, "T6": 0.85}
+    years = {"T1": 2000, "T2": 1990, "T3": 2010, "T4": 1980, "T6": 1970}  # T5 unresolvable
+
+    async def fake_evidence(artist: str, title: str, **kwargs) -> ReccoBeatsAudioEvidence:
+        del artist, kwargs
+        return _evidence(energies[title])
+
+    async def fake_lookup(artist: str, title: str, **kwargs) -> TrackMetadata:
+        del kwargs
+        year = years.get(title)
+        return _metadata(artist, title, year=year, score=0.99 if year is not None else 0.20)
+
+    async def fake_validate(candidate, constraints, **kwargs) -> ValidationResult:
+        del constraints, kwargs
+        metadata = _metadata(candidate["artist"], candidate["title"], year=None, score=0.20)
+        return ValidationResult(status="unknown", violations=[], metadata=metadata)
+
+    monkeypatch.setattr(ordering, "audio_evidence_for_track", fake_evidence)
+    monkeypatch.setattr(ordering, "lookup_track_metadata", fake_lookup)
+    monkeypatch.setattr(ordering, "validate_candidate", fake_validate)
+
+    result = asyncio.run(
+        ordering.order_tracks_by_energy(
+            tracks,
+            "increasing",
+            chronological_direction="oldest_first",
+        )
+    )
+
+    # Band order follows energy (ascending). Within each band, oldest_first sorts by year;
+    # T5 has no resolvable year and keeps its slot ahead of T6 in its band.
+    assert [track["title"] for track in result] == ["T2", "T1", "T4", "T3", "T5", "T6"]
+
+
+def test_energy_ordering_steady_ignores_chronological_direction(monkeypatch) -> None:
+    tracks = [_track("A", "X"), _track("B", "X"), _track("C", "X")]
+    energies = {"A": 0.1, "B": 0.5, "C": 0.9}
+
+    async def fake_evidence(artist: str, title: str, **kwargs) -> ReccoBeatsAudioEvidence:
+        del artist, kwargs
+        return _evidence(energies[title])
+
+    async def unexpected_lookup(*args, **kwargs):
+        raise AssertionError("steady must never trigger a chronological lookup")
+
+    monkeypatch.setattr(ordering, "audio_evidence_for_track", fake_evidence)
+    monkeypatch.setattr(ordering, "lookup_track_metadata", unexpected_lookup)
+
+    result = asyncio.run(
+        ordering.order_tracks_by_energy(
+            tracks,
+            "steady",
+            chronological_direction="oldest_first",
+        )
+    )
+    assert [track["title"] for track in result] == ["B", "A", "C"]
