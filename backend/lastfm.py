@@ -21,7 +21,7 @@ DEFAULT_CACHE_TTL_SECONDS = 6 * 60 * 60
 MAX_SIMILAR_TRACKS = 100
 MAX_CACHE_ENTRIES = 256
 
-LOGGER = logging.getLogger(__name__)
+LOGGER = logging.getLogger("playlistmuse.lastfm")
 _CACHE: dict[tuple[str, str, str, int], tuple[float, list[dict[str, str]]]] = {}
 
 

@@ -16,7 +16,7 @@ API_ROOT = "https://api.github.com/repos/steventrux/PlaylistMuse"
 DEFAULT_TIMEOUT_SECONDS = 4.0
 DEFAULT_CACHE_TTL_SECONDS = 10 * 60
 
-LOGGER = logging.getLogger(__name__)
+LOGGER = logging.getLogger("playlistmuse.update")
 _CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 
 _UNKNOWN_RESULT: dict[str, Any] = {
