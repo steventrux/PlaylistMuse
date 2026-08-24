@@ -9,7 +9,7 @@ const script = fs.readFileSync(
   'utf8',
 );
 vm.runInNewContext(script, context);
-const {buildPrompt, MUSIC_FAMILIES, pickFamily} = context.window.PlaylistMusePromptSurprise;
+const {buildPrompt, MUSIC_FAMILIES, CREATIVE_DIRECTIONS, pickFamily} = context.window.PlaylistMusePromptSurprise;
 
 // The same music family must not come up again within a short window of
 // consecutive picks -- this is the fix for "Surprise me keeps suggesting the
@@ -37,6 +37,25 @@ assert.equal(seen.size, MUSIC_FAMILIES.length);
 function wordCount(value) {
   return String(value).trim().split(/\s+/).filter(Boolean).length;
 }
+
+// Regression: the surprise/example prompt generator's creative-direction flourishes
+// must cover all three sonic-energy directions the backend understands (increasing/
+// decreasing/steady), using vocabulary the backend's energy_order_from_payload local
+// fallback regex actually recognizes ("steady", "rising", "falling") -- a rephrasing
+// here that drops one of those exact words would silently stop being detected as an
+// energy-ordering request.
+assert.ok(
+  CREATIVE_DIRECTIONS.some((line) => /\benergy\b.*\bsteady\b/i.test(line)),
+  'no creative direction requests steady energy',
+);
+assert.ok(
+  CREATIVE_DIRECTIONS.some((line) => /\benergy\b.*\brising\b/i.test(line)),
+  'no creative direction requests rising/increasing energy',
+);
+assert.ok(
+  CREATIVE_DIRECTIONS.some((line) => /\benergy\b.*\bfalling\b/i.test(line)),
+  'no creative direction requests falling/decreasing energy',
+);
 
 for (let i = 0; i < 30; i += 1) {
   const surprise = buildPrompt('surprise');
