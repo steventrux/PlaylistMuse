@@ -5,10 +5,12 @@ import asyncio
 import httpx
 
 from backend.lastfm import _clear_cache, similar_track_candidates
+from backend import lastfm_settings
 
 
 def test_lastfm_is_disabled_without_api_key(monkeypatch) -> None:
     monkeypatch.delenv("PLAYLISTMUSE_LASTFM_API_KEY", raising=False)
+    monkeypatch.setattr(lastfm_settings, "_saved_api_key", lambda: "")
     _clear_cache()
     assert asyncio.run(similar_track_candidates("AC/DC", "Back in Black")) == []
 
