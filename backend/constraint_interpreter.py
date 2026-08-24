@@ -25,7 +25,7 @@ OPENROUTER_PROVIDERS = {"openrouter_auto", "openrouter_free"}
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 CACHE_TTL_SECONDS = 30 * 24 * 60 * 60
 PURGE_INTERVAL_SECONDS = 3600
-INTERPRETER_SCHEMA_VERSION = 8
+INTERPRETER_SCHEMA_VERSION = 9
 INTERPRETER_PROMPT_VERSION = "2026-08-14.1"
 
 _last_purge_at = 0.0
@@ -82,6 +82,7 @@ Return exactly this object:
   "soundtrack_title": null,
   "soundtrack_type": null,
   "chronological_order": "oldest_first|newest_first|none",
+  "energy_order": "increasing|decreasing|steady|none",
   "contradictions": [],
   "constraint_status": "valid|ambiguous|impossible",
   "status_reasons": [],
@@ -109,7 +110,8 @@ Return exactly this object:
     "target_market": 0.0,
     "soundtrack_title": 0.0,
     "soundtrack_type": 0.0,
-    "chronological_order": 0.0
+    "chronological_order": 0.0,
+    "energy_order": 0.0
   },
   "confidence": "high|medium|low"
 }
@@ -119,6 +121,7 @@ Rules:
 - Preserve artist and album names in canonical-looking form.
 - Use first-release year, not remaster, deluxe, reissue or compilation year.
 - Extract chronological_order only when the user explicitly asks to order the playlist by original release date in any language. Use oldest_first for oldest/earliest to newest/latest and for an unqualified chronological-order request. Use newest_first for the reverse. Use none for energy progression, narrative flow, era filtering or any ordering not based on release chronology.
+- Extract energy_order only when the user explicitly asks to order the playlist by musical energy/intensity in any language. Use increasing for energy that should rise, build or grow toward the end. Use decreasing for energy that should fall, wind down or calm toward the end. Use steady for energy that should stay consistent/even throughout. Use none for chronological ordering, narrative flow, era filtering, or when no explicit energy-ordering request exists. Never infer energy_order from genre, mood or vibe alone.
 - A decade means its full inclusive range: 1990s = 1990 through 1999.
 - "before 2000" means release_year_to 1999; "after 2010" means release_year_from 2011.
 - "from 1995 onward" means release_year_from 1995.
