@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import re
 import time
 from typing import Any, Literal
@@ -435,9 +436,22 @@ def _chained_by_energy(
     return [track for _, track in chain]
 
 
+def _energy_bands(energies: list[float], *, band_count: int = 5) -> list[int]:
+    """Assign each energy value a quantile band index (0 = lowest energy)."""
+    order = sorted(range(len(energies)), key=lambda index: energies[index])
+    count = min(band_count, len(energies))
+    band_size = math.ceil(len(energies) / count)
+    bands = [0] * len(energies)
+    for rank, index in enumerate(order):
+        bands[index] = min(rank // band_size, count - 1)
+    return bands
+
+
 async def order_tracks_by_energy(
     tracks: list[dict[str, Any]],
     direction: EnergyOrder | None,
+    *,
+    chronological_direction: ChronologicalOrder | None = None,
 ) -> list[dict[str, Any]]:
     """Return tracks reordered by ReccoBeats sonic energy, degrading gracefully on missing data.
 
@@ -446,6 +460,12 @@ async def order_tracks_by_energy(
     rate in a real measured sample, with classic/legacy catalogue attribution as the main
     gap), so an unmatched track simply keeps its original position while matched tracks
     reorder around it.
+
+    When chronological_direction is given and direction is increasing/decreasing, energy is
+    primary: matched tracks are grouped into 5 energy quantile bands ordered by direction,
+    and chronological_direction is applied only as a secondary, best-effort refinement
+    within each band (again degrading gracefully, never raising). It is ignored for
+    direction="steady", which has no natural band structure to layer a secondary sort onto.
     """
     if direction is None or len(tracks) < 2:
         return list(tracks)
@@ -457,11 +477,11 @@ async def order_tracks_by_energy(
         )
     )
     energies: list[float | None] = [item.energy for item in evidence]
-    if sum(1 for energy in energies if energy is not None) < 2:
+    matched_indices = [index for index, energy in enumerate(energies) if energy is not None]
+    if len(matched_indices) < 2:
         return list(tracks)
 
     if direction == "steady":
-        matched_indices = [index for index, energy in enumerate(energies) if energy is not None]
         matched_tracks = [tracks[index] for index in matched_indices]
         matched_energies = [energies[index] for index in matched_indices]
         chained = _chained_by_energy(matched_tracks, matched_energies)
@@ -470,9 +490,47 @@ async def order_tracks_by_energy(
             result[slot] = track
         return result
 
-    positions = _stable_sort_by_key(
-        list(range(len(tracks))),
-        energies,
-        reverse=direction == "decreasing",
-    )
-    return [tracks[position] for position in positions]
+    if chronological_direction is None:
+        positions = _stable_sort_by_key(
+            list(range(len(tracks))),
+            energies,
+            reverse=direction == "decreasing",
+        )
+        return [tracks[position] for position in positions]
+
+    matched_energies = [energies[index] for index in matched_indices]
+    bands = _energy_bands(matched_energies)
+    band_count = max(bands) + 1
+    grouped: list[list[int]] = [[] for _ in range(band_count)]
+    for position_in_matched, band in enumerate(bands):
+        grouped[band].append(matched_indices[position_in_matched])
+
+    band_range: range | list[int] = range(band_count)
+    if direction == "decreasing":
+        band_range = list(reversed(list(band_range)))
+
+    ordered_matched_indices: list[int] = []
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(8.0),
+        headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+    ) as client:
+        for band in band_range:
+            members = grouped[band]
+            if len(members) > 1:
+                years = await asyncio.gather(
+                    *(
+                        _lookup_original_release_year(tracks[index], client=client)
+                        for index in members
+                    )
+                )
+                members = _stable_sort_by_key(
+                    members,
+                    list(years),
+                    reverse=chronological_direction == "newest_first",
+                )
+            ordered_matched_indices.extend(members)
+
+    result = list(tracks)
+    for slot, index in zip(matched_indices, ordered_matched_indices, strict=True):
+        result[slot] = tracks[index]
+    return result
