@@ -27,7 +27,11 @@ from backend.config import (
 )
 from backend.constraint_interpreter import interpret_constraints
 from backend.generation_counter import record_generation
-from backend.generation_stage_timing import reset_stage_timings, stage_timings_snapshot
+from backend.generation_stage_timing import (
+    record_stage_ms,
+    reset_stage_timings,
+    stage_timings_snapshot,
+)
 from backend.generation_errors import record_generation_error
 from backend.generation_runtime import (
     _LAST_INTERPRETED_CONSTRAINTS,
@@ -1245,10 +1249,14 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     elif energy_order is not None:
         _emit_progress("energy_ordering")
         chronological_for_energy = chronological_order if energy_order != "steady" else None
+        energy_started_at = time.perf_counter()
         ordered_tracks = await order_tracks_by_energy(
             final_tracks,
             energy_order,
             chronological_direction=chronological_for_energy,
+        )
+        record_stage_ms(
+            "energy_ordering", (time.perf_counter() - energy_started_at) * 1000
         )
         if active_policy is not None and active_policy.track_positions:
             positioned = apply_track_positions(ordered_tracks, active_policy)
