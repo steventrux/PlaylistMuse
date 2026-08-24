@@ -40,6 +40,8 @@ from backend.llm import safe_error_message
 from backend.metadata_validation import extract_metadata_constraints
 from backend.playlist_ordering import (
     chronological_order_from_payload,
+    energy_order_from_payload,
+    order_tracks_by_energy,
     order_tracks_by_release_date,
 )
 from backend.playlist_stats import compute_stats
@@ -97,6 +99,7 @@ GENERATION_STAGE_MESSAGES = {
     "catalogue_resolution_initial": "Validating tracks and resolving them on YouTube Music…",
     "llm_replenishment": "Refining the playlist to fill any gaps…",
     "catalogue_resolution_replenishment": "Validating the new tracks on YouTube Music…",
+    "energy_ordering": "Analyzing sonic energy to order the playlist…",
 }
 
 
@@ -1184,7 +1187,9 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     if interpretation is None:
         interpretation = await interpret_constraints(config, prompt)
     chronological_order = chronological_order_from_payload(interpretation, prompt)
-    if chronological_order is not None:
+    energy_order = energy_order_from_payload(interpretation, prompt)
+
+    if energy_order is None and chronological_order is not None:
         ordered_tracks = await order_tracks_by_release_date(
             final_tracks,
             chronological_order,
@@ -1202,6 +1207,29 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
             if positioned_keys != ordered_keys:
                 raise ValueError(
                     "The requested chronological ordering conflicts with an explicit track position."
+                )
+        final_tracks = ordered_tracks
+    elif energy_order is not None:
+        _emit_progress("energy_ordering")
+        chronological_for_energy = chronological_order if energy_order != "steady" else None
+        ordered_tracks = await order_tracks_by_energy(
+            final_tracks,
+            energy_order,
+            chronological_direction=chronological_for_energy,
+        )
+        if active_policy is not None and active_policy.track_positions:
+            positioned = apply_track_positions(ordered_tracks, active_policy)
+            ordered_keys = [
+                track_identity_key(track.get("title", ""), track.get("artists", ""))
+                for track in ordered_tracks
+            ]
+            positioned_keys = [
+                track_identity_key(track.get("title", ""), track.get("artists", ""))
+                for track in positioned
+            ]
+            if positioned_keys != ordered_keys:
+                raise ValueError(
+                    "The requested energy ordering conflicts with an explicit track position."
                 )
         final_tracks = ordered_tracks
 
