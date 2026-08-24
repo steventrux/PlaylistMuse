@@ -21,7 +21,7 @@ from backend.metadata_validation import (
 )
 from backend.reccobeats_features import ReccoBeatsAudioEvidence, audio_evidence_for_track
 
-LOGGER = logging.getLogger(__name__)
+LOGGER = logging.getLogger("playlistmuse.performance")
 
 ChronologicalOrder = Literal["oldest_first", "newest_first"]
 _MIN_ORDER_CONFIDENCE = 0.85
