@@ -1,9 +1,12 @@
 import io
 import json
+import logging
 import re
 import zipfile
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 
@@ -12,6 +15,65 @@ import backend.generation_counter as generation_counter
 from backend import cache_metrics
 from backend.application import app
 from backend.playlist_library import PlaylistLibrary
+
+
+@pytest.fixture
+def _isolated_playlistmuse_logger():
+    """Reset the shared "playlistmuse" logger's handlers around a test.
+
+    configure_diagnostics_logging() is idempotent (it returns early once any handler
+    is tagged _playlistmuse_diagnostics), so re-testing it requires a clean slate --
+    otherwise it would just return the module-import-time logger untouched.
+    """
+    logger = logging.getLogger(diagnostics.LOGGER_NAME)
+    original_handlers = list(logger.handlers)
+    logger.handlers = []
+    yield logger
+    logger.handlers = original_handlers
+
+
+def test_configure_diagnostics_logging_adds_console_and_file_handlers(
+    tmp_path, monkeypatch, _isolated_playlistmuse_logger
+) -> None:
+    monkeypatch.setattr(diagnostics, "LOG_DIR", tmp_path)
+    monkeypatch.setattr(diagnostics, "LOG_PATH", tmp_path / "playlistmuse.log")
+
+    logger = diagnostics.configure_diagnostics_logging()
+
+    console_handlers = [h for h in logger.handlers if type(h) is logging.StreamHandler]
+    file_handlers = [h for h in logger.handlers if isinstance(h, RotatingFileHandler)]
+    assert len(console_handlers) == 1
+    assert len(file_handlers) == 1
+    assert all(
+        any(isinstance(f, diagnostics._SanitizingFilter) for f in handler.filters)
+        for handler in logger.handlers
+    )
+
+
+def test_configure_diagnostics_logging_is_idempotent(
+    tmp_path, monkeypatch, _isolated_playlistmuse_logger
+) -> None:
+    monkeypatch.setattr(diagnostics, "LOG_DIR", tmp_path)
+    monkeypatch.setattr(diagnostics, "LOG_PATH", tmp_path / "playlistmuse.log")
+
+    diagnostics.configure_diagnostics_logging()
+    diagnostics.configure_diagnostics_logging()
+
+    assert len(_isolated_playlistmuse_logger.handlers) == 2
+
+
+def test_console_handler_redacts_secrets_like_the_file_handler(
+    tmp_path, monkeypatch, capsys, _isolated_playlistmuse_logger
+) -> None:
+    monkeypatch.setattr(diagnostics, "LOG_DIR", tmp_path)
+    monkeypatch.setattr(diagnostics, "LOG_PATH", tmp_path / "playlistmuse.log")
+
+    logger = diagnostics.configure_diagnostics_logging()
+    logger.info("Authorization: Bearer sk-or-v1-abcdefghijklmnop")
+
+    captured = capsys.readouterr()
+    assert "sk-or-v1-abcdefghijklmnop" not in captured.err
+    assert "[REDACTED]" in captured.err
 
 
 def test_sanitize_text_redacts_common_and_known_secrets() -> None:

@@ -33,7 +33,7 @@ MAX_RECOMMENDATION_SIZE = 30
 SEARCH_SIZE = 20
 ARTIST_FALLBACK_PAGES = 3
 
-LOGGER = logging.getLogger(__name__)
+LOGGER = logging.getLogger("playlistmuse.performance")
 _CACHE: dict[tuple[str, str], tuple[float, ReccoBeatsAudioEvidence]] = {}
 _RECOMMENDATION_CACHE: dict[
     tuple[tuple[tuple[str, str], ...], int],
