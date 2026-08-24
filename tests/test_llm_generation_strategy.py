@@ -33,18 +33,20 @@ def test_system_prompt_uses_constraint_first_curation_protocol() -> None:
     assert "Do not output this planning" in llm.SYSTEM_PROMPT
 
 
-def test_system_prompt_requires_description_to_match_final_tracks() -> None:
-    """Regression: a real generation's description claimed "five tracks by The Rolling
-    Stones" while the final tracks array actually contained exactly the 3 requested --
-    the description reflected an earlier draft, not the finished track list.
+def test_system_prompt_forbids_track_counts_in_title_and_description() -> None:
+    """Regression: two separate real generations stated a count that didn't match the
+    final tracks array -- "five tracks by The Rolling Stones" when only 3 were present,
+    then "A 23-track chronological descent" on a 20-track playlist. Trying to keep an
+    LLM-stated count in sync with the finished array is unreliable; forbidding the count
+    outright removes the failure mode instead of chasing it.
     """
     assert (
-        "does not state a specific number of songs, artists or years that contradicts "
-        "what the final tracks array actually contains" in llm.SYSTEM_PROMPT
+        'Never state a number of songs, tracks or artist tally in the title or the '
+        'description' in llm.SYSTEM_PROMPT
     )
     assert (
-        "that number must exactly match the final tracks array -- never a count from "
-        "an earlier draft" in llm.SYSTEM_PROMPT
+        "neither the title nor the description states any number of songs, tracks or "
+        "artist tally" in llm.SYSTEM_PROMPT
     )
 
 
