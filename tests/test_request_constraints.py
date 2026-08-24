@@ -19,6 +19,35 @@ def test_english_decade_to_today_becomes_open_ended_range():
     ) == (1960, 2026)
 
 
+def test_four_digit_decade_to_now_becomes_open_ended_range():
+    """Regression: "the 1960s" (four-digit form) must be recognized like "the 60s".
+
+    Real bug: "rock blues playlist with increasing energy from the 1960s to now" was
+    silently collapsed to a closed 1960-1969 range because the open-ended pattern only
+    matched the two-digit shorthand, not the four-digit decade form used here.
+    """
+    assert open_ended_year_range(
+        "rock blues playlist with increasing energy from the 1960s to now",
+        current_year=2026,
+    ) == (1960, 2026)
+    assert open_ended_year_range(
+        "Crea una playlist dagli anni 1960 ad oggi",
+        current_year=2026,
+    ) == (1960, 2026)
+
+
+def test_now_and_the_present_are_recognized_alongside_today():
+    assert open_ended_year_range(
+        "rock from the 1960s until today", current_year=2026
+    ) == (1960, 2026)
+    assert open_ended_year_range(
+        "rock from the 1960s through the present", current_year=2026
+    ) == (1960, 2026)
+    assert open_ended_year_range(
+        "Crea una playlist dagli anni 60 ad ora", current_year=2026
+    ) == (1960, 2026)
+
+
 def test_exact_year_to_present_is_multilingual():
     prompts = (
         "musica italiana dal 2000 ad oggi",
