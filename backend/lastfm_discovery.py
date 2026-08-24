@@ -21,7 +21,7 @@ from backend.lastfm import (
 )
 from backend.lastfm_settings import lastfm_api_key
 
-LOGGER = logging.getLogger(__name__)
+LOGGER = logging.getLogger("playlistmuse.lastfm.discovery")
 MAX_CONTEXT_SIGNALS = 60
 MAX_PROMPT_ANCHORS = 3
 MAX_SIMILAR_ARTISTS = 12

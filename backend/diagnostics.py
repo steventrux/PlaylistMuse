@@ -156,34 +156,48 @@ def _known_secret_values() -> tuple[str, ...]:
 
 
 def configure_diagnostics_logging() -> logging.Logger:
-    """Configure one rotating PlaylistMuse log file without disturbing Uvicorn logging."""
+    """Configure the rotating PlaylistMuse log file and console output, without disturbing Uvicorn logging.
+
+    Every backend module that wants its logs to go anywhere must log through this "playlistmuse"
+    namespace (or a dotted child of it, e.g. "playlistmuse.performance") -- a logger created via
+    logging.getLogger(__name__) resolves to "backend.<module>", a sibling namespace with no handler
+    of its own, so its records are silently dropped. The console handler exists specifically so
+    `docker logs` shows live activity; both handlers share the same secret-redacting filter so
+    neither destination can leak credentials.
+    """
     logger = logging.getLogger(LOGGER_NAME)
     logger.setLevel(logging.INFO)
     logger.propagate = False
     if any(getattr(handler, "_playlistmuse_diagnostics", False) for handler in logger.handlers):
         return logger
 
+    formatter = logging.Formatter(
+        "%(asctime)sZ %(levelname)s %(name)s %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
+    )
+    formatter.converter = time.gmtime
+
+    console_handler = logging.StreamHandler()
+    console_handler._playlistmuse_diagnostics = True  # type: ignore[attr-defined]
+    console_handler.addFilter(_SanitizingFilter())
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
     try:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
-        handler = RotatingFileHandler(
+        file_handler = RotatingFileHandler(
             LOG_PATH,
             maxBytes=LOG_MAX_BYTES,
             backupCount=LOG_BACKUP_COUNT,
             encoding="utf-8",
         )
     except OSError:
-        logger.addHandler(logging.NullHandler())
         return logger
 
-    handler._playlistmuse_diagnostics = True  # type: ignore[attr-defined]
-    handler.addFilter(_SanitizingFilter())
-    formatter = logging.Formatter(
-        "%(asctime)sZ %(levelname)s %(name)s %(message)s",
-        datefmt="%Y-%m-%dT%H:%M:%S",
-    )
-    formatter.converter = time.gmtime
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+    file_handler._playlistmuse_diagnostics = True  # type: ignore[attr-defined]
+    file_handler.addFilter(_SanitizingFilter())
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
     return logger
 
 
