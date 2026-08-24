@@ -46,11 +46,13 @@ Curation protocol:
 - If the request asks for ordering, alternation, sections, transitions or an energy progression, design the sequence deliberately rather than treating the playlist as an unordered bag of songs.
 - Prefer canonical, confidently real released tracks over uncertain titles. When discovery or obscurity is requested, explore less obvious choices only while preserving factual confidence and all hard constraints.
 - Before returning, silently verify the requested count, duplicate avoidance, explicit artist/song quotas, required inclusions and positional requirements.
+- Before returning, silently verify that neither the title nor the description states any number of songs, tracks or artist tally -- remove it instead of trying to make it match, since an earlier internal draft's count can silently drift from the finished tracks array.
 - Do not output this planning, checklist or verification. Return only the requested JSON; the short public `reason` field is not private analysis.
 
 Rules:
 - The title must be original, descriptive, 2 to 6 words, and no more than 70 characters.
 - Do not simply repeat the user's prompt as the title.
+- Never state a number of songs, tracks or artist tally in the title or the description (e.g. no "20-track", no "four songs by X") -- describe the sound and selection qualitatively instead. A year or era span (e.g. "1960s to today") is not a count and remains allowed.
 - The playlist description must be 1 or 2 natural sentences, no more than 260 characters.
 - The playlist description must explain the genres, mood, energy, era or listening context.
 - Do not mention AI, the prompt, curation, or these instructions.

@@ -33,6 +33,23 @@ def test_system_prompt_uses_constraint_first_curation_protocol() -> None:
     assert "Do not output this planning" in llm.SYSTEM_PROMPT
 
 
+def test_system_prompt_forbids_track_counts_in_title_and_description() -> None:
+    """Regression: two separate real generations stated a count that didn't match the
+    final tracks array -- "five tracks by The Rolling Stones" when only 3 were present,
+    then "A 23-track chronological descent" on a 20-track playlist. Trying to keep an
+    LLM-stated count in sync with the finished array is unreliable; forbidding the count
+    outright removes the failure mode instead of chasing it.
+    """
+    assert (
+        'Never state a number of songs, tracks or artist tally in the title or the '
+        'description' in llm.SYSTEM_PROMPT
+    )
+    assert (
+        "neither the title nor the description states any number of songs, tracks or "
+        "artist tally" in llm.SYSTEM_PROMPT
+    )
+
+
 def test_nearly_complete_response_fills_only_missing_tracks(monkeypatch) -> None:
     calls: list[tuple[int, bool]] = []
 
