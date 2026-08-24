@@ -73,6 +73,32 @@ def test_genre_era_ending_is_treated_as_open_ended():
     ) == (1970, 2026)
 
 
+def test_genre_era_ending_is_multilingual():
+    """The genre-era open-ended ending must cover every language this project's
+    prompt parsing supports (EN/IT/FR/ES/DE), not just EN+IT."""
+    assert open_ended_year_range(
+        "des années 70 jusqu'au jazz moderne", current_year=2026
+    ) == (1970, 2026)
+    assert open_ended_year_range(
+        "de 1975 jusqu'au jazz contemporain", current_year=2026
+    ) == (1975, 2026)
+    assert open_ended_year_range(
+        "desde los años 70 hasta el jazz moderno", current_year=2026
+    ) == (1970, 2026)
+    assert open_ended_year_range(
+        "desde 1975 hasta el jazz actual", current_year=2026
+    ) == (1975, 2026)
+    assert open_ended_year_range(
+        "aus den 70er Jahren bis zum modernen Jazz", current_year=2026
+    ) == (1970, 2026)
+    assert open_ended_year_range(
+        "von 1975 bis zum modernen Jazz", current_year=2026
+    ) == (1975, 2026)
+    assert open_ended_year_range(
+        "desde 1975 até o jazz moderno", current_year=2026
+    ) == (1975, 2026)
+
+
 def test_exact_year_to_present_is_multilingual():
     prompts = (
         "musica italiana dal 2000 ad oggi",
