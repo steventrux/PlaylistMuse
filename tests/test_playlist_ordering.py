@@ -384,6 +384,47 @@ def test_local_fallback_recognizes_common_energy_requests() -> None:
     assert ordering.energy_order_from_payload(None, "A relaxing jazz playlist") is None
 
 
+def test_local_fallback_recognizes_energy_requests_in_french_spanish_german() -> None:
+    """Standing project requirement: prompt interpretation must cover English, Italian,
+    French, Spanish and German, not just the first two."""
+    assert (
+        ordering.energy_order_from_payload(None, "Playlist rock avec une énergie croissante")
+        == "increasing"
+    )
+    assert (
+        ordering.energy_order_from_payload(None, "Playlist avec une énergie décroissante")
+        == "decreasing"
+    )
+    assert (
+        ordering.energy_order_from_payload(None, "Playlist avec une énergie constante")
+        == "steady"
+    )
+    assert (
+        ordering.energy_order_from_payload(None, "Playlist con energía creciente")
+        == "increasing"
+    )
+    assert (
+        ordering.energy_order_from_payload(None, "Playlist con energía decreciente")
+        == "decreasing"
+    )
+    assert (
+        ordering.energy_order_from_payload(None, "Playlist con energía constante")
+        == "steady"
+    )
+    assert (
+        ordering.energy_order_from_payload(None, "Playlist mit steigender Energie")
+        == "increasing"
+    )
+    assert (
+        ordering.energy_order_from_payload(None, "Playlist mit abnehmender Energie")
+        == "decreasing"
+    )
+    assert (
+        ordering.energy_order_from_payload(None, "Playlist mit konstanter Energie")
+        == "steady"
+    )
+
+
 def test_local_fallback_does_not_false_positive_on_loose_steady_wording() -> None:
     """Regression test for final whole-branch review Finding 1.
 
