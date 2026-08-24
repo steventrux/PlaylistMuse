@@ -33,6 +33,21 @@ def test_system_prompt_uses_constraint_first_curation_protocol() -> None:
     assert "Do not output this planning" in llm.SYSTEM_PROMPT
 
 
+def test_system_prompt_requires_description_to_match_final_tracks() -> None:
+    """Regression: a real generation's description claimed "five tracks by The Rolling
+    Stones" while the final tracks array actually contained exactly the 3 requested --
+    the description reflected an earlier draft, not the finished track list.
+    """
+    assert (
+        "does not state a specific number of songs, artists or years that contradicts "
+        "what the final tracks array actually contains" in llm.SYSTEM_PROMPT
+    )
+    assert (
+        "that number must exactly match the final tracks array -- never a count from "
+        "an earlier draft" in llm.SYSTEM_PROMPT
+    )
+
+
 def test_nearly_complete_response_fills_only_missing_tracks(monkeypatch) -> None:
     calls: list[tuple[int, bool]] = []
 
