@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import math
 import re
 import time
 from typing import Any, Literal
@@ -17,9 +19,68 @@ from backend.metadata_validation import (
     lookup_track_metadata,
     validate_candidate,
 )
+from backend.reccobeats_features import ReccoBeatsAudioEvidence, audio_evidence_for_track
+
+LOGGER = logging.getLogger("playlistmuse.performance")
 
 ChronologicalOrder = Literal["oldest_first", "newest_first"]
 _MIN_ORDER_CONFIDENCE = 0.85
+
+EnergyOrder = Literal["increasing", "decreasing", "steady"]
+
+# Worst case (every track misses on first search) can hit ~6 serialized ReccoBeats
+# requests/track at ~0.5s pacing each, so a single-track budget of a few seconds is far
+# too small for a full playlist fetch. This is a generous overall budget for the whole
+# batch, not a per-track timeout: any track whose fetch hasn't completed by the deadline
+# is treated as unmatched (same as a genuine ReccoBeats catalogue miss).
+_ENERGY_FETCH_BUDGET_SECONDS = 110.0
+
+_INCREASING_ENERGY_PATTERNS = (
+    re.compile(r"\b(?:increasing|rising|building|growing)\b.{0,30}\benergy\b", re.I),
+    re.compile(r"\benergy\b.{0,30}\b(?:increasing|rising|building|growing)\b", re.I),
+    re.compile(r"\bascending\s+energy\b", re.I),
+    re.compile(r"\b(?:crescente|in\s+aumento|che\s+cresce|che\s+sale)\b.{0,30}\benergia\b", re.I),
+    re.compile(r"\benergia\b.{0,30}\b(?:crescente|in\s+aumento|che\s+cresce|che\s+sale)\b", re.I),
+    re.compile(r"\b(?:croissante|en\s+augmentation|qui\s+augmente|qui\s+monte)\b.{0,30}\b[ée]nergie\b", re.I),
+    re.compile(r"\b[ée]nergie\b.{0,30}\b(?:croissante|en\s+augmentation|qui\s+augmente|qui\s+monte)\b", re.I),
+    re.compile(r"\b(?:creciente|en\s+aumento|que\s+aumenta|que\s+sube)\b.{0,30}\benerg[ií]a\b", re.I),
+    re.compile(r"\benerg[ií]a\b.{0,30}\b(?:creciente|en\s+aumento|que\s+aumenta|que\s+sube)\b", re.I),
+    re.compile(r"\b(?:steigend\w*|zunehmend\w*|ansteigend\w*)\b.{0,30}\benergie\b", re.I),
+    re.compile(r"\benergie\b.{0,30}\b(?:steigend\w*|zunehmend\w*|ansteigend\w*)\b", re.I),
+)
+
+_DECREASING_ENERGY_PATTERNS = (
+    re.compile(r"\b(?:decreasing|descending|falling|dropping)\b.{0,30}\benergy\b", re.I),
+    re.compile(r"\benergy\b.{0,30}\b(?:decreasing|falling|dropping|winding\s+down)\b", re.I),
+    re.compile(r"\b(?:decrescente|in\s+diminuzione|calante|che\s+scende)\b.{0,30}\benergia\b", re.I),
+    re.compile(r"\benergia\b.{0,30}\b(?:decrescente|in\s+diminuzione|calante)\b", re.I),
+    re.compile(r"\b(?:d[ée]croissante|en\s+diminution|qui\s+diminue|qui\s+baisse)\b.{0,30}\b[ée]nergie\b", re.I),
+    re.compile(r"\b[ée]nergie\b.{0,30}\b(?:d[ée]croissante|en\s+diminution|qui\s+diminue|qui\s+baisse)\b", re.I),
+    re.compile(r"\b(?:decreciente|en\s+disminuci[oó]n|que\s+disminuye|que\s+baja)\b.{0,30}\benerg[ií]a\b", re.I),
+    re.compile(r"\benerg[ií]a\b.{0,30}\b(?:decreciente|en\s+disminuci[oó]n|que\s+disminuye|que\s+baja)\b", re.I),
+    re.compile(r"\b(?:abnehmend\w*|sinkend\w*|fallend\w*)\b.{0,30}\benergie\b", re.I),
+    re.compile(r"\benergie\b.{0,30}\b(?:abnehmend\w*|sinkend\w*|fallend\w*)\b", re.I),
+)
+
+_STEADY_ENERGY_PATTERNS = (
+    re.compile(r"\b(?:steady|constant)\b.{0,30}\benergy\b", re.I),
+    re.compile(r"\benergy\b.{0,30}\b(?:steady|constant)\b", re.I),
+    # "even" and "consistent" are common outside of a steady-energy request (e.g. "even
+    # the slow ones", "no consistent lulls"), so only match them directly modifying
+    # "energy" rather than anywhere within a loose window.
+    re.compile(r"\beven\s+energy\b", re.I),
+    re.compile(r"\benergy\s+level\s+even\b", re.I),
+    re.compile(r"\bconsistent\s+energy\b", re.I),
+    re.compile(r"\benergy\s+level\s+consistent\b", re.I),
+    re.compile(r"\b(?:costante|stabile|uniforme)\b.{0,30}\benergia\b", re.I),
+    re.compile(r"\benergia\b.{0,30}\b(?:costante|stabile|uniforme)\b", re.I),
+    re.compile(r"\b(?:constante|stable|uniforme|r[ée]guli[èe]re)\b.{0,30}\b[ée]nergie\b", re.I),
+    re.compile(r"\b[ée]nergie\b.{0,30}\b(?:constante|stable|uniforme|r[ée]guli[èe]re)\b", re.I),
+    re.compile(r"\b(?:constante|estable|uniforme)\b.{0,30}\benerg[ií]a\b", re.I),
+    re.compile(r"\benerg[ií]a\b.{0,30}\b(?:constante|estable|uniforme)\b", re.I),
+    re.compile(r"\b(?:konstant\w*|gleichbleibend\w*|stabil\w*)\b.{0,30}\benergie\b", re.I),
+    re.compile(r"\benergie\b.{0,30}\b(?:konstant\w*|gleichbleibend\w*|stabil\w*)\b", re.I),
+)
 
 _OLDEST_FIRST_PATTERNS = (
     re.compile(r"\b(?:oldest|earliest|older)\b.{0,60}\b(?:newest|latest|newer|recent)\b", re.I),
@@ -119,6 +180,46 @@ def chronological_order_from_payload(
             if trusted:
                 return raw  # type: ignore[return-value]
     return _local_chronological_order(prompt)
+
+
+def _local_energy_order(prompt: str) -> EnergyOrder | None:
+    """Fallback for common explicit energy-progression wording when the LLM field is untrusted."""
+    normalized = " ".join(str(prompt).split())
+    if not normalized:
+        return None
+    # Explicit direction words are checked before steady-energy wording so a prompt that
+    # legitimately contains both (e.g. "energy building even higher") resolves to the
+    # explicit direction rather than the looser steady phrasing.
+    if any(pattern.search(normalized) for pattern in _INCREASING_ENERGY_PATTERNS):
+        return "increasing"
+    if any(pattern.search(normalized) for pattern in _DECREASING_ENERGY_PATTERNS):
+        return "decreasing"
+    if any(pattern.search(normalized) for pattern in _STEADY_ENERGY_PATTERNS):
+        return "steady"
+    return None
+
+
+def energy_order_from_payload(
+    payload: dict[str, Any] | None,
+    prompt: str = "",
+) -> EnergyOrder | None:
+    """Read a trusted energy-progression directive with a conservative local fallback."""
+    if isinstance(payload, dict):
+        raw = str(payload.get("energy_order") or "").strip().casefold()
+        if raw in {"increasing", "decreasing", "steady"}:
+            confidence = payload.get("field_confidence")
+            try:
+                trusted = (
+                    isinstance(confidence, dict)
+                    and float(confidence.get("energy_order", 0.0)) >= _MIN_ORDER_CONFIDENCE
+                )
+            except (TypeError, ValueError):
+                trusted = False
+            if not trusted:
+                trusted = str(payload.get("confidence", "")).casefold() == "high"
+            if trusted:
+                return raw  # type: ignore[return-value]
+    return _local_energy_order(prompt)
 
 
 def _track_artist(track: dict[str, Any]) -> str:
@@ -337,3 +438,169 @@ async def order_tracks_by_release_date(
         reverse=direction == "newest_first",
     )
     return [track for _, track in decorated]
+
+
+def _stable_sort_by_key(
+    positions: list[int],
+    keys: list[float | int | None],
+    *,
+    reverse: bool,
+) -> list[int]:
+    """Reorder `positions` by paired non-null keys, stably. A null-key position keeps its slot."""
+    pairs = list(zip(positions, keys, strict=True))
+    resolved = sorted(
+        (pair for pair in pairs if pair[1] is not None),
+        key=lambda pair: pair[1],
+        reverse=reverse,
+    )
+    resolved_positions = iter(position for position, _ in resolved)
+    return [
+        next(resolved_positions) if key is not None else position
+        for position, key in pairs
+    ]
+
+
+def _chained_by_energy(
+    tracks: list[dict[str, Any]],
+    energies: list[float],
+) -> list[dict[str, Any]]:
+    """Greedily chain tracks by nearest energy, starting from the median, to minimize jumps."""
+    remaining = sorted(zip(energies, tracks, strict=True), key=lambda item: item[0])
+    chain = [remaining.pop(len(remaining) // 2)]
+    while remaining:
+        last_energy, _ = chain[-1]
+        remaining.sort(key=lambda item: abs(item[0] - last_energy))
+        chain.append(remaining.pop(0))
+    return [track for _, track in chain]
+
+
+def _energy_bands(energies: list[float], *, band_count: int = 5) -> list[int]:
+    """Assign each energy value a quantile band index (0 = lowest energy)."""
+    order = sorted(range(len(energies)), key=lambda index: energies[index])
+    count = min(band_count, len(energies))
+    band_size = math.ceil(len(energies) / count)
+    bands = [0] * len(energies)
+    for rank, index in enumerate(order):
+        bands[index] = min(rank // band_size, count - 1)
+    return bands
+
+
+async def order_tracks_by_energy(
+    tracks: list[dict[str, Any]],
+    direction: EnergyOrder | None,
+    *,
+    chronological_direction: ChronologicalOrder | None = None,
+) -> list[dict[str, Any]]:
+    """Return tracks reordered by ReccoBeats sonic energy, degrading gracefully on missing data.
+
+    Unlike order_tracks_by_release_date, a track with no resolvable energy evidence is never
+    a hard failure. ReccoBeats catalogue coverage is known to be partial (roughly 87% match
+    rate in a real measured sample, with classic/legacy catalogue attribution as the main
+    gap), so an unmatched track simply keeps its original position while matched tracks
+    reorder around it.
+
+    When chronological_direction is given and direction is increasing/decreasing, energy is
+    primary: matched tracks are grouped into 5 energy quantile bands ordered by direction,
+    and chronological_direction is applied only as a secondary, best-effort refinement
+    within each band (again degrading gracefully, never raising). It is ignored for
+    direction="steady", which has no natural band structure to layer a secondary sort onto.
+    """
+    if direction is None or len(tracks) < 2:
+        return list(tracks)
+
+    fetch_tasks = [
+        asyncio.create_task(
+            audio_evidence_for_track(_track_artist(track), _track_title(track))
+        )
+        for track in tracks
+    ]
+    _done, pending = await asyncio.wait(
+        fetch_tasks,
+        timeout=_ENERGY_FETCH_BUDGET_SECONDS,
+    )
+    if pending:
+        LOGGER.info(
+            "Sonic-energy ordering fetch budget reached completed=%d total=%d "
+            "timeout_seconds=%s",
+            len(fetch_tasks) - len(pending),
+            len(fetch_tasks),
+            _ENERGY_FETCH_BUDGET_SECONDS,
+        )
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+
+    evidence: list[ReccoBeatsAudioEvidence] = []
+    for task in fetch_tasks:
+        if task.cancelled() or not task.done():
+            evidence.append(ReccoBeatsAudioEvidence())
+            continue
+        try:
+            result = task.result()
+        except Exception:  # noqa: BLE001 - third-party enrichment is intentionally fail-open.
+            result = ReccoBeatsAudioEvidence()
+        evidence.append(
+            result if isinstance(result, ReccoBeatsAudioEvidence) else ReccoBeatsAudioEvidence()
+        )
+
+    energies: list[float | None] = [item.energy for item in evidence]
+    matched_indices = [index for index, energy in enumerate(energies) if energy is not None]
+    LOGGER.info(
+        "Sonic-energy ordering matched %d/%d tracks", len(matched_indices), len(tracks)
+    )
+    if len(matched_indices) < 2:
+        return list(tracks)
+
+    if direction == "steady":
+        matched_tracks = [tracks[index] for index in matched_indices]
+        matched_energies = [energies[index] for index in matched_indices]
+        chained = _chained_by_energy(matched_tracks, matched_energies)
+        result = list(tracks)
+        for slot, track in zip(matched_indices, chained, strict=True):
+            result[slot] = track
+        return result
+
+    if chronological_direction is None:
+        positions = _stable_sort_by_key(
+            list(range(len(tracks))),
+            energies,
+            reverse=direction == "decreasing",
+        )
+        return [tracks[position] for position in positions]
+
+    matched_energies = [energies[index] for index in matched_indices]
+    bands = _energy_bands(matched_energies)
+    band_count = max(bands) + 1
+    grouped: list[list[int]] = [[] for _ in range(band_count)]
+    for position_in_matched, band in enumerate(bands):
+        grouped[band].append(matched_indices[position_in_matched])
+
+    band_range: range | list[int] = range(band_count)
+    if direction == "decreasing":
+        band_range = list(reversed(list(band_range)))
+
+    ordered_matched_indices: list[int] = []
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(8.0),
+        headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+    ) as client:
+        for band in band_range:
+            members = grouped[band]
+            if len(members) > 1:
+                years = await asyncio.gather(
+                    *(
+                        _lookup_original_release_year(tracks[index], client=client)
+                        for index in members
+                    )
+                )
+                members = _stable_sort_by_key(
+                    members,
+                    list(years),
+                    reverse=chronological_direction == "newest_first",
+                )
+            ordered_matched_indices.extend(members)
+
+    result = list(tracks)
+    for slot, index in zip(matched_indices, ordered_matched_indices, strict=True):
+        result[slot] = tracks[index]
+    return result

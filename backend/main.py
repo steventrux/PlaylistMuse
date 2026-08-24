@@ -27,7 +27,11 @@ from backend.config import (
 )
 from backend.constraint_interpreter import interpret_constraints
 from backend.generation_counter import record_generation
-from backend.generation_stage_timing import reset_stage_timings, stage_timings_snapshot
+from backend.generation_stage_timing import (
+    record_stage_ms,
+    reset_stage_timings,
+    stage_timings_snapshot,
+)
 from backend.generation_errors import record_generation_error
 from backend.generation_runtime import (
     _LAST_INTERPRETED_CONSTRAINTS,
@@ -40,6 +44,8 @@ from backend.llm import safe_error_message
 from backend.metadata_validation import extract_metadata_constraints
 from backend.playlist_ordering import (
     chronological_order_from_payload,
+    energy_order_from_payload,
+    order_tracks_by_energy,
     order_tracks_by_release_date,
 )
 from backend.playlist_stats import compute_stats
@@ -97,6 +103,7 @@ GENERATION_STAGE_MESSAGES = {
     "catalogue_resolution_initial": "Validating tracks and resolving them on YouTube Music…",
     "llm_replenishment": "Refining the playlist to fill any gaps…",
     "catalogue_resolution_replenishment": "Validating the new tracks on YouTube Music…",
+    "energy_ordering": "Analyzing sonic energy to order the playlist…",
 }
 
 
@@ -320,13 +327,33 @@ _TEMPORAL_OPEN_POINTS = 8
 _ARTIST_COUNTRY_POINTS = 3
 
 
-def _performance_cost(prompt: str) -> tuple[int, list[str]]:
+def _energy_order_points(track_count: int) -> int:
+    """Progressive weight matching the real measured ReccoBeats fetch cost per track count.
+
+    A 2026-08-24 live spike measured ~1.6s per track, serialized behind ReccoBeats' global
+    rate limit -- roughly 30-45s for a 20-25 track playlist, close to doubling the ~60-70s
+    generation baseline. These brackets make that reference case land exactly at "Very
+    complex" (see _complexity_level), scaling down for smaller requests and up to "Extreme"
+    for larger ones, rather than a single flat weight that would misrepresent the real cost
+    at very different playlist sizes.
+    """
+    if track_count <= 10:
+        return 25
+    if track_count <= 25:
+        return 60
+    if track_count <= 50:
+        return 75
+    return 90
+
+
+def _performance_cost(prompt: str, track_count: int) -> tuple[int, list[str]]:
     """Points reflecting known extra catalogue-validation cost, not just semantic difficulty.
 
-    Reuses extract_metadata_constraints -- the same local, regex-based, no-network heuristic
-    that generation already falls back to -- so this adds no extra AI/network call and no
-    extra latency to the live-typing complexity indicator. Only covers constraints with a
-    currently measured or well-understood extra cost:
+    Reuses extract_metadata_constraints and energy_order_from_payload's local regex
+    fallback -- the same local, no-network heuristics that generation already falls back
+    to -- so this adds no extra AI/network call and no extra latency to the live-typing
+    complexity indicator. Only covers constraints with a currently measured or
+    well-understood extra cost:
     - An exact release year, or a closed release-year range (from AND to), makes every
       candidate pay for a second MusicBrainz lookup unconditionally (see
       _historical_probe_cutoff in metadata_validation.py) -- directly measured at ~180s vs
@@ -337,6 +364,9 @@ def _performance_cost(prompt: str) -> tuple[int, list[str]]:
       same second lookup, but only when the primary result doesn't already satisfy it.
     - An artist-country constraint adds one extra MusicBrainz artist lookup per new artist
       (cached 90 days, so cheap after the first use, but real on a cold cache).
+    - An explicit sonic-energy ordering request requires one ReccoBeats audio-feature fetch
+      per track, serialized behind a global rate limit -- see _energy_order_points for the
+      measured cost this reflects.
 
     This is a heuristic on the raw prompt text, not the AI-verified constraint interpretation
     used at generation time -- it can occasionally miss an unusually-phrased constraint, or
@@ -372,6 +402,16 @@ def _performance_cost(prompt: str) -> tuple[int, list[str]]:
             "(cached after the first use)."
         )
 
+    if energy_order_from_payload(None, prompt) is not None:
+        points += _energy_order_points(track_count)
+        low_seconds = max(1, round(track_count * 1.2))
+        high_seconds = max(low_seconds + 1, round(track_count * 2.0))
+        reasons.append(
+            "Sonic-energy ordering: every track needs an external audio-feature lookup, "
+            "serialized behind a strict rate limit, adding roughly "
+            f"{low_seconds}-{high_seconds} seconds for {track_count} tracks."
+        )
+
     return points, reasons
 
 
@@ -389,7 +429,7 @@ def _score_prompt_analysis(analysis: dict, track_count: int, prompt: str) -> dic
         25, sum(_STRUCTURE_POINTS.get(item, 0) for item in structures)
     )
     relation_score = min(15, 3 * relations)
-    performance_points, performance_notes = _performance_cost(prompt)
+    performance_points, performance_notes = _performance_cost(prompt, track_count)
     score = min(
         100,
         5
@@ -1184,7 +1224,9 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     if interpretation is None:
         interpretation = await interpret_constraints(config, prompt)
     chronological_order = chronological_order_from_payload(interpretation, prompt)
-    if chronological_order is not None:
+    energy_order = energy_order_from_payload(interpretation, prompt)
+
+    if energy_order is None and chronological_order is not None:
         ordered_tracks = await order_tracks_by_release_date(
             final_tracks,
             chronological_order,
@@ -1202,6 +1244,33 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
             if positioned_keys != ordered_keys:
                 raise ValueError(
                     "The requested chronological ordering conflicts with an explicit track position."
+                )
+        final_tracks = ordered_tracks
+    elif energy_order is not None:
+        _emit_progress("energy_ordering")
+        chronological_for_energy = chronological_order if energy_order != "steady" else None
+        energy_started_at = time.perf_counter()
+        ordered_tracks = await order_tracks_by_energy(
+            final_tracks,
+            energy_order,
+            chronological_direction=chronological_for_energy,
+        )
+        record_stage_ms(
+            "energy_ordering", (time.perf_counter() - energy_started_at) * 1000
+        )
+        if active_policy is not None and active_policy.track_positions:
+            positioned = apply_track_positions(ordered_tracks, active_policy)
+            ordered_keys = [
+                track_identity_key(track.get("title", ""), track.get("artists", ""))
+                for track in ordered_tracks
+            ]
+            positioned_keys = [
+                track_identity_key(track.get("title", ""), track.get("artists", ""))
+                for track in positioned
+            ]
+            if positioned_keys != ordered_keys:
+                raise ValueError(
+                    "The requested energy ordering conflicts with an explicit track position."
                 )
         final_tracks = ordered_tracks
 

@@ -23,9 +23,49 @@
     refine: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>',
     feedback: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 5.5h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-8l-5 3v-3H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z"/><path d="M8 10h8M8 13h5"/></svg>',
     export: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 4v11"/><path d="m7.5 11 4.5 4.5 4.5-4.5"/><path d="M4.5 18.5v1a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-1"/></svg>',
-    favorite: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 20.5s-7.5-4.6-10-9.1C.5 8 2 5 5.2 5c1.9 0 3.4 1 4.8 2.8C11.4 6 12.9 5 14.8 5 18 5 19.5 8 19.5 11.4c-2.5 4.5-7.5 9.1-7.5 9.1Z"/></svg>',
-    favorited: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="currentColor" stroke="none"><path d="M12 20.5s-7.5-4.6-10-9.1C.5 8 2 5 5.2 5c1.9 0 3.4 1 4.8 2.8C11.4 6 12.9 5 14.8 5 18 5 19.5 8 19.5 11.4c-2.5 4.5-7.5 9.1-7.5 9.1Z"/></svg>',
+    favorite: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35Z"/></svg>',
+    favorited: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="currentColor" stroke="none"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35Z"/></svg>',
   });
+
+  // The classic Material Design "favorite" heart: every x-coordinate pairs up
+  // with another that sums to 24, so it is exactly mirror-symmetric about the
+  // vertical center of the 24x24 viewBox. That matters here because the split
+  // icon below relies on a true bilateral symmetry, not just a heart-ish blob.
+  const HEART_PATH = 'M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35Z';
+
+  // A single-color (white) heart split down the middle so a "track or artist"
+  // toggle can show, at a glance, whether the track, the artist, or both are
+  // favorited: the left half fills for the artist, the right half for the track.
+  //
+  // This is ONE path painted with a hard-stop gradient (not two clipped copies
+  // of the shape stacked on top of each other) so there is a single edge to
+  // anti-alias: two independently clipped/stacked shapes leave a visible seam
+  // where their edges meet, and clipping against the icon's square bounding
+  // box (rather than the heart's own, off-center silhouette) makes the split
+  // look lopsided. The gradient defaults to objectBoundingBox units, so its
+  // 50% stop lines up with the actual midpoint of the heart shape.
+  let splitFavoriteIconSeq = 0;
+  function buildSplitFavoriteIconMarkup() {
+    const gradientId = `favorite-split-fill-${++splitFavoriteIconSeq}`;
+    return `<svg class="favorite-icon-split" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <defs>
+        <linearGradient id="${gradientId}" x1="0" y1="0" x2="1" y2="0">
+          <stop class="favorite-icon-stop favorite-icon-stop--left" offset="0" stop-color="#ffffff"/>
+          <stop class="favorite-icon-stop favorite-icon-stop--left" offset="0.5" stop-color="#ffffff"/>
+          <stop class="favorite-icon-stop favorite-icon-stop--right" offset="0.5" stop-color="#ffffff"/>
+          <stop class="favorite-icon-stop favorite-icon-stop--right" offset="1" stop-color="#ffffff"/>
+        </linearGradient>
+      </defs>
+      <path d="${HEART_PATH}" fill="url(#${gradientId})" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`;
+  }
+
+  function describeFavoriteSplitState(trackFavorited, artistFavorited) {
+    if (trackFavorited && artistFavorited) return 'Track and artist favorited';
+    if (trackFavorited) return 'Track favorited';
+    if (artistFavorited) return 'Artist favorited';
+    return 'Not favorited';
+  }
 
   const ACTIONS = Object.freeze({
     youtube: {label: 'Open in YouTube Music', icon: ICONS.youtube},
@@ -72,21 +112,36 @@
     element.title = action.label;
   }
 
-  function decorateFavoriteToggle(element, {favorited, label = 'favorite'} = {}) {
+  function decorateFavoriteToggle(element, {favorited, trackFavorited, artistFavorited, label = 'favorite'} = {}) {
     if (!element) return;
+    const isSplit = trackFavorited !== undefined || artistFavorited !== undefined;
+    const track = Boolean(trackFavorited);
+    const artist = Boolean(artistFavorited);
+    const anyFavorited = isSplit ? (track || artist) : Boolean(favorited);
+
     const icon = document.createElement('span');
     icon.className = 'compact-action-icon';
-    icon.innerHTML = favorited ? ICONS.favorited : ICONS.favorite;
+    if (isSplit) {
+      icon.innerHTML = buildSplitFavoriteIconMarkup();
+      const split = icon.querySelector('.favorite-icon-split');
+      split.classList.toggle('is-track-favorited', track);
+      split.classList.toggle('is-artist-favorited', artist);
+    } else {
+      icon.innerHTML = anyFavorited ? ICONS.favorited : ICONS.favorite;
+    }
+
+    const description = isSplit
+      ? describeFavoriteSplitState(track, artist)
+      : (anyFavorited ? `Remove ${label} from favorites` : `Add ${label} to favorites`);
 
     const text = document.createElement('span');
     text.className = 'compact-action-label';
-    text.textContent = favorited ? 'Favorited' : 'Favorite';
+    text.textContent = isSplit ? description : (anyFavorited ? 'Favorited' : 'Favorite');
 
     element.replaceChildren(icon, text);
     element.classList.add('compact-action', 'favorite-toggle-button');
-    element.classList.toggle('is-favorited', Boolean(favorited));
-    element.setAttribute('aria-pressed', String(Boolean(favorited)));
-    const description = favorited ? `Remove ${label} from favorites` : `Add ${label} to favorites`;
+    element.classList.toggle('is-favorited', anyFavorited);
+    element.setAttribute('aria-pressed', String(anyFavorited));
     element.setAttribute('aria-label', description);
     element.title = description;
   }

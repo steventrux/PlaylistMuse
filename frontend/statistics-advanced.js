@@ -45,6 +45,7 @@
     catalogue_resolution: 'Catalogue resolution (total)',
     youtube_resolution: 'YouTube resolution',
     metadata_validation: 'Metadata validation',
+    energy_ordering: 'Sonic energy ordering',
   };
 
   function stageLabel(stage) {
@@ -71,7 +72,8 @@
   }
 
   function renderStageBars(stageTimings, container) {
-    const entries = Object.entries(stageTimings || {});
+    const entries = Object.entries(stageTimings || {})
+      .sort((a, b) => (b[1].avg_ms || 0) - (a[1].avg_ms || 0));
     container.textContent = '';
     if (!entries.length) {
       const empty = document.createElement('p');

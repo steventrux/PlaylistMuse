@@ -12,7 +12,7 @@ import httpx
 from backend.lastfm import API_ROOT, USER_AGENT, _environment_timeout
 from backend.lastfm_settings import lastfm_api_key
 
-LOGGER = logging.getLogger(__name__)
+LOGGER = logging.getLogger("playlistmuse.lastfm.random_seed")
 T = TypeVar("T")
 
 RANDOM_SEED_TAGS = (
