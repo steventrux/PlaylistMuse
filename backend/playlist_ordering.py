@@ -41,6 +41,12 @@ _INCREASING_ENERGY_PATTERNS = (
     re.compile(r"\bascending\s+energy\b", re.I),
     re.compile(r"\b(?:crescente|in\s+aumento|che\s+cresce|che\s+sale)\b.{0,30}\benergia\b", re.I),
     re.compile(r"\benergia\b.{0,30}\b(?:crescente|in\s+aumento|che\s+cresce|che\s+sale)\b", re.I),
+    re.compile(r"\b(?:croissante|en\s+augmentation|qui\s+augmente|qui\s+monte)\b.{0,30}\b[ée]nergie\b", re.I),
+    re.compile(r"\b[ée]nergie\b.{0,30}\b(?:croissante|en\s+augmentation|qui\s+augmente|qui\s+monte)\b", re.I),
+    re.compile(r"\b(?:creciente|en\s+aumento|que\s+aumenta|que\s+sube)\b.{0,30}\benerg[ií]a\b", re.I),
+    re.compile(r"\benerg[ií]a\b.{0,30}\b(?:creciente|en\s+aumento|que\s+aumenta|que\s+sube)\b", re.I),
+    re.compile(r"\b(?:steigend\w*|zunehmend\w*|ansteigend\w*)\b.{0,30}\benergie\b", re.I),
+    re.compile(r"\benergie\b.{0,30}\b(?:steigend\w*|zunehmend\w*|ansteigend\w*)\b", re.I),
 )
 
 _DECREASING_ENERGY_PATTERNS = (
@@ -48,6 +54,12 @@ _DECREASING_ENERGY_PATTERNS = (
     re.compile(r"\benergy\b.{0,30}\b(?:decreasing|falling|dropping|winding\s+down)\b", re.I),
     re.compile(r"\b(?:decrescente|in\s+diminuzione|calante|che\s+scende)\b.{0,30}\benergia\b", re.I),
     re.compile(r"\benergia\b.{0,30}\b(?:decrescente|in\s+diminuzione|calante)\b", re.I),
+    re.compile(r"\b(?:d[ée]croissante|en\s+diminution|qui\s+diminue|qui\s+baisse)\b.{0,30}\b[ée]nergie\b", re.I),
+    re.compile(r"\b[ée]nergie\b.{0,30}\b(?:d[ée]croissante|en\s+diminution|qui\s+diminue|qui\s+baisse)\b", re.I),
+    re.compile(r"\b(?:decreciente|en\s+disminuci[oó]n|que\s+disminuye|que\s+baja)\b.{0,30}\benerg[ií]a\b", re.I),
+    re.compile(r"\benerg[ií]a\b.{0,30}\b(?:decreciente|en\s+disminuci[oó]n|que\s+disminuye|que\s+baja)\b", re.I),
+    re.compile(r"\b(?:abnehmend\w*|sinkend\w*|fallend\w*)\b.{0,30}\benergie\b", re.I),
+    re.compile(r"\benergie\b.{0,30}\b(?:abnehmend\w*|sinkend\w*|fallend\w*)\b", re.I),
 )
 
 _STEADY_ENERGY_PATTERNS = (
@@ -62,6 +74,12 @@ _STEADY_ENERGY_PATTERNS = (
     re.compile(r"\benergy\s+level\s+consistent\b", re.I),
     re.compile(r"\b(?:costante|stabile|uniforme)\b.{0,30}\benergia\b", re.I),
     re.compile(r"\benergia\b.{0,30}\b(?:costante|stabile|uniforme)\b", re.I),
+    re.compile(r"\b(?:constante|stable|uniforme|r[ée]guli[èe]re)\b.{0,30}\b[ée]nergie\b", re.I),
+    re.compile(r"\b[ée]nergie\b.{0,30}\b(?:constante|stable|uniforme|r[ée]guli[èe]re)\b", re.I),
+    re.compile(r"\b(?:constante|estable|uniforme)\b.{0,30}\benerg[ií]a\b", re.I),
+    re.compile(r"\benerg[ií]a\b.{0,30}\b(?:constante|estable|uniforme)\b", re.I),
+    re.compile(r"\b(?:konstant\w*|gleichbleibend\w*|stabil\w*)\b.{0,30}\benergie\b", re.I),
+    re.compile(r"\benergie\b.{0,30}\b(?:konstant\w*|gleichbleibend\w*|stabil\w*)\b", re.I),
 )
 
 _OLDEST_FIRST_PATTERNS = (
