@@ -344,7 +344,10 @@ def quota_guidance(quotas: list[ArtistMinimumQuota]) -> str:
     return (
         "\n\nPER-ARTIST QUOTAS: the following are independent mandatory minimums, not "
         f"one combined quota: {requirements}. Satisfy every artist minimum separately. "
-        "Do not count a track toward a different artist's quota."
+        "Do not count a track toward a different artist's quota. These are floors, not "
+        "targets: once every minimum is met, fill the rest of the playlist with other "
+        "compliant artists. Do not let a quota artist's track count grow noticeably "
+        "beyond its stated minimum just because it is a safe, guaranteed-compliant choice."
     )
 
 
