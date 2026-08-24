@@ -89,3 +89,31 @@ def test_separated_union_is_not_widened_into_a_single_range() -> None:
         constraints.release_year_from == 1980
         and constraints.release_year_to == 2005
     )
+
+
+def test_open_ended_decade_is_not_closed_by_its_own_bounded_match() -> None:
+    """Regression: a decade absorbed into "...to now" must not also count as its own
+    independently bounded period -- that bounded period's own (tighter) end year used to
+    always win, silently re-closing a range the user explicitly left open.
+
+    Real bug reproduced live: "Create a rock blues playlist with increasing energy from
+    the 1960s to now" generated a playlist containing only 1960s tracks.
+    """
+    result = effective_temporal_range(
+        "Create a rock blues playlist with increasing energy from the 1960s to now"
+    )
+    assert result is not None
+    lower, upper = result
+    assert lower == 1960
+    assert upper > 1969  # not silently closed to the decade's own end year
+
+    constraints = extract_metadata_constraints(
+        "Create a rock blues playlist with increasing energy from the 1960s to now"
+    )
+    assert constraints.release_year_from == 1960
+    assert constraints.release_year_to != 1969
+
+    # A genuinely closed decade-to-decade range must still close normally.
+    assert effective_temporal_range(
+        "classic rock from the 1960s to the 1990s"
+    ) == (1960, 1999)
