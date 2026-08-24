@@ -175,3 +175,70 @@ def test_generate_from_seed_stream_keeps_seed_first(monkeypatch) -> None:
     assert events[-1]["type"] == "result"
     tracks = events[-1]["playlist"]["tracks"]
     assert tracks[0]["video_id"] == "selected-seed"
+
+
+def test_generate_stream_emits_energy_ordering_stage_for_explicit_request(monkeypatch) -> None:
+    async def fake_generate(config, prompt, count, is_seed_generation=False):
+        return {
+            "title": "Test Playlist",
+            "description": "A test playlist.",
+            "tracks": [
+                {
+                    "artist": f"Artist {index}",
+                    "title": f"Track {index}",
+                    "description": "Description.",
+                    "reason": "Reason.",
+                }
+                for index in range(count)
+            ],
+        }
+
+    async def fake_resolve(candidates, exclusions):
+        return (
+            [
+                {
+                    "video_id": f"video-{item['title']}",
+                    "title": item["title"],
+                    "artists": item["artist"],
+                    "album": "Album",
+                    "duration": "3:00",
+                    "thumbnail_url": "",
+                    "url": "https://music.youtube.com/watch?v=test",
+                    "description": item["description"],
+                    "reason": item["reason"],
+                }
+                for item in candidates
+            ],
+            [],
+        )
+
+    async def fake_order_by_energy(tracks, direction, *, chronological_direction=None):
+        assert direction == "increasing"
+        assert chronological_direction is None
+        return list(reversed(tracks))
+
+    monkeypatch.setattr(
+        main_module,
+        "load_config",
+        lambda: AppConfig(provider="openai", api_key="sk-test", model="model"),
+    )
+    monkeypatch.setattr(main_module, "generate_playlist_draft", fake_generate)
+    monkeypatch.setattr(main_module, "resolve_candidates", fake_resolve)
+    monkeypatch.setattr(main_module, "order_tracks_by_energy", fake_order_by_energy)
+
+    client = TestClient(main_module.app)
+    response = client.post(
+        "/api/playlists/generate/stream",
+        json={"prompt": "A rock playlist with increasing energy", "track_count": 5},
+    )
+
+    assert response.status_code == 200
+    events = _parse_sse(response.text)
+
+    stage_events = [event for event in events if event["type"] == "stage"]
+    assert "energy_ordering" in [event["stage"] for event in stage_events]
+    energy_stage = next(event for event in stage_events if event["stage"] == "energy_ordering")
+    assert energy_stage["message"] == main_module.GENERATION_STAGE_MESSAGES["energy_ordering"]
+
+    result_titles = [track["title"] for track in events[-1]["playlist"]["tracks"]]
+    assert result_titles == ["Track 4", "Track 3", "Track 2", "Track 1", "Track 0"]
