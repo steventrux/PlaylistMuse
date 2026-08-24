@@ -109,7 +109,8 @@
     'Include a few lesser-known tracks alongside familiar choices.',
     'Favor deeper album cuts over the most obvious hits.',
     'Keep the energy steady from start to finish.',
-    'Let the energy build gradually.',
+    'Let the energy keep rising toward the end.',
+    'Let the energy keep falling toward the end.',
     'Keep transitions smooth between tracks.',
     'Use familiar tracks sparingly and leave room for discoveries.',
     'Keep the sequence varied without sharp stylistic jumps.',
@@ -276,6 +277,6 @@
     button?.addEventListener('click', surpriseMe);
   }
 
-  window.PlaylistMusePromptSurprise = {buildPrompt, MUSIC_FAMILIES, pickFamily};
+  window.PlaylistMusePromptSurprise = {buildPrompt, MUSIC_FAMILIES, CREATIVE_DIRECTIONS, pickFamily};
   if (typeof document !== 'undefined') init();
 })();
