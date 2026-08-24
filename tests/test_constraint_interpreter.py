@@ -33,6 +33,19 @@ def test_system_prompt_covers_open_ended_decade_to_present_wording():
     assert "leave release_year_to null" in constraint_interpreter.SYSTEM_PROMPT
 
 
+def test_system_prompt_covers_genre_era_present_wording():
+    """A decade combined with a genre/era label meaning present-day music (e.g. "modern
+    jazz", "contemporary jazz") must be treated the same as literal "to now" wording and
+    must not close release_year_to.
+
+    Regression: "the 1970s through modern jazz" was being interpreted as a closed
+    1970-1979 range, silently dropping every modern-jazz track the user actually asked
+    for.
+    """
+    assert '"modern jazz"' in constraint_interpreter.SYSTEM_PROMPT
+    assert "genre or era label" in constraint_interpreter.SYSTEM_PROMPT
+
+
 def test_dated_system_prompt_appends_todays_date_without_mutating_base():
     base = "Base system prompt."
 

@@ -125,7 +125,7 @@ Rules:
 - A decade means its full inclusive range: 1990s = 1990 through 1999.
 - "before 2000" means release_year_to 1999; "after 2010" means release_year_from 2011.
 - "from 1995 onward" means release_year_from 1995.
-- When a decade is combined with wording meaning up through the present (such as "to now", "to today", "until now", "to the present" or equivalent phrasing in any language), set release_year_from to the decade's start year and leave release_year_to null. Do not close release_year_to to the decade's own end year in this case -- that would silently drop everything requested between the decade and today.
+- When a decade is combined with wording meaning up through the present (such as "to now", "to today", "until now", "to the present", or a genre or era label that means today's music, such as "modern jazz", "contemporary jazz" or "current pop" -- or equivalent phrasing in any language), set release_year_from to the decade's start year and leave release_year_to null. Do not close release_year_to to the decade's own end year in this case -- that would silently drop everything requested between the decade and today.
 - Multiple allowed artists are alternatives: every track must be by one of them.
 - quota_artists identifies the artists counted by proportional or numeric playlist rules.
 - "more than half" is a strict majority, not merely half.

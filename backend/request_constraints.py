@@ -7,15 +7,35 @@ from datetime import UTC, datetime
 
 from backend.artist_quota_detection import ArtistMinimumQuota
 
+_GENRE_ERA_ADJECTIVES_IT = (
+    r"moderno|moderna|moderni|moderne|"
+    r"contemporaneo|contemporanea|contemporanei|contemporanee|"
+    r"attuale|attuali"
+)
 _OPEN_ENDED_DECADE_PATTERNS = (
     re.compile(
         r"\b(?:dagli|dai|a\s+partire\s+dagli)\s+anni\s+['’]?(?P<decade>\d{2}|19\d0|20\d0)\s+"
         r"(?:ad|a|fino\s+ad?|fino\s+a)\s+(?:oggi|ora|adesso)\b",
         re.IGNORECASE,
     ),
+    # A decade followed by a genre/era label meaning today's music (e.g. "fino al
+    # jazz moderno") is temporally open-ended, just like "ad oggi" -- the genre word
+    # sits between the article and the adjective in Italian ("al <genere> moderno").
+    re.compile(
+        r"\b(?:dagli|dai|a\s+partire\s+dagli)\s+anni\s+['’]?(?P<decade>\d{2}|19\d0|20\d0)\s+"
+        rf"fino\s+(?:al|alla|ai|alle)\s+\w+\s+(?:{_GENRE_ERA_ADJECTIVES_IT})\b",
+        re.IGNORECASE,
+    ),
     re.compile(
         r"\bfrom\s+the\s+['’]?(?P<decade>\d{2}|19\d0|20\d0)s\s+"
         r"(?:to|until|through)\s+(?:today|now|the\s+present)\b",
+        re.IGNORECASE,
+    ),
+    # A decade followed by a genre/era label meaning today's music (e.g. "through
+    # modern jazz", "to current pop") is temporally open-ended, just like "to now".
+    re.compile(
+        r"\bfrom\s+the\s+['’]?(?P<decade>\d{2}|19\d0|20\d0)s\s+"
+        r"(?:to|until|through)\s+(?:modern|contemporary|current)(?:\s+\w+)?\b",
         re.IGNORECASE,
     ),
 )
@@ -26,8 +46,18 @@ _OPEN_ENDED_YEAR_PATTERNS = (
         re.IGNORECASE,
     ),
     re.compile(
+        r"\b(?:dal|dall['’]?|a\s+partire\s+dal)\s+(?P<year>19\d{2}|20\d{2})\s+"
+        rf"fino\s+(?:al|alla|ai|alle)\s+\w+\s+(?:{_GENRE_ERA_ADJECTIVES_IT})\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
         r"\bfrom\s+(?P<year>19\d{2}|20\d{2})\s+"
         r"(?:to|until|through)\s+(?:today|now|the\s+present)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bfrom\s+(?P<year>19\d{2}|20\d{2})\s+"
+        r"(?:to|until|through)\s+(?:modern|contemporary|current)(?:\s+\w+)?\b",
         re.IGNORECASE,
     ),
     re.compile(

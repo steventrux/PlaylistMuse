@@ -48,6 +48,31 @@ def test_now_and_the_present_are_recognized_alongside_today():
     ) == (1960, 2026)
 
 
+def test_genre_era_ending_is_treated_as_open_ended():
+    """A decade/year followed by a genre-era label meaning today's music (e.g.
+    "modern jazz") must be treated as open-ended, just like literal "to now" wording.
+
+    Real bug: "drawing mainly from the 1970s through modern jazz" was silently
+    collapsed to a closed 1970-1979 range in the deterministic fallback that
+    overrides the LLM's own (correct) open-ended interpretation, dropping every
+    modern-jazz track the user actually asked for.
+    """
+    assert open_ended_year_range(
+        "Curate a soul jazz and big band playlist drawing mainly from the 1970s "
+        "through modern jazz, for an evening walk.",
+        current_year=2026,
+    ) == (1970, 2026)
+    assert open_ended_year_range(
+        "rock from the 1960s through contemporary rock", current_year=2026
+    ) == (1960, 2026)
+    assert open_ended_year_range(
+        "pop from 1975 to current pop", current_year=2026
+    ) == (1975, 2026)
+    assert open_ended_year_range(
+        "dagli anni 70 fino al jazz moderno", current_year=2026
+    ) == (1970, 2026)
+
+
 def test_exact_year_to_present_is_multilingual():
     prompts = (
         "musica italiana dal 2000 ad oggi",
