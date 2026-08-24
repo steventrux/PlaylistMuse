@@ -189,3 +189,14 @@ def test_guidance_does_not_merge_artist_minimums():
     assert "at least 4 tracks by Rolling Stones" in guidance
     assert "at least 3 tracks by AC/DC" in guidance
     assert "independent mandatory minimums" in guidance
+
+
+def test_guidance_tells_the_model_not_to_over_fill_quota_artists():
+    """A real generation once returned a playlist made up entirely of the two quota
+    artists (13 + 7 = 20 tracks) instead of just meeting their minimums -- the guidance
+    said "at least N", never "and nothing more than necessary beyond that".
+    """
+    guidance = quota_guidance([ArtistMinimumQuota("Queen", 3)])
+
+    assert "floors, not targets" in guidance
+    assert "fill the rest of the playlist with other compliant artists" in guidance
