@@ -45,6 +45,30 @@ def test_extracts_consecutive_english_artist_minimums():
     ]
 
 
+def test_second_quota_with_elided_track_word_is_still_independent():
+    """Regression: a real generation's second clause dropped "songs" ("...and 2 by the
+    zz top" instead of "...and 2 songs by the zz top"), so the whole tail was swallowed
+    into the first artist's name -- "the rolling stones and 2 by the zz top" -- instead
+    of producing two separate quotas. The system then searched for tracks by a nonexistent
+    artist with that literal name and failed to fill the playlist.
+    """
+    prompt = "6 songs by the rolling stones and 2 by the zz top"
+
+    assert extract_artist_minimum_quotas(prompt) == [
+        ArtistMinimumQuota("the rolling stones", 6),
+        ArtistMinimumQuota("the zz top", 2),
+    ]
+
+
+def test_second_quota_with_elided_track_word_is_independent_in_italian():
+    prompt = "almeno 6 canzoni dei rolling stones e 2 degli zz top"
+
+    assert extract_artist_minimum_quotas(prompt) == [
+        ArtistMinimumQuota("rolling stones", 6),
+        ArtistMinimumQuota("zz top", 2),
+    ]
+
+
 def test_artist_spelling_variants_are_deduplicated():
     prompt = (
         "almeno 3 canzoni devono essere degli AC/DC e "
