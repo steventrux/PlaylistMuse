@@ -204,3 +204,9 @@ def test_read_cache_records_hit_and_miss_metrics(tmp_path, monkeypatch):
     assert constraint_interpreter._read_cache(_config(), "Cached prompt") is not None
     after_hit = cache_metrics.snapshot()["Constraint interpretation"]
     assert after_hit["hits"] == before["hits"] + 1
+
+
+def test_system_prompt_schema_includes_energy_order():
+    assert '"energy_order"' in constraint_interpreter.SYSTEM_PROMPT
+    assert '"field_confidence"' in constraint_interpreter.SYSTEM_PROMPT
+    assert constraint_interpreter.INTERPRETER_SCHEMA_VERSION == 9
