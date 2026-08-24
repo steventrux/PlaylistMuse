@@ -400,10 +400,12 @@ def _performance_cost(prompt: str, track_count: int) -> tuple[int, list[str]]:
 
     if energy_order_from_payload(None, prompt) is not None:
         points += _energy_order_points(track_count)
+        low_seconds = max(1, round(track_count * 1.2))
+        high_seconds = max(low_seconds + 1, round(track_count * 2.0))
         reasons.append(
             "Sonic-energy ordering: every track needs an external audio-feature lookup, "
-            "serialized behind a strict rate limit, adding roughly 30-45 seconds for a "
-            "typical playlist."
+            "serialized behind a strict rate limit, adding roughly "
+            f"{low_seconds}-{high_seconds} seconds for {track_count} tracks."
         )
 
     return points, reasons
