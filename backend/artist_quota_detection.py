@@ -27,13 +27,16 @@ _SHORT_TRACK_WORDS = (
 _NEXT_QUOTA_RE = (
     r"(?=\s+(?:e|ed|and|plus)\s+"
     r"(?:(?:almeno|minimo|min\.|at\s+least|minimum(?:\s+of)?)\s+)?"
-    r"\d{1,3}\s+(?:canzoni|brani|tracce|pezzi|songs|tracks)\b|$)"
+    r"\d{1,3}\s+"
+    r"(?:(?:canzoni|brani|tracce|pezzi|songs|tracks)\b|"
+    r"(?:by|from|di|dei|degli|delle|da|dagli|dalle)\b)"
+    r"|$)"
 )
 
 _IT_MINIMUM_RE = re.compile(
     r"(?:\b(?:almeno|minimo|min\.)\s+)?"
     r"(?P<count>\d{1,3})\s+"
-    rf"{_IT_TRACK_WORDS}\s*"
+    rf"(?:{_IT_TRACK_WORDS}\s*)?"
     r"(?:devono?\s+essere\s+|(?:devono?\s+)?provenire\s+da\s+)?"
     r"(?:di|dei|degli|delle|da|dagli|dalle)\s+"
     rf"(?P<artist>[^,;.!\n]+?){_NEXT_QUOTA_RE}",
@@ -43,7 +46,7 @@ _IT_MINIMUM_RE = re.compile(
 _EN_MINIMUM_RE = re.compile(
     r"(?:\b(?:at\s+least|minimum(?:\s+of)?)\s+)?"
     r"(?P<count>\d{1,3})\s+"
-    rf"{_EN_TRACK_WORDS}\s+(?:must\s+be\s+)?(?:by|from)\s+"
+    rf"(?:{_EN_TRACK_WORDS}\s+)?(?:must\s+be\s+)?(?:by|from)\s+"
     rf"(?P<artist>[^,;.!\n]+?){_NEXT_QUOTA_RE}",
     re.IGNORECASE,
 )
