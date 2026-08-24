@@ -16,9 +16,9 @@ DEFAULT_EXCLUSIONS = {
 }
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def isolate_youtube_resolution(monkeypatch):
-    monkeypatch.setattr(youtube_module, "_read_youtube_cache", lambda *args, **kwargs: (False, None))
+    monkeypatch.setattr(youtube_module, "_read_youtube_cache_entry", lambda *args, **kwargs: (False, None, None))
     monkeypatch.setattr(youtube_module, "_write_youtube_cache", lambda *args, **kwargs: None)
 
 
@@ -39,7 +39,7 @@ def _result(
     }
 
 
-def test_resolver_rejects_live_album_metadata_and_uses_studio_version(monkeypatch) -> None:
+def test_resolver_rejects_live_album_metadata_and_uses_studio_version(monkeypatch, isolate_youtube_resolution) -> None:
     class FakeClient:
         def search(self, query, filter, limit):
             assert limit == 12
@@ -75,7 +75,7 @@ def test_resolver_rejects_live_album_metadata_and_uses_studio_version(monkeypatc
     assert track["album"] == "Rumours"
 
 
-def test_resolver_rejects_tribute_cover_even_when_title_matches(monkeypatch) -> None:
+def test_resolver_rejects_tribute_cover_even_when_title_matches(monkeypatch, isolate_youtube_resolution) -> None:
     class FakeClient:
         def search(self, query, filter, limit):
             return [
@@ -112,6 +112,7 @@ def test_resolver_rejects_tribute_cover_even_when_title_matches(monkeypatch) -> 
 
 def test_resolver_rejects_tribute_artist_named_after_the_style_it_imitates(
     monkeypatch,
+    isolate_youtube_resolution,
 ) -> None:
     """Regression test: a tribute act's channel name can literally contain the real
     artist's name (e.g. "Done Again (In The Style of Bryan Adams)"), which used to score
@@ -152,7 +153,7 @@ def test_resolver_rejects_tribute_artist_named_after_the_style_it_imitates(
     assert track["artists"] == "Bryan Adams"
 
 
-def test_resolver_rejects_same_title_from_wrong_artist(monkeypatch) -> None:
+def test_resolver_rejects_same_title_from_wrong_artist(monkeypatch, isolate_youtube_resolution) -> None:
     class FakeClient:
         def search(self, query, filter, limit):
             return [
@@ -179,7 +180,7 @@ def test_resolver_rejects_same_title_from_wrong_artist(monkeypatch) -> None:
     assert track is None
 
 
-def test_resolver_accepts_legitimate_artist_variant(monkeypatch) -> None:
+def test_resolver_accepts_legitimate_artist_variant(monkeypatch, isolate_youtube_resolution) -> None:
     class FakeClient:
         def search(self, query, filter, limit):
             return [
@@ -207,7 +208,7 @@ def test_resolver_accepts_legitimate_artist_variant(monkeypatch) -> None:
     assert track["video_id"] == "steppenwolf-version"
 
 
-def test_live_version_is_allowed_when_filter_is_disabled(monkeypatch) -> None:
+def test_live_version_is_allowed_when_filter_is_disabled(monkeypatch, isolate_youtube_resolution) -> None:
     class FakeClient:
         def search(self, query, filter, limit):
             return [

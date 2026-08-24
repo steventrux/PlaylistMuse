@@ -45,6 +45,82 @@ def test_extracts_consecutive_english_artist_minimums():
     ]
 
 
+def test_second_quota_with_elided_track_word_is_still_independent():
+    """Regression: a real generation's second clause dropped "songs" ("...and 2 by the
+    zz top" instead of "...and 2 songs by the zz top"), so the whole tail was swallowed
+    into the first artist's name -- "the rolling stones and 2 by the zz top" -- instead
+    of producing two separate quotas. The system then searched for tracks by a nonexistent
+    artist with that literal name and failed to fill the playlist.
+    """
+    prompt = "6 songs by the rolling stones and 2 by the zz top"
+
+    assert extract_artist_minimum_quotas(prompt) == [
+        ArtistMinimumQuota("the rolling stones", 6),
+        ArtistMinimumQuota("the zz top", 2),
+    ]
+
+
+def test_second_quota_with_elided_track_word_is_independent_in_italian():
+    prompt = "almeno 6 canzoni dei rolling stones e 2 degli zz top"
+
+    assert extract_artist_minimum_quotas(prompt) == [
+        ArtistMinimumQuota("rolling stones", 6),
+        ArtistMinimumQuota("zz top", 2),
+    ]
+
+
+def test_extracts_consecutive_french_artist_minimums():
+    assert extract_artist_minimum_quotas(
+        "au moins 4 titres de Queen et 3 titres de David Bowie"
+    ) == [
+        ArtistMinimumQuota("Queen", 4),
+        ArtistMinimumQuota("David Bowie", 3),
+    ]
+
+    # Elided second track-word noun, same as the English/Italian regression above.
+    assert extract_artist_minimum_quotas(
+        "playlist avec au moins 6 chansons de Queen et 3 de David Bowie"
+    ) == [
+        ArtistMinimumQuota("Queen", 6),
+        ArtistMinimumQuota("David Bowie", 3),
+    ]
+
+
+def test_extracts_consecutive_spanish_artist_minimums():
+    assert extract_artist_minimum_quotas(
+        "al menos 4 temas de Queen y 3 temas de David Bowie"
+    ) == [
+        ArtistMinimumQuota("Queen", 4),
+        ArtistMinimumQuota("David Bowie", 3),
+    ]
+
+    assert extract_artist_minimum_quotas(
+        "playlist con al menos 6 canciones de Queen y 3 de David Bowie"
+    ) == [
+        ArtistMinimumQuota("Queen", 6),
+        ArtistMinimumQuota("David Bowie", 3),
+    ]
+
+
+def test_extracts_consecutive_german_artist_minimums():
+    assert extract_artist_minimum_quotas(
+        "mindestens 4 Titel von Queen und 3 Titel von David Bowie"
+    ) == [
+        ArtistMinimumQuota("Queen", 4),
+        ArtistMinimumQuota("David Bowie", 3),
+    ]
+
+    # "Liedern" is the dative plural of "Lieder" ("mit ... Liedern"), the grammatically
+    # natural form after "mit" -- the track-word pattern must accept the inflected form,
+    # not just the bare nominative "Lieder".
+    assert extract_artist_minimum_quotas(
+        "Playlist mit mindestens 6 Liedern von Queen und 3 von David Bowie"
+    ) == [
+        ArtistMinimumQuota("Queen", 6),
+        ArtistMinimumQuota("David Bowie", 3),
+    ]
+
+
 def test_artist_spelling_variants_are_deduplicated():
     prompt = (
         "almeno 3 canzoni devono essere degli AC/DC e "
@@ -113,3 +189,14 @@ def test_guidance_does_not_merge_artist_minimums():
     assert "at least 4 tracks by Rolling Stones" in guidance
     assert "at least 3 tracks by AC/DC" in guidance
     assert "independent mandatory minimums" in guidance
+
+
+def test_guidance_tells_the_model_not_to_over_fill_quota_artists():
+    """A real generation once returned a playlist made up entirely of the two quota
+    artists (13 + 7 = 20 tracks) instead of just meeting their minimums -- the guidance
+    said "at least N", never "and nothing more than necessary beyond that".
+    """
+    guidance = quota_guidance([ArtistMinimumQuota("Queen", 3)])
+
+    assert "floors, not targets" in guidance
+    assert "fill the rest of the playlist with other compliant artists" in guidance

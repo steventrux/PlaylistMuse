@@ -22,6 +22,17 @@ def _config() -> AppConfig:
     )
 
 
+def test_system_prompt_covers_open_ended_decade_to_present_wording():
+    """A decade combined with "to now/today/present" must not close release_year_to.
+
+    Regression: "from the 1960s to now" was being interpreted as a closed 1960-1969
+    range, silently dropping every later decade the user actually asked for.
+    """
+    assert "up through the present" in constraint_interpreter.SYSTEM_PROMPT
+    assert 'to now"' in constraint_interpreter.SYSTEM_PROMPT
+    assert "leave release_year_to null" in constraint_interpreter.SYSTEM_PROMPT
+
+
 def test_dated_system_prompt_appends_todays_date_without_mutating_base():
     base = "Base system prompt."
 
@@ -204,3 +215,9 @@ def test_read_cache_records_hit_and_miss_metrics(tmp_path, monkeypatch):
     assert constraint_interpreter._read_cache(_config(), "Cached prompt") is not None
     after_hit = cache_metrics.snapshot()["Constraint interpretation"]
     assert after_hit["hits"] == before["hits"] + 1
+
+
+def test_system_prompt_schema_includes_energy_order():
+    assert '"energy_order"' in constraint_interpreter.SYSTEM_PROMPT
+    assert '"field_confidence"' in constraint_interpreter.SYSTEM_PROMPT
+    assert constraint_interpreter.INTERPRETER_SCHEMA_VERSION == 9

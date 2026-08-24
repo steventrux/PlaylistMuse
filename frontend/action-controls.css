@@ -135,11 +135,31 @@
   }
 }
 
-.favorite-toggle-button .compact-action-icon svg {
+.favorite-toggle-button .compact-action-icon > svg {
   stroke: #ffffff;
 }
 
-.favorite-toggle-button.is-favorited .compact-action-icon svg {
+.favorite-toggle-button.is-favorited .compact-action-icon > svg {
   fill: #ffffff;
   stroke: #ffffff;
 }
+
+/* Split favorite icon: a single white heart whose fill is a hard-stop
+   gradient, so a combined track/artist toggle shows which side(s) are
+   favorited instead of a single all-or-nothing fill. One shape with a
+   gradient fill (rather than two clipped copies stacked on top of each
+   other) avoids an anti-aliasing seam at the split line, and the gradient's
+   default objectBoundingBox units keep the 50% stop aligned with the
+   heart's own midpoint instead of its square icon box. */
+.favorite-icon-split {
+  width: 18px;
+  height: 18px;
+}
+
+.favorite-icon-stop {
+  stop-opacity: 0;
+  transition: stop-opacity 120ms ease;
+}
+
+.favorite-icon-split.is-artist-favorited .favorite-icon-stop--left { stop-opacity: 1; }
+.favorite-icon-split.is-track-favorited .favorite-icon-stop--right { stop-opacity: 1; }

@@ -34,7 +34,7 @@ def test_playlist_page_centralizes_draft_editing_controls() -> None:
     assert 'id="refine-playlist"' in html
     assert '>Playlist Studio</button>' in html
     assert '/static/playlist-header.css?v=12' in html
-    assert '/static/playlist-editor.css?v=5' in html
+    assert '/static/playlist-editor.css?v=6' in html
     assert '/static/playlist-add-track.js?v=2' in html
     assert '/static/playlist-refine.js?v=7' in html
 
@@ -45,7 +45,7 @@ def test_playlist_autosave_status_tracks_persistent_library_writes() -> None:
     style = _text("playlist-header.css")
 
     status_script = '<script src="/static/playlist-save-status.js?v=2"></script>'
-    playlist_script = '<script src="/static/playlist.js?v=24"></script>'
+    playlist_script = '<script src="/static/playlist.js?v=26"></script>'
     assert status_script in html
     assert html.index(status_script) < html.index(playlist_script)
     assert "saving: 'Saving…'" in script
