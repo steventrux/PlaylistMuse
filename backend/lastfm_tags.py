@@ -16,7 +16,7 @@ from backend.lastfm import API_ROOT, _environment_timeout
 from backend.lastfm_settings import lastfm_api_key
 from backend.version import USER_AGENT
 
-LOGGER = logging.getLogger(__name__)
+LOGGER = logging.getLogger("playlistmuse.lastfm.tags")
 CACHE_TTL_SECONDS = 6 * 60 * 60
 MAX_CACHE_ENTRIES = 512
 MAX_TRACK_TAGS = 8

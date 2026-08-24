@@ -11,7 +11,7 @@ from typing import Any
 from backend.config import AppConfig, load_config
 from backend.llm import generate_playlist_draft
 
-LOGGER = logging.getLogger(__name__)
+LOGGER = logging.getLogger("playlistmuse.lastfm.enrichment")
 MAX_ENRICHED_TRACKS = 12
 
 PlaylistGenerator = Callable[[AppConfig, str, int], Awaitable[dict[str, Any]]]
