@@ -22,6 +22,17 @@ def _config() -> AppConfig:
     )
 
 
+def test_system_prompt_covers_open_ended_decade_to_present_wording():
+    """A decade combined with "to now/today/present" must not close release_year_to.
+
+    Regression: "from the 1960s to now" was being interpreted as a closed 1960-1969
+    range, silently dropping every later decade the user actually asked for.
+    """
+    assert "up through the present" in constraint_interpreter.SYSTEM_PROMPT
+    assert 'to now"' in constraint_interpreter.SYSTEM_PROMPT
+    assert "leave release_year_to null" in constraint_interpreter.SYSTEM_PROMPT
+
+
 def test_dated_system_prompt_appends_todays_date_without_mutating_base():
     base = "Base system prompt."
 
