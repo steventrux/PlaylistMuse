@@ -168,10 +168,30 @@ def _combine_periods(
 def effective_temporal_range(prompt: str) -> tuple[int, int] | None:
     """Return one exact interval only when all valid periods are contiguous."""
     from backend import prompt_validation as module
-    from backend.request_constraints import open_ended_year_range
+    from backend.request_constraints import (
+        _OPEN_ENDED_DECADE_PATTERNS,
+        _OPEN_ENDED_YEAR_PATTERNS,
+        open_ended_year_range,
+    )
 
     open_range = open_ended_year_range(prompt)
-    periods = _bounded_periods(module, prompt)
+    # A decade/year absorbed into an open-ended "...to now/today/present" phrase must not
+    # also count as its own independently bounded period -- otherwise the bounded period's
+    # own (tighter) closing year always wins the min() below, silently re-closing a range
+    # the user explicitly left open (e.g. "from the 1960s to now" collapsing to 1960-1969).
+    open_spans = [
+        match.span()
+        for pattern in (*_OPEN_ENDED_DECADE_PATTERNS, *_OPEN_ENDED_YEAR_PATTERNS)
+        for match in pattern.finditer(prompt)
+    ]
+    periods = [
+        period
+        for period in _bounded_periods(module, prompt)
+        if not any(
+            span_start <= period[0] and period[1] <= span_end
+            for span_start, span_end in open_spans
+        )
+    ]
     alternatives, _ = _combine_periods(prompt, periods)
     if not alternatives:
         return open_range
