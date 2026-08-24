@@ -21,6 +21,30 @@ from backend.metadata_validation import (
 ChronologicalOrder = Literal["oldest_first", "newest_first"]
 _MIN_ORDER_CONFIDENCE = 0.85
 
+EnergyOrder = Literal["increasing", "decreasing", "steady"]
+
+_INCREASING_ENERGY_PATTERNS = (
+    re.compile(r"\b(?:increasing|rising|building|growing)\b.{0,30}\benergy\b", re.I),
+    re.compile(r"\benergy\b.{0,30}\b(?:increasing|rising|building|growing)\b", re.I),
+    re.compile(r"\bascending\s+energy\b", re.I),
+    re.compile(r"\b(?:crescente|in\s+aumento|che\s+cresce|che\s+sale)\b.{0,30}\benergia\b", re.I),
+    re.compile(r"\benergia\b.{0,30}\b(?:crescente|in\s+aumento|che\s+cresce|che\s+sale)\b", re.I),
+)
+
+_DECREASING_ENERGY_PATTERNS = (
+    re.compile(r"\b(?:decreasing|descending|falling|dropping)\b.{0,30}\benergy\b", re.I),
+    re.compile(r"\benergy\b.{0,30}\b(?:decreasing|falling|dropping|winding\s+down)\b", re.I),
+    re.compile(r"\b(?:decrescente|in\s+diminuzione|calante|che\s+scende)\b.{0,30}\benergia\b", re.I),
+    re.compile(r"\benergia\b.{0,30}\b(?:decrescente|in\s+diminuzione|calante)\b", re.I),
+)
+
+_STEADY_ENERGY_PATTERNS = (
+    re.compile(r"\b(?:steady|consistent|even|constant)\b.{0,30}\benergy\b", re.I),
+    re.compile(r"\benergy\b.{0,30}\b(?:steady|consistent|even|constant)\b", re.I),
+    re.compile(r"\b(?:costante|stabile|uniforme)\b.{0,30}\benergia\b", re.I),
+    re.compile(r"\benergia\b.{0,30}\b(?:costante|stabile|uniforme)\b", re.I),
+)
+
 _OLDEST_FIRST_PATTERNS = (
     re.compile(r"\b(?:oldest|earliest|older)\b.{0,60}\b(?:newest|latest|newer|recent)\b", re.I),
     re.compile(r"\b(?:old|older)\s+(?:to|through)\s+(?:new|newer)\b", re.I),
@@ -119,6 +143,43 @@ def chronological_order_from_payload(
             if trusted:
                 return raw  # type: ignore[return-value]
     return _local_chronological_order(prompt)
+
+
+def _local_energy_order(prompt: str) -> EnergyOrder | None:
+    """Fallback for common explicit energy-progression wording when the LLM field is untrusted."""
+    normalized = " ".join(str(prompt).split())
+    if not normalized:
+        return None
+    if any(pattern.search(normalized) for pattern in _STEADY_ENERGY_PATTERNS):
+        return "steady"
+    if any(pattern.search(normalized) for pattern in _INCREASING_ENERGY_PATTERNS):
+        return "increasing"
+    if any(pattern.search(normalized) for pattern in _DECREASING_ENERGY_PATTERNS):
+        return "decreasing"
+    return None
+
+
+def energy_order_from_payload(
+    payload: dict[str, Any] | None,
+    prompt: str = "",
+) -> EnergyOrder | None:
+    """Read a trusted energy-progression directive with a conservative local fallback."""
+    if isinstance(payload, dict):
+        raw = str(payload.get("energy_order") or "").strip().casefold()
+        if raw in {"increasing", "decreasing", "steady"}:
+            confidence = payload.get("field_confidence")
+            try:
+                trusted = (
+                    isinstance(confidence, dict)
+                    and float(confidence.get("energy_order", 0.0)) >= _MIN_ORDER_CONFIDENCE
+                )
+            except (TypeError, ValueError):
+                trusted = False
+            if not trusted:
+                trusted = str(payload.get("confidence", "")).casefold() == "high"
+            if trusted:
+                return raw  # type: ignore[return-value]
+    return _local_energy_order(prompt)
 
 
 def _track_artist(track: dict[str, Any]) -> str:

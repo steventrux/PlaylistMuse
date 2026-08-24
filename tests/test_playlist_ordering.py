@@ -350,3 +350,34 @@ def test_strip_version_suffix_recognizes_classic_and_extended_editions() -> None
     # Already-covered terms must keep working after widening the pattern.
     assert ordering._strip_version_suffix("Song (Remastered)") == "Song"
     assert ordering._strip_version_suffix("Take on Me") == "Take on Me"
+
+
+def test_structured_energy_order_requires_trusted_confidence() -> None:
+    increasing = {
+        "energy_order": "increasing",
+        "field_confidence": {"energy_order": 0.95},
+    }
+    uncertain = {
+        "energy_order": "decreasing",
+        "field_confidence": {"energy_order": 0.30},
+        "confidence": "medium",
+    }
+
+    assert ordering.energy_order_from_payload(increasing) == "increasing"
+    assert ordering.energy_order_from_payload(uncertain) is None
+
+
+def test_local_fallback_recognizes_common_energy_requests() -> None:
+    assert (
+        ordering.energy_order_from_payload(None, "Rock playlist with increasing energy")
+        == "increasing"
+    )
+    assert (
+        ordering.energy_order_from_payload(None, "Playlist rock con energia decrescente")
+        == "decreasing"
+    )
+    assert (
+        ordering.energy_order_from_payload(None, "Keep the energy steady throughout")
+        == "steady"
+    )
+    assert ordering.energy_order_from_payload(None, "A relaxing jazz playlist") is None
