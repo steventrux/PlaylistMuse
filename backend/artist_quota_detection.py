@@ -13,27 +13,38 @@ _REQUEST_MARKERS = (
     "Create the final playlist for this request:\n",
 )
 _QUOTA_CLAUSE_SEPARATOR_RE = re.compile(
-    r"[,;]\s*(?=(?:(?:almeno|minimo|min\.|at\s+least|minimum(?:\s+of)?)\s+)?"
-    r"\d{1,3}\s+(?:canzoni|brani|tracce|pezzi|songs|tracks)\b)",
+    r"[,;]\s*(?=(?:(?:almeno|minimo|min\.|at\s+least|minimum(?:\s+of)?|"
+    r"au\s+moins|al\s+menos|m[ií]nimo|como\s+m[ií]nimo|mindestens)\s+)?"
+    r"\d{1,3}\s+(?:canzoni|brani|tracce|pezzi|songs|tracks|"
+    r"chansons?|titres?|morceaux|canciones|temas?|pistas?|"
+    r"lieder[n]?|titel|st[uü]cke)\b)",
     re.IGNORECASE,
 )
 
 _IT_TRACK_WORDS = r"(?:canzoni|brani|tracce|pezzi)"
 _EN_TRACK_WORDS = r"(?:songs|tracks)"
+_FR_TRACK_WORDS = r"(?:chansons?|titres?|morceaux)"
+_ES_TRACK_WORDS = r"(?:canciones|temas?|pistas?)"
+_DE_TRACK_WORDS = r"(?:lieder[n]?|titel|songs?|st[uü]cke)"
 _SHORT_TRACK_WORDS = (
     r"(?:songs?|tracks?|canzoni|brani|tracce|pezzi|canciones|temas?|"
-    r"chansons?|titres?|lieder|titel)"
+    r"chansons?|titres?|lieder[n]?|titel)"
 )
 _NEXT_QUOTA_RE = (
-    r"(?=\s+(?:e|ed|and|plus)\s+"
-    r"(?:(?:almeno|minimo|min\.|at\s+least|minimum(?:\s+of)?)\s+)?"
-    r"\d{1,3}\s+(?:canzoni|brani|tracce|pezzi|songs|tracks)\b|$)"
+    r"(?=\s+(?:e|ed|and|plus|et|y|und)\s+"
+    r"(?:(?:almeno|minimo|min\.|at\s+least|minimum(?:\s+of)?|"
+    r"au\s+moins|al\s+menos|m[ií]nimo|como\s+m[ií]nimo|mindestens)\s+)?"
+    r"\d{1,3}\s+"
+    r"(?:(?:canzoni|brani|tracce|pezzi|songs|tracks|chansons?|titres?|morceaux|"
+    r"canciones|temas?|pistas?|lieder[n]?|titel|st[uü]cke)\b|"
+    r"(?:by|from|di|dei|degli|delle|da|dagli|dalle|de|von)\b)"
+    r"|$)"
 )
 
 _IT_MINIMUM_RE = re.compile(
     r"(?:\b(?:almeno|minimo|min\.)\s+)?"
     r"(?P<count>\d{1,3})\s+"
-    rf"{_IT_TRACK_WORDS}\s*"
+    rf"(?:{_IT_TRACK_WORDS}\s*)?"
     r"(?:devono?\s+essere\s+|(?:devono?\s+)?provenire\s+da\s+)?"
     r"(?:di|dei|degli|delle|da|dagli|dalle)\s+"
     rf"(?P<artist>[^,;.!\n]+?){_NEXT_QUOTA_RE}",
@@ -43,7 +54,37 @@ _IT_MINIMUM_RE = re.compile(
 _EN_MINIMUM_RE = re.compile(
     r"(?:\b(?:at\s+least|minimum(?:\s+of)?)\s+)?"
     r"(?P<count>\d{1,3})\s+"
-    rf"{_EN_TRACK_WORDS}\s+(?:must\s+be\s+)?(?:by|from)\s+"
+    rf"(?:{_EN_TRACK_WORDS}\s+)?(?:must\s+be\s+)?(?:by|from)\s+"
+    rf"(?P<artist>[^,;.!\n]+?){_NEXT_QUOTA_RE}",
+    re.IGNORECASE,
+)
+
+_FR_MINIMUM_RE = re.compile(
+    r"(?:\b(?:au\s+moins|minimum(?:\s+de)?)\s+)?"
+    r"(?P<count>\d{1,3})\s+"
+    rf"(?:{_FR_TRACK_WORDS}\s+)?"
+    r"(?:doivent\s+(?:être|etre|provenir\s+de)\s+)?"
+    r"de\s+"
+    rf"(?P<artist>[^,;.!\n]+?){_NEXT_QUOTA_RE}",
+    re.IGNORECASE,
+)
+
+_ES_MINIMUM_RE = re.compile(
+    r"(?:\b(?:al\s+menos|m[ií]nimo(?:\s+de)?|como\s+m[ií]nimo)\s+)?"
+    r"(?P<count>\d{1,3})\s+"
+    rf"(?:{_ES_TRACK_WORDS}\s+)?"
+    r"(?:deben\s+(?:ser|provenir\s+de)\s+)?"
+    r"de\s+"
+    rf"(?P<artist>[^,;.!\n]+?){_NEXT_QUOTA_RE}",
+    re.IGNORECASE,
+)
+
+_DE_MINIMUM_RE = re.compile(
+    r"(?:\b(?:mindestens|minimum(?:\s+von)?)\s+)?"
+    r"(?P<count>\d{1,3})\s+"
+    rf"(?:{_DE_TRACK_WORDS}\s+)?"
+    r"(?:m[uü]ssen\s+von\s+)?"
+    r"von\s+"
     rf"(?P<artist>[^,;.!\n]+?){_NEXT_QUOTA_RE}",
     re.IGNORECASE,
 )
@@ -219,7 +260,13 @@ def extract_artist_minimum_quotas(prompt: str) -> list[ArtistMinimumQuota]:
     """Extract explicit numeric minimums, preserving one independent quota per artist."""
     request = _QUOTA_CLAUSE_SEPARATOR_RE.sub(" e ", user_request_text(prompt))
     positions: list[tuple[int, ArtistMinimumQuota]] = []
-    for pattern in (_IT_MINIMUM_RE, _EN_MINIMUM_RE):
+    for pattern in (
+        _IT_MINIMUM_RE,
+        _EN_MINIMUM_RE,
+        _FR_MINIMUM_RE,
+        _ES_MINIMUM_RE,
+        _DE_MINIMUM_RE,
+    ):
         for match in pattern.finditer(request):
             artist = _clean_artist(match.group("artist"))
             if not artist:
@@ -297,7 +344,10 @@ def quota_guidance(quotas: list[ArtistMinimumQuota]) -> str:
     return (
         "\n\nPER-ARTIST QUOTAS: the following are independent mandatory minimums, not "
         f"one combined quota: {requirements}. Satisfy every artist minimum separately. "
-        "Do not count a track toward a different artist's quota."
+        "Do not count a track toward a different artist's quota. These are floors, not "
+        "targets: once every minimum is met, fill the rest of the playlist with other "
+        "compliant artists. Do not let a quota artist's track count grow noticeably "
+        "beyond its stated minimum just because it is a safe, guaranteed-compliant choice."
     )
 
 
