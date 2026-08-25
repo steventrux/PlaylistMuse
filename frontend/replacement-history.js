@@ -89,7 +89,7 @@
   window.fetch = async (input, init = {}) => {
     const url = requestUrl(input);
     const isReplacement = /\/api\/playlists\/replace-track(?:\?|$)/.test(url);
-    const isNewPlaylist = /\/api\/playlists\/generate(?:-from-seed)?(?:\?|$)/.test(url);
+    const isNewPlaylist = /\/api\/playlists\/generate(?:-from-(?:seed|journey))?(?:\/stream)?(?:\?|$)/.test(url);
     let nextInit = init;
     let replacedTrack = null;
 
