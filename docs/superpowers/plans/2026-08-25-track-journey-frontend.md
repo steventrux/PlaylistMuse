@@ -1086,10 +1086,21 @@ git commit -m "feat: describe journey generations in the feedback report text"
 - Test: none automated (no existing test file covers `replacement-history.js`'s URL
   matching today).
 
-**Interfaces:** None new — this is a self-contained one-line regex change with no
-external callers to update.
+**Interfaces:** None new — this is a self-contained regex change with no external callers
+to update.
 
-- [ ] **Step 1: Extend the URL-matching regex**
+**Pre-flight finding (ruled on by the controller during SDD execution, not part of the
+original spec):** the existing regex requires `?` or end-of-string immediately after
+`generate` or `generate-from-seed`, but every real generation request in this app (prompt
+and seed alike, `frontend/app.js:489,498`) hits the `/stream`-suffixed endpoint
+(`/api/playlists/generate-from-seed/stream`, etc.), which this regex never matches —
+confirmed empirically. `isNewPlaylist` gates clearing the replacement-history
+`sessionStorage` key on a new generation (`replacement-history.js:110-111`), so today that
+clear silently never fires for any real request — a pre-existing, unrelated bug that just
+happens to live on the line this task already touches. Ruling: fix the `/stream` gap in
+the same edit rather than ship a journey addition to an already-inert pattern.
+
+- [ ] **Step 1: Extend the URL-matching regex (and fix the pre-existing `/stream` gap)**
 
 In `frontend/replacement-history.js:92`, change:
 
@@ -1100,7 +1111,20 @@ In `frontend/replacement-history.js:92`, change:
 to:
 
 ```js
-    const isNewPlaylist = /\/api\/playlists\/generate(?:-from-(?:seed|journey))?(?:\?|$)/.test(url);
+    const isNewPlaylist = /\/api\/playlists\/generate(?:-from-(?:seed|journey))?(?:\/stream)?(?:\?|$)/.test(url);
+```
+
+Verified against every real generation URL this app issues plus the negative cases, via
+`node -e`:
+```
+/api/playlists/generate                          -> true
+/api/playlists/generate/stream                    -> true
+/api/playlists/generate-from-seed                  -> true
+/api/playlists/generate-from-seed/stream           -> true
+/api/playlists/generate-from-journey                -> true
+/api/playlists/generate-from-journey/stream         -> true
+/api/playlists/replace-track                        -> false
+/api/playlists/generate-from-seed/streamX           -> false
 ```
 
 - [ ] **Step 2: Bump the cache-busting version**
@@ -1117,7 +1141,7 @@ Expected: no output (success).
 
 ```bash
 git add frontend/replacement-history.js frontend/index.html frontend/playlist.html
-git commit -m "feat: recognize generate-from-journey requests in diagnostic history"
+git commit -m "fix: recognize generate-from-journey requests and the /stream suffix in diagnostic history"
 ```
 
 ---
