@@ -15,7 +15,7 @@ from typing import Any, Literal
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 
 from backend.config import (
     FALLBACK_FIELDS,
@@ -496,16 +496,6 @@ class JourneyGenerateRequest(BaseModel):
     track_count: int = Field(default=25, ge=5, le=100)
     options: PlaylistOptions = Field(default_factory=PlaylistOptions)
 
-    @model_validator(mode="after")
-    def _different_anchors(self) -> JourneyGenerateRequest:
-        start_key = track_identity_key(self.start.title, self.start.artists)
-        end_key = track_identity_key(self.end.title, self.end.artists)
-        if start_key == end_key:
-            raise ValueError(
-                "Choose two different tracks for the start and end of the journey."
-            )
-        return self
-
 
 class PlaylistTrackContext(BaseModel):
     video_id: str | None = Field(default=None, max_length=64)
@@ -711,9 +701,10 @@ def _seed_evidence_guidance(candidates: list[dict[str, str]], *, seed_mode: str)
     )
     seed_instruction = f"\n{_seed_mode_instruction(seed_mode)}\n" if seed_mode else ""
     mode_clause = " and the selected seed mode" if seed_mode else ""
+    seed_attribution = " derived from the seed" if seed_mode else ""
     return (
         f"{seed_instruction}\n"
-        "Last.fm collaborative-listening evidence:\n"
+        f"Last.fm collaborative-listening evidence{seed_attribution}:\n"
         f"{evidence or '- None'}\n\n"
         f"Use this evidence only when it satisfies the original request{mode_clause}. "
         "You may also select tracks not listed above when they satisfy every "
@@ -1440,14 +1431,11 @@ async def analyze_prompt(request: PromptAnalysisRequest) -> dict:
         ) from error
 
 
-def _is_anchor_track(
-    track: dict, anchors: list[SeedTrack], anchor_keys: set[str]
-) -> dict | None:
-    video_ids = {anchor.video_id for anchor in anchors}
+def _is_anchor_track(track: dict, video_ids: set[str], anchor_keys: set[str]) -> bool:
     if track.get("video_id") in video_ids:
-        return track
+        return True
     key = track_identity_key(track.get("title", ""), track.get("artists", ""))
-    return track if key in anchor_keys else None
+    return key in anchor_keys
 
 
 async def _anchored_other_tracks(
@@ -1466,6 +1454,7 @@ async def _anchored_other_tracks(
     reproduces an anchor among its own suggestions, retried once with all anchors
     explicitly forbidden.
     """
+    video_ids = {anchor.video_id for anchor in anchors}
     anchor_keys = {track_identity_key(a.title, a.artists) for a in anchors}
     attempt_prompt = prompt
     reproduced_track: dict | None = None
@@ -1475,7 +1464,7 @@ async def _anchored_other_tracks(
             (
                 track
                 for track in result["tracks"]
-                if _is_anchor_track(track, anchors, anchor_keys) is not None
+                if _is_anchor_track(track, video_ids, anchor_keys)
             ),
             None,
         )
@@ -1483,9 +1472,14 @@ async def _anchored_other_tracks(
             return result, reproduced_track
         reproduced_track = reproduced_track or match
         forbidden = "; ".join(f"'{a.title}' by {a.artists}" for a in anchors)
+        placement = (
+            "it is already placed in the playlist"
+            if len(anchors) == 1
+            else "they are already placed in the playlist"
+        )
         attempt_prompt = (
-            f"{prompt}\n\nDo not include {forbidden} among your suggestions -- they are "
-            "already placed elsewhere in the playlist."
+            f"{prompt}\n\nDo not include {forbidden} among your suggestions -- "
+            f"{placement}."
         )
     names = " and ".join(f"'{a.title}' by {a.artists}" for a in anchors)
     raise ValueError(
@@ -1564,14 +1558,14 @@ def _journey_instruction(start: SeedTrack, end: SeedTrack, bridge_count: int) ->
         f"song '{start.title}' by {start.artists} to the ending song '{end.title}' by "
         f"{end.artists}. Select {bridge_count} songs that form a deliberate step-by-step "
         "bridge between them: each song must connect musically to its neighbors through "
-        "sound, instrumentation, energy, mood, scene, or artist affinity, gradually "
-        "moving the listener from the starting song's sound toward the ending song's "
-        "sound. Do not just pick songs similar to the start or end in isolation; the "
-        "sequence as a whole must read as one coherent path. In each song's reason, "
-        "explain concretely how it bridges from the previous step toward the next. Do "
-        f"not include '{start.title}' by {start.artists} or '{end.title}' by "
-        f"{end.artists} among your suggestions -- they are already placed as the first "
-        "and last track."
+        "sound, instrumentation, mood, scene, or artist affinity, so every song sounds "
+        "like a plausible next step from the ones beside it, linking the starting song's "
+        "character to the ending song's character. Do not just pick songs similar to the "
+        "start or end in isolation; the sequence as a whole must read as one coherent "
+        "path. In each song's reason, explain concretely how it connects to its "
+        f"neighbors. Do not include '{start.title}' by {start.artists} or '{end.title}' "
+        f"by {end.artists} among your suggestions -- they are already placed as the "
+        "first and last track."
     )
 
 
@@ -1579,24 +1573,45 @@ def _merge_journey_evidence(
     start_evidence: list[dict[str, str]],
     end_evidence: list[dict[str, str]],
 ) -> list[dict[str, str]]:
-    """Combine both anchors' Last.fm evidence into one deduplicated pool."""
+    """Interleave both anchors' Last.fm evidence into one deduplicated pool.
+
+    Round-robins one candidate from each side at a time (rather than concatenating) so
+    that the downstream truncation to MAX_LASTFM_CONTEXT_TRACKS in
+    `_seed_evidence_guidance` keeps roughly balanced representation from both anchors --
+    a plain concatenation would let the end anchor's evidence get crowded out almost
+    entirely once the two lists combined exceed the cap.
+    """
     seen: set[str] = set()
     merged: list[dict[str, str]] = []
-    for candidate in [*start_evidence, *end_evidence]:
-        key = _candidate_key(candidate)
-        if key and key not in seen:
-            seen.add(key)
-            merged.append(candidate)
+    for index in range(max(len(start_evidence), len(end_evidence))):
+        for candidates in (start_evidence, end_evidence):
+            if index >= len(candidates):
+                continue
+            candidate = candidates[index]
+            key = _candidate_key(candidate)
+            if key and key not in seen:
+                seen.add(key)
+                merged.append(candidate)
     return merged
 
 
 async def _generate_from_journey_playlist(request: JourneyGenerateRequest) -> dict:
     """Build a two-anchor journey playlist. Raises ValueError/Exception like _generate() itself."""
     start, end = request.start, request.end
+    if track_identity_key(start.title, start.artists) == track_identity_key(
+        end.title, end.artists
+    ):
+        raise ValueError(
+            "Choose two different tracks for the start and end of the journey."
+        )
     bridge_count = request.track_count - 2
     prompt = _journey_instruction(start, end, bridge_count)
 
-    limit = min(MAX_LASTFM_CONTEXT_TRACKS, max(20, request.track_count * 2))
+    # Halved from the single-anchor `_seed_lastfm_evidence_params` formula: fetching two
+    # anchors' worth at the full single-anchor limit would over-fetch (up to 100
+    # candidates for a 60-slot cap) before interleaving even gets a chance to balance
+    # them. Halving keeps the combined fetch within the eventual cap.
+    limit = MAX_LASTFM_CONTEXT_TRACKS // 2
     start_evidence, end_evidence = await asyncio.gather(
         similar_track_candidates(start.artists, start.title, limit=limit),
         similar_track_candidates(end.artists, end.title, limit=limit),

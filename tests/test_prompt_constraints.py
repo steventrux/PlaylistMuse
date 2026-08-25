@@ -45,6 +45,7 @@ def test_seed_evidence_guidance_folds_lastfm_signals_without_a_second_pass():
     assert "primary mandatory criterion" in guidance  # strict seed-mode instruction
     assert "Use this evidence only when it satisfies the original request" in guidance
     assert "first-pass ideas" not in guidance.lower()
+    assert "derived from the seed" in guidance
 
 
 def test_seed_evidence_guidance_without_seed_mode_omits_mode_clause():
@@ -62,6 +63,7 @@ def test_seed_evidence_guidance_without_seed_mode_omits_mode_clause():
     assert "Bridge Artist" in guidance
     assert "and the selected seed mode" not in guidance
     assert "Use this evidence only when it satisfies the original request." in guidance
+    assert "derived from the seed" not in guidance
 
 
 def test_replenishment_prompt_does_not_relax_constraints_to_fill_count():
