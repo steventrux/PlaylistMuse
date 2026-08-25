@@ -1558,6 +1558,91 @@ async def _generate_from_seed_playlist(request: SeedGenerateRequest) -> dict:
     return result
 
 
+def _journey_instruction(start: SeedTrack, end: SeedTrack, bridge_count: int) -> str:
+    return (
+        f"Build a playlist that creates a sensible musical journey from the starting "
+        f"song '{start.title}' by {start.artists} to the ending song '{end.title}' by "
+        f"{end.artists}. Select {bridge_count} songs that form a deliberate step-by-step "
+        "bridge between them: each song must connect musically to its neighbors through "
+        "sound, instrumentation, energy, mood, scene, or artist affinity, gradually "
+        "moving the listener from the starting song's sound toward the ending song's "
+        "sound. Do not just pick songs similar to the start or end in isolation; the "
+        "sequence as a whole must read as one coherent path. In each song's reason, "
+        "explain concretely how it bridges from the previous step toward the next. Do "
+        f"not include '{start.title}' by {start.artists} or '{end.title}' by "
+        f"{end.artists} among your suggestions -- they are already placed as the first "
+        "and last track."
+    )
+
+
+def _merge_journey_evidence(
+    start_evidence: list[dict[str, str]],
+    end_evidence: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """Combine both anchors' Last.fm evidence into one deduplicated pool."""
+    seen: set[str] = set()
+    merged: list[dict[str, str]] = []
+    for candidate in [*start_evidence, *end_evidence]:
+        key = _candidate_key(candidate)
+        if key and key not in seen:
+            seen.add(key)
+            merged.append(candidate)
+    return merged
+
+
+async def _generate_from_journey_playlist(request: JourneyGenerateRequest) -> dict:
+    """Build a two-anchor journey playlist. Raises ValueError/Exception like _generate() itself."""
+    start, end = request.start, request.end
+    bridge_count = request.track_count - 2
+    prompt = _journey_instruction(start, end, bridge_count)
+
+    limit = min(MAX_LASTFM_CONTEXT_TRACKS, max(20, request.track_count * 2))
+    start_evidence, end_evidence = await asyncio.gather(
+        similar_track_candidates(start.artists, start.title, limit=limit),
+        similar_track_candidates(end.artists, end.title, limit=limit),
+    )
+    lastfm_candidates = _merge_journey_evidence(start_evidence, end_evidence)
+    anchors = (
+        {"artist": start.artists, "title": start.title, "kind": "journey_start"},
+        {"artist": end.artists, "title": end.title, "kind": "journey_end"},
+    )
+    recommendation_token = _SEED_RECOMMENDATIONS.set(tuple(lastfm_candidates))
+    anchor_token = _SEED_ANCHORS.set(anchors)
+    mode_token = _SEED_MODE.set("")
+    try:
+        result, _reproduced = await _anchored_other_tracks(
+            prompt, bridge_count, request.options, [start, end]
+        )
+    finally:
+        _SEED_MODE.reset(mode_token)
+        _SEED_ANCHORS.reset(anchor_token)
+        _SEED_RECOMMENDATIONS.reset(recommendation_token)
+
+    # Both anchors are user-chosen reference tracks, not generated suggestions: they
+    # always appear first/last regardless of exclude_live/exclude_covers/exclude_remixes,
+    # deliberately never routed through resolve_candidates()'s exclusion filters -- same
+    # treatment as the single seed in _generate_from_seed_playlist.
+    start_payload = start.model_dump()
+    start_payload["description"] = "The starting song that opens this musical journey."
+    start_payload["reason"] = (
+        "It anchors the beginning of the path; every following track bridges toward "
+        "the ending song."
+    )
+    end_payload = end.model_dump()
+    end_payload["description"] = "The ending song that completes this musical journey."
+    end_payload["reason"] = (
+        "It anchors the end of the path; every previous track bridged toward this "
+        "destination."
+    )
+
+    result["tracks"] = [start_payload, *result["tracks"], end_payload]
+    result["resolved_count"] = len(result["tracks"])
+    result["journey"] = {"start": start_payload, "end": end_payload}
+    if isinstance(result.get("lastfm"), dict):
+        _refresh_lastfm_selection(result["lastfm"], result["tracks"])
+    return result
+
+
 @app.post("/api/playlists/generate-from-seed")
 async def generate_from_seed(request: SeedGenerateRequest) -> dict:
     try:
