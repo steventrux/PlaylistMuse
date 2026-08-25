@@ -382,3 +382,24 @@ def test_journey_instruction_does_not_read_as_an_energy_or_chronological_order_r
         instruction = main_module._journey_instruction(start, end, bridge_count=5)
         assert _local_energy_order(instruction) is None
         assert _local_chronological_order(instruction) is None
+
+
+def test_journey_instruction_demands_monotonic_convergence_toward_the_ending_song() -> None:
+    """Locks in the strengthened wording requested after a real generation produced a
+    playlist that jumped back and forth between eras/styles instead of steadily
+    approaching the ending song -- the instruction must explicitly require each song to
+    connect to the previous one AND to read as progressively closer to the destination,
+    not just "fit" its neighbors in isolation.
+    """
+    start = main_module.SeedTrack(
+        video_id="vid-s1", title="Blast Beat Symphony", artists="Extreme Outfit"
+    )
+    end = main_module.SeedTrack(
+        video_id="vid-e1", title="Quiet Piano Trio", artists="Jazz Ensemble"
+    )
+    instruction = main_module._journey_instruction(start, end, bridge_count=5)
+
+    assert "song immediately before it" in instruction
+    assert "closer to the ending song than the song right before it did" in instruction
+    assert "jumping back and forth between styles or eras" in instruction
+    assert "leans back toward the starting song's character" in instruction
