@@ -47,6 +47,23 @@ def test_seed_evidence_guidance_folds_lastfm_signals_without_a_second_pass():
     assert "first-pass ideas" not in guidance.lower()
 
 
+def test_seed_evidence_guidance_without_seed_mode_omits_mode_clause():
+    guidance = _seed_evidence_guidance(
+        [
+            {
+                "artist": "Bridge Artist",
+                "title": "Bridge Song",
+                "lastfm_strategy": "similar_track",
+            }
+        ],
+        seed_mode="",
+    )
+
+    assert "Bridge Artist" in guidance
+    assert "and the selected seed mode" not in guidance
+    assert "Use this evidence only when it satisfies the original request." in guidance
+
+
 def test_replenishment_prompt_does_not_relax_constraints_to_fill_count():
     refill = _replenishment_prompt(
         "Italian summer hits released in 2026 only",

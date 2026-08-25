@@ -677,14 +677,14 @@ def _artist_identity_keys(value: str) -> set[str]:
 
 
 def _seed_evidence_guidance(candidates: list[dict[str, str]], *, seed_mode: str) -> str:
-    """Fold Last.fm seed evidence directly into the single initial draft prompt.
+    """Fold Last.fm seed/anchor evidence directly into the single initial draft prompt.
 
-    Seed requests always have real Last.fm-derived candidates before any draft exists
-    (unlike prompt-based generation, whose lastfm_candidates is always empty -- see
+    Seed and journey requests always have real Last.fm-derived candidates before any draft
+    exists (unlike prompt-based generation, whose lastfm_candidates is always empty -- see
     discover_from_anchors's deliberate no-op in lastfm_discovery.py). Folding the evidence
     into the one llm_initial draft, instead of running a second llm_guided draft
     afterwards, removes an entire redundant LLM generation pass (with its own quota-repair
-    and creative-repair rounds) for every seed request.
+    and creative-repair rounds) for every such request.
     """
     evidence = "\n".join(
         f"- {candidate.get('artist', 'Unknown artist')} — "
@@ -693,12 +693,13 @@ def _seed_evidence_guidance(candidates: list[dict[str, str]], *, seed_mode: str)
         for candidate in candidates[:MAX_LASTFM_CONTEXT_TRACKS]
     )
     seed_instruction = f"\n{_seed_mode_instruction(seed_mode)}\n" if seed_mode else ""
+    mode_clause = " and the selected seed mode" if seed_mode else ""
     return (
         f"{seed_instruction}\n"
-        "Last.fm collaborative-listening evidence derived from the seed:\n"
+        "Last.fm collaborative-listening evidence:\n"
         f"{evidence or '- None'}\n\n"
-        "Use this evidence only when it satisfies the original request and the selected "
-        "seed mode. You may also select tracks not listed above when they satisfy every "
+        f"Use this evidence only when it satisfies the original request{mode_clause}. "
+        "You may also select tracks not listed above when they satisfy every "
         "mandatory constraint and have a clear musical justification. Do not mechanically "
         "copy the evidence list; use your own musical judgment. For every selected song, "
         "write a natural song description and a playlist-specific reason. Use canonical "
