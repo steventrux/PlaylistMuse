@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from backend.config import DATA_DIR, load_config
@@ -399,25 +399,46 @@ async def list_playlists(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def create_playlist(request: PlaylistWriteRequest) -> dict[str, Any]:
+async def create_playlist(
+    request: PlaylistWriteRequest, background_tasks: BackgroundTasks
+) -> dict[str, Any]:
     library = get_library()
     created = library.create(request.playlist, request.generation_request)
-    if "tags" in request.playlist:
-        return created
+    if "tags" not in request.playlist:
+        background_tasks.add_task(_apply_suggested_tags, created["id"])
+    return created
+
+
+async def _apply_suggested_tags(playlist_id: str) -> None:
+    """Runs after the create response is sent, so a slow/rate-limited AI provider
+    never blocks the save. A prior synchronous version made saves take 40-50s
+    under provider fallback pressure, which read as a hung save and led to the
+    page being reloaded repeatedly -- each reload created a fresh duplicate
+    playlist since the client never received a library_id to dedupe against.
+    """
+    library = get_library()
+    try:
+        record = library.get(playlist_id)
+    except PlaylistNotFoundError:
+        return
 
     try:
-        tags = await suggest_playlist_tags(load_config(), created["playlist"])
+        tags = await suggest_playlist_tags(load_config(), record["playlist"])
     except Exception as error:
         LOGGER.warning(
             "Automatic playlist tagging skipped id=%s error=%s",
-            created["id"],
+            playlist_id,
             type(error).__name__,
         )
-        return created
+        return
 
-    playlist = deepcopy(created["playlist"])
+    try:
+        latest = library.get(playlist_id)
+    except PlaylistNotFoundError:
+        return
+    playlist = deepcopy(latest["playlist"])
     playlist["tags"] = tags
-    return library.update(created["id"], playlist, created["generation_request"])
+    library.update(playlist_id, playlist, latest["generation_request"])
 
 
 @router.get("/{playlist_id}")
