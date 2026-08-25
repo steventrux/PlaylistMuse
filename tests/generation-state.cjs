@@ -53,6 +53,10 @@ test('journey generation is ready only after both tracks are selected', () => {
     false,
   );
   assert.equal(
+    generationState.isGenerationReady('journey', 'ignored', null, {end: {video_id: 'e'}}),
+    false,
+  );
+  assert.equal(
     generationState.isGenerationReady(
       'journey',
       'ignored',
