@@ -1472,21 +1472,27 @@ async def _anchored_other_tracks(
     reproduces an anchor among its own suggestions, retried once with all anchors
     explicitly forbidden.
 
-    For `allow_shortfall=True` callers, a reproduction that survives both attempts is not
-    treated as a hard failure: the AI's own list is filtered to drop the anchor
-    duplicate(s) and the (now possibly shorter) result is returned as-is. This mirrors real
-    observed behavior -- some models restate the start/end song among their own
-    suggestions despite the explicit exclusion instruction, even after being told again on
-    retry -- and forcing a third full regeneration attempt would not reliably fix a model
-    that already ignored the instruction twice, whereas dropping the (already-redundant,
-    already-placed) duplicate is always safe and journey already tolerates a shorter
-    result.
+    For `allow_shortfall=True` callers, a reproduction is not treated as a hard failure
+    and does not spend a second full generation round-trip either: the AI's own list is
+    filtered to drop the anchor duplicate(s) after the first attempt and the (now possibly
+    shorter) result is returned immediately. This mirrors real observed behavior -- some
+    models restate the start/end song among their own suggestions despite the explicit
+    exclusion instruction, and a measured real-world case had the model do this on BOTH
+    the initial attempt and the reinforced retry, so the retry does not reliably fix it --
+    while each attempt is itself a slow (observed 150-275s), non-deterministic LLM call.
+    Spending a second one on a retry that a real case already showed doesn't reliably help
+    roughly doubled total latency for no reliable benefit, so shortfall-tolerant callers
+    get one attempt only. Dropping the (already-redundant, already-placed) duplicate is
+    always safe and journey already tolerates a shorter result. Non-shortfall callers
+    (single-seed) keep the original two-attempt retry, since an exact count still matters
+    there and a second attempt has a real chance of avoiding the duplicate entirely.
     """
     video_ids = {anchor.video_id for anchor in anchors}
     anchor_keys = {track_identity_key(a.title, a.artists) for a in anchors}
+    attempts = 1 if allow_shortfall else 2
     attempt_prompt = prompt
     reproduced_track: dict | None = None
-    for _ in range(2):
+    for attempt_index in range(attempts):
         result = await _generate(
             attempt_prompt, other_count, options, allow_shortfall=allow_shortfall
         )
@@ -1501,6 +1507,8 @@ async def _anchored_other_tracks(
         if match is None:
             return result, reproduced_track
         reproduced_track = reproduced_track or match
+        if attempt_index + 1 >= attempts:
+            break
         forbidden = "; ".join(f"'{a.title}' by {a.artists}" for a in anchors)
         placement = (
             "it is already placed in the playlist"

@@ -204,52 +204,16 @@ def _journey_track_payload(video_id: str, title: str, artists: str) -> dict:
     }
 
 
-def test_journey_generation_retries_when_either_anchor_is_reproduced(monkeypatch) -> None:
-    calls: list[str] = []
-
-    async def fake_generate(prompt, count, options, *, allow_shortfall=False):
-        calls.append(prompt)
-        assert count == 3
-        if len(calls) == 1:
-            tracks = [
-                _journey_track_payload("alt-end", "End Song", "End Artist"),
-                _journey_track_payload("t2", "Bridge Two", "Bridge Artist"),
-                _journey_track_payload("t3", "Bridge Three", "Bridge Artist"),
-            ]
-        else:
-            assert "Do not include" in prompt
-            tracks = [
-                _journey_track_payload("t2", "Bridge Two", "Bridge Artist"),
-                _journey_track_payload("t3", "Bridge Three", "Bridge Artist"),
-                _journey_track_payload("t4", "Bridge Four", "Bridge Artist"),
-            ]
-        return {"title": "Journey", "description": "A path.", "tracks": tracks}
-
-    monkeypatch.setattr(main_module, "JOURNEY_MAX_TRACKS", 5)
-    monkeypatch.setattr(main_module, "_generate", fake_generate)
-    client = TestClient(main_module.app)
-    response = client.post("/api/playlists/generate-from-journey", json=_journey_request())
-
-    assert response.status_code == 200
-    tracks = response.json()["tracks"]
-    identities = [track_identity_key(t["title"], t["artists"]) for t in tracks]
-
-    assert len(calls) == 2
-    assert tracks[0]["video_id"] == "start-vid"
-    assert tracks[-1]["video_id"] == "end-vid"
-    assert identities.count(track_identity_key("End Song", "End Artist")) == 1
-    assert len(identities) == len(set(identities))
-    assert len(tracks) == 5
-
-
-def test_journey_generation_drops_anchor_duplicate_when_it_keeps_being_reproduced(
+def test_journey_generation_drops_anchor_duplicate_without_a_second_attempt(
     monkeypatch,
 ) -> None:
     # Observed in production: some models restate the start/end song among their own
-    # suggestions despite the explicit exclusion instruction, even after the retry
-    # re-states it. Journey tolerates a shorter result (allow_shortfall=True), so this
-    # must degrade gracefully -- drop the duplicate and keep going -- rather than fail
-    # the whole generation after a model quirk that a third attempt is unlikely to fix.
+    # suggestions despite the explicit exclusion instruction. A real case showed this
+    # happening on both an initial attempt and a reinforced retry, and each attempt is
+    # itself a slow (observed 150-275s), non-deterministic LLM call -- so a second
+    # round-trip roughly doubles latency without reliably fixing the duplicate. Since
+    # journey tolerates a shorter result (allow_shortfall=True), it must degrade
+    # gracefully in one attempt: drop the duplicate and keep going, never retry.
     calls: list[str] = []
 
     async def fake_generate(prompt, count, options, *, allow_shortfall=False):
@@ -270,7 +234,7 @@ def test_journey_generation_drops_anchor_duplicate_when_it_keeps_being_reproduce
     tracks = payload["tracks"]
     identities = [track_identity_key(t["title"], t["artists"]) for t in tracks]
 
-    assert len(calls) == 2
+    assert len(calls) == 1
     assert tracks[0]["video_id"] == "start-vid"
     assert tracks[-1]["video_id"] == "end-vid"
     # The duplicate ("alt-start", same identity as the start anchor) is dropped; only
