@@ -71,7 +71,7 @@ def test_results_page_reuses_shared_navigation_controls_and_card_palette() -> No
     header_style = _text("playlist-header.css")
 
     assert '/static/style.css?v=10' in html
-    assert '/static/controls.css?v=8' in html
+    assert '/static/controls.css?v=9' in html
     assert '/static/header-navigation.css?v=21' in html
     assert '/static/playlist-cards.css?v=4' in html
     assert '/static/playlist-header.css?v=12' in html
@@ -202,7 +202,7 @@ def test_selected_seed_matches_compact_card_layout_and_restrained_palette() -> N
     html = _text("index.html")
     style = _text("controls.css")
 
-    assert "/static/controls.css?v=8" in html
+    assert "/static/controls.css?v=9" in html
     assert ".selected-seed {" in style
     assert "grid-template-columns: 54px minmax(0, 1fr) auto;" in style
     assert "background: rgba(21, 26, 51, .86);" in style

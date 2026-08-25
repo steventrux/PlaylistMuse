@@ -11,7 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css?v=10">
   <link rel="stylesheet" href="/static/layout.css?v=7">
-  <link rel="stylesheet" href="/static/controls.css?v=8">
+  <link rel="stylesheet" href="/static/controls.css?v=9">
   <link rel="stylesheet" href="/static/prompt-complexity.css?v=4">
   <link rel="stylesheet" href="/static/prompt-surprise.css?v=3">
   <link rel="stylesheet" href="/static/generation.css?v=5">
@@ -35,6 +35,7 @@
       <div class="mode-tabs" role="tablist" aria-label="Playlist creation mode">
         <button class="mode active" data-mode="prompt" type="button">From Prompt</button>
         <button class="mode" data-mode="seed" type="button">From Seed</button>
+        <button class="mode" data-mode="journey" type="button">From Journey</button>
       </div>
 
       <div id="prompt-panel">
@@ -129,9 +130,32 @@
         <div id="selected-seed" class="selected-seed hidden" aria-live="polite"></div>
       </div>
 
+      <div id="journey-panel" class="hidden">
+        <div class="journey-slot">
+          <label for="journey-start-query">Starting track</label>
+          <div class="inline">
+            <input id="journey-start-query" placeholder="Artist, album or song title" autocomplete="off">
+            <button id="journey-start-search" class="secondary" type="button" disabled aria-disabled="true">Search</button>
+          </div>
+          <p id="journey-start-guidance" class="hint hidden" aria-live="polite"></p>
+          <div id="journey-start-results" class="seed-results hidden" aria-live="polite"></div>
+          <div id="journey-start-selected" class="selected-seed hidden" aria-live="polite"></div>
+        </div>
+        <div class="journey-slot">
+          <label for="journey-end-query">Ending track</label>
+          <div class="inline">
+            <input id="journey-end-query" placeholder="Artist, album or song title" autocomplete="off">
+            <button id="journey-end-search" class="secondary" type="button" disabled aria-disabled="true">Search</button>
+          </div>
+          <p id="journey-end-guidance" class="hint hidden" aria-live="polite"></p>
+          <div id="journey-end-results" class="seed-results hidden" aria-live="polite"></div>
+          <div id="journey-end-selected" class="selected-seed hidden" aria-live="polite"></div>
+        </div>
+      </div>
+
       <div id="generation-controls" class="hidden">
         <div class="grid filters compact-filters">
-          <label>Tracks
+          <label id="track-count-field">Tracks
             <input id="track-count" type="number" min="5" max="100" value="25">
           </label>
         </div>
@@ -307,16 +331,16 @@
     </form>
   </dialog>
 
-  <script src="/static/replacement-history.js?v=3"></script>
+  <script src="/static/replacement-history.js?v=4"></script>
   <script src="/static/common.js?v=18"></script>
   <script src="/static/ai-settings.js?v=13"></script>
   <script src="/static/youtube-account.js?v=5"></script>
   <script src="/static/lastfm-settings.js?v=2"></script>
   <script src="/static/home-status.js?v=34"></script>
-  <script src="/static/generation-state.js?v=3"></script>
+  <script src="/static/generation-state.js?v=4"></script>
   <script src="/static/prompt-surprise.js?v=3"></script>
   <script src="/static/prompt-complexity.js?v=10"></script>
-  <script src="/static/app.js?v=21"></script>
+  <script src="/static/app.js?v=22"></script>
   <script src="/static/lastfm-status.js?v=2"></script>
   <script src="/static/prompt-validation-guard.js?v=4"></script>
 </body>
