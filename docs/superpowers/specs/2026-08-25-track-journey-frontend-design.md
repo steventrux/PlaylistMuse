@@ -1,10 +1,36 @@
 # Track-to-track journey generation — frontend design spec
 
-Status: approved by user, pending implementation plan.
+Status: approved by user, pending implementation plan. See the amendment below (made
+before implementation started) for a small dependent backend change.
 Scope: bounded-to-architectural (extends an existing, well-understood UI pattern — the
-single-seed picker — across multiple files; no new backend work, the API contract already
-exists and is merged on `dev`: `POST /api/playlists/generate-from-journey` and its
-`/stream` variant, per `docs/superpowers/specs/2026-08-25-track-journey-design.md`).
+single-seed picker — across multiple files; the API contract already exists and is merged
+on `dev`: `POST /api/playlists/generate-from-journey` and its `/stream` variant, per
+`docs/superpowers/specs/2026-08-25-track-journey-design.md` — though see the amendment
+below for one small dependent change to that contract).
+
+## Amendment (made before implementation started): no length field, short-bridge confirmation
+
+Per the backend spec's matching amendment, `track_count` is no longer a field on the
+journey request at all — length is a hardcoded backend maximum (`JOURNEY_MAX_TRACKS = 20`)
+the AI can undershoot. Consequences for this frontend spec:
+
+- The shared "Tracks" number input (`#track-count`, part of `#generation-controls`) is
+  **hidden when `state.mode === 'journey'`** — there is nothing for the user to configure.
+  The exclude-live/covers/remixes checkboxes stay visible and functional (those still
+  apply to journey generation). `#generation-controls` itself has no per-field visibility
+  today (`updateGenerationControls()`, `app.js:102-110`, toggles the whole block based on
+  readiness only) — `setMode()`'s new journey branch (see Generation flow below) adds one
+  more line toggling just the track-count control's wrapping `<label>` alongside the panel
+  toggle, leaving the rest of `#generation-controls` untouched.
+- The journey request body (see Generation flow below) does not include `track_count`.
+- Because the AI may return a very short bridge (even zero intermediate tracks), after a
+  successful journey generation and before navigating to `playlist.html`, `generate()`
+  checks the result: if `data.tracks.length - 2 < 3` (fewer than 3 bridge tracks), show a
+  confirmation (a plain `window.confirm(...)` is sufficient for this version — no new UI
+  component) explaining a short bridge was found and asking whether to continue. If the
+  user cancels, stay on the generation screen with inputs re-enabled (same as the existing
+  error path) instead of navigating away, so they can pick different tracks or just
+  generate again.
 
 ## Motivation
 
@@ -27,7 +53,8 @@ pattern generalized to two independent slots.
   journeys.
 - **Streaming generation** (`/stream` endpoint, SSE progress messages), matching the
   existing Prompt and Seed experience — not a plain non-streaming call.
-- `track_count` is the total including both anchors (matches the backend contract).
+- ~~`track_count` is the total including both anchors (matches the backend contract).~~
+  Superseded by the amendment below: there is no `track_count` field for journeys at all.
 
 ## State model
 
@@ -142,13 +169,30 @@ unlinked asset).
   request = {
     start: state.journeyStart,
     end: state.journeyEnd,
-    track_count: trackCount(),
     options: options(),
   };
 }
 ```
 
-Everything after branch selection (loading-button state, `readGenerationStream`,
+After a successful result and before the existing `sessionStorage`/navigation step, journey
+mode inserts the short-bridge confirmation described in the amendment above:
+
+```js
+if (state.mode === 'journey' && data.tracks.length - 2 < 3) {
+  const proceed = window.confirm(
+    `PlaylistMuse only found a ${data.tracks.length - 2}-track bridge between these two `
+    + 'songs. Continue anyway?',
+  );
+  if (!proceed) {
+    setGenerationInputsLocked(false);
+    resetGeneratingButton();
+    message('');
+    return;
+  }
+}
+```
+
+Everything else after branch selection (loading-button state, `readGenerationStream`,
 `sessionStorage` handoff to `playlist.html`, error handling) is unchanged and shared.
 
 `setMode(mode, selectedButton)` (`app.js:537-547`) gets a third panel toggle:

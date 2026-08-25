@@ -1,8 +1,39 @@
 # Track-to-track journey generation — design spec
 
-Status: approved by user, pending implementation plan.
+Status: implemented and merged to `dev`; see the 2026-08-25 (later) amendment below for a
+follow-up change made after merge.
 Scope: architectural (new generation mode, new endpoint pair, new top-level UI tab,
 generalization of existing anchor-forcing/retry logic to two anchors instead of one).
+
+## Amendment (2026-08-25, after merge): track_count becomes a hardcoded maximum, not a user-chosen exact target
+
+While designing the frontend, the user decided `track_count` should not be a request field
+at all: journey length should be a **hardcoded maximum** the AI can undershoot when a
+shorter bridge is musically natural, not a user-chosen exact target the pipeline forces by
+padding.
+
+- `JourneyGenerateRequest` drops the `track_count` field entirely.
+- New constant `JOURNEY_MAX_TRACKS = 20` (total, anchors included) in `backend/main.py`,
+  used in place of `request.track_count`.
+- `_generate()` gains an `allow_shortfall: bool = False` parameter. The codebase already
+  has this exact concept for a different case (pure "my favorite tracks" requests,
+  `backend/main.py:1205-1223`): a post-loop guard
+  (`if len(tracks) < count and not allow_shortfall: raise ValueError(...)`) that is
+  otherwise fully generic and count-agnostic. The new parameter is OR'd into that existing
+  gate rather than replacing it, so the favorites case is unaffected and every other
+  caller (`generate_playlist`, `generate_playlist_stream`,
+  `_generate_from_seed_playlist`) keeps the default `False` — zero behavior change for
+  them.
+- `_anchored_other_tracks()` gains the same `allow_shortfall: bool = False` parameter,
+  threaded into its internal `_generate()` call. The single-seed caller keeps passing
+  `False` (unchanged); the journey caller passes `True`.
+- `_journey_instruction()` is reworded to tell the AI to use as many tracks as the bridge
+  actually needs, up to `JOURNEY_MAX_TRACKS - 2`, and explicitly not to pad with
+  unnecessary tracks just to reach the maximum. No soft minimum is enforced or suggested —
+  the AI may return zero bridge tracks if the two anchors are already close. (See the
+  frontend design spec's matching amendment for the UI-side consequence: if the AI
+  actually returns fewer than 3 bridge tracks, the frontend asks the user to confirm
+  before proceeding, rather than silently accepting a very short result.)
 
 ## Motivation
 
