@@ -15,7 +15,7 @@ from typing import Any, Literal
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from backend.config import (
     FALLBACK_FIELDS,
@@ -488,6 +488,23 @@ class SeedGenerateRequest(BaseModel):
     seed_mode: SeedMode = "balanced"
     track_count: int = Field(default=25, ge=5, le=100)
     options: PlaylistOptions = Field(default_factory=PlaylistOptions)
+
+
+class JourneyGenerateRequest(BaseModel):
+    start: SeedTrack
+    end: SeedTrack
+    track_count: int = Field(default=25, ge=5, le=100)
+    options: PlaylistOptions = Field(default_factory=PlaylistOptions)
+
+    @model_validator(mode="after")
+    def _different_anchors(self) -> JourneyGenerateRequest:
+        start_key = track_identity_key(self.start.title, self.start.artists)
+        end_key = track_identity_key(self.end.title, self.end.artists)
+        if start_key == end_key:
+            raise ValueError(
+                "Choose two different tracks for the start and end of the journey."
+            )
+        return self
 
 
 class PlaylistTrackContext(BaseModel):
