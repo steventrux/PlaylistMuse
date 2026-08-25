@@ -1365,8 +1365,8 @@ async def _generate_with_telemetry(
 
     Wraps `_generate()`/`_generate_from_seed_playlist()` at the route boundary (not
     inside `_generate()` itself) because seed-mode generation can call `_generate()`
-    internally more than once per user-facing request (`_seed_other_tracks()` retries
-    once if the AI reproduces the seed track) -- hooking inside `_generate()` would
+    internally more than once per user-facing request (`_anchored_other_tracks()` retries
+    once if the AI reproduces an anchor track) -- hooking inside `_generate()` would
     double-count those retries as separate playlists.
     """
     reset_stage_timings()
@@ -1422,45 +1422,57 @@ async def analyze_prompt(request: PromptAnalysisRequest) -> dict:
         ) from error
 
 
-def _is_seed_track(track: dict, seed: SeedTrack, seed_key: str) -> bool:
-    return track.get("video_id") == seed.video_id or track_identity_key(
-        track.get("title", ""), track.get("artists", "")
-    ) == seed_key
+def _is_anchor_track(
+    track: dict, anchors: list[SeedTrack], anchor_keys: set[str]
+) -> dict | None:
+    video_ids = {anchor.video_id for anchor in anchors}
+    if track.get("video_id") in video_ids:
+        return track
+    key = track_identity_key(track.get("title", ""), track.get("artists", ""))
+    return track if key in anchor_keys else None
 
 
-async def _seed_other_tracks(
+async def _anchored_other_tracks(
     prompt: str,
     other_count: int,
     options: PlaylistOptions,
-    seed: SeedTrack,
-    seed_key: str,
+    anchors: list[SeedTrack],
 ) -> tuple[dict, dict | None]:
-    """Ask _generate() for exactly `other_count` tracks distinct from the seed.
+    """Ask _generate() for exactly `other_count` tracks distinct from every anchor.
 
-    _generate() itself guarantees exactly `other_count` verified, quota-checked tracks. The
-    only way this can fall short of the seed handler's needs is if the AI independently
-    reproduces the seed among its own suggestions; that is retried once, explicitly
-    forbidding the seed song, so the caller never has to fall back to silently dropping an
-    already-verified track to make room for the seed.
+    Generalizes the original single-seed retry helper to an arbitrary number of anchor
+    tracks so the same retry-once-forbidding-anchors logic serves both single-seed
+    generation (one anchor) and two-anchor journey generation (start + end) without
+    duplicating it. _generate() itself guarantees exactly `other_count` verified,
+    quota-checked tracks; the only way this can fall short is if the AI independently
+    reproduces an anchor among its own suggestions, retried once with all anchors
+    explicitly forbidden.
     """
+    anchor_keys = {track_identity_key(a.title, a.artists) for a in anchors}
     attempt_prompt = prompt
     reproduced_track: dict | None = None
     for _ in range(2):
         result = await _generate(attempt_prompt, other_count, options)
         match = next(
-            (track for track in result["tracks"] if _is_seed_track(track, seed, seed_key)),
+            (
+                track
+                for track in result["tracks"]
+                if _is_anchor_track(track, anchors, anchor_keys) is not None
+            ),
             None,
         )
         if match is None:
             return result, reproduced_track
         reproduced_track = reproduced_track or match
+        forbidden = "; ".join(f"'{a.title}' by {a.artists}" for a in anchors)
         attempt_prompt = (
-            f"{prompt}\n\nDo not include '{seed.title}' by {seed.artists} among your "
-            "suggestions -- it is already the playlist's first track."
+            f"{prompt}\n\nDo not include {forbidden} among your suggestions -- they are "
+            "already placed elsewhere in the playlist."
         )
+    names = " and ".join(f"'{a.title}' by {a.artists}" for a in anchors)
     raise ValueError(
-        "PlaylistMuse could not find enough tracks distinct from the seed song. "
-        "Try a different seed or request more tracks."
+        f"PlaylistMuse could not find enough tracks distinct from {names}. "
+        "Try different tracks or request more tracks."
     )
 
 
@@ -1471,7 +1483,6 @@ async def _generate_from_seed_playlist(request: SeedGenerateRequest) -> dict:
     both the plain JSON endpoint and the streaming endpoint below can share it.
     """
     seed = request.seed
-    seed_key = track_identity_key(seed.title, seed.artists)
     other_count = request.track_count - 1
     prompt = (
         f"Create a playlist from the seed song '{seed.title}' by {seed.artists}. "
@@ -1499,8 +1510,8 @@ async def _generate_from_seed_playlist(request: SeedGenerateRequest) -> dict:
     anchor_token = _SEED_ANCHORS.set((seed_anchor,))
     mode_token = _SEED_MODE.set(request.seed_mode)
     try:
-        result, reproduced_track = await _seed_other_tracks(
-            prompt, other_count, request.options, seed, seed_key
+        result, reproduced_track = await _anchored_other_tracks(
+            prompt, other_count, request.options, [seed]
         )
     finally:
         _SEED_MODE.reset(mode_token)
