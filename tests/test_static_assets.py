@@ -61,8 +61,8 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     settings = _html("settings.html")
     common = '<script src="/static/common.js?v=18"></script>'
     home_status = '<script src="/static/home-status.js?v=34"></script>'
-    generation_state = '<script src="/static/generation-state.js?v=3"></script>'
-    app = '<script src="/static/app.js?v=21"></script>'
+    generation_state = '<script src="/static/generation-state.js?v=4"></script>'
+    app = '<script src="/static/app.js?v=22"></script>'
 
     assert index.index(common) < index.index(
         '<script src="/static/ai-settings.js?v=13"></script>'
@@ -220,11 +220,11 @@ def test_seed_guidance_follows_search_and_selection() -> None:
 
     assert '<p id="seed-guidance" class="hint hidden" aria-live="polite"></p>' in index
     assert choose_text not in index
-    assert "function setSeedGuidance(text = '')" in app
+    assert "function setSlotGuidance(slot, text = '')" in app
     assert "guidance.classList.toggle('hidden', !text)" in app
     assert choose_text in app
-    assert "This playlist will be built around “${seed.title}” by ${seed.artists}." in app
-    assert "setSeedGuidance('');\n    message('Searching YouTube Music…');" in app
+    assert "This playlist will be built around “${track.title}” by ${track.artists}." in app
+    assert "setSlotGuidance(slot, '');\n    message('Searching YouTube Music…');" in app
     assert "change.addEventListener('click'" in app
 
 
@@ -314,7 +314,7 @@ def test_ai_settings_separate_active_and_selected_provider_states() -> None:
     assert '/static/ai-settings.css?v=3' in index
     assert '/static/ai-settings.css?v=3' in settings
     assert '/static/ai-settings.css' not in playlist
-    assert '/static/app.js?v=21' in index
+    assert '/static/app.js?v=22' in index
     assert 'id="ai-active-status"' in index
     assert 'id="ai-active-status"' in settings
     assert "Choose or configure a provider" in index
