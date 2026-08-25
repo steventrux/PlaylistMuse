@@ -1471,6 +1471,16 @@ async def _anchored_other_tracks(
     The only way a non-shortfall call can fall short is if the AI independently
     reproduces an anchor among its own suggestions, retried once with all anchors
     explicitly forbidden.
+
+    For `allow_shortfall=True` callers, a reproduction that survives both attempts is not
+    treated as a hard failure: the AI's own list is filtered to drop the anchor
+    duplicate(s) and the (now possibly shorter) result is returned as-is. This mirrors real
+    observed behavior -- some models restate the start/end song among their own
+    suggestions despite the explicit exclusion instruction, even after being told again on
+    retry -- and forcing a third full regeneration attempt would not reliably fix a model
+    that already ignored the instruction twice, whereas dropping the (already-redundant,
+    already-placed) duplicate is always safe and journey already tolerates a shorter
+    result.
     """
     video_ids = {anchor.video_id for anchor in anchors}
     anchor_keys = {track_identity_key(a.title, a.artists) for a in anchors}
@@ -1501,6 +1511,14 @@ async def _anchored_other_tracks(
             f"{prompt}\n\nDo not include {forbidden} among your suggestions -- "
             f"{placement}."
         )
+    if allow_shortfall:
+        result["tracks"] = [
+            track
+            for track in result["tracks"]
+            if not _is_anchor_track(track, video_ids, anchor_keys)
+        ]
+        result["resolved_count"] = len(result["tracks"])
+        return result, reproduced_track
     names = " and ".join(f"'{a.title}' by {a.artists}" for a in anchors)
     raise ValueError(
         f"PlaylistMuse could not find enough tracks distinct from {names}. "

@@ -242,8 +242,18 @@ def test_journey_generation_retries_when_either_anchor_is_reproduced(monkeypatch
     assert len(tracks) == 5
 
 
-def test_journey_generation_fails_loudly_when_an_anchor_keeps_being_reproduced(monkeypatch) -> None:
+def test_journey_generation_drops_anchor_duplicate_when_it_keeps_being_reproduced(
+    monkeypatch,
+) -> None:
+    # Observed in production: some models restate the start/end song among their own
+    # suggestions despite the explicit exclusion instruction, even after the retry
+    # re-states it. Journey tolerates a shorter result (allow_shortfall=True), so this
+    # must degrade gracefully -- drop the duplicate and keep going -- rather than fail
+    # the whole generation after a model quirk that a third attempt is unlikely to fix.
+    calls: list[str] = []
+
     async def fake_generate(prompt, count, options, *, allow_shortfall=False):
+        calls.append(prompt)
         tracks = [
             _journey_track_payload("alt-start", "Start Song", "Start Artist"),
             _journey_track_payload("t2", "Bridge Two", "Bridge Artist"),
@@ -255,7 +265,19 @@ def test_journey_generation_fails_loudly_when_an_anchor_keeps_being_reproduced(m
     client = TestClient(main_module.app)
     response = client.post("/api/playlists/generate-from-journey", json=_journey_request())
 
-    assert response.status_code == 400
+    assert response.status_code == 200
+    payload = response.json()
+    tracks = payload["tracks"]
+    identities = [track_identity_key(t["title"], t["artists"]) for t in tracks]
+
+    assert len(calls) == 2
+    assert tracks[0]["video_id"] == "start-vid"
+    assert tracks[-1]["video_id"] == "end-vid"
+    # The duplicate ("alt-start", same identity as the start anchor) is dropped; only
+    # the two genuinely distinct bridge tracks remain, plus both real anchors.
+    assert identities.count(track_identity_key("Start Song", "Start Artist")) == 1
+    assert {t["video_id"] for t in tracks} == {"start-vid", "t2", "t3", "end-vid"}
+    assert payload["resolved_count"] == len(tracks)
 
 
 def test_merge_journey_evidence_interleaves_and_preserves_both_sides_after_truncation() -> None:
