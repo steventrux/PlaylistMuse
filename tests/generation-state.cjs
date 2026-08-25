@@ -45,3 +45,28 @@ test('seed search is disabled when blank or already running', () => {
   assert.equal(generationState.isSeedSearchEnabled('a', false), true);
   assert.equal(generationState.isSeedSearchEnabled('artist', true), false);
 });
+
+test('journey generation is ready only after both tracks are selected', () => {
+  assert.equal(generationState.isGenerationReady('journey', 'ignored', null, {}), false);
+  assert.equal(
+    generationState.isGenerationReady('journey', 'ignored', null, {start: {video_id: 's'}}),
+    false,
+  );
+  assert.equal(
+    generationState.isGenerationReady(
+      'journey',
+      'ignored',
+      null,
+      {start: {video_id: 's'}, end: {video_id: 'e'}},
+    ),
+    true,
+  );
+});
+
+test('prompt and seed readiness are unaffected by a missing journeySelection argument', () => {
+  assert.equal(generationState.isGenerationReady('prompt', 'rock', null), true);
+  assert.equal(
+    generationState.isGenerationReady('seed', '', {video_id: 'seed-1'}),
+    true,
+  );
+});
