@@ -1,10 +1,12 @@
 import asyncio
 
 import pytest
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 import backend.main as main_module
 from backend.main import JourneyGenerateRequest
+from backend.youtube import track_identity_key
 
 
 def _journey_request(**overrides) -> dict:
@@ -161,3 +163,70 @@ def test_generate_from_journey_playlist_degrades_gracefully_without_lastfm(monke
     result = asyncio.run(main_module._generate_from_journey_playlist(request))
 
     assert len(result["tracks"]) == 5
+
+
+def _journey_track_payload(video_id: str, title: str, artists: str) -> dict:
+    return {
+        "video_id": video_id,
+        "title": title,
+        "artists": artists,
+        "album": "",
+        "duration": "3:00",
+        "thumbnail_url": "",
+        "url": f"https://music.youtube.com/watch?v={video_id}",
+        "description": "d",
+        "reason": "r",
+    }
+
+
+def test_journey_generation_retries_when_either_anchor_is_reproduced(monkeypatch) -> None:
+    calls: list[str] = []
+
+    async def fake_generate(prompt, count, options):
+        calls.append(prompt)
+        assert count == 3
+        if len(calls) == 1:
+            tracks = [
+                _journey_track_payload("alt-end", "End Song", "End Artist"),
+                _journey_track_payload("t2", "Bridge Two", "Bridge Artist"),
+                _journey_track_payload("t3", "Bridge Three", "Bridge Artist"),
+            ]
+        else:
+            assert "Do not include" in prompt
+            tracks = [
+                _journey_track_payload("t2", "Bridge Two", "Bridge Artist"),
+                _journey_track_payload("t3", "Bridge Three", "Bridge Artist"),
+                _journey_track_payload("t4", "Bridge Four", "Bridge Artist"),
+            ]
+        return {"title": "Journey", "description": "A path.", "tracks": tracks}
+
+    monkeypatch.setattr(main_module, "_generate", fake_generate)
+    client = TestClient(main_module.app)
+    response = client.post("/api/playlists/generate-from-journey", json=_journey_request())
+
+    assert response.status_code == 200
+    tracks = response.json()["tracks"]
+    identities = [track_identity_key(t["title"], t["artists"]) for t in tracks]
+
+    assert len(calls) == 2
+    assert tracks[0]["video_id"] == "start-vid"
+    assert tracks[-1]["video_id"] == "end-vid"
+    assert identities.count(track_identity_key("End Song", "End Artist")) == 1
+    assert len(identities) == len(set(identities))
+    assert len(tracks) == 5
+
+
+def test_journey_generation_fails_loudly_when_an_anchor_keeps_being_reproduced(monkeypatch) -> None:
+    async def fake_generate(prompt, count, options):
+        tracks = [
+            _journey_track_payload("alt-start", "Start Song", "Start Artist"),
+            _journey_track_payload("t2", "Bridge Two", "Bridge Artist"),
+            _journey_track_payload("t3", "Bridge Three", "Bridge Artist"),
+        ]
+        return {"title": "Journey", "description": "A path.", "tracks": tracks}
+
+    monkeypatch.setattr(main_module, "_generate", fake_generate)
+    client = TestClient(main_module.app)
+    response = client.post("/api/playlists/generate-from-journey", json=_journey_request())
+
+    assert response.status_code == 400

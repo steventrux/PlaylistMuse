@@ -1754,6 +1754,36 @@ async def generate_from_seed_stream(request: SeedGenerateRequest) -> StreamingRe
     )
 
 
+@app.post("/api/playlists/generate-from-journey")
+async def generate_from_journey(request: JourneyGenerateRequest) -> dict:
+    try:
+        return await _generate_with_telemetry(
+            lambda: _generate_from_journey_playlist(request)
+        )
+    except ValueError as error:
+        record_generation_error(error, provider=load_config().stats_key)
+        raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
+    except Exception as error:
+        record_generation_error(error, provider=load_config().stats_key)
+        raise HTTPException(
+            status_code=502,
+            detail="Playlist generation failed. Please try again.",
+        ) from error
+
+
+@app.post("/api/playlists/generate-from-journey/stream")
+async def generate_from_journey_stream(request: JourneyGenerateRequest) -> StreamingResponse:
+    return StreamingResponse(
+        _stream_generation(
+            lambda: _generate_with_telemetry(
+                lambda: _generate_from_journey_playlist(request)
+            )
+        ),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
+
+
 @app.post("/api/playlists/replace-track")
 async def replace_track(request: ReplaceTrackRequest) -> dict:
     current = request.current_track
