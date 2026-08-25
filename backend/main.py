@@ -490,6 +490,13 @@ class SeedGenerateRequest(BaseModel):
     options: PlaylistOptions = Field(default_factory=PlaylistOptions)
 
 
+class JourneyGenerateRequest(BaseModel):
+    start: SeedTrack
+    end: SeedTrack
+    track_count: int = Field(default=25, ge=5, le=100)
+    options: PlaylistOptions = Field(default_factory=PlaylistOptions)
+
+
 class PlaylistTrackContext(BaseModel):
     video_id: str | None = Field(default=None, max_length=64)
     title: str = Field(min_length=1, max_length=300)
@@ -677,14 +684,14 @@ def _artist_identity_keys(value: str) -> set[str]:
 
 
 def _seed_evidence_guidance(candidates: list[dict[str, str]], *, seed_mode: str) -> str:
-    """Fold Last.fm seed evidence directly into the single initial draft prompt.
+    """Fold Last.fm seed/anchor evidence directly into the single initial draft prompt.
 
-    Seed requests always have real Last.fm-derived candidates before any draft exists
-    (unlike prompt-based generation, whose lastfm_candidates is always empty -- see
+    Seed and journey requests always have real Last.fm-derived candidates before any draft
+    exists (unlike prompt-based generation, whose lastfm_candidates is always empty -- see
     discover_from_anchors's deliberate no-op in lastfm_discovery.py). Folding the evidence
     into the one llm_initial draft, instead of running a second llm_guided draft
     afterwards, removes an entire redundant LLM generation pass (with its own quota-repair
-    and creative-repair rounds) for every seed request.
+    and creative-repair rounds) for every such request.
     """
     evidence = "\n".join(
         f"- {candidate.get('artist', 'Unknown artist')} — "
@@ -693,12 +700,14 @@ def _seed_evidence_guidance(candidates: list[dict[str, str]], *, seed_mode: str)
         for candidate in candidates[:MAX_LASTFM_CONTEXT_TRACKS]
     )
     seed_instruction = f"\n{_seed_mode_instruction(seed_mode)}\n" if seed_mode else ""
+    mode_clause = " and the selected seed mode" if seed_mode else ""
+    seed_attribution = " derived from the seed" if seed_mode else ""
     return (
         f"{seed_instruction}\n"
-        "Last.fm collaborative-listening evidence derived from the seed:\n"
+        f"Last.fm collaborative-listening evidence{seed_attribution}:\n"
         f"{evidence or '- None'}\n\n"
-        "Use this evidence only when it satisfies the original request and the selected "
-        "seed mode. You may also select tracks not listed above when they satisfy every "
+        f"Use this evidence only when it satisfies the original request{mode_clause}. "
+        "You may also select tracks not listed above when they satisfy every "
         "mandatory constraint and have a clear musical justification. Do not mechanically "
         "copy the evidence list; use your own musical judgment. For every selected song, "
         "write a natural song description and a playlist-specific reason. Use canonical "
@@ -1365,8 +1374,8 @@ async def _generate_with_telemetry(
 
     Wraps `_generate()`/`_generate_from_seed_playlist()` at the route boundary (not
     inside `_generate()` itself) because seed-mode generation can call `_generate()`
-    internally more than once per user-facing request (`_seed_other_tracks()` retries
-    once if the AI reproduces the seed track) -- hooking inside `_generate()` would
+    internally more than once per user-facing request (`_anchored_other_tracks()` retries
+    once if the AI reproduces an anchor track) -- hooking inside `_generate()` would
     double-count those retries as separate playlists.
     """
     reset_stage_timings()
@@ -1422,45 +1431,60 @@ async def analyze_prompt(request: PromptAnalysisRequest) -> dict:
         ) from error
 
 
-def _is_seed_track(track: dict, seed: SeedTrack, seed_key: str) -> bool:
-    return track.get("video_id") == seed.video_id or track_identity_key(
-        track.get("title", ""), track.get("artists", "")
-    ) == seed_key
+def _is_anchor_track(track: dict, video_ids: set[str], anchor_keys: set[str]) -> bool:
+    if track.get("video_id") in video_ids:
+        return True
+    key = track_identity_key(track.get("title", ""), track.get("artists", ""))
+    return key in anchor_keys
 
 
-async def _seed_other_tracks(
+async def _anchored_other_tracks(
     prompt: str,
     other_count: int,
     options: PlaylistOptions,
-    seed: SeedTrack,
-    seed_key: str,
+    anchors: list[SeedTrack],
 ) -> tuple[dict, dict | None]:
-    """Ask _generate() for exactly `other_count` tracks distinct from the seed.
+    """Ask _generate() for exactly `other_count` tracks distinct from every anchor.
 
-    _generate() itself guarantees exactly `other_count` verified, quota-checked tracks. The
-    only way this can fall short of the seed handler's needs is if the AI independently
-    reproduces the seed among its own suggestions; that is retried once, explicitly
-    forbidding the seed song, so the caller never has to fall back to silently dropping an
-    already-verified track to make room for the seed.
+    Generalizes the original single-seed retry helper to an arbitrary number of anchor
+    tracks so the same retry-once-forbidding-anchors logic serves both single-seed
+    generation (one anchor) and two-anchor journey generation (start + end) without
+    duplicating it. _generate() itself guarantees exactly `other_count` verified,
+    quota-checked tracks; the only way this can fall short is if the AI independently
+    reproduces an anchor among its own suggestions, retried once with all anchors
+    explicitly forbidden.
     """
+    video_ids = {anchor.video_id for anchor in anchors}
+    anchor_keys = {track_identity_key(a.title, a.artists) for a in anchors}
     attempt_prompt = prompt
     reproduced_track: dict | None = None
     for _ in range(2):
         result = await _generate(attempt_prompt, other_count, options)
         match = next(
-            (track for track in result["tracks"] if _is_seed_track(track, seed, seed_key)),
+            (
+                track
+                for track in result["tracks"]
+                if _is_anchor_track(track, video_ids, anchor_keys)
+            ),
             None,
         )
         if match is None:
             return result, reproduced_track
         reproduced_track = reproduced_track or match
-        attempt_prompt = (
-            f"{prompt}\n\nDo not include '{seed.title}' by {seed.artists} among your "
-            "suggestions -- it is already the playlist's first track."
+        forbidden = "; ".join(f"'{a.title}' by {a.artists}" for a in anchors)
+        placement = (
+            "it is already placed in the playlist"
+            if len(anchors) == 1
+            else "they are already placed in the playlist"
         )
+        attempt_prompt = (
+            f"{prompt}\n\nDo not include {forbidden} among your suggestions -- "
+            f"{placement}."
+        )
+    names = " and ".join(f"'{a.title}' by {a.artists}" for a in anchors)
     raise ValueError(
-        "PlaylistMuse could not find enough tracks distinct from the seed song. "
-        "Try a different seed or request more tracks."
+        f"PlaylistMuse could not find enough tracks distinct from {names}. "
+        "Try different tracks or request more tracks."
     )
 
 
@@ -1471,7 +1495,6 @@ async def _generate_from_seed_playlist(request: SeedGenerateRequest) -> dict:
     both the plain JSON endpoint and the streaming endpoint below can share it.
     """
     seed = request.seed
-    seed_key = track_identity_key(seed.title, seed.artists)
     other_count = request.track_count - 1
     prompt = (
         f"Create a playlist from the seed song '{seed.title}' by {seed.artists}. "
@@ -1499,8 +1522,8 @@ async def _generate_from_seed_playlist(request: SeedGenerateRequest) -> dict:
     anchor_token = _SEED_ANCHORS.set((seed_anchor,))
     mode_token = _SEED_MODE.set(request.seed_mode)
     try:
-        result, reproduced_track = await _seed_other_tracks(
-            prompt, other_count, request.options, seed, seed_key
+        result, reproduced_track = await _anchored_other_tracks(
+            prompt, other_count, request.options, [seed]
         )
     finally:
         _SEED_MODE.reset(mode_token)
@@ -1524,6 +1547,112 @@ async def _generate_from_seed_playlist(request: SeedGenerateRequest) -> dict:
     result["resolved_count"] = len(result["tracks"])
     result["seed"] = seed_payload
     result["seed_mode"] = request.seed_mode
+    if isinstance(result.get("lastfm"), dict):
+        _refresh_lastfm_selection(result["lastfm"], result["tracks"])
+    return result
+
+
+def _journey_instruction(start: SeedTrack, end: SeedTrack, bridge_count: int) -> str:
+    return (
+        f"Build a playlist that creates a sensible musical journey from the starting "
+        f"song '{start.title}' by {start.artists} to the ending song '{end.title}' by "
+        f"{end.artists}. Select {bridge_count} songs that form a deliberate step-by-step "
+        "bridge between them: each song must connect musically to its neighbors through "
+        "sound, instrumentation, mood, scene, or artist affinity, so every song sounds "
+        "like a plausible next step from the ones beside it, linking the starting song's "
+        "character to the ending song's character. Do not just pick songs similar to the "
+        "start or end in isolation; the sequence as a whole must read as one coherent "
+        "path. In each song's reason, explain concretely how it connects to its "
+        f"neighbors. Do not include '{start.title}' by {start.artists} or '{end.title}' "
+        f"by {end.artists} among your suggestions -- they are already placed as the "
+        "first and last track."
+    )
+
+
+def _merge_journey_evidence(
+    start_evidence: list[dict[str, str]],
+    end_evidence: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """Interleave both anchors' Last.fm evidence into one deduplicated pool.
+
+    Round-robins one candidate from each side at a time (rather than concatenating) so
+    that the downstream truncation to MAX_LASTFM_CONTEXT_TRACKS in
+    `_seed_evidence_guidance` keeps roughly balanced representation from both anchors --
+    a plain concatenation would let the end anchor's evidence get crowded out almost
+    entirely once the two lists combined exceed the cap.
+    """
+    seen: set[str] = set()
+    merged: list[dict[str, str]] = []
+    for index in range(max(len(start_evidence), len(end_evidence))):
+        for candidates in (start_evidence, end_evidence):
+            if index >= len(candidates):
+                continue
+            candidate = candidates[index]
+            key = _candidate_key(candidate)
+            if key and key not in seen:
+                seen.add(key)
+                merged.append(candidate)
+    return merged
+
+
+async def _generate_from_journey_playlist(request: JourneyGenerateRequest) -> dict:
+    """Build a two-anchor journey playlist. Raises ValueError/Exception like _generate() itself."""
+    start, end = request.start, request.end
+    if track_identity_key(start.title, start.artists) == track_identity_key(
+        end.title, end.artists
+    ):
+        raise ValueError(
+            "Choose two different tracks for the start and end of the journey."
+        )
+    bridge_count = request.track_count - 2
+    prompt = _journey_instruction(start, end, bridge_count)
+
+    # Halved from the single-anchor `_seed_lastfm_evidence_params` formula: fetching two
+    # anchors' worth at the full single-anchor limit would over-fetch (up to 100
+    # candidates for a 60-slot cap) before interleaving even gets a chance to balance
+    # them. Halving keeps the combined fetch within the eventual cap.
+    limit = MAX_LASTFM_CONTEXT_TRACKS // 2
+    start_evidence, end_evidence = await asyncio.gather(
+        similar_track_candidates(start.artists, start.title, limit=limit),
+        similar_track_candidates(end.artists, end.title, limit=limit),
+    )
+    lastfm_candidates = _merge_journey_evidence(start_evidence, end_evidence)
+    anchors = (
+        {"artist": start.artists, "title": start.title, "kind": "journey_start"},
+        {"artist": end.artists, "title": end.title, "kind": "journey_end"},
+    )
+    recommendation_token = _SEED_RECOMMENDATIONS.set(tuple(lastfm_candidates))
+    anchor_token = _SEED_ANCHORS.set(anchors)
+    mode_token = _SEED_MODE.set("")
+    try:
+        result, _reproduced = await _anchored_other_tracks(
+            prompt, bridge_count, request.options, [start, end]
+        )
+    finally:
+        _SEED_MODE.reset(mode_token)
+        _SEED_ANCHORS.reset(anchor_token)
+        _SEED_RECOMMENDATIONS.reset(recommendation_token)
+
+    # Both anchors are user-chosen reference tracks, not generated suggestions: they
+    # always appear first/last regardless of exclude_live/exclude_covers/exclude_remixes,
+    # deliberately never routed through resolve_candidates()'s exclusion filters -- same
+    # treatment as the single seed in _generate_from_seed_playlist.
+    start_payload = start.model_dump()
+    start_payload["description"] = "The starting song that opens this musical journey."
+    start_payload["reason"] = (
+        "It anchors the beginning of the path; every following track bridges toward "
+        "the ending song."
+    )
+    end_payload = end.model_dump()
+    end_payload["description"] = "The ending song that completes this musical journey."
+    end_payload["reason"] = (
+        "It anchors the end of the path; every previous track bridged toward this "
+        "destination."
+    )
+
+    result["tracks"] = [start_payload, *result["tracks"], end_payload]
+    result["resolved_count"] = len(result["tracks"])
+    result["journey"] = {"start": start_payload, "end": end_payload}
     if isinstance(result.get("lastfm"), dict):
         _refresh_lastfm_selection(result["lastfm"], result["tracks"])
     return result
@@ -1633,6 +1762,36 @@ async def generate_from_seed_stream(request: SeedGenerateRequest) -> StreamingRe
         _stream_generation(
             lambda: _generate_with_telemetry(
                 lambda: _generate_from_seed_playlist(request)
+            )
+        ),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
+
+
+@app.post("/api/playlists/generate-from-journey")
+async def generate_from_journey(request: JourneyGenerateRequest) -> dict:
+    try:
+        return await _generate_with_telemetry(
+            lambda: _generate_from_journey_playlist(request)
+        )
+    except ValueError as error:
+        record_generation_error(error, provider=load_config().stats_key)
+        raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
+    except Exception as error:
+        record_generation_error(error, provider=load_config().stats_key)
+        raise HTTPException(
+            status_code=502,
+            detail="Playlist generation failed. Please try again.",
+        ) from error
+
+
+@app.post("/api/playlists/generate-from-journey/stream")
+async def generate_from_journey_stream(request: JourneyGenerateRequest) -> StreamingResponse:
+    return StreamingResponse(
+        _stream_generation(
+            lambda: _generate_with_telemetry(
+                lambda: _generate_from_journey_playlist(request)
             )
         ),
         media_type="text/event-stream",
