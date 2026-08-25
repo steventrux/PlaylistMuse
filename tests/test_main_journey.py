@@ -29,7 +29,6 @@ def _journey_request(**overrides) -> dict:
             "thumbnail_url": "",
             "url": "https://music.youtube.com/watch?v=end-vid",
         },
-        "track_count": 5,
         "options": {
             "exclude_live": True,
             "exclude_covers": True,
@@ -79,7 +78,7 @@ def test_generate_from_journey_endpoint_rejects_identical_anchors_with_plain_400
 
 def test_journey_request_accepts_different_start_and_end() -> None:
     request = JourneyGenerateRequest(**_journey_request())
-    assert request.track_count == 5
+    assert not hasattr(request, "track_count")
     assert request.start.title == "Start Song"
     assert request.end.title == "End Song"
 
@@ -109,7 +108,7 @@ def test_generate_from_journey_playlist_pins_anchors_and_merges_evidence(monkeyp
 
     captured_anchors = []
 
-    async def fake_generate(prompt, count, options):
+    async def fake_generate(prompt, count, options, *, allow_shortfall=False):
         captured_anchors.append(main_module._SEED_ANCHORS.get())
         assert count == 3
         assert "Start Song" in prompt
@@ -139,6 +138,7 @@ def test_generate_from_journey_playlist_pins_anchors_and_merges_evidence(monkeyp
             ],
         }
 
+    monkeypatch.setattr(main_module, "JOURNEY_MAX_TRACKS", 5)
     monkeypatch.setattr(main_module, "similar_track_candidates", fake_similar)
     monkeypatch.setattr(main_module, "_generate", fake_generate)
 
@@ -155,7 +155,7 @@ def test_generate_from_journey_playlist_degrades_gracefully_without_lastfm(monke
     async def fake_similar(artist, title, *, limit, broaden=False, api_key=None, client=None):
         return []
 
-    async def fake_generate(prompt, count, options):
+    async def fake_generate(prompt, count, options, *, allow_shortfall=False):
         return {
             "title": "Journey",
             "description": "A path.",
@@ -207,7 +207,7 @@ def _journey_track_payload(video_id: str, title: str, artists: str) -> dict:
 def test_journey_generation_retries_when_either_anchor_is_reproduced(monkeypatch) -> None:
     calls: list[str] = []
 
-    async def fake_generate(prompt, count, options):
+    async def fake_generate(prompt, count, options, *, allow_shortfall=False):
         calls.append(prompt)
         assert count == 3
         if len(calls) == 1:
@@ -225,6 +225,7 @@ def test_journey_generation_retries_when_either_anchor_is_reproduced(monkeypatch
             ]
         return {"title": "Journey", "description": "A path.", "tracks": tracks}
 
+    monkeypatch.setattr(main_module, "JOURNEY_MAX_TRACKS", 5)
     monkeypatch.setattr(main_module, "_generate", fake_generate)
     client = TestClient(main_module.app)
     response = client.post("/api/playlists/generate-from-journey", json=_journey_request())
@@ -242,7 +243,7 @@ def test_journey_generation_retries_when_either_anchor_is_reproduced(monkeypatch
 
 
 def test_journey_generation_fails_loudly_when_an_anchor_keeps_being_reproduced(monkeypatch) -> None:
-    async def fake_generate(prompt, count, options):
+    async def fake_generate(prompt, count, options, *, allow_shortfall=False):
         tracks = [
             _journey_track_payload("alt-start", "Start Song", "Start Artist"),
             _journey_track_payload("t2", "Bridge Two", "Bridge Artist"),
@@ -321,7 +322,7 @@ def test_generate_from_journey_playlist_passes_balanced_evidence_into_the_prompt
     captured_prompts: list[str] = []
     captured_lastfm_candidates: list[tuple] = []
 
-    async def fake_generate(prompt, count, options):
+    async def fake_generate(prompt, count, options, *, allow_shortfall=False):
         captured_prompts.append(prompt)
         captured_lastfm_candidates.append(main_module._SEED_RECOMMENDATIONS.get())
         return {

@@ -138,7 +138,7 @@ def test_generate_stream_reports_error_with_last_stage(monkeypatch) -> None:
 
 
 def test_generate_from_seed_stream_keeps_seed_first(monkeypatch) -> None:
-    async def fake_generate(prompt, count, options):
+    async def fake_generate(prompt, count, options, *, allow_shortfall=False):
         return {
             "name": "Fuzz Riffs",
             "description": "Heavy riffs.",
@@ -178,7 +178,7 @@ def test_generate_from_seed_stream_keeps_seed_first(monkeypatch) -> None:
 
 
 def test_generate_from_journey_stream_keeps_anchors_first_and_last(monkeypatch) -> None:
-    async def fake_generate(prompt, count, options):
+    async def fake_generate(prompt, count, options, *, allow_shortfall=False):
         return {
             "title": "Journey",
             "description": "A path.",
@@ -207,7 +207,6 @@ def test_generate_from_journey_stream_keeps_anchors_first_and_last(monkeypatch) 
                 "title": "End Song",
                 "artists": "End Artist",
             },
-            "track_count": 5,
         },
     )
 

@@ -93,6 +93,127 @@ def test_generate_replenishes_tracks_after_youtube_resolution(monkeypatch) -> No
     assert len(ai_calls) == 2
 
 
+def test_generate_with_allow_shortfall_skips_replenishment_and_accepts_fewer_tracks(
+    monkeypatch,
+) -> None:
+    # allow_shortfall (currently used by journey generation) must make the AI's one-shot
+    # initial draft final: no replenishment round should run even though the draft came
+    # back well under `count`, and the shortfall must not raise.
+    draft_calls: list[int] = []
+
+    async def fake_generate(config, prompt, count, is_seed_generation=False):
+        draft_calls.append(count)
+        return {
+            "title": "Test Playlist",
+            "description": "A test playlist.",
+            "tracks": [
+                {
+                    "artist": f"Artist {index}",
+                    "title": f"Track {index}",
+                    "description": "Description.",
+                    "reason": "Reason.",
+                }
+                for index in range(3)
+            ],
+        }
+
+    async def fake_resolve(candidates, exclusions):
+        return (
+            [
+                {
+                    "video_id": f"video-{item['title']}",
+                    "title": item["title"],
+                    "artists": item["artist"],
+                    "album": "Album",
+                    "duration": "3:00",
+                    "thumbnail_url": "",
+                    "url": "https://music.youtube.com/watch?v=test",
+                    "description": item["description"],
+                    "reason": item["reason"],
+                }
+                for item in candidates
+            ],
+            [],
+        )
+
+    monkeypatch.setattr(
+        main_module,
+        "load_config",
+        lambda: AppConfig(provider="openai", api_key="sk-test", model="model"),
+    )
+    monkeypatch.setattr(main_module, "generate_playlist_draft", fake_generate)
+    monkeypatch.setattr(main_module, "resolve_candidates", fake_resolve)
+
+    result = asyncio.run(
+        main_module._generate(
+            "A test playlist", 10, main_module.PlaylistOptions(), allow_shortfall=True
+        )
+    )
+
+    assert len(result["tracks"]) == 3
+    assert result["resolved_count"] == 3
+    assert result["requested_count"] == 10
+    # No replenishment round: only the one initial draft call.
+    assert len(draft_calls) == 1
+
+
+def test_generate_without_allow_shortfall_still_raises_on_a_genuine_shortfall(
+    monkeypatch,
+) -> None:
+    # Regression guard for the new allow_shortfall parameter: every existing caller that
+    # doesn't pass it (the default False) must keep the pre-existing hard-failure
+    # behavior on a genuine shortfall, unchanged.
+    async def fake_generate(config, prompt, count, is_seed_generation=False):
+        return {
+            "title": "Test Playlist",
+            "description": "A test playlist.",
+            "tracks": [
+                {
+                    "artist": "Artist 0",
+                    "title": "Track 0",
+                    "description": "Description.",
+                    "reason": "Reason.",
+                }
+            ],
+        }
+
+    async def fake_resolve(candidates, exclusions):
+        return (
+            [
+                {
+                    "video_id": f"video-{item['title']}",
+                    "title": item["title"],
+                    "artists": item["artist"],
+                    "album": "Album",
+                    "duration": "3:00",
+                    "thumbnail_url": "",
+                    "url": "https://music.youtube.com/watch?v=test",
+                    "description": item["description"],
+                    "reason": item["reason"],
+                }
+                for item in candidates
+            ],
+            [],
+        )
+
+    monkeypatch.setattr(
+        main_module,
+        "load_config",
+        lambda: AppConfig(provider="openai", api_key="sk-test", model="model"),
+    )
+    monkeypatch.setattr(main_module, "generate_playlist_draft", fake_generate)
+    monkeypatch.setattr(main_module, "resolve_candidates", fake_resolve)
+
+    try:
+        asyncio.run(
+            main_module._generate("A test playlist", 5, main_module.PlaylistOptions())
+        )
+    except ValueError as error:
+        assert "found only" in str(error)
+    else:
+        raise AssertionError("expected a ValueError for the unresolved shortfall")
+
+
 def test_generate_appends_a_discreet_signature_to_the_description(monkeypatch) -> None:
     async def fake_generate(config, prompt, count, is_seed_generation=False):
         return {

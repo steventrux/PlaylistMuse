@@ -34,7 +34,7 @@ def test_seed_lastfm_context_is_isolated_to_one_generation(monkeypatch) -> None:
         seen["lastfm_request"] = (artist, track, limit, broaden)
         return lastfm_candidates
 
-    async def fake_generate(prompt, count, options):
+    async def fake_generate(prompt, count, options, *, allow_shortfall=False):
         seen["generation_context"] = list(main_module._SEED_RECOMMENDATIONS.get())
         seen["anchor_context"] = list(main_module._SEED_ANCHORS.get())
         return {

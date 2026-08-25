@@ -460,7 +460,7 @@ def _seed_draft(prompt: str, count: int, tracks: list[dict]) -> dict:
 def test_seed_generation_removes_alternate_upload_of_same_song(monkeypatch) -> None:
     calls: list[str] = []
 
-    async def fake_generate(prompt, count, options):
+    async def fake_generate(prompt, count, options, *, allow_shortfall=False):
         calls.append(prompt)
         assert count == 4
         if len(calls) == 1:
@@ -501,7 +501,7 @@ def test_seed_generation_removes_alternate_upload_of_same_song(monkeypatch) -> N
 def test_seed_generation_keeps_every_track_when_seed_is_not_reproduced(monkeypatch) -> None:
     calls: list[str] = []
 
-    async def fake_generate(prompt, count, options):
+    async def fake_generate(prompt, count, options, *, allow_shortfall=False):
         calls.append(prompt)
         assert count == 4
         tracks = [
@@ -532,7 +532,7 @@ def test_seed_generation_keeps_every_track_when_seed_is_not_reproduced(monkeypat
 
 
 def test_seed_generation_fails_loudly_when_seed_keeps_being_reproduced(monkeypatch) -> None:
-    async def fake_generate(prompt, count, options):
+    async def fake_generate(prompt, count, options, *, allow_shortfall=False):
         tracks = [
             _seed_track_payload("alternate-upload", "Woman", "Wolfmother"),
             _seed_track_payload("track-2", "No One Knows", "Queens of the Stone Age"),
@@ -555,7 +555,7 @@ def test_anchored_other_tracks_retries_when_either_anchor_reappears(monkeypatch)
     end = main_module.SeedTrack(video_id="end-vid", title="End Song", artists="End Artist")
     calls: list[str] = []
 
-    async def fake_generate(prompt, count, options):
+    async def fake_generate(prompt, count, options, *, allow_shortfall=False):
         calls.append(prompt)
         assert count == 3
         if len(calls) == 1:

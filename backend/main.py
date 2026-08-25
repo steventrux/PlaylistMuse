@@ -75,6 +75,11 @@ OPENROUTER_MODELS = {
 MAX_REPLENISHMENT_ROUNDS = 6
 MAX_STALLED_ROUNDS = 2
 MAX_LASTFM_CONTEXT_TRACKS = 60
+# Hardcoded ceiling for journey generation (anchors included), not a user-chosen target:
+# the AI is told it may use fewer tracks when a shorter bridge is more natural, and the
+# pipeline (see allow_shortfall on _generate()/_anchored_other_tracks()) accepts that
+# without treating it as an incomplete/failed generation.
+JOURNEY_MAX_TRACKS = 20
 SeedMode = Literal["strict", "balanced", "exploratory"]
 _ARTIST_SEPARATOR_RE = re.compile(
     r"\s*(?:,|&|\bfeat\.?\b|\bfeaturing\b|\bwith\b)\s*",
@@ -493,7 +498,6 @@ class SeedGenerateRequest(BaseModel):
 class JourneyGenerateRequest(BaseModel):
     start: SeedTrack
     end: SeedTrack
-    track_count: int = Field(default=25, ge=5, le=100)
     options: PlaylistOptions = Field(default_factory=PlaylistOptions)
 
 
@@ -1030,7 +1034,13 @@ def _initial_draft_overshoot(count: int) -> int:
     return min(8, max(3, round(count * 0.15)))
 
 
-async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
+async def _generate(
+    prompt: str,
+    count: int,
+    options: PlaylistOptions,
+    *,
+    allow_shortfall: bool = False,
+) -> dict:
     config = load_config()
     seed_mode = _SEED_MODE.get()
     lastfm_anchors = list(_SEED_ANCHORS.get())
@@ -1122,7 +1132,12 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
 
     stalled_rounds = 0
     for round_index in range(MAX_REPLENISHMENT_ROUNDS):
-        if skip_initial_ai:
+        if skip_initial_ai or allow_shortfall:
+            # allow_shortfall callers (currently: journey generation) want the AI's
+            # one-shot initial draft to be the final word on how many tracks the
+            # request actually needs -- iterative replenishment rounds would just
+            # apply padding pressure back toward `count`, defeating the point of
+            # letting the AI choose a shorter, more natural result.
             break
         missing = count - len(tracks)
         if missing <= 0:
@@ -1202,7 +1217,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     # explicit mood/style requirement may simply have no matching tracks among those
     # few artists -- a shortfall (or, if nothing matches at all, a clear error) is the
     # honest outcome, not padding the count with genre-incompatible picks.
-    allow_shortfall = (
+    favorites_allow_shortfall = (
         explicit_tracks and not explicit_artists
     ) or favorite_artist_creative_conflict
     if explicit_tracks and not explicit_artists and not tracks:
@@ -1215,7 +1230,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
             "in this request, so PlaylistMuse could not build this playlist. Try a "
             "different style/mood, or drop the favorite-artists request."
         )
-    if len(tracks) < count and not allow_shortfall:
+    if len(tracks) < count and not (allow_shortfall or favorites_allow_shortfall):
         raise ValueError(
             f"PlaylistMuse found only {len(tracks)} of {count} distinct tracks that "
             "could be verified on YouTube Music without deliberately relaxing the "
@@ -1443,14 +1458,17 @@ async def _anchored_other_tracks(
     other_count: int,
     options: PlaylistOptions,
     anchors: list[SeedTrack],
+    *,
+    allow_shortfall: bool = False,
 ) -> tuple[dict, dict | None]:
-    """Ask _generate() for exactly `other_count` tracks distinct from every anchor.
+    """Ask _generate() for up to `other_count` tracks distinct from every anchor.
 
     Generalizes the original single-seed retry helper to an arbitrary number of anchor
     tracks so the same retry-once-forbidding-anchors logic serves both single-seed
-    generation (one anchor) and two-anchor journey generation (start + end) without
-    duplicating it. _generate() itself guarantees exactly `other_count` verified,
-    quota-checked tracks; the only way this can fall short is if the AI independently
+    generation (one anchor, `allow_shortfall=False`, `_generate()` guarantees exactly
+    `other_count` verified tracks) and two-anchor journey generation (start + end,
+    `allow_shortfall=True`, the AI may return fewer when a shorter bridge is natural).
+    The only way a non-shortfall call can fall short is if the AI independently
     reproduces an anchor among its own suggestions, retried once with all anchors
     explicitly forbidden.
     """
@@ -1459,7 +1477,9 @@ async def _anchored_other_tracks(
     attempt_prompt = prompt
     reproduced_track: dict | None = None
     for _ in range(2):
-        result = await _generate(attempt_prompt, other_count, options)
+        result = await _generate(
+            attempt_prompt, other_count, options, allow_shortfall=allow_shortfall
+        )
         match = next(
             (
                 track
@@ -1556,16 +1576,19 @@ def _journey_instruction(start: SeedTrack, end: SeedTrack, bridge_count: int) ->
     return (
         f"Build a playlist that creates a sensible musical journey from the starting "
         f"song '{start.title}' by {start.artists} to the ending song '{end.title}' by "
-        f"{end.artists}. Select {bridge_count} songs that form a deliberate step-by-step "
-        "bridge between them: each song must connect musically to its neighbors through "
-        "sound, instrumentation, mood, scene, or artist affinity, so every song sounds "
-        "like a plausible next step from the ones beside it, linking the starting song's "
-        "character to the ending song's character. Do not just pick songs similar to the "
-        "start or end in isolation; the sequence as a whole must read as one coherent "
-        "path. In each song's reason, explain concretely how it connects to its "
-        f"neighbors. Do not include '{start.title}' by {start.artists} or '{end.title}' "
-        f"by {end.artists} among your suggestions -- they are already placed as the "
-        "first and last track."
+        f"{end.artists}. Select up to {bridge_count} songs that form a deliberate "
+        "step-by-step bridge between them: each song must connect musically to its "
+        "neighbors through sound, instrumentation, mood, scene, or artist affinity, so "
+        "every song sounds like a plausible next step from the ones beside it, linking "
+        "the starting song's character to the ending song's character. Use as many "
+        "songs as the bridge genuinely needs and no more -- if the two songs are "
+        "already close in sound, a short bridge (or none at all) is correct; do not "
+        f"pad the list with extra songs just to approach {bridge_count}. Do not just "
+        "pick songs similar to the start or end in isolation; the sequence as a whole "
+        "must read as one coherent path. In each song's reason, explain concretely how "
+        f"it connects to its neighbors. Do not include '{start.title}' by "
+        f"{start.artists} or '{end.title}' by {end.artists} among your suggestions -- "
+        "they are already placed as the first and last track."
     )
 
 
@@ -1604,7 +1627,7 @@ async def _generate_from_journey_playlist(request: JourneyGenerateRequest) -> di
         raise ValueError(
             "Choose two different tracks for the start and end of the journey."
         )
-    bridge_count = request.track_count - 2
+    bridge_count = JOURNEY_MAX_TRACKS - 2
     prompt = _journey_instruction(start, end, bridge_count)
 
     # Halved from the single-anchor `_seed_lastfm_evidence_params` formula: fetching two
@@ -1626,7 +1649,11 @@ async def _generate_from_journey_playlist(request: JourneyGenerateRequest) -> di
     mode_token = _SEED_MODE.set("")
     try:
         result, _reproduced = await _anchored_other_tracks(
-            prompt, bridge_count, request.options, [start, end]
+            prompt,
+            bridge_count,
+            request.options,
+            [start, end],
+            allow_shortfall=True,
         )
     finally:
         _SEED_MODE.reset(mode_token)
