@@ -591,3 +591,36 @@ def test_energy_ordering_steady_ignores_chronological_direction(monkeypatch) -> 
         )
     )
     assert [track["title"] for track in result] == ["B", "A", "C"]
+
+
+def test_tag_compatible_is_fail_open_on_missing_evidence() -> None:
+    populated = ordering.LastfmTagEvidence(track_tags=("Rock",))
+    empty = ordering.LastfmTagEvidence()
+    assert ordering._tag_compatible(populated, empty) is True
+    assert ordering._tag_compatible(empty, populated) is True
+    assert ordering._tag_compatible(empty, empty) is True
+
+
+def test_tag_compatible_requires_shared_tag_when_both_populated() -> None:
+    rock = ordering.LastfmTagEvidence(track_tags=("Rock", "Alt-Rock"))
+    kpop = ordering.LastfmTagEvidence(track_tags=("K-Pop",))
+    shared = ordering.LastfmTagEvidence(track_tags=("rock", "dance"))
+    assert ordering._tag_compatible(rock, kpop) is False
+    assert ordering._tag_compatible(rock, shared) is True
+
+
+def test_tag_closeness_counts_normalized_shared_tags() -> None:
+    end = ordering.LastfmTagEvidence(track_tags=("Rock", "Alt-Rock", "90s"))
+    close = ordering.LastfmTagEvidence(track_tags=("rock", "alt rock"))
+    far = ordering.LastfmTagEvidence(track_tags=("jazz",))
+    assert ordering._tag_closeness(close, end) == 2
+    assert ordering._tag_closeness(far, end) == 0
+    assert ordering._tag_closeness(ordering.LastfmTagEvidence(), end) is None
+    assert ordering._tag_closeness(close, ordering.LastfmTagEvidence()) is None
+
+
+def test_audio_distance_uses_shared_dimensions_only() -> None:
+    a = ordering.ReccoBeatsAudioEvidence(energy=0.9, valence=0.5)
+    b = ordering.ReccoBeatsAudioEvidence(energy=0.1, valence=0.5)
+    assert ordering._audio_distance(a, b) == pytest.approx(0.5657, rel=1e-3)
+    assert ordering._audio_distance(a, ordering.ReccoBeatsAudioEvidence()) is None

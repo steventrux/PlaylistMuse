@@ -19,7 +19,13 @@ from backend.metadata_validation import (
     lookup_track_metadata,
     validate_candidate,
 )
-from backend.reccobeats_features import ReccoBeatsAudioEvidence, audio_evidence_for_track
+from backend.lastfm_tags import LastfmTagEvidence, tag_evidence_for_tracks
+from backend.reccobeats_features import (
+    ReccoBeatsAudioEvidence,
+    audio_evidence_for_track,
+    audio_evidence_for_tracks,
+)
+from backend.text_normalization import normalize_identity
 
 LOGGER = logging.getLogger("playlistmuse.performance")
 
@@ -34,6 +40,19 @@ EnergyOrder = Literal["increasing", "decreasing", "steady"]
 # batch, not a per-track timeout: any track whose fetch hasn't completed by the deadline
 # is treated as unmatched (same as a genuine ReccoBeats catalogue miss).
 _ENERGY_FETCH_BUDGET_SECONDS = 110.0
+
+# Solo le dimensioni ReccoBeats già su scala [0,1] comparabile. tempo (BPM) e loudness (dB)
+# sono esclusi: richiederebbero soglie di normalizzazione arbitrarie senza precedente nel
+# codice (vedi docs/superpowers/specs/2026-08-26-journey-proximity-ordering-design.md).
+_AUDIO_DISTANCE_DIMENSIONS = (
+    "danceability",
+    "energy",
+    "valence",
+    "liveness",
+    "acousticness",
+    "instrumentalness",
+    "speechiness",
+)
 
 _INCREASING_ENERGY_PATTERNS = (
     re.compile(r"\b(?:increasing|rising|building|growing)\b.{0,30}\benergy\b", re.I),
@@ -604,3 +623,51 @@ async def order_tracks_by_energy(
     for slot, index in zip(matched_indices, ordered_matched_indices, strict=True):
         result[slot] = tracks[index]
     return result
+
+
+def _tag_set(evidence: LastfmTagEvidence) -> frozenset[str]:
+    return frozenset(normalize_identity(tag) for tag in evidence.track_tags)
+
+
+def _tag_compatible(a: LastfmTagEvidence, b: LastfmTagEvidence) -> bool:
+    """Missing tag data on either side never blocks placement (fail-open)."""
+    if not a.available or not b.available:
+        return True
+    return bool(_tag_set(a) & _tag_set(b))
+
+
+def _tag_closeness(track: LastfmTagEvidence, end: LastfmTagEvidence) -> int | None:
+    if not track.available or not end.available:
+        return None
+    return len(_tag_set(track) & _tag_set(end))
+
+
+def _audio_distance(
+    a: ReccoBeatsAudioEvidence, b: ReccoBeatsAudioEvidence
+) -> float | None:
+    shared = [
+        dimension
+        for dimension in _AUDIO_DISTANCE_DIMENSIONS
+        if getattr(a, dimension) is not None and getattr(b, dimension) is not None
+    ]
+    if not shared:
+        return None
+    squared_diff_sum = sum(
+        (getattr(a, dimension) - getattr(b, dimension)) ** 2 for dimension in shared
+    )
+    return math.sqrt(squared_diff_sum / len(shared))
+
+
+def _nearest_by_audio(
+    prev_audio: ReccoBeatsAudioEvidence,
+    candidates: list[int],
+    audio: list[ReccoBeatsAudioEvidence],
+) -> int:
+    """Stable tie-break: audio-matched candidates win over unmatched ones; ties (or no
+    audio data at all among the candidates) keep the original relative order."""
+
+    def sort_key(index: int) -> tuple[int, float, int]:
+        distance = _audio_distance(prev_audio, audio[index])
+        return (0, distance, index) if distance is not None else (1, 0.0, index)
+
+    return min(candidates, key=sort_key)
