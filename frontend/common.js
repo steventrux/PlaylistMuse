@@ -114,7 +114,7 @@
     if (document.querySelector('link[href^="/static/lastfm.css"]')) return;
     const stylesheet = document.createElement('link');
     stylesheet.rel = 'stylesheet';
-    stylesheet.href = '/static/lastfm.css?v=3';
+    stylesheet.href = '/static/lastfm.css?v=4';
     document.head.append(stylesheet);
   }
 

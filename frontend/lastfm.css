@@ -6,6 +6,10 @@
   fill: currentColor;
 }
 
+.header-indicator.lastfm.on .lastfm-mark {
+  color: #d51007;
+}
+
 .lastfm-settings-panel .settings-fields {
   margin-top: 0;
 }

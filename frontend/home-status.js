@@ -158,7 +158,7 @@
 
   function ensureStatusStyles() {
     ensureStylesheet('/static/layout.css', '/static/layout.css?v=7');
-    ensureStylesheet('/static/header-navigation.css', '/static/header-navigation.css?v=23');
+    ensureStylesheet('/static/header-navigation.css', '/static/header-navigation.css?v=24');
     ensureStylesheet('/static/settings-dialog.css', '/static/settings-dialog.css?v=12');
   }
 

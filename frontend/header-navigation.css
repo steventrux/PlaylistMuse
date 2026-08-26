@@ -328,9 +328,10 @@ body.sidebar-open .playlistmuse-sidebar {
   content: "Checking…";
 }
 
-/* Every integration card uses the same green/red status language -- no
-   per-service branding -- so "configured" and "not configured" read
-   identically across AI, YouTube Music and Last.fm. */
+/* The card chrome (border/background/pill) uses the same green/red status
+   language for every integration -- but the icon glyph itself keeps each
+   service's own natural/brand color (set per-service, e.g. lastfm.css),
+   not forced to the status color. */
 .playlistmuse-sidebar .header-indicator.on {
   border-color: rgba(74, 222, 128, .38);
   background: rgba(22, 101, 52, .1);
@@ -338,7 +339,6 @@ body.sidebar-open .playlistmuse-sidebar {
 
 .playlistmuse-sidebar .header-indicator.on svg {
   background: rgba(74, 222, 128, .16);
-  color: var(--success-text);
 }
 
 .playlistmuse-sidebar .header-indicator.on::after {
@@ -358,7 +358,6 @@ body.sidebar-open .playlistmuse-sidebar {
 .playlistmuse-sidebar .header-indicator.off svg,
 .playlistmuse-sidebar .header-indicator.error svg {
   background: rgba(251, 113, 133, .16);
-  color: var(--error-text);
 }
 
 .playlistmuse-sidebar .header-indicator.off::after {

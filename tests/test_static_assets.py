@@ -59,8 +59,8 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     index = _html("index.html")
     playlist = _html("playlist.html")
     settings = _html("settings.html")
-    common = '<script src="/static/common.js?v=21"></script>'
-    home_status = '<script src="/static/home-status.js?v=36"></script>'
+    common = '<script src="/static/common.js?v=22"></script>'
+    home_status = '<script src="/static/home-status.js?v=37"></script>'
     generation_state = '<script src="/static/generation-state.js?v=5"></script>'
     app = '<script src="/static/app.js?v=23"></script>'
 
@@ -79,7 +79,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
 
     playlist_home_status = (
         '<script data-playlistmuse-footer-status '
-        'src="/static/home-status.js?v=36"></script>'
+        'src="/static/home-status.js?v=37"></script>'
     )
     assert playlist.index(common) < playlist.index(
         '<script src="/static/playlist.js?v=26"></script>'
@@ -235,8 +235,8 @@ def test_header_uses_exact_uploaded_banner() -> None:
     brand = _style("brand.css")
     banner = (FRONTEND / "playlistmuse-banner.svg").read_bytes()
 
-    assert '/static/home-status.js?v=36' in index
-    assert '/static/home-status.js?v=36' in playlist
+    assert '/static/home-status.js?v=37' in index
+    assert '/static/home-status.js?v=37' in playlist
     assert "const HEADER_BANNER_URL = '/static/playlistmuse-banner.svg?v=1';" in status
     assert "function installBrandBanner()" in status
     assert "header.querySelector('.brand-banner')" in status
@@ -350,7 +350,7 @@ def test_results_page_opens_ai_settings_via_shared_navigation_helper() -> None:
     assert 'id="youtube-settings-dialog"' not in playlist
     assert '/static/ai-results-settings.js' not in playlist
     assert '/static/ai-settings.js' not in playlist
-    assert '/static/home-status.js?v=36' in playlist
+    assert '/static/home-status.js?v=37' in playlist
     assert "window.PlaylistMuseCommon.openSettings(section);" in status
 
 

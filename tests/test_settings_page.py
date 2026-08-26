@@ -36,7 +36,7 @@ def test_settings_page_is_a_standalone_page_like_statistics_and_diagnostics() ->
 
     assert '<header class="app-header">' in html
     assert 'id="settings-close"' not in html
-    assert '/static/home-status.js?v=36' in html
+    assert '/static/home-status.js?v=37' in html
     assert "settings-embedded" not in html
     assert "settings-embedded" not in script
     assert "settings-embedded" not in style
