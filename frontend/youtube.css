@@ -135,12 +135,12 @@
   padding: 15px 17px;
   border: 1px solid rgba(251, 113, 133, .48);
   border-radius: 16px;
-  background: linear-gradient(135deg, rgba(82, 22, 48, .56), rgba(28, 24, 59, .7));
+  background: var(--error-bg);
   box-shadow: 0 12px 30px rgba(35, 8, 26, .18);
 }
 
 .youtube-publish-warning strong {
-  color: #fecdd3;
+  color: var(--error-text);
   font-size: .94rem;
 }
 

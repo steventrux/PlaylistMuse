@@ -79,7 +79,7 @@ input::placeholder,
   gap: 6px;
   padding: 5px;
   border: 1px solid rgba(169, 155, 255, .2);
-  background: #090c1b;
+  background: var(--tab-strip-bg);
   box-shadow: none;
 }
 

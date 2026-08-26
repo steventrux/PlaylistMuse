@@ -78,7 +78,7 @@ def test_results_page_reuses_shared_navigation_controls_and_card_palette() -> No
     assert 'class="playlist-toolbar"' not in html
     assert 'class="secondary new-playlist-link"' not in html
     assert ".new-playlist-link" not in header_style
-    assert "background: rgba(21, 26, 51, .86);" in card_style
+    assert "background: var(--item-bg-hover);" in card_style
     assert "box-shadow: none;" in card_style
     assert "linear-gradient(" not in card_style
 

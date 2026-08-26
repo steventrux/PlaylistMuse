@@ -167,7 +167,7 @@
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 15px;
-  background: rgba(8, 11, 27, .72);
+  background: var(--item-bg);
   box-shadow: none;
   cursor: pointer;
   transition:
@@ -181,7 +181,7 @@
 /* Use the same restrained hover treatment as search result cards. */
 .library-item:hover {
   border-color: rgba(183, 156, 255, .38);
-  background: rgba(21, 26, 51, .86);
+  background: var(--item-bg-hover);
   box-shadow: none;
 }
 
@@ -269,7 +269,7 @@
   border-radius: 999px;
   padding: 3px 8px;
   color: var(--text-muted);
-  background: rgba(24, 29, 57, .8);
+  background: var(--bg-elevated);
   font-size: .68rem;
   font-weight: 850;
   letter-spacing: .07em;
