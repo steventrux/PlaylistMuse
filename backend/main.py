@@ -45,6 +45,7 @@ from backend.metadata_validation import extract_metadata_constraints
 from backend.playlist_ordering import (
     chronological_order_from_payload,
     energy_order_from_payload,
+    order_journey_tracks_by_proximity,
     order_tracks_by_energy,
     order_tracks_by_release_date,
 )
@@ -1706,6 +1707,12 @@ async def _generate_from_journey_playlist(request: JourneyGenerateRequest) -> di
         "It anchors the end of the path; every previous track bridged toward this "
         "destination."
     )
+
+    result["tracks"] = await order_journey_tracks_by_proximity(
+        start_payload, result["tracks"], end_payload
+    )
+    for track in result["tracks"]:
+        track.pop("reason", None)
 
     result["tracks"] = [start_payload, *result["tracks"], end_payload]
     result["resolved_count"] = len(result["tracks"])

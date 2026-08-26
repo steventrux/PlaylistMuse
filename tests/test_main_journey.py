@@ -7,6 +7,8 @@ import backend.main as main_module
 from backend.main import JourneyGenerateRequest
 from backend.playlist_ordering import _local_chronological_order, _local_energy_order
 from backend.youtube import track_identity_key
+import backend.playlist_ordering as ordering_module
+from backend.reccobeats_features import ReccoBeatsAudioEvidence
 
 
 def _journey_request(**overrides) -> dict:
@@ -142,6 +144,11 @@ def test_generate_from_journey_playlist_pins_anchors_and_merges_evidence(monkeyp
     monkeypatch.setattr(main_module, "similar_track_candidates", fake_similar)
     monkeypatch.setattr(main_module, "_generate", fake_generate)
 
+    async def passthrough_order(start, middle, end):
+        return middle
+
+    monkeypatch.setattr(main_module, "order_journey_tracks_by_proximity", passthrough_order)
+
     request = main_module.JourneyGenerateRequest(**_journey_request())
     result = asyncio.run(main_module._generate_from_journey_playlist(request))
 
@@ -183,6 +190,11 @@ def test_generate_from_journey_playlist_degrades_gracefully_without_lastfm(monke
 
     monkeypatch.setattr(main_module, "similar_track_candidates", fake_similar)
     monkeypatch.setattr(main_module, "_generate", fake_generate)
+
+    async def passthrough_order(start, middle, end):
+        return middle
+
+    monkeypatch.setattr(main_module, "order_journey_tracks_by_proximity", passthrough_order)
 
     request = main_module.JourneyGenerateRequest(**_journey_request())
     result = asyncio.run(main_module._generate_from_journey_playlist(request))
@@ -226,6 +238,12 @@ def test_journey_generation_drops_anchor_duplicate_without_a_second_attempt(
         return {"title": "Journey", "description": "A path.", "tracks": tracks}
 
     monkeypatch.setattr(main_module, "_generate", fake_generate)
+
+    async def passthrough_order(start, middle, end):
+        return middle
+
+    monkeypatch.setattr(main_module, "order_journey_tracks_by_proximity", passthrough_order)
+
     client = TestClient(main_module.app)
     response = client.post("/api/playlists/generate-from-journey", json=_journey_request())
 
@@ -339,6 +357,11 @@ def test_generate_from_journey_playlist_passes_balanced_evidence_into_the_prompt
     monkeypatch.setattr(main_module, "similar_track_candidates", fake_similar)
     monkeypatch.setattr(main_module, "_generate", fake_generate)
 
+    async def passthrough_order(start, middle, end):
+        return middle
+
+    monkeypatch.setattr(main_module, "order_journey_tracks_by_proximity", passthrough_order)
+
     request = main_module.JourneyGenerateRequest(**_journey_request())
     asyncio.run(main_module._generate_from_journey_playlist(request))
 
@@ -403,3 +426,101 @@ def test_journey_instruction_demands_monotonic_convergence_toward_the_ending_son
     assert "closer to the ending song than the song right before it did" in instruction
     assert "jumping back and forth between styles or eras" in instruction
     assert "leans back toward the starting song's character" in instruction
+
+
+def test_generate_from_journey_playlist_reorders_bridge_and_strips_reason(monkeypatch) -> None:
+    """Verifies the wiring in isolation from algorithm correctness: whatever
+    order_journey_tracks_by_proximity returns lands in the final assembled playlist,
+    and `reason` is stripped from every middle track regardless."""
+
+    async def fake_similar(artist, title, *, limit, broaden=False, api_key=None, client=None):
+        return []
+
+    async def fake_generate(prompt, count, options, *, allow_shortfall=False):
+        return {
+            "title": "Journey",
+            "description": "A path.",
+            "tracks": [
+                {"artist": "X", "title": "B-far", "description": "d", "reason": "r"},
+                {"artist": "X", "title": "A-near", "description": "d", "reason": "r"},
+            ],
+        }
+
+    async def fake_reorder(start, middle, end):
+        # Simulate a real reorder: reverse the AI's order.
+        return list(reversed(middle))
+
+    monkeypatch.setattr(main_module, "similar_track_candidates", fake_similar)
+    monkeypatch.setattr(main_module, "_generate", fake_generate)
+    monkeypatch.setattr(main_module, "order_journey_tracks_by_proximity", fake_reorder)
+
+    request = main_module.JourneyGenerateRequest(**_journey_request())
+    result = asyncio.run(main_module._generate_from_journey_playlist(request))
+
+    middle_titles = [t["title"] for t in result["tracks"][1:-1]]
+    assert middle_titles == ["A-near", "B-far"]
+    assert all("reason" not in t for t in result["tracks"][1:-1])
+    assert result["tracks"][0]["reason"]
+    assert result["tracks"][-1]["reason"]
+
+
+def test_generate_from_journey_playlist_wires_real_proximity_ordering_end_to_end(
+    monkeypatch,
+) -> None:
+    """Full chain, mocked only at the Last.fm/ReccoBeats network boundary (not at
+    order_journey_tracks_by_proximity itself): proves the real algorithm from Task 1,
+    driven through the real payload shapes _generate_from_journey_playlist builds,
+    produces the reordered result that reaches the final assembled playlist. Same
+    genre-gate-over-audio-closeness scenario as
+    test_journey_proximity_ordering_prefers_tag_compatible_neighbor_over_closer_audio_match
+    in tests/test_playlist_ordering.py, driven end-to-end instead of unit-level."""
+
+    async def fake_similar(artist, title, *, limit, broaden=False, api_key=None, client=None):
+        return []
+
+    async def fake_generate(prompt, count, options, *, allow_shortfall=False):
+        return {
+            "title": "Journey",
+            "description": "A path.",
+            "tracks": [
+                {
+                    "artist": "Y",
+                    "title": "B-audio-close-but-disjoint-tags",
+                    "description": "d",
+                    "reason": "r",
+                },
+                {"artist": "X", "title": "A-compatible", "description": "d", "reason": "r"},
+            ],
+        }
+
+    tags_by_title = {
+        "Start Song": ordering_module.LastfmTagEvidence(track_tags=("rock",)),
+        "End Song": ordering_module.LastfmTagEvidence(track_tags=("rock",)),
+        "A-compatible": ordering_module.LastfmTagEvidence(track_tags=("rock",)),
+        "B-audio-close-but-disjoint-tags": ordering_module.LastfmTagEvidence(
+            track_tags=("kpop",)
+        ),
+    }
+    audio_by_title = {
+        "Start Song": ReccoBeatsAudioEvidence(energy=0.5),
+        "End Song": ReccoBeatsAudioEvidence(energy=0.5),
+        "A-compatible": ReccoBeatsAudioEvidence(energy=0.9),
+        "B-audio-close-but-disjoint-tags": ReccoBeatsAudioEvidence(energy=0.5),
+    }
+
+    async def fake_tags(tracks):
+        return [tags_by_title[t["title"]] for t in tracks]
+
+    async def fake_audio(tracks):
+        return [audio_by_title[t["title"]] for t in tracks]
+
+    monkeypatch.setattr(main_module, "similar_track_candidates", fake_similar)
+    monkeypatch.setattr(main_module, "_generate", fake_generate)
+    monkeypatch.setattr(ordering_module, "tag_evidence_for_tracks", fake_tags)
+    monkeypatch.setattr(ordering_module, "audio_evidence_for_tracks", fake_audio)
+
+    request = main_module.JourneyGenerateRequest(**_journey_request())
+    result = asyncio.run(main_module._generate_from_journey_playlist(request))
+
+    middle_titles = [t["title"] for t in result["tracks"][1:-1]]
+    assert middle_titles == ["A-compatible", "B-audio-close-but-disjoint-tags"]
