@@ -10,7 +10,7 @@ def test_shared_frontend_loader_only_adds_lastfm_styles() -> None:
     script = (FRONTEND / "common.js").read_text(encoding="utf-8")
 
     assert "function ensureLastFmStyles()" in script
-    assert "/static/lastfm.css?v=1" in script
+    assert "/static/lastfm.css?v=2" in script
     assert "ensureLastFmStyles();" in script
     assert "function loadScript(" not in script
     assert "/static/lastfm-settings.js" not in script

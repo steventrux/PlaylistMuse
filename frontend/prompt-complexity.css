@@ -120,7 +120,7 @@
   height: 4px;
   margin: 12px 0 10px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #4ade80 0%, #fbbf24 50%, #fb7185 100%);
+  background: linear-gradient(90deg, var(--success) 0%, var(--warning) 50%, var(--error) 100%);
 }
 
 .prompt-complexity-meter span {
@@ -129,7 +129,7 @@
   left: var(--complexity-score);
   width: 10px;
   height: 10px;
-  border: 2px solid #f8f7ff;
+  border: 2px solid var(--text-primary);
   border-radius: 50%;
   background: var(--complexity-color);
   box-shadow: 0 0 0 2px rgba(8, 11, 27, .9);
@@ -144,7 +144,7 @@
 .prompt-clarity {
   display: block;
   margin-top: 5px;
-  color: #86efac;
+  color: var(--success-text);
 }
 
 .prompt-complexity-performance {
@@ -155,7 +155,7 @@
   padding: 8px 0 0;
   border-top: 1px solid rgba(148, 163, 184, .18);
   list-style: none;
-  color: #fbbf24;
+  color: var(--warning);
   font-size: .74rem;
   line-height: 1.4;
 }

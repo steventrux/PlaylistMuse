@@ -158,8 +158,8 @@
 
   function ensureStatusStyles() {
     ensureStylesheet('/static/layout.css', '/static/layout.css?v=7');
-    ensureStylesheet('/static/header-navigation.css', '/static/header-navigation.css?v=21');
-    ensureStylesheet('/static/settings-dialog.css', '/static/settings-dialog.css?v=11');
+    ensureStylesheet('/static/header-navigation.css', '/static/header-navigation.css?v=22');
+    ensureStylesheet('/static/settings-dialog.css', '/static/settings-dialog.css?v=12');
   }
 
   function currentPage() {

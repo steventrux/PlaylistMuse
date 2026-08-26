@@ -64,7 +64,7 @@ def test_settings_page_reuses_shared_button_components() -> None:
     settings_html = (FRONTEND / "settings.html").read_text(encoding="utf-8")
     settings_styles = (FRONTEND / "settings-page.css").read_text(encoding="utf-8")
 
-    assert '<link rel="stylesheet" href="/static/controls.css?v=10">' in settings_html
+    assert '<link rel="stylesheet" href="/static/controls.css?v=11">' in settings_html
     assert 'id="settings-close"' not in settings_html
     assert "settings-close-button" not in settings_html
     assert ".settings-close-button" not in settings_styles

@@ -62,8 +62,8 @@
   padding: 0 11px;
   border: 1px solid transparent;
   border-radius: 8px;
-  background: #151a33;
-  color: #b8bdd2;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
   font-size: .78rem;
   font-weight: 760;
   line-height: 1;
@@ -83,8 +83,8 @@
 
 .library-filter.active,
 .library-filter.active:hover {
-  border-color: #8b5cf6;
-  background: #8b5cf6;
+  border-color: var(--violet);
+  background: var(--violet);
   color: #fff;
   transform: none;
 }
@@ -278,7 +278,7 @@
 
 .library-status-badge.published {
   border-color: rgba(74, 222, 128, .42);
-  color: #86efac;
+  color: var(--success-text);
   background: rgba(22, 101, 52, .16);
 }
 
@@ -442,7 +442,7 @@
 }
 
 .library-delete {
-  color: #fda4af;
+  color: var(--error-text);
 }
 
 .library-error {
@@ -478,8 +478,8 @@
   padding: 0 8px;
   border: 1px solid rgba(169, 155, 255, .2);
   border-radius: 9px;
-  background: #151a33;
-  color: #b8bdd2;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
 }
 
 .library-page-number:hover {
@@ -490,8 +490,8 @@
 
 .library-page-number.active,
 .library-page-number.active:hover {
-  border-color: #8b5cf6;
-  background: #8b5cf6;
+  border-color: var(--violet);
+  background: var(--violet);
   color: #fff;
 }
 

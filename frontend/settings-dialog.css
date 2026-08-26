@@ -59,7 +59,7 @@
   border: 1px solid rgba(251, 191, 36, .36);
   border-radius: 10px;
   background: rgba(120, 74, 8, .12);
-  color: #fde68a;
+  color: var(--warning-text);
   font-size: 1rem;
   font-weight: 800;
   line-height: 1.35;
@@ -83,7 +83,7 @@
 .settings-dialog-card .settings-state.ok {
   border-color: rgba(52, 211, 153, .35);
   background: rgba(6, 78, 59, .2);
-  color: #86efac;
+  color: var(--success-text);
 }
 
 .settings-dialog-card .ai-active-status.ok::before,
@@ -98,7 +98,7 @@
 .settings-dialog-card .settings-state.error {
   border-color: rgba(251, 113, 133, .4);
   background: rgba(127, 29, 29, .2);
-  color: #fda4af;
+  color: var(--error-text);
 }
 
 .settings-dialog-card .ai-active-status.error::before,

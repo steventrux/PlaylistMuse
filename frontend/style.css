@@ -29,8 +29,103 @@
   --success: #4ade80;
   --warning: #fbbf24;
 
+  --success-text: #86efac;
+  --success-bg: rgba(22, 101, 52, .18);
+  --warning-text: #fde68a;
+  --warning-bg: rgba(146, 64, 14, .15);
+  --error-text: #fda4af;
+  --error-bg: rgba(159, 18, 57, .16);
+
+  --page-gradient:
+    radial-gradient(circle at 12% -10%, rgba(139, 92, 246, .28), transparent 34rem),
+    radial-gradient(circle at 92% 6%, rgba(236, 72, 153, .18), transparent 30rem),
+    radial-gradient(circle at 52% 105%, rgba(56, 189, 248, .14), transparent 36rem),
+    linear-gradient(180deg, #090b1a 0%, var(--bg-primary) 48%, #060711 100%);
+  --page-grid-opacity: .23;
+  --page-grid-line: rgba(255, 255, 255, .018);
+
   background: var(--bg-primary);
   color: var(--text-primary);
+}
+
+/* Light palette: applied when the OS prefers light and no manual override is
+   set ([data-theme] absent/"light"/"auto"), or when the user manually picks
+   "Light" from the sidebar theme toggle (installThemeToggle() in common.js). */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg-primary: #f6f6fb;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #edeef7;
+    --bg-elevated: #ffffff;
+    --bg-hover: #e7e8f4;
+    --field-bg: #ffffff;
+
+    --violet-light: #7c3aed;
+    --text-primary: #14162a;
+    --text-secondary: #4b4f6b;
+    --text-muted: #6b7094;
+    --border: rgba(90, 70, 160, .16);
+    --border-strong: rgba(90, 70, 160, .38);
+    --shadow: 0 24px 60px rgba(80, 60, 160, .10);
+    --glow: 0 0 0 1px rgba(90, 70, 160, .07), 0 18px 40px rgba(80, 42, 160, .06);
+
+    --error: #dc2626;
+    --success: #15803d;
+    --warning: #b45309;
+
+    --success-text: #15803d;
+    --success-bg: rgba(187, 247, 208, .55);
+    --warning-text: #b45309;
+    --warning-bg: rgba(254, 240, 199, .6);
+    --error-text: #dc2626;
+    --error-bg: rgba(254, 205, 211, .5);
+
+    --page-gradient:
+      radial-gradient(circle at 12% -10%, rgba(139, 92, 246, .12), transparent 34rem),
+      radial-gradient(circle at 92% 6%, rgba(236, 72, 153, .10), transparent 30rem),
+      radial-gradient(circle at 52% 105%, rgba(56, 189, 248, .08), transparent 36rem),
+      linear-gradient(180deg, #ffffff 0%, var(--bg-primary) 60%, #f0f1fa 100%);
+    --page-grid-opacity: .5;
+    --page-grid-line: rgba(20, 22, 42, .035);
+  }
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg-primary: #f6f6fb;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #edeef7;
+  --bg-elevated: #ffffff;
+  --bg-hover: #e7e8f4;
+  --field-bg: #ffffff;
+
+  --violet-light: #7c3aed;
+  --text-primary: #14162a;
+  --text-secondary: #4b4f6b;
+  --text-muted: #6b7094;
+  --border: rgba(90, 70, 160, .16);
+  --border-strong: rgba(90, 70, 160, .38);
+  --shadow: 0 24px 60px rgba(80, 60, 160, .10);
+  --glow: 0 0 0 1px rgba(90, 70, 160, .07), 0 18px 40px rgba(80, 42, 160, .06);
+
+  --error: #dc2626;
+  --success: #15803d;
+  --warning: #b45309;
+
+  --success-text: #15803d;
+  --success-bg: rgba(187, 247, 208, .55);
+  --warning-text: #b45309;
+  --warning-bg: rgba(254, 240, 199, .6);
+  --error-text: #dc2626;
+  --error-bg: rgba(254, 205, 211, .5);
+
+  --page-gradient:
+    radial-gradient(circle at 12% -10%, rgba(139, 92, 246, .12), transparent 34rem),
+    radial-gradient(circle at 92% 6%, rgba(236, 72, 153, .10), transparent 30rem),
+    radial-gradient(circle at 52% 105%, rgba(56, 189, 248, .08), transparent 36rem),
+    linear-gradient(180deg, #ffffff 0%, var(--bg-primary) 60%, #f0f1fa 100%);
+  --page-grid-opacity: .5;
+  --page-grid-line: rgba(20, 22, 42, .035);
 }
 
 * { box-sizing: border-box; }
@@ -39,11 +134,7 @@ body {
   margin: 0;
   min-height: 100vh;
   color: var(--text-primary);
-  background:
-    radial-gradient(circle at 12% -10%, rgba(139, 92, 246, .28), transparent 34rem),
-    radial-gradient(circle at 92% 6%, rgba(236, 72, 153, .18), transparent 30rem),
-    radial-gradient(circle at 52% 105%, rgba(56, 189, 248, .14), transparent 36rem),
-    linear-gradient(180deg, #090b1a 0%, var(--bg-primary) 48%, #060711 100%);
+  background: var(--page-gradient);
   background-attachment: fixed;
 }
 body::before {
@@ -51,10 +142,10 @@ body::before {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  opacity: .23;
+  opacity: var(--page-grid-opacity);
   background-image:
-    linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px);
+    linear-gradient(var(--page-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--page-grid-line) 1px, transparent 1px);
   background-size: 42px 42px;
   mask-image: linear-gradient(to bottom, black, transparent 75%);
 }
@@ -127,11 +218,21 @@ h1, h2, h3, p { margin-top: 0; }
   letter-spacing: .05em;
 }
 .status-badge.pending { opacity: .72; }
-.status-badge.ok { border-color: rgba(74, 222, 128, .55); color: #86efac; background: rgba(22, 101, 52, .18); }
-.status-badge.warn { border-color: rgba(251, 191, 36, .55); color: #fde68a; background: rgba(146, 64, 14, .15); }
-.status-badge.error { border-color: rgba(251, 113, 133, .55); color: #fda4af; background: rgba(159, 18, 57, .16); }
+.status-badge.ok { border-color: rgba(74, 222, 128, .55); color: var(--success-text); background: var(--success-bg); }
+.status-badge.warn { border-color: rgba(251, 191, 36, .55); color: var(--warning-text); background: var(--warning-bg); }
+/* .status-badge.error is fully superseded by controls.css (loaded after this
+   file on every page, same selector, every property re-declared there). */
 
 main { padding-bottom: 64px; }
+
+/* The create-playlist page (the only page whose <main> wraps a bare .hero.card)
+   otherwise leaves a large empty gap below the card on tall viewports; center
+   it in the remaining space instead of adding new content. */
+main:has(> .hero.card) {
+  display: flex;
+  align-items: center;
+  min-height: calc(100dvh - 210px);
+}
 
 .card, .dialog-card {
   position: relative;
@@ -203,7 +304,6 @@ textarea:focus, input:focus, select:focus {
   background: rgba(10, 13, 31, .96);
   box-shadow: 0 0 0 3px rgba(139, 92, 246, .17), 0 10px 30px rgba(40, 20, 90, .13);
 }
-select { color-scheme: dark; }
 .inline input { flex: 1; }
 .grid { display: grid; }
 .compact-filters { grid-template-columns: 130px; margin-top: 19px; }
@@ -303,7 +403,7 @@ dialog::backdrop { background: rgba(2, 3, 12, .82); backdrop-filter: blur(8px); 
 .settings-block:last-child { border-bottom: 0; padding-bottom: 0; }
 .settings-block h3 { margin-bottom: 6px; }
 .settings-status { margin-bottom: 16px; color: var(--text-secondary); font-size: .9rem; }
-.settings-status.ok { color: #86efac; }
+.settings-status.ok { color: var(--success-text); }
 .settings-fields { display: grid; gap: 16px; }
 .provider-help { margin: -8px 0 0; }
 .fallback-row { display: grid; grid-template-columns: auto 1fr auto 1fr; align-items: center; gap: 9px; }

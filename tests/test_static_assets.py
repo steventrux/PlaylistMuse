@@ -59,8 +59,8 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     index = _html("index.html")
     playlist = _html("playlist.html")
     settings = _html("settings.html")
-    common = '<script src="/static/common.js?v=18"></script>'
-    home_status = '<script src="/static/home-status.js?v=34"></script>'
+    common = '<script src="/static/common.js?v=19"></script>'
+    home_status = '<script src="/static/home-status.js?v=35"></script>'
     generation_state = '<script src="/static/generation-state.js?v=5"></script>'
     app = '<script src="/static/app.js?v=23"></script>'
 
@@ -79,7 +79,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
 
     playlist_home_status = (
         '<script data-playlistmuse-footer-status '
-        'src="/static/home-status.js?v=34"></script>'
+        'src="/static/home-status.js?v=35"></script>'
     )
     assert playlist.index(common) < playlist.index(
         '<script src="/static/playlist.js?v=26"></script>'
@@ -109,8 +109,8 @@ def test_prompt_complexity_uses_compact_icon_popover() -> None:
     style = _style("style.css")
     complexity_style = _style("prompt-complexity.css")
 
-    assert '<link rel="stylesheet" href="/static/style.css?v=10">' in index
-    assert '<link rel="stylesheet" href="/static/prompt-complexity.css?v=4">' in index
+    assert '<link rel="stylesheet" href="/static/style.css?v=11">' in index
+    assert '<link rel="stylesheet" href="/static/prompt-complexity.css?v=5">' in index
     assert '<script src="/static/prompt-complexity.js?v=10"></script>' in index
     assert 'id="prompt-complexity-trigger"' in index
     assert '<div class="prompt-label-row">' in index
@@ -235,8 +235,8 @@ def test_header_uses_exact_uploaded_banner() -> None:
     brand = _style("brand.css")
     banner = (FRONTEND / "playlistmuse-banner.svg").read_bytes()
 
-    assert '/static/home-status.js?v=34' in index
-    assert '/static/home-status.js?v=34' in playlist
+    assert '/static/home-status.js?v=35' in index
+    assert '/static/home-status.js?v=35' in playlist
     assert "const HEADER_BANNER_URL = '/static/playlistmuse-banner.svg?v=1';" in status
     assert "function installBrandBanner()" in status
     assert "header.querySelector('.brand-banner')" in status
@@ -350,7 +350,7 @@ def test_results_page_opens_ai_settings_via_shared_navigation_helper() -> None:
     assert 'id="youtube-settings-dialog"' not in playlist
     assert '/static/ai-results-settings.js' not in playlist
     assert '/static/ai-settings.js' not in playlist
-    assert '/static/home-status.js?v=34' in playlist
+    assert '/static/home-status.js?v=35' in playlist
     assert "window.PlaylistMuseCommon.openSettings(section);" in status
 
 

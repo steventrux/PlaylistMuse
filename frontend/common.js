@@ -114,7 +114,7 @@
     if (document.querySelector('link[href^="/static/lastfm.css"]')) return;
     const stylesheet = document.createElement('link');
     stylesheet.rel = 'stylesheet';
-    stylesheet.href = '/static/lastfm.css?v=1';
+    stylesheet.href = '/static/lastfm.css?v=2';
     document.head.append(stylesheet);
   }
 
@@ -229,9 +229,104 @@
     else sidebarNav.append(group);
   }
 
+  const THEME_STORAGE_KEY = 'playlistmuse-theme';
+  const THEME_OPTIONS = [
+    {value: 'system', label: 'System'},
+    {value: 'light', label: 'Light'},
+    {value: 'dark', label: 'Dark'},
+  ];
+
+  function ensureThemeToggleStyles() {
+    if (document.querySelector('link[href^="/static/theme-toggle.css"]')) return;
+    const stylesheet = document.createElement('link');
+    stylesheet.rel = 'stylesheet';
+    stylesheet.href = '/static/theme-toggle.css?v=1';
+    document.head.append(stylesheet);
+  }
+
+  function storedTheme() {
+    try {
+      const value = window.localStorage.getItem(THEME_STORAGE_KEY);
+      return value === 'light' || value === 'dark' ? value : 'system';
+    } catch {
+      return 'system';
+    }
+  }
+
+  // The inline anti-flash script in <head> already stamps data-theme for a
+  // stored light/dark choice before first paint; this keeps it in sync after
+  // a toggle click and also drives the mobile browser-chrome theme-color.
+  function applyTheme(value) {
+    if (value === 'light' || value === 'dark') {
+      document.documentElement.setAttribute('data-theme', value);
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (!meta) return;
+    const isLight = value === 'light'
+      || (value === 'system' && window.matchMedia('(prefers-color-scheme: light)').matches);
+    meta.setAttribute('content', isLight ? '#f6f6fb' : '#070916');
+  }
+
+  function installThemeToggle() {
+    const sidebarNav = document.querySelector('.playlistmuse-sidebar .sidebar-nav');
+    if (!sidebarNav || sidebarNav.querySelector('[data-theme-option]')) return;
+
+    ensureThemeToggleStyles();
+
+    const current = storedTheme();
+    applyTheme(current);
+
+    const group = document.createElement('section');
+    group.className = 'sidebar-group';
+    group.setAttribute('aria-labelledby', 'sidebar-appearance-label');
+    group.innerHTML = `
+      <p id="sidebar-appearance-label" class="sidebar-group-label">Appearance</p>
+      <div class="theme-toggle" role="radiogroup" aria-labelledby="sidebar-appearance-label">
+        ${THEME_OPTIONS.map((option) => `
+          <button
+            type="button"
+            class="theme-toggle-option${option.value === current ? ' active' : ''}"
+            data-theme-option="${option.value}"
+            role="radio"
+            aria-checked="${option.value === current}"
+          >${option.label}</button>
+        `).join('')}
+      </div>
+    `;
+
+    group.querySelectorAll('[data-theme-option]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const value = button.dataset.themeOption;
+        try {
+          if (value === 'system') window.localStorage.removeItem(THEME_STORAGE_KEY);
+          else window.localStorage.setItem(THEME_STORAGE_KEY, value);
+        } catch {
+          // Storage unavailable (private browsing, disabled cookies) -- the
+          // theme still applies for this page load, it just won't persist.
+        }
+        applyTheme(value);
+        group.querySelectorAll('[data-theme-option]').forEach((other) => {
+          const isActive = other === button;
+          other.classList.toggle('active', isActive);
+          other.setAttribute('aria-checked', String(isActive));
+        });
+      });
+    });
+
+    // Keep Appearance as the last group, right above the footer.
+    const supportGroup = sidebarNav.querySelector('[aria-labelledby="sidebar-support-label"]');
+    const libraryGroup = sidebarNav.querySelector('[aria-labelledby="sidebar-library-label"]');
+    if (supportGroup) supportGroup.after(group);
+    else if (libraryGroup) libraryGroup.after(group);
+    else sidebarNav.append(group);
+  }
+
   function initializeEnhancements() {
     installPrimaryNavigation();
     installSupportNavigation();
+    installThemeToggle();
     ensureLastFmStyles();
   }
 

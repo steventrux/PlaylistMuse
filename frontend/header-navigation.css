@@ -335,7 +335,7 @@ body.sidebar-open .playlistmuse-sidebar {
 .playlistmuse-sidebar .header-indicator.on::after {
   content: "Configured";
   background: rgba(74, 222, 128, .14);
-  color: #86efac;
+  color: var(--success-text);
 }
 
 .playlistmuse-sidebar .header-indicator.off {
@@ -352,7 +352,7 @@ body.sidebar-open .playlistmuse-sidebar {
 .playlistmuse-sidebar .header-indicator.off::after {
   content: "Not configured";
   background: rgba(251, 191, 36, .12);
-  color: #fde68a;
+  color: var(--warning-text);
 }
 
 .playlistmuse-sidebar .header-indicator.error {
@@ -367,7 +367,7 @@ body.sidebar-open .playlistmuse-sidebar {
 .playlistmuse-sidebar .header-indicator.error::after {
   content: "Configuration error";
   background: rgba(251, 113, 133, .14);
-  color: #fda4af;
+  color: var(--error-text);
 }
 
 /* The active AI row exposes which provider is actually in use; the label itself
@@ -412,7 +412,7 @@ body.sidebar-open .playlistmuse-sidebar {
 }
 
 .sidebar-build-version--update {
-  color: #fde68a;
+  color: var(--warning-text);
 }
 
 .sidebar-update-badge {
@@ -426,7 +426,7 @@ body.sidebar-open .playlistmuse-sidebar {
   border-radius: 999px;
   border: 1px solid rgba(251, 191, 36, .34);
   background: rgba(120, 74, 8, .12);
-  color: #fde68a;
+  color: var(--warning-text);
 }
 
 .sidebar-update-badge:not([hidden]) {

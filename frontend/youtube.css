@@ -111,8 +111,8 @@
   min-height: 44px;
   border-radius: 12px;
   padding: 0 16px;
-  border: 1px solid #8b5cf6;
-  background: #8b5cf6;
+  border: 1px solid var(--violet);
+  background: var(--violet);
   color: #fff;
   font-weight: 780;
   text-decoration: none;
@@ -145,7 +145,7 @@
 }
 
 .youtube-publish-warning span {
-  color: #fda4af;
+  color: var(--error-text);
   font-size: .86rem;
   line-height: 1.45;
 }
@@ -191,8 +191,8 @@
   padding: 7px 12px;
   border: 1px solid transparent;
   border-radius: 9px;
-  background: #151a33;
-  color: #b8bdd2;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
   font-size: .8rem;
   font-weight: 750;
   transition: color 160ms ease, background 160ms ease, border-color 160ms ease, transform 160ms ease;
@@ -206,8 +206,8 @@
 }
 
 .youtube-privacy-option.active {
-  border-color: #8b5cf6;
-  background: #8b5cf6;
+  border-color: var(--violet);
+  background: var(--violet);
   color: #fff;
 }
 

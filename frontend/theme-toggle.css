@@ -1,0 +1,40 @@
+/* Appearance group (System/Light/Dark) injected into the shared sidebar by
+   installThemeToggle() in common.js. */
+
+.theme-toggle {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 5px;
+  margin: 0 2px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(6, 8, 21, .35);
+}
+
+.theme-toggle-option {
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: .78rem;
+  font-weight: 720;
+  transition: color 160ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+.theme-toggle-option:hover {
+  color: var(--text-primary);
+  background: rgba(139, 92, 246, .1);
+}
+
+.theme-toggle-option.active {
+  border-color: rgba(183, 156, 255, .35);
+  background: var(--brand-gradient);
+  color: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-toggle-option { transition: none; }
+}
