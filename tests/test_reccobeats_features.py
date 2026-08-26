@@ -290,9 +290,9 @@ def test_batch_timeout_seconds_override_takes_priority_over_module_default(
     monkeypatch,
 ) -> None:
     """A caller-supplied timeout_seconds must win even when it's larger than the
-    module default -- this is how order_journey_tracks_by_proximity gets a
-    realistic budget for a whole playlist without changing the default used by
-    smaller callers like creative_intent's refinement fetch."""
+    module default -- lets a whole-playlist fetch use a realistic budget without
+    changing the default used by smaller callers like creative_intent's
+    refinement fetch."""
     fast = ReccoBeatsAudioEvidence(match_source="test", energy=0.8)
 
     async def fake_evidence(artist, title, *, client=None, now=time.monotonic):

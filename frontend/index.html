@@ -35,7 +35,6 @@
       <div class="mode-tabs" role="tablist" aria-label="Playlist creation mode">
         <button class="mode active" data-mode="prompt" type="button">From Prompt</button>
         <button class="mode" data-mode="seed" type="button">From Seed</button>
-        <button class="mode" data-mode="journey" type="button">From Journey</button>
       </div>
 
       <div id="prompt-panel">
@@ -128,29 +127,6 @@
         <p id="seed-guidance" class="hint hidden" aria-live="polite"></p>
         <div id="seed-results" class="seed-results hidden" aria-live="polite"></div>
         <div id="selected-seed" class="selected-seed hidden" aria-live="polite"></div>
-      </div>
-
-      <div id="journey-panel" class="hidden">
-        <div class="journey-slot">
-          <label for="journey-start-query">Starting track</label>
-          <div class="inline">
-            <input id="journey-start-query" placeholder="Artist, album or song title" autocomplete="off">
-            <button id="journey-start-search" class="secondary" type="button" disabled aria-disabled="true">Search</button>
-          </div>
-          <p id="journey-start-guidance" class="hint hidden" aria-live="polite"></p>
-          <div id="journey-start-results" class="seed-results hidden" aria-live="polite"></div>
-          <div id="journey-start-selected" class="selected-seed hidden" aria-live="polite"></div>
-        </div>
-        <div class="journey-slot">
-          <label for="journey-end-query">Ending track</label>
-          <div class="inline">
-            <input id="journey-end-query" placeholder="Artist, album or song title" autocomplete="off">
-            <button id="journey-end-search" class="secondary" type="button" disabled aria-disabled="true">Search</button>
-          </div>
-          <p id="journey-end-guidance" class="hint hidden" aria-live="polite"></p>
-          <div id="journey-end-results" class="seed-results hidden" aria-live="polite"></div>
-          <div id="journey-end-selected" class="selected-seed hidden" aria-live="polite"></div>
-        </div>
       </div>
 
       <div id="generation-controls" class="hidden">

@@ -20,11 +20,7 @@ from backend.metadata_validation import (
     validate_candidate,
 )
 from backend.lastfm_tags import LastfmTagEvidence, tag_evidence_for_tracks
-from backend.reccobeats_features import (
-    ReccoBeatsAudioEvidence,
-    audio_evidence_for_track,
-    audio_evidence_for_tracks,
-)
+from backend.reccobeats_features import ReccoBeatsAudioEvidence, audio_evidence_for_track
 from backend.text_normalization import normalize_identity
 
 LOGGER = logging.getLogger("playlistmuse.performance")
@@ -40,19 +36,6 @@ EnergyOrder = Literal["increasing", "decreasing", "steady"]
 # batch, not a per-track timeout: any track whose fetch hasn't completed by the deadline
 # is treated as unmatched (same as a genuine ReccoBeats catalogue miss).
 _ENERGY_FETCH_BUDGET_SECONDS = 110.0
-
-# Solo le dimensioni ReccoBeats già su scala [0,1] comparabile. tempo (BPM) e loudness (dB)
-# sono esclusi: richiederebbero soglie di normalizzazione arbitrarie senza precedente nel
-# codice (vedi docs/superpowers/specs/2026-08-26-journey-proximity-ordering-design.md).
-_AUDIO_DISTANCE_DIMENSIONS = (
-    "danceability",
-    "energy",
-    "valence",
-    "liveness",
-    "acousticness",
-    "instrumentalness",
-    "speechiness",
-)
 
 _INCREASING_ENERGY_PATTERNS = (
     re.compile(r"\b(?:increasing|rising|building|growing)\b.{0,30}\benergy\b", re.I),
@@ -490,12 +473,11 @@ def _chained_by_energy(
     with the last placed track (missing tag data on either side never blocks
     placement, same fail-open rule as elsewhere). If every remaining candidate
     becomes tag-incompatible with the current position, the gate turns off for the
-    rest of the chain rather than blocking placement -- identical fallback to
-    order_journey_tracks_by_proximity's. This guards "steady energy" ordering
-    against the same audio-only genre-incoherence risk documented for the journey
-    feature: two tracks can have near-identical energy (e.g. a K-pop track and an
-    unrelated French-house track) while being completely unrelated in genre, so
-    energy proximity alone is not a safe adjacency signal.
+    rest of the chain rather than blocking placement. This guards "steady energy"
+    ordering against an audio-only genre-incoherence risk: two tracks can have
+    near-identical energy (e.g. a K-pop track and an unrelated French-house track)
+    while being completely unrelated in genre, so energy proximity alone is not a
+    safe adjacency signal.
     """
     order = sorted(range(len(tracks)), key=lambda index: energies[index])
     remaining = list(order)
@@ -665,202 +647,3 @@ def _tag_compatible(a: LastfmTagEvidence, b: LastfmTagEvidence) -> bool:
     if not a.available or not b.available:
         return True
     return bool(_tag_set(a) & _tag_set(b))
-
-
-def _tag_closeness(track: LastfmTagEvidence, end: LastfmTagEvidence) -> int | None:
-    if not track.available or not end.available:
-        return None
-    return len(_tag_set(track) & _tag_set(end))
-
-
-def _audio_distance(
-    a: ReccoBeatsAudioEvidence, b: ReccoBeatsAudioEvidence
-) -> float | None:
-    shared = [
-        dimension
-        for dimension in _AUDIO_DISTANCE_DIMENSIONS
-        if getattr(a, dimension) is not None and getattr(b, dimension) is not None
-    ]
-    if not shared:
-        return None
-    squared_diff_sum = sum(
-        (getattr(a, dimension) - getattr(b, dimension)) ** 2 for dimension in shared
-    )
-    return math.sqrt(squared_diff_sum / len(shared))
-
-
-def _nearest_by_audio(
-    prev_audio: ReccoBeatsAudioEvidence,
-    candidates: list[int],
-    audio: list[ReccoBeatsAudioEvidence],
-) -> int:
-    """Stable tie-break: audio-matched candidates win over unmatched ones; ties (or no
-    audio data at all among the candidates) keep the original relative order."""
-
-    def sort_key(index: int) -> tuple[int, float, int]:
-        distance = _audio_distance(prev_audio, audio[index])
-        return (0, distance, index) if distance is not None else (1, 0.0, index)
-
-    return min(candidates, key=sort_key)
-
-
-def _greedy_journey_chain(
-    matched_indices: list[int],
-    anchor_tags: LastfmTagEvidence,
-    anchor_audio: ReccoBeatsAudioEvidence,
-    anchor_closeness: int | None,
-    middle_tags: list[LastfmTagEvidence],
-    middle_audio: list[ReccoBeatsAudioEvidence],
-    closeness_to_target: dict[int, int | None],
-) -> list[int]:
-    """Greedy walk starting from `anchor`, gated by tag compatibility with the
-    previously placed track and biased toward non-decreasing closeness_to_target.
-
-    Direction-agnostic: `order_journey_tracks_by_proximity` runs this once from
-    start toward end and once from end toward start, then merges both walks into
-    a consensus order (see its docstring for why).
-    """
-    remaining = list(matched_indices)
-    prev_tags, prev_audio, prev_closeness = anchor_tags, anchor_audio, anchor_closeness
-    genre_gate_active = True
-    ordered: list[int] = []
-
-    while remaining:
-        if genre_gate_active:
-            tier_a = [
-                index for index in remaining if _tag_compatible(prev_tags, middle_tags[index])
-            ]
-            if not tier_a:
-                genre_gate_active = False
-                tier_a = list(remaining)
-        else:
-            tier_a = list(remaining)
-
-        pool = tier_a
-        if genre_gate_active and prev_closeness is not None:
-            converging = [
-                index
-                for index in tier_a
-                if closeness_to_target[index] is not None
-                and closeness_to_target[index] >= prev_closeness
-            ]
-            if converging:
-                pool = converging
-
-        chosen = _nearest_by_audio(prev_audio, pool, middle_audio)
-        ordered.append(chosen)
-        remaining.remove(chosen)
-        prev_tags, prev_audio = middle_tags[chosen], middle_audio[chosen]
-        prev_closeness = closeness_to_target[chosen]
-
-    return ordered
-
-
-async def order_journey_tracks_by_proximity(
-    start: dict[str, Any],
-    middle_tracks: list[dict[str, Any]],
-    end: dict[str, Any],
-) -> list[dict[str, Any]]:
-    """Reorder journey bridge tracks so each one connects to the previous one and the
-    sequence converges toward `end`.
-
-    Last.fm community tags are the primary genre-safety signal: a candidate is only
-    considered for a slot if it shares at least one normalized tag with the track
-    placed right before it (missing tag data on either side never blocks placement).
-    ReccoBeats audio features only fine-tune which tag-compatible candidate feels
-    smoothest next to the previous track -- they never override a genre mismatch.
-
-    This is deliberately NOT audio-feature-only ordering: the original track-journey
-    design spec documents a live comparative check that found ReccoBeats audio
-    features alone genre-incoherent (a K-pop candidate had a near-identical audio
-    profile to an unrelated French-house track). Prompt-only enforcement of monotonic
-    convergence also proved unreliable across live generations, including on a
-    capable model (gemini-3.7-flash) -- see
-    docs/superpowers/specs/2026-08-26-journey-proximity-ordering-design.md.
-
-    A single directional greedy walk can "commit" a track too eagerly toward one
-    end and be forced to walk it back later -- confirmed live: a real generation
-    placed several R&B/electronic tracks (close to the starting song) right before
-    the ending metal anchor, because the forward-only walk had already used up its
-    best converging candidates earlier and had nothing left to enforce continued
-    convergence. To correct this without any extra network cost (the same fetched
-    evidence is reused), the walk runs twice -- once from `start` toward `end`, once
-    from `end` toward `start` -- and the two independent opinions are merged into a
-    consensus order: a track's final position is the average of its rank in the
-    forward walk and its equivalent rank inferred from the backward walk. A track
-    both walks agree belongs early stays early; a track only one walk mis-placed
-    gets pulled back toward where the other walk would have put it.
-    """
-    if len(middle_tracks) < 2:
-        return list(middle_tracks)
-
-    all_tracks = [start, *middle_tracks, end]
-    try:
-        tag_evidence, audio_evidence = await asyncio.gather(
-            tag_evidence_for_tracks(all_tracks),
-            audio_evidence_for_tracks(
-                all_tracks, timeout_seconds=_ENERGY_FETCH_BUDGET_SECONDS
-            ),
-        )
-    except Exception:
-        return list(middle_tracks)
-    start_tags, *middle_tags, end_tags = tag_evidence
-    start_audio, *middle_audio, end_audio = audio_evidence
-
-    if not end_tags.available:
-        return list(middle_tracks)
-
-    matched_indices = [
-        index
-        for index in range(len(middle_tracks))
-        if middle_tags[index].available or middle_audio[index].available
-    ]
-    if len(matched_indices) < 2:
-        return list(middle_tracks)
-
-    closeness_to_end = {
-        index: _tag_closeness(middle_tags[index], end_tags) for index in matched_indices
-    }
-    closeness_to_start = {
-        index: _tag_closeness(middle_tags[index], start_tags) for index in matched_indices
-    }
-    # Symmetric (set-intersection size), safe to reuse as the initial prev_closeness
-    # for both directions.
-    anchor_closeness = _tag_closeness(start_tags, end_tags)
-
-    forward_order = _greedy_journey_chain(
-        matched_indices,
-        start_tags,
-        start_audio,
-        anchor_closeness,
-        middle_tags,
-        middle_audio,
-        closeness_to_end,
-    )
-    backward_order = _greedy_journey_chain(
-        matched_indices,
-        end_tags,
-        end_audio,
-        anchor_closeness,
-        middle_tags,
-        middle_audio,
-        closeness_to_start,
-    )
-
-    count = len(matched_indices)
-    forward_rank = {index: rank for rank, index in enumerate(forward_order)}
-    backward_rank = {index: rank for rank, index in enumerate(backward_order)}
-    # backward_rank counts from `end`; flipping it gives the position that walk
-    # implies from `start`'s side, so both ranks are directly comparable.
-    combined_score = {
-        index: forward_rank[index] + (count - 1 - backward_rank[index])
-        for index in matched_indices
-    }
-    consensus_order = sorted(
-        matched_indices, key=lambda index: (combined_score[index], forward_rank[index])
-    )
-
-    result = list(middle_tracks)
-    for slot, index in zip(matched_indices, consensus_order, strict=True):
-        result[slot] = middle_tracks[index]
-    return result

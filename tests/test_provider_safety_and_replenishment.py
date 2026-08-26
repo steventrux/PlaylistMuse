@@ -96,9 +96,9 @@ def test_generate_replenishes_tracks_after_youtube_resolution(monkeypatch) -> No
 def test_generate_with_allow_shortfall_skips_replenishment_and_accepts_fewer_tracks(
     monkeypatch,
 ) -> None:
-    # allow_shortfall (currently used by journey generation) must make the AI's one-shot
-    # initial draft final: no replenishment round should run even though the draft came
-    # back well under `count`, and the shortfall must not raise.
+    # allow_shortfall must make the AI's one-shot initial draft final: no replenishment
+    # round should run even though the draft came back well under `count`, and the
+    # shortfall must not raise.
     draft_calls: list[int] = []
 
     async def fake_generate(config, prompt, count, is_seed_generation=False):

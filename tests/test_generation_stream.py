@@ -177,53 +177,6 @@ def test_generate_from_seed_stream_keeps_seed_first(monkeypatch) -> None:
     assert tracks[0]["video_id"] == "selected-seed"
 
 
-def test_generate_from_journey_stream_keeps_anchors_first_and_last(monkeypatch) -> None:
-    async def fake_generate(prompt, count, options, *, allow_shortfall=False):
-        return {
-            "title": "Journey",
-            "description": "A path.",
-            "tracks": [
-                {
-                    "video_id": f"track-{index}",
-                    "title": f"Track {index}",
-                    "artists": "Bridge Artist",
-                }
-                for index in range(count)
-            ],
-        }
-
-    monkeypatch.setattr(main_module, "_generate", fake_generate)
-
-    async def passthrough_order(start, middle, end):
-        return middle
-
-    monkeypatch.setattr(main_module, "order_journey_tracks_by_proximity", passthrough_order)
-
-    client = TestClient(main_module.app)
-    response = client.post(
-        "/api/playlists/generate-from-journey/stream",
-        json={
-            "start": {
-                "video_id": "start-vid",
-                "title": "Start Song",
-                "artists": "Start Artist",
-            },
-            "end": {
-                "video_id": "end-vid",
-                "title": "End Song",
-                "artists": "End Artist",
-            },
-        },
-    )
-
-    assert response.status_code == 200
-    events = _parse_sse(response.text)
-    assert events[-1]["type"] == "result"
-    tracks = events[-1]["playlist"]["tracks"]
-    assert tracks[0]["video_id"] == "start-vid"
-    assert tracks[-1]["video_id"] == "end-vid"
-
-
 def test_generate_stream_emits_energy_ordering_stage_for_explicit_request(monkeypatch) -> None:
     async def fake_generate(config, prompt, count, is_seed_generation=False):
         return {

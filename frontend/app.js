@@ -11,10 +11,6 @@
     generating: false,
     setupMode: 'single',
     setupStep: 'ai',
-    journeyStart: null,
-    journeyEnd: null,
-    journeyStartSearching: false,
-    journeyEndSearching: false,
   };
   const elementCache = new Map();
   const $ = (id) => {
@@ -52,28 +48,6 @@
       guidanceId: 'seed-guidance',
       guidance: (track) => `This playlist will be built around “${track.title}” by ${track.artists}.`,
       clearedGuidance: 'Choose a track to use as the musical reference for the new playlist.',
-    },
-    journeyStart: {
-      key: 'journeyStart',
-      searchingKey: 'journeyStartSearching',
-      queryId: 'journey-start-query',
-      searchId: 'journey-start-search',
-      resultsId: 'journey-start-results',
-      selectedId: 'journey-start-selected',
-      guidanceId: 'journey-start-guidance',
-      guidance: (track) => `This journey will start with “${track.title}” by ${track.artists}.`,
-      clearedGuidance: 'Choose the track this journey should start from.',
-    },
-    journeyEnd: {
-      key: 'journeyEnd',
-      searchingKey: 'journeyEndSearching',
-      queryId: 'journey-end-query',
-      searchId: 'journey-end-search',
-      resultsId: 'journey-end-results',
-      selectedId: 'journey-end-selected',
-      guidanceId: 'journey-end-guidance',
-      guidance: (track) => `This journey will end with “${track.title}” by ${track.artists}.`,
-      clearedGuidance: 'Choose the track this journey should end at.',
     },
   };
 
@@ -144,7 +118,6 @@
       state.mode,
       $('prompt').value,
       state.selectedSeed,
-      {start: state.journeyStart, end: state.journeyEnd},
     );
     $('generation-controls').classList.toggle('hidden', !ready);
     if (!ready && state.mode === 'prompt') message('');
@@ -528,15 +501,6 @@
         options: options(),
         complexity_score: window.PlaylistMusePromptComplexity?.currentScore?.() ?? null,
       };
-    } else if (state.mode === 'journey') {
-      if (!state.journeyStart) return message('Search for and select a starting track first.', true);
-      if (!state.journeyEnd) return message('Search for and select an ending track first.', true);
-      endpoint = '/api/playlists/generate-from-journey/stream';
-      request = {
-        start: state.journeyStart,
-        end: state.journeyEnd,
-        options: options(),
-      };
     } else {
       if (!state.selectedSeed) return message('Search for and select a seed track first.', true);
       endpoint = '/api/playlists/generate-from-seed/stream';
@@ -566,18 +530,6 @@
         (event) => message(event.message),
       );
 
-      if (state.mode === 'journey' && data.tracks.length - 2 < 3) {
-        const proceed = window.confirm(
-          `PlaylistMuse only found a ${data.tracks.length - 2}-track bridge between `
-          + 'these two songs. Continue anyway?',
-        );
-        if (!proceed) {
-          setGenerationInputsLocked(false);
-          resetGeneratingButton();
-          message('');
-          return;
-        }
-      }
 
       sessionStorage.setItem('playlistmuse-generated-playlist', JSON.stringify(data));
       sessionStorage.setItem('playlistmuse-generation-request', JSON.stringify({
@@ -600,8 +552,6 @@
     });
     $('prompt-panel').classList.toggle('hidden', mode !== 'prompt');
     $('seed-panel').classList.toggle('hidden', mode !== 'seed');
-    $('journey-panel').classList.toggle('hidden', mode !== 'journey');
-    $('track-count-field').classList.toggle('hidden', mode === 'journey');
     updateGenerationControls();
     message('');
   }

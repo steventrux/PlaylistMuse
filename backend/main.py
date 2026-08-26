@@ -45,7 +45,6 @@ from backend.metadata_validation import extract_metadata_constraints
 from backend.playlist_ordering import (
     chronological_order_from_payload,
     energy_order_from_payload,
-    order_journey_tracks_by_proximity,
     order_tracks_by_energy,
     order_tracks_by_release_date,
 )
@@ -76,11 +75,6 @@ OPENROUTER_MODELS = {
 MAX_REPLENISHMENT_ROUNDS = 6
 MAX_STALLED_ROUNDS = 2
 MAX_LASTFM_CONTEXT_TRACKS = 60
-# Hardcoded ceiling for journey generation (anchors included), not a user-chosen target:
-# the AI is told it may use fewer tracks when a shorter bridge is more natural, and the
-# pipeline (see allow_shortfall on _generate()/_anchored_other_tracks()) accepts that
-# without treating it as an incomplete/failed generation.
-JOURNEY_MAX_TRACKS = 20
 SeedMode = Literal["strict", "balanced", "exploratory"]
 _ARTIST_SEPARATOR_RE = re.compile(
     r"\s*(?:,|&|\bfeat\.?\b|\bfeaturing\b|\bwith\b)\s*",
@@ -110,7 +104,6 @@ GENERATION_STAGE_MESSAGES = {
     "llm_replenishment": "Refining the playlist to fill any gaps…",
     "catalogue_resolution_replenishment": "Validating the new tracks on YouTube Music…",
     "energy_ordering": "Analyzing sonic energy to order the playlist…",
-    "journey_ordering": "Ordering the journey bridge…",
 }
 
 
@@ -497,12 +490,6 @@ class SeedGenerateRequest(BaseModel):
     options: PlaylistOptions = Field(default_factory=PlaylistOptions)
 
 
-class JourneyGenerateRequest(BaseModel):
-    start: SeedTrack
-    end: SeedTrack
-    options: PlaylistOptions = Field(default_factory=PlaylistOptions)
-
-
 class PlaylistTrackContext(BaseModel):
     video_id: str | None = Field(default=None, max_length=64)
     title: str = Field(min_length=1, max_length=300)
@@ -692,8 +679,8 @@ def _artist_identity_keys(value: str) -> set[str]:
 def _seed_evidence_guidance(candidates: list[dict[str, str]], *, seed_mode: str) -> str:
     """Fold Last.fm seed/anchor evidence directly into the single initial draft prompt.
 
-    Seed and journey requests always have real Last.fm-derived candidates before any draft
-    exists (unlike prompt-based generation, whose lastfm_candidates is always empty -- see
+    Seed requests always have real Last.fm-derived candidates before any draft exists
+    (unlike prompt-based generation, whose lastfm_candidates is always empty -- see
     discover_from_anchors's deliberate no-op in lastfm_discovery.py). Folding the evidence
     into the one llm_initial draft, instead of running a second llm_guided draft
     afterwards, removes an entire redundant LLM generation pass (with its own quota-repair
@@ -1135,11 +1122,11 @@ async def _generate(
     stalled_rounds = 0
     for round_index in range(MAX_REPLENISHMENT_ROUNDS):
         if skip_initial_ai or allow_shortfall:
-            # allow_shortfall callers (currently: journey generation) want the AI's
-            # one-shot initial draft to be the final word on how many tracks the
-            # request actually needs -- iterative replenishment rounds would just
-            # apply padding pressure back toward `count`, defeating the point of
-            # letting the AI choose a shorter, more natural result.
+            # allow_shortfall callers want the AI's one-shot initial draft to be the
+            # final word on how many tracks the request actually needs -- iterative
+            # replenishment rounds would just apply padding pressure back toward
+            # `count`, defeating the point of letting the AI choose a shorter, more
+            # natural result.
             break
         missing = count - len(tracks)
         if missing <= 0:
@@ -1465,29 +1452,26 @@ async def _anchored_other_tracks(
 ) -> tuple[dict, dict | None]:
     """Ask _generate() for up to `other_count` tracks distinct from every anchor.
 
-    Generalizes the original single-seed retry helper to an arbitrary number of anchor
-    tracks so the same retry-once-forbidding-anchors logic serves both single-seed
-    generation (one anchor, `allow_shortfall=False`, `_generate()` guarantees exactly
-    `other_count` verified tracks) and two-anchor journey generation (start + end,
-    `allow_shortfall=True`, the AI may return fewer when a shorter bridge is natural).
-    The only way a non-shortfall call can fall short is if the AI independently
-    reproduces an anchor among its own suggestions, retried once with all anchors
-    explicitly forbidden.
+    Generalized to an arbitrary number of anchor tracks (currently always one: the
+    single seed) so the same retry-once-forbidding-anchors logic can serve any
+    anchor-based generation mode. `_generate()` guarantees exactly `other_count`
+    verified tracks for non-shortfall callers. The only way such a call can fall
+    short is if the AI independently reproduces an anchor among its own
+    suggestions, retried once with all anchors explicitly forbidden.
 
-    For `allow_shortfall=True` callers, a reproduction is not treated as a hard failure
-    and does not spend a second full generation round-trip either: the AI's own list is
-    filtered to drop the anchor duplicate(s) after the first attempt and the (now possibly
-    shorter) result is returned immediately. This mirrors real observed behavior -- some
-    models restate the start/end song among their own suggestions despite the explicit
-    exclusion instruction, and a measured real-world case had the model do this on BOTH
-    the initial attempt and the reinforced retry, so the retry does not reliably fix it --
-    while each attempt is itself a slow (observed 150-275s), non-deterministic LLM call.
-    Spending a second one on a retry that a real case already showed doesn't reliably help
-    roughly doubled total latency for no reliable benefit, so shortfall-tolerant callers
-    get one attempt only. Dropping the (already-redundant, already-placed) duplicate is
-    always safe and journey already tolerates a shorter result. Non-shortfall callers
-    (single-seed) keep the original two-attempt retry, since an exact count still matters
-    there and a second attempt has a real chance of avoiding the duplicate entirely.
+    `allow_shortfall=True` exists for callers that tolerate a shorter-than-requested
+    result when the AI determines fewer tracks are natural: a reproduction there is
+    not treated as a hard failure and does not spend a second full generation
+    round-trip either -- the AI's own list is filtered to drop the anchor
+    duplicate(s) after the first attempt and the (now possibly shorter) result is
+    returned immediately. This mirrors real observed behavior -- some models
+    restate an anchor song among their own suggestions despite the explicit
+    exclusion instruction, sometimes on both the initial attempt and a reinforced
+    retry, so the retry does not reliably fix it -- while each attempt is itself a
+    slow (observed 150-275s), non-deterministic LLM call, so shortfall-tolerant
+    callers get one attempt only. Non-shortfall callers (single-seed) keep the
+    original two-attempt retry, since an exact count still matters there and a
+    second attempt has a real chance of avoiding the duplicate entirely.
     """
     video_ids = {anchor.video_id for anchor in anchors}
     anchor_keys = {track_identity_key(a.title, a.artists) for a in anchors}
@@ -1600,136 +1584,6 @@ async def _generate_from_seed_playlist(request: SeedGenerateRequest) -> dict:
     return result
 
 
-def _journey_instruction(start: SeedTrack, end: SeedTrack, bridge_count: int) -> str:
-    return (
-        f"Build a playlist that creates a sensible musical journey from the starting "
-        f"song '{start.title}' by {start.artists} to the ending song '{end.title}' by "
-        f"{end.artists}. Select up to {bridge_count} songs that form a deliberate "
-        "step-by-step bridge between them, ordered as a single continuous path: each "
-        "song must connect musically to the song immediately before it through sound, "
-        "instrumentation, mood, scene, or artist affinity, and the sequence as a whole "
-        "must steadily move away from the starting song's character and toward the "
-        "ending song's character -- each song should feel closer to the ending song "
-        "than the song right before it did, so the transition feels smooth and "
-        "continuous rather than jumping back and forth between styles or eras. Do not "
-        "place a song that leans back toward the starting song's character after a "
-        "song that already leaned closer to the ending song. Use as many songs as the "
-        "bridge genuinely needs and no more -- if the two songs are already close in "
-        "sound, a short bridge (or none at all) is correct; do not pad the list with "
-        f"extra songs just to approach {bridge_count}. In each song's reason, explain "
-        "concretely how it continues from the previous song and moves the listener "
-        f"closer to the ending song. Do not include '{start.title}' by "
-        f"{start.artists} or '{end.title}' by {end.artists} among your suggestions -- "
-        "they are already placed as the first and last track."
-    )
-
-
-def _merge_journey_evidence(
-    start_evidence: list[dict[str, str]],
-    end_evidence: list[dict[str, str]],
-) -> list[dict[str, str]]:
-    """Interleave both anchors' Last.fm evidence into one deduplicated pool.
-
-    Round-robins one candidate from each side at a time (rather than concatenating) so
-    that the downstream truncation to MAX_LASTFM_CONTEXT_TRACKS in
-    `_seed_evidence_guidance` keeps roughly balanced representation from both anchors --
-    a plain concatenation would let the end anchor's evidence get crowded out almost
-    entirely once the two lists combined exceed the cap.
-    """
-    seen: set[str] = set()
-    merged: list[dict[str, str]] = []
-    for index in range(max(len(start_evidence), len(end_evidence))):
-        for candidates in (start_evidence, end_evidence):
-            if index >= len(candidates):
-                continue
-            candidate = candidates[index]
-            key = _candidate_key(candidate)
-            if key and key not in seen:
-                seen.add(key)
-                merged.append(candidate)
-    return merged
-
-
-async def _generate_from_journey_playlist(request: JourneyGenerateRequest) -> dict:
-    """Build a two-anchor journey playlist. Raises ValueError/Exception like _generate() itself."""
-    start, end = request.start, request.end
-    if track_identity_key(start.title, start.artists) == track_identity_key(
-        end.title, end.artists
-    ):
-        raise ValueError(
-            "Choose two different tracks for the start and end of the journey."
-        )
-    bridge_count = JOURNEY_MAX_TRACKS - 2
-    prompt = _journey_instruction(start, end, bridge_count)
-
-    # Halved from the single-anchor `_seed_lastfm_evidence_params` formula: fetching two
-    # anchors' worth at the full single-anchor limit would over-fetch (up to 100
-    # candidates for a 60-slot cap) before interleaving even gets a chance to balance
-    # them. Halving keeps the combined fetch within the eventual cap.
-    limit = MAX_LASTFM_CONTEXT_TRACKS // 2
-    start_evidence, end_evidence = await asyncio.gather(
-        similar_track_candidates(start.artists, start.title, limit=limit),
-        similar_track_candidates(end.artists, end.title, limit=limit),
-    )
-    lastfm_candidates = _merge_journey_evidence(start_evidence, end_evidence)
-    anchors = (
-        {"artist": start.artists, "title": start.title, "kind": "journey_start"},
-        {"artist": end.artists, "title": end.title, "kind": "journey_end"},
-    )
-    recommendation_token = _SEED_RECOMMENDATIONS.set(tuple(lastfm_candidates))
-    anchor_token = _SEED_ANCHORS.set(anchors)
-    mode_token = _SEED_MODE.set("")
-    try:
-        result, _reproduced = await _anchored_other_tracks(
-            prompt,
-            bridge_count,
-            request.options,
-            [start, end],
-            allow_shortfall=True,
-        )
-    finally:
-        _SEED_MODE.reset(mode_token)
-        _SEED_ANCHORS.reset(anchor_token)
-        _SEED_RECOMMENDATIONS.reset(recommendation_token)
-
-    # Both anchors are user-chosen reference tracks, not generated suggestions: they
-    # always appear first/last regardless of exclude_live/exclude_covers/exclude_remixes,
-    # deliberately never routed through resolve_candidates()'s exclusion filters -- same
-    # treatment as the single seed in _generate_from_seed_playlist.
-    start_payload = start.model_dump()
-    start_payload["description"] = "The starting song that opens this musical journey."
-    start_payload["reason"] = (
-        "It anchors the beginning of the path; every following track bridges toward "
-        "the ending song."
-    )
-    end_payload = end.model_dump()
-    end_payload["description"] = "The ending song that completes this musical journey."
-    end_payload["reason"] = (
-        "It anchors the end of the path; every previous track bridged toward this "
-        "destination."
-    )
-
-    _emit_progress("journey_ordering")
-    journey_ordering_started_at = time.perf_counter()
-    result["tracks"] = await order_journey_tracks_by_proximity(
-        start_payload, result["tracks"], end_payload
-    )
-    record_stage_ms(
-        "journey_ordering", (time.perf_counter() - journey_ordering_started_at) * 1000
-    )
-    for track in result["tracks"]:
-        track["reason"] = (
-            "It bridges the path from the starting song toward the ending song."
-        )
-
-    result["tracks"] = [start_payload, *result["tracks"], end_payload]
-    result["resolved_count"] = len(result["tracks"])
-    result["journey"] = {"start": start_payload, "end": end_payload}
-    if isinstance(result.get("lastfm"), dict):
-        _refresh_lastfm_selection(result["lastfm"], result["tracks"])
-    return result
-
-
 @app.post("/api/playlists/generate-from-seed")
 async def generate_from_seed(request: SeedGenerateRequest) -> dict:
     try:
@@ -1834,36 +1688,6 @@ async def generate_from_seed_stream(request: SeedGenerateRequest) -> StreamingRe
         _stream_generation(
             lambda: _generate_with_telemetry(
                 lambda: _generate_from_seed_playlist(request)
-            )
-        ),
-        media_type="text/event-stream",
-        headers=_SSE_HEADERS,
-    )
-
-
-@app.post("/api/playlists/generate-from-journey")
-async def generate_from_journey(request: JourneyGenerateRequest) -> dict:
-    try:
-        return await _generate_with_telemetry(
-            lambda: _generate_from_journey_playlist(request)
-        )
-    except ValueError as error:
-        record_generation_error(error, provider=load_config().stats_key)
-        raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
-    except Exception as error:
-        record_generation_error(error, provider=load_config().stats_key)
-        raise HTTPException(
-            status_code=502,
-            detail="Playlist generation failed. Please try again.",
-        ) from error
-
-
-@app.post("/api/playlists/generate-from-journey/stream")
-async def generate_from_journey_stream(request: JourneyGenerateRequest) -> StreamingResponse:
-    return StreamingResponse(
-        _stream_generation(
-            lambda: _generate_with_telemetry(
-                lambda: _generate_from_journey_playlist(request)
             )
         ),
         media_type="text/event-stream",

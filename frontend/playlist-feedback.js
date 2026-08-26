@@ -33,7 +33,6 @@
   function generationFlow(generationRequest, refinements) {
     if (refinements.length) return 'Playlist Studio refinement';
     if (generationRequest?.mode === 'seed') return 'Seed-track generation';
-    if (generationRequest?.mode === 'journey') return 'Track-to-track journey generation';
     return 'Initial prompt generation';
   }
 
@@ -47,13 +46,6 @@
       const artists = clean(seed.artists || seed.artist, 300);
       const mode = clean(generationRequest.seed_mode, 80);
       return `Seed: ${title || 'Unknown track'} — ${artists || 'Unknown artist'}${mode ? `\nSimilarity mode: ${mode}` : ''}`;
-    }
-    if (generationRequest?.mode === 'journey') {
-      const start = generationRequest.start || {};
-      const end = generationRequest.end || {};
-      const startText = `${clean(start.title, 300) || 'Unknown track'} — ${clean(start.artists, 300) || 'Unknown artist'}`;
-      const endText = `${clean(end.title, 300) || 'Unknown track'} — ${clean(end.artists, 300) || 'Unknown artist'}`;
-      return `Journey start: ${startText}\nJourney end: ${endText}`;
     }
     return clean(playlist?.prompt, 1950);
   }

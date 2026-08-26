@@ -20,11 +20,8 @@
     return Math.max(MIN_TRACK_COUNT, Math.min(MAX_TRACK_COUNT, count));
   }
 
-  function isGenerationReady(mode, prompt, selectedSeed, journeySelection) {
+  function isGenerationReady(mode, prompt, selectedSeed) {
     if (mode === 'prompt') return Boolean(normalizePrompt(prompt));
-    if (mode === 'journey') {
-      return Boolean(journeySelection?.start) && Boolean(journeySelection?.end);
-    }
     return Boolean(selectedSeed);
   }
 

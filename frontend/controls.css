@@ -310,10 +310,6 @@ input::placeholder,
   border-radius: 10px;
 }
 
-.journey-slot + .journey-slot {
-  margin-top: 1.5rem;
-}
-
 @media (max-width: 650px) {
   .status-badge,
   .settings-icon-btn {
