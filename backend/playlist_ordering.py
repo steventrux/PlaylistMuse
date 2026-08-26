@@ -673,6 +673,58 @@ def _nearest_by_audio(
     return min(candidates, key=sort_key)
 
 
+def _greedy_journey_chain(
+    matched_indices: list[int],
+    anchor_tags: LastfmTagEvidence,
+    anchor_audio: ReccoBeatsAudioEvidence,
+    anchor_closeness: int | None,
+    middle_tags: list[LastfmTagEvidence],
+    middle_audio: list[ReccoBeatsAudioEvidence],
+    closeness_to_target: dict[int, int | None],
+) -> list[int]:
+    """Greedy walk starting from `anchor`, gated by tag compatibility with the
+    previously placed track and biased toward non-decreasing closeness_to_target.
+
+    Direction-agnostic: `order_journey_tracks_by_proximity` runs this once from
+    start toward end and once from end toward start, then merges both walks into
+    a consensus order (see its docstring for why).
+    """
+    remaining = list(matched_indices)
+    prev_tags, prev_audio, prev_closeness = anchor_tags, anchor_audio, anchor_closeness
+    genre_gate_active = True
+    ordered: list[int] = []
+
+    while remaining:
+        if genre_gate_active:
+            tier_a = [
+                index for index in remaining if _tag_compatible(prev_tags, middle_tags[index])
+            ]
+            if not tier_a:
+                genre_gate_active = False
+                tier_a = list(remaining)
+        else:
+            tier_a = list(remaining)
+
+        pool = tier_a
+        if genre_gate_active and prev_closeness is not None:
+            converging = [
+                index
+                for index in tier_a
+                if closeness_to_target[index] is not None
+                and closeness_to_target[index] >= prev_closeness
+            ]
+            if converging:
+                pool = converging
+
+        chosen = _nearest_by_audio(prev_audio, pool, middle_audio)
+        ordered.append(chosen)
+        remaining.remove(chosen)
+        prev_tags, prev_audio = middle_tags[chosen], middle_audio[chosen]
+        prev_closeness = closeness_to_target[chosen]
+
+    return ordered
+
+
 async def order_journey_tracks_by_proximity(
     start: dict[str, Any],
     middle_tracks: list[dict[str, Any]],
@@ -694,6 +746,19 @@ async def order_journey_tracks_by_proximity(
     convergence also proved unreliable across live generations, including on a
     capable model (gemini-3.7-flash) -- see
     docs/superpowers/specs/2026-08-26-journey-proximity-ordering-design.md.
+
+    A single directional greedy walk can "commit" a track too eagerly toward one
+    end and be forced to walk it back later -- confirmed live: a real generation
+    placed several R&B/electronic tracks (close to the starting song) right before
+    the ending metal anchor, because the forward-only walk had already used up its
+    best converging candidates earlier and had nothing left to enforce continued
+    convergence. To correct this without any extra network cost (the same fetched
+    evidence is reused), the walk runs twice -- once from `start` toward `end`, once
+    from `end` toward `start` -- and the two independent opinions are merged into a
+    consensus order: a track's final position is the average of its rank in the
+    forward walk and its equivalent rank inferred from the backward walk. A track
+    both walks agree belongs early stays early; a track only one walk mis-placed
+    gets pulled back toward where the other walk would have put it.
     """
     if len(middle_tracks) < 2:
         return list(middle_tracks)
@@ -725,42 +790,46 @@ async def order_journey_tracks_by_proximity(
     closeness_to_end = {
         index: _tag_closeness(middle_tags[index], end_tags) for index in matched_indices
     }
+    closeness_to_start = {
+        index: _tag_closeness(middle_tags[index], start_tags) for index in matched_indices
+    }
+    # Symmetric (set-intersection size), safe to reuse as the initial prev_closeness
+    # for both directions.
+    anchor_closeness = _tag_closeness(start_tags, end_tags)
 
-    remaining = list(matched_indices)
-    prev_tags, prev_audio = start_tags, start_audio
-    prev_closeness = _tag_closeness(prev_tags, end_tags)
-    genre_gate_active = True
-    ordered: list[int] = []
+    forward_order = _greedy_journey_chain(
+        matched_indices,
+        start_tags,
+        start_audio,
+        anchor_closeness,
+        middle_tags,
+        middle_audio,
+        closeness_to_end,
+    )
+    backward_order = _greedy_journey_chain(
+        matched_indices,
+        end_tags,
+        end_audio,
+        anchor_closeness,
+        middle_tags,
+        middle_audio,
+        closeness_to_start,
+    )
 
-    while remaining:
-        if genre_gate_active:
-            tier_a = [
-                index for index in remaining if _tag_compatible(prev_tags, middle_tags[index])
-            ]
-            if not tier_a:
-                genre_gate_active = False
-                tier_a = list(remaining)
-        else:
-            tier_a = list(remaining)
-
-        pool = tier_a
-        if genre_gate_active and prev_closeness is not None:
-            converging = [
-                index
-                for index in tier_a
-                if closeness_to_end[index] is not None
-                and closeness_to_end[index] >= prev_closeness
-            ]
-            if converging:
-                pool = converging
-
-        chosen = _nearest_by_audio(prev_audio, pool, middle_audio)
-        ordered.append(chosen)
-        remaining.remove(chosen)
-        prev_tags, prev_audio = middle_tags[chosen], middle_audio[chosen]
-        prev_closeness = closeness_to_end[chosen]
+    count = len(matched_indices)
+    forward_rank = {index: rank for rank, index in enumerate(forward_order)}
+    backward_rank = {index: rank for rank, index in enumerate(backward_order)}
+    # backward_rank counts from `end`; flipping it gives the position that walk
+    # implies from `start`'s side, so both ranks are directly comparable.
+    combined_score = {
+        index: forward_rank[index] + (count - 1 - backward_rank[index])
+        for index in matched_indices
+    }
+    consensus_order = sorted(
+        matched_indices, key=lambda index: (combined_score[index], forward_rank[index])
+    )
 
     result = list(middle_tracks)
-    for slot, index in zip(matched_indices, ordered, strict=True):
+    for slot, index in zip(matched_indices, consensus_order, strict=True):
         result[slot] = middle_tracks[index]
     return result

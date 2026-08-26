@@ -650,6 +650,104 @@ def test_journey_proximity_ordering_noop_with_fewer_than_two_middle_tracks(monke
     assert result_one == one
 
 
+def test_greedy_journey_chain_alone_strands_a_start_like_track_at_the_end() -> None:
+    """Baseline for the consensus test below: proves the forward-only walk really
+    does mis-place "NearStart" (see that test's docstring for the full scenario),
+    so the consensus test's improvement claim is checked against a verified
+    starting point, not an assumed one."""
+    start_tags, end_tags = _tags("rock", "pop"), _tags("metal", "doom")
+    near_start_tags = _tags("rock", "pop")
+    bridge_tags = _tags("rock", "metal")
+    near_end_tags = _tags("metal", "doom")
+    start_audio = _audio(energy=0.5)
+    near_start_audio = _audio(energy=0.9)
+    bridge_audio = _audio(energy=0.5)
+    near_end_audio = _audio(energy=0.9)
+
+    middle_tags = [near_start_tags, bridge_tags, near_end_tags]
+    middle_audio = [near_start_audio, bridge_audio, near_end_audio]
+    matched_indices = [0, 1, 2]
+    closeness_to_end = {
+        index: ordering._tag_closeness(middle_tags[index], end_tags)
+        for index in matched_indices
+    }
+    anchor_closeness = ordering._tag_closeness(start_tags, end_tags)
+
+    forward_order = ordering._greedy_journey_chain(
+        matched_indices,
+        start_tags,
+        start_audio,
+        anchor_closeness,
+        middle_tags,
+        middle_audio,
+        closeness_to_end,
+    )
+
+    names = ["NearStart", "Bridge", "NearEnd"]
+    assert [names[index] for index in forward_order] == ["Bridge", "NearEnd", "NearStart"]
+
+
+def test_journey_proximity_ordering_bidirectional_consensus_corrects_forward_only_mistake(
+    monkeypatch,
+) -> None:
+    """The bidirectional-consensus regression test. Confirmed live on 2026-08-26: a
+    real journey generation placed several start-like R&B/electronic tracks right
+    before the ending metal anchor, because the forward-only greedy had already used
+    up its best converging candidates earlier and had nothing left to enforce
+    continued convergence, so those tracks fell back to an unconstrained pick near
+    the end instead of near the start where they belonged.
+
+    This fixture reproduces the same shape with three tracks: "NearStart" (tags
+    strongly overlap the start anchor, not the end), "Bridge" (overlaps both), and
+    "NearEnd" (overlaps the end anchor, not the start). A forward-only greedy walk
+    -- verified directly by calling _greedy_journey_chain in isolation -- produces
+    ['Bridge', 'NearEnd', 'NearStart'], stranding NearStart at the very end next to
+    the destination. Running the walk a second time from `end` toward `start` and
+    merging both walks' opinions by rank pulls NearStart back to the middle instead:
+    ['Bridge', 'NearStart', 'NearEnd']. Not the "ideal" ['NearStart', 'Bridge',
+    'NearEnd'] -- the two walks genuinely disagree about Bridge/NearStart's exact
+    order -- but no longer stranded at the wrong end, which is the defect this
+    fixes.
+    """
+    start = _track("Start", "A")
+    end = _track("End", "Z")
+    near_start = _track("NearStart", "X")
+    bridge = _track("Bridge", "Y")
+    near_end = _track("NearEnd", "W")
+
+    tags_by_title = {
+        "Start": _tags("rock", "pop"),
+        "End": _tags("metal", "doom"),
+        "NearStart": _tags("rock", "pop"),
+        "Bridge": _tags("rock", "metal"),
+        "NearEnd": _tags("metal", "doom"),
+    }
+    audio_by_title = {
+        "Start": _audio(energy=0.5),
+        "End": _audio(energy=0.9),
+        "NearStart": _audio(energy=0.9),
+        "Bridge": _audio(energy=0.5),
+        "NearEnd": _audio(energy=0.9),
+    }
+
+    async def fake_tags(tracks):
+        return [tags_by_title[t["title"]] for t in tracks]
+
+    async def fake_audio(tracks, **kwargs):
+        return [audio_by_title[t["title"]] for t in tracks]
+
+    monkeypatch.setattr(ordering, "tag_evidence_for_tracks", fake_tags)
+    monkeypatch.setattr(ordering, "audio_evidence_for_tracks", fake_audio)
+
+    result = asyncio.run(
+        ordering.order_journey_tracks_by_proximity(
+            start, [near_start, bridge, near_end], end
+        )
+    )
+
+    assert [t["title"] for t in result] == ["Bridge", "NearStart", "NearEnd"]
+
+
 def test_journey_proximity_ordering_skips_reorder_when_end_has_no_evidence(monkeypatch) -> None:
     middle = [_track("M1", "X"), _track("M2", "X")]
 
