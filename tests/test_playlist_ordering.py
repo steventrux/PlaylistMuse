@@ -624,3 +624,175 @@ def test_audio_distance_uses_shared_dimensions_only() -> None:
     b = ordering.ReccoBeatsAudioEvidence(energy=0.1, valence=0.5)
     assert ordering._audio_distance(a, b) == pytest.approx(0.5657, rel=1e-3)
     assert ordering._audio_distance(a, ordering.ReccoBeatsAudioEvidence()) is None
+
+
+def _tags(*values: str) -> "ordering.LastfmTagEvidence":
+    return ordering.LastfmTagEvidence(track_tags=values)
+
+
+def _audio(**dimensions: float) -> ReccoBeatsAudioEvidence:
+    return ReccoBeatsAudioEvidence(**dimensions)
+
+
+def test_journey_proximity_ordering_noop_with_fewer_than_two_middle_tracks(monkeypatch) -> None:
+    async def unexpected_tags(tracks):
+        raise AssertionError("must not fetch evidence when there is nothing to reorder")
+
+    monkeypatch.setattr(ordering, "tag_evidence_for_tracks", unexpected_tags)
+
+    start = _track("Start", "A")
+    end = _track("End", "B")
+    result = asyncio.run(ordering.order_journey_tracks_by_proximity(start, [], end))
+    assert result == []
+
+    one = [_track("Mid", "C")]
+    result_one = asyncio.run(ordering.order_journey_tracks_by_proximity(start, one, end))
+    assert result_one == one
+
+
+def test_journey_proximity_ordering_skips_reorder_when_end_has_no_evidence(monkeypatch) -> None:
+    middle = [_track("M1", "X"), _track("M2", "X")]
+
+    async def fake_tags(tracks):
+        return [ordering.LastfmTagEvidence() for _ in tracks]
+
+    async def fake_audio(tracks):
+        return [ReccoBeatsAudioEvidence() for _ in tracks]
+
+    monkeypatch.setattr(ordering, "tag_evidence_for_tracks", fake_tags)
+    monkeypatch.setattr(ordering, "audio_evidence_for_tracks", fake_audio)
+
+    result = asyncio.run(
+        ordering.order_journey_tracks_by_proximity(
+            _track("Start", "A"), middle, _track("End", "B")
+        )
+    )
+    assert result == middle
+
+
+def test_journey_proximity_ordering_prefers_tag_compatible_neighbor_over_closer_audio_match(
+    monkeypatch,
+) -> None:
+    """The core regression test: without the tag gate, a pure audio-distance greedy
+    would pick track B first (near-identical energy to the start), even though its
+    tags are completely disjoint from the start's -- exactly the K-pop/French-house
+    failure mode the original track-journey design spec documented and rejected.
+    """
+    start = _track("Start", "A")
+    end = _track("End", "Z")
+    track_a = _track("A-compatible", "X")
+    track_b = _track("B-audio-close-but-disjoint-tags", "Y")
+
+    tags_by_title = {
+        "Start": _tags("rock"),
+        "End": _tags("rock"),
+        "A-compatible": _tags("rock"),
+        "B-audio-close-but-disjoint-tags": _tags("kpop"),
+    }
+    audio_by_title = {
+        "Start": _audio(energy=0.5),
+        "End": _audio(energy=0.5),
+        "A-compatible": _audio(energy=0.9),
+        "B-audio-close-but-disjoint-tags": _audio(energy=0.5),
+    }
+
+    async def fake_tags(tracks):
+        return [tags_by_title[t["title"]] for t in tracks]
+
+    async def fake_audio(tracks):
+        return [audio_by_title[t["title"]] for t in tracks]
+
+    monkeypatch.setattr(ordering, "tag_evidence_for_tracks", fake_tags)
+    monkeypatch.setattr(ordering, "audio_evidence_for_tracks", fake_audio)
+
+    result = asyncio.run(
+        ordering.order_journey_tracks_by_proximity(start, [track_b, track_a], end)
+    )
+
+    assert [t["title"] for t in result] == ["A-compatible", "B-audio-close-but-disjoint-tags"]
+
+
+def test_journey_proximity_ordering_keeps_unmatched_tracks_in_original_slot(monkeypatch) -> None:
+    start = _track("Start", "A")
+    end = _track("End", "Z")
+    matched_1 = _track("Matched1", "X")
+    unmatched = _track("Unmatched", "Y")
+    matched_2 = _track("Matched2", "X")
+
+    tags_by_title = {
+        "Start": _tags("rock"),
+        "End": _tags("rock"),
+        "Matched1": _tags("rock"),
+        "Unmatched": ordering.LastfmTagEvidence(),
+        "Matched2": _tags("rock"),
+    }
+    audio_by_title = {
+        "Start": _audio(energy=0.5),
+        "End": _audio(energy=0.5),
+        "Matched1": _audio(energy=0.6),
+        "Unmatched": ReccoBeatsAudioEvidence(),
+        "Matched2": _audio(energy=0.4),
+    }
+
+    async def fake_tags(tracks):
+        return [tags_by_title[t["title"]] for t in tracks]
+
+    async def fake_audio(tracks):
+        return [audio_by_title[t["title"]] for t in tracks]
+
+    monkeypatch.setattr(ordering, "tag_evidence_for_tracks", fake_tags)
+    monkeypatch.setattr(ordering, "audio_evidence_for_tracks", fake_audio)
+
+    result = asyncio.run(
+        ordering.order_journey_tracks_by_proximity(
+            start, [matched_1, unmatched, matched_2], end
+        )
+    )
+
+    # "Unmatched" has no evidence of either kind and must keep its original slot (index 1).
+    assert result[1]["title"] == "Unmatched"
+    assert {result[0]["title"], result[2]["title"]} == {"Matched1", "Matched2"}
+
+
+def test_journey_proximity_ordering_falls_back_to_audio_when_genre_gate_empties(
+    monkeypatch,
+) -> None:
+    """If every remaining track is tag-incompatible with the current position (a real
+    edge case, e.g. only one genre cluster left and it's an isolated one), the genre
+    gate is dropped for the rest of the run rather than blocking placement."""
+    start = _track("Start", "A")
+    end = _track("End", "Z")
+    orphan_1 = _track("Orphan1", "X")
+    orphan_2 = _track("Orphan2", "X")
+
+    tags_by_title = {
+        "Start": _tags("rock"),
+        "End": _tags("rock"),
+        "Orphan1": _tags("kpop"),
+        "Orphan2": _tags("jazz"),
+    }
+    audio_by_title = {
+        "Start": _audio(energy=0.5),
+        "End": _audio(energy=0.5),
+        "Orphan1": _audio(energy=0.9),
+        "Orphan2": _audio(energy=0.1),
+    }
+
+    async def fake_tags(tracks):
+        return [tags_by_title[t["title"]] for t in tracks]
+
+    async def fake_audio(tracks):
+        return [audio_by_title[t["title"]] for t in tracks]
+
+    monkeypatch.setattr(ordering, "tag_evidence_for_tracks", fake_tags)
+    monkeypatch.setattr(ordering, "audio_evidence_for_tracks", fake_audio)
+
+    result = asyncio.run(
+        ordering.order_journey_tracks_by_proximity(start, [orphan_1, orphan_2], end)
+    )
+
+    # Neither shares a tag with "rock" (start), so the genre gate empties immediately
+    # and falls back to nearest-audio: Orphan2 (energy 0.1) is not closer to start's
+    # 0.5 than Orphan1 (0.9) is -- both are equally far, so the original order (stable
+    # tie-break) is kept.
+    assert [t["title"] for t in result] == ["Orphan1", "Orphan2"]

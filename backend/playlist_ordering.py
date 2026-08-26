@@ -671,3 +671,91 @@ def _nearest_by_audio(
         return (0, distance, index) if distance is not None else (1, 0.0, index)
 
     return min(candidates, key=sort_key)
+
+
+async def order_journey_tracks_by_proximity(
+    start: dict[str, Any],
+    middle_tracks: list[dict[str, Any]],
+    end: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Reorder journey bridge tracks so each one connects to the previous one and the
+    sequence converges toward `end`.
+
+    Last.fm community tags are the primary genre-safety signal: a candidate is only
+    considered for a slot if it shares at least one normalized tag with the track
+    placed right before it (missing tag data on either side never blocks placement).
+    ReccoBeats audio features only fine-tune which tag-compatible candidate feels
+    smoothest next to the previous track -- they never override a genre mismatch.
+
+    This is deliberately NOT audio-feature-only ordering: the original track-journey
+    design spec documents a live comparative check that found ReccoBeats audio
+    features alone genre-incoherent (a K-pop candidate had a near-identical audio
+    profile to an unrelated French-house track). Prompt-only enforcement of monotonic
+    convergence also proved unreliable across live generations, including on a
+    capable model (gemini-3.7-flash) -- see
+    docs/superpowers/specs/2026-08-26-journey-proximity-ordering-design.md.
+    """
+    if len(middle_tracks) < 2:
+        return list(middle_tracks)
+
+    all_tracks = [start, *middle_tracks, end]
+    tag_evidence, audio_evidence = await asyncio.gather(
+        tag_evidence_for_tracks(all_tracks),
+        audio_evidence_for_tracks(all_tracks),
+    )
+    start_tags, *middle_tags, end_tags = tag_evidence
+    start_audio, *middle_audio, end_audio = audio_evidence
+
+    if not end_tags.available and not end_audio.available:
+        return list(middle_tracks)
+
+    matched_indices = [
+        index
+        for index in range(len(middle_tracks))
+        if middle_tags[index].available or middle_audio[index].available
+    ]
+    if len(matched_indices) < 2:
+        return list(middle_tracks)
+
+    closeness_to_end = {
+        index: _tag_closeness(middle_tags[index], end_tags) for index in matched_indices
+    }
+
+    remaining = list(matched_indices)
+    prev_tags, prev_audio = start_tags, start_audio
+    prev_closeness = _tag_closeness(prev_tags, end_tags)
+    genre_gate_active = True
+    ordered: list[int] = []
+
+    while remaining:
+        if genre_gate_active:
+            tier_a = [
+                index for index in remaining if _tag_compatible(prev_tags, middle_tags[index])
+            ]
+            if not tier_a:
+                genre_gate_active = False
+                tier_a = list(remaining)
+        else:
+            tier_a = list(remaining)
+
+        pool = tier_a
+        if genre_gate_active and prev_closeness is not None:
+            converging = [
+                index
+                for index in tier_a
+                if closeness_to_end[index] is not None
+                and closeness_to_end[index] >= prev_closeness
+            ]
+            if converging:
+                pool = converging
+
+        chosen = _nearest_by_audio(prev_audio, pool, middle_audio)
+        ordered.append(chosen)
+        remaining.remove(chosen)
+        prev_tags, prev_audio = middle_tags[chosen], middle_audio[chosen]
+        prev_closeness = closeness_to_end[chosen]
+
+    result = list(middle_tracks)
+    for slot, index in zip(matched_indices, ordered, strict=True):
+        result[slot] = middle_tracks[index]
+    return result
