@@ -6,17 +6,6 @@
   fill: currentColor;
 }
 
-/* Keep the "Configured" (positive) state visually consistent with the AI and
-   YouTube Music cards -- only the icon carries Last.fm's own brand red, so a
-   correctly-configured integration never reads as an error at a glance. */
-.header-indicator.lastfm.on {
-  box-shadow: none;
-}
-
-.header-indicator.lastfm.on .lastfm-mark {
-  color: #d51007;
-}
-
 .lastfm-settings-panel .settings-fields {
   margin-top: 0;
 }

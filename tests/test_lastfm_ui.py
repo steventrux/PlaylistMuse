@@ -10,7 +10,7 @@ def test_shared_frontend_loader_only_adds_lastfm_styles() -> None:
     script = (FRONTEND / "common.js").read_text(encoding="utf-8")
 
     assert "function ensureLastFmStyles()" in script
-    assert "/static/lastfm.css?v=2" in script
+    assert "/static/lastfm.css?v=3" in script
     assert "ensureLastFmStyles();" in script
     assert "function loadScript(" not in script
     assert "/static/lastfm-settings.js" not in script
@@ -28,7 +28,7 @@ def test_lastfm_home_status_updates_existing_shared_indicator() -> None:
     assert "playlistmuse-lastfm-status" in script
     assert "PlaylistMuseOpenLastFmSettings" not in script
     assert "window.location.assign('/')" not in script
-    assert ".header-indicator.lastfm.on" in stylesheet
+    assert ".lastfm-mark" in stylesheet
 
 
 def test_lastfm_settings_module_is_scoped_to_settings_page() -> None:
@@ -45,13 +45,17 @@ def test_lastfm_settings_module_is_scoped_to_settings_page() -> None:
     assert "playlistmuse-youtube-settings-opened" not in settings
 
 
-def test_lastfm_indicator_uses_the_official_brand_mark_and_red() -> None:
+def test_lastfm_indicator_uses_the_official_brand_mark() -> None:
+    """The Last.fm icon is the official logo path, but -- unlike the other
+    two integration cards were before this -- it no longer carries its own
+    brand color: every integration card uses the same green/red configured
+    status language instead of per-service branding."""
     shared_status = (FRONTEND / "home-status.js").read_text(encoding="utf-8")
     stylesheet = (FRONTEND / "lastfm.css").read_text(encoding="utf-8")
 
     assert 'class="lastfm-mark" viewBox="0 0 512 512"' in shared_status
     assert "M225.8 367.1l-18.8-51" in shared_status
-    assert "color: #d51007" in stylesheet
+    assert "#d51007" not in stylesheet
 
 
 def test_lastfm_settings_panel_saves_without_exposing_the_key() -> None:

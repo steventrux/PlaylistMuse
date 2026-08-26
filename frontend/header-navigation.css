@@ -328,8 +328,17 @@ body.sidebar-open .playlistmuse-sidebar {
   content: "Checking…";
 }
 
+/* Every integration card uses the same green/red status language -- no
+   per-service branding -- so "configured" and "not configured" read
+   identically across AI, YouTube Music and Last.fm. */
+.playlistmuse-sidebar .header-indicator.on {
+  border-color: rgba(74, 222, 128, .38);
+  background: rgba(22, 101, 52, .1);
+}
+
 .playlistmuse-sidebar .header-indicator.on svg {
   background: rgba(74, 222, 128, .16);
+  color: var(--success-text);
 }
 
 .playlistmuse-sidebar .header-indicator.on::after {
@@ -338,30 +347,24 @@ body.sidebar-open .playlistmuse-sidebar {
   color: var(--success-text);
 }
 
-.playlistmuse-sidebar .header-indicator.off {
-  border-color: rgba(251, 191, 36, .34);
-  background: rgba(120, 74, 8, .09);
+.playlistmuse-sidebar .header-indicator.off,
+.playlistmuse-sidebar .header-indicator.error {
+  border-color: rgba(251, 113, 133, .4);
+  background: rgba(127, 29, 29, .12);
   color: var(--text-muted);
   filter: none;
 }
 
-.playlistmuse-sidebar .header-indicator.off svg {
-  background: rgba(251, 191, 36, .14);
+.playlistmuse-sidebar .header-indicator.off svg,
+.playlistmuse-sidebar .header-indicator.error svg {
+  background: rgba(251, 113, 133, .16);
+  color: var(--error-text);
 }
 
 .playlistmuse-sidebar .header-indicator.off::after {
   content: "Not configured";
-  background: rgba(251, 191, 36, .12);
-  color: var(--warning-text);
-}
-
-.playlistmuse-sidebar .header-indicator.error {
-  border-color: rgba(251, 113, 133, .4);
-  background: rgba(127, 29, 29, .12);
-}
-
-.playlistmuse-sidebar .header-indicator.error svg {
-  background: rgba(251, 113, 133, .16);
+  background: rgba(251, 113, 133, .14);
+  color: var(--error-text);
 }
 
 .playlistmuse-sidebar .header-indicator.error::after {
