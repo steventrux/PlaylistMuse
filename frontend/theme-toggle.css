@@ -26,13 +26,14 @@
 
 .theme-toggle-option:hover {
   color: var(--text-primary);
-  background: rgba(139, 92, 246, .1);
+  border-color: rgba(169, 155, 255, .2);
+  background: rgba(139, 92, 246, .09);
 }
 
 .theme-toggle-option.active {
   border-color: rgba(183, 156, 255, .35);
-  background: var(--brand-gradient);
-  color: #fff;
+  background: linear-gradient(135deg, rgba(139, 92, 246, .2), rgba(91, 33, 182, .14));
+  color: var(--text-primary);
 }
 
 @media (prefers-reduced-motion: reduce) {
