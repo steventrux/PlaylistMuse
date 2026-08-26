@@ -428,10 +428,14 @@ def test_journey_instruction_demands_monotonic_convergence_toward_the_ending_son
     assert "leans back toward the starting song's character" in instruction
 
 
-def test_generate_from_journey_playlist_reorders_bridge_and_strips_reason(monkeypatch) -> None:
+def test_generate_from_journey_playlist_reorders_bridge_and_replaces_reason(
+    monkeypatch,
+) -> None:
     """Verifies the wiring in isolation from algorithm correctness: whatever
     order_journey_tracks_by_proximity returns lands in the final assembled playlist,
-    and `reason` is stripped from every middle track regardless."""
+    and every middle track's `reason` is replaced with a fixed journey-appropriate
+    sentence regardless (never stripped -- a stripped reason would trigger the
+    saved-playlist UI's "not stored" message, which would be false here)."""
 
     async def fake_similar(artist, title, *, limit, broaden=False, api_key=None, client=None):
         return []
@@ -459,7 +463,10 @@ def test_generate_from_journey_playlist_reorders_bridge_and_strips_reason(monkey
 
     middle_titles = [t["title"] for t in result["tracks"][1:-1]]
     assert middle_titles == ["A-near", "B-far"]
-    assert all("reason" not in t for t in result["tracks"][1:-1])
+    assert all(
+        t["reason"] == "It bridges the path from the starting song toward the ending song."
+        for t in result["tracks"][1:-1]
+    )
     assert result["tracks"][0]["reason"]
     assert result["tracks"][-1]["reason"]
 

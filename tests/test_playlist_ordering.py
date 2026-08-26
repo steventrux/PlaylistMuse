@@ -754,6 +754,57 @@ def test_journey_proximity_ordering_keeps_unmatched_tracks_in_original_slot(monk
     assert {result[0]["title"], result[2]["title"]} == {"Matched1", "Matched2"}
 
 
+def test_journey_proximity_ordering_convergence_filter_prefers_closer_candidate(
+    monkeypatch,
+) -> None:
+    """Pins the Tier A2 convergence filter's actual effect with more than one
+    tag-compatible candidate present at a step (every other test collapses to a
+    single candidate before this filter runs)."""
+    start = _track("Start", "A")
+    end = _track("End", "Z")
+    closer = _track("Closer", "X")
+    farther = _track("Farther", "Y")
+
+    tags_by_title = {
+        "Start": _tags("rock"),
+        "End": _tags("rock", "indie"),
+        "Closer": _tags("rock", "indie"),
+        "Farther": _tags("rock"),
+    }
+    audio_by_title = {
+        "Start": _audio(energy=0.5),
+        "End": _audio(energy=0.5),
+        "Closer": _audio(energy=0.9),
+        "Farther": _audio(energy=0.5),
+    }
+
+    async def fake_tags(tracks):
+        return [tags_by_title[t["title"]] for t in tracks]
+
+    async def fake_audio(tracks):
+        return [audio_by_title[t["title"]] for t in tracks]
+
+    monkeypatch.setattr(ordering, "tag_evidence_for_tracks", fake_tags)
+    monkeypatch.setattr(ordering, "audio_evidence_for_tracks", fake_audio)
+
+    result = asyncio.run(
+        ordering.order_journey_tracks_by_proximity(start, [farther, closer], end)
+    )
+
+    # Both share a tag with "rock" (start), so both pass Tier A. Start's own
+    # closeness to end is 1 ({"rock"}). "Closer" shares 2 tags with end
+    # ({"rock","indie"}) and "Farther" shares 1 ({"rock"}) -- both satisfy the
+    # convergence threshold (closeness >= 1), so the convergence filter admits
+    # both unchanged here (it narrows only when a candidate's closeness regresses
+    # below the previous track's; that case is exercised by the "falls back to
+    # audio when genre gate empties" test below, and the "keeps unmatched tracks"
+    # test above for missing evidence). With both candidates still in the pool,
+    # nearest-audio breaks the tie: "Farther" is audio-tied with Start (energy
+    # 0.5, distance 0.0) while "Closer" is 0.4 away (energy 0.9), so "Farther" is
+    # chosen first despite its lower tag-closeness to "End".
+    assert [t["title"] for t in result] == ["Farther", "Closer"]
+
+
 def test_journey_proximity_ordering_falls_back_to_audio_when_genre_gate_empties(
     monkeypatch,
 ) -> None:

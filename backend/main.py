@@ -110,6 +110,7 @@ GENERATION_STAGE_MESSAGES = {
     "llm_replenishment": "Refining the playlist to fill any gaps…",
     "catalogue_resolution_replenishment": "Validating the new tracks on YouTube Music…",
     "energy_ordering": "Analyzing sonic energy to order the playlist…",
+    "journey_ordering": "Ordering the journey bridge…",
 }
 
 
@@ -1708,11 +1709,18 @@ async def _generate_from_journey_playlist(request: JourneyGenerateRequest) -> di
         "destination."
     )
 
+    _emit_progress("journey_ordering")
+    journey_ordering_started_at = time.perf_counter()
     result["tracks"] = await order_journey_tracks_by_proximity(
         start_payload, result["tracks"], end_payload
     )
+    record_stage_ms(
+        "journey_ordering", (time.perf_counter() - journey_ordering_started_at) * 1000
+    )
     for track in result["tracks"]:
-        track.pop("reason", None)
+        track["reason"] = (
+            "It bridges the path from the starting song toward the ending song."
+        )
 
     result["tracks"] = [start_payload, *result["tracks"], end_payload]
     result["resolved_count"] = len(result["tracks"])
