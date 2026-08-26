@@ -193,6 +193,12 @@ def test_generate_from_journey_stream_keeps_anchors_first_and_last(monkeypatch) 
         }
 
     monkeypatch.setattr(main_module, "_generate", fake_generate)
+
+    async def passthrough_order(start, middle, end):
+        return middle
+
+    monkeypatch.setattr(main_module, "order_journey_tracks_by_proximity", passthrough_order)
+
     client = TestClient(main_module.app)
     response = client.post(
         "/api/playlists/generate-from-journey/stream",
