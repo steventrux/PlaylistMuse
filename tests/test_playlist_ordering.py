@@ -510,12 +510,17 @@ def test_energy_ordering_steady_chains_by_nearest_energy(monkeypatch) -> None:
         del artist, kwargs
         return _evidence(energies[title])
 
+    async def fake_tags(tracks):
+        return [ordering.LastfmTagEvidence() for _ in tracks]
+
     monkeypatch.setattr(ordering, "audio_evidence_for_track", fake_evidence)
+    monkeypatch.setattr(ordering, "tag_evidence_for_tracks", fake_tags)
 
     result = asyncio.run(ordering.order_tracks_by_energy(tracks, "steady"))
 
     # Chain starts at the median (C, index 2 of the 4 energy-sorted tracks), then always
     # steps to the nearest remaining energy: C(0.50) -> B(0.30) -> A(0.10) -> D(0.90).
+    # No tag evidence here, so the genre gate is a no-op (fail-open) -- pure energy chaining.
     assert [track["title"] for track in result] == ["C", "B", "A", "D"]
 
 
@@ -580,8 +585,12 @@ def test_energy_ordering_steady_ignores_chronological_direction(monkeypatch) -> 
     async def unexpected_lookup(*args, **kwargs):
         raise AssertionError("steady must never trigger a chronological lookup")
 
+    async def fake_tags(tracks):
+        return [ordering.LastfmTagEvidence() for _ in tracks]
+
     monkeypatch.setattr(ordering, "audio_evidence_for_track", fake_evidence)
     monkeypatch.setattr(ordering, "lookup_track_metadata", unexpected_lookup)
+    monkeypatch.setattr(ordering, "tag_evidence_for_tracks", fake_tags)
 
     result = asyncio.run(
         ordering.order_tracks_by_energy(
@@ -591,6 +600,62 @@ def test_energy_ordering_steady_ignores_chronological_direction(monkeypatch) -> 
         )
     )
     assert [track["title"] for track in result] == ["B", "A", "C"]
+
+
+def test_chained_by_energy_without_tags_crosses_genre_boundary_every_step() -> None:
+    """Baseline for the gated test below: confirms the ungated chain really does
+    cross the genre boundary on every step for this fixture, so the gated test's
+    improvement claim is checked against a verified starting point."""
+    tracks = [_track("A", "W"), _track("B", "X"), _track("C", "Y"), _track("D", "Z")]
+    energies = [0.50, 0.51, 0.90, 0.89]
+
+    result = ordering._chained_by_energy(tracks, energies)
+
+    assert [track["title"] for track in result] == ["D", "C", "B", "A"]
+
+
+def test_energy_ordering_steady_gates_by_tag_compatibility_when_available(
+    monkeypatch,
+) -> None:
+    """Same audio-only genre-incoherence risk documented for the journey feature
+    (docs/superpowers/specs/2026-08-26-journey-proximity-ordering-design.md): two
+    tracks can have near-identical energy while being unrelated in genre, so
+    "steady energy" chaining by energy alone can place them adjacent by accident.
+
+    Four tracks, two genre clusters of two (rock: A/C: energy .50/.90; kpop: B/D:
+    energy .51/.89) deliberately interleaved by energy so a pure energy-nearest
+    chain crosses the genre boundary on every single step. With only two clusters
+    of two, a chain touching both must cross the boundary at least once -- the tag
+    gate cannot eliminate that, but it should minimize it to exactly that one
+    unavoidable crossing instead of crossing back and forth.
+    """
+    tracks = [_track("A", "W"), _track("B", "X"), _track("C", "Y"), _track("D", "Z")]
+    energies = {"A": 0.50, "B": 0.51, "C": 0.90, "D": 0.89}
+    tags_by_title = {
+        "A": _tags("rock"),
+        "B": _tags("kpop"),
+        "C": _tags("rock"),
+        "D": _tags("kpop"),
+    }
+
+    async def fake_evidence(artist: str, title: str, **kwargs) -> ReccoBeatsAudioEvidence:
+        del artist, kwargs
+        return _evidence(energies[title])
+
+    async def fake_tags(tracks):
+        return [tags_by_title[t["title"]] for t in tracks]
+
+    monkeypatch.setattr(ordering, "audio_evidence_for_track", fake_evidence)
+    monkeypatch.setattr(ordering, "tag_evidence_for_tracks", fake_tags)
+
+    result = asyncio.run(ordering.order_tracks_by_energy(tracks, "steady"))
+
+    # Without the gate this chains as D-C-B-A (three genre-mismatched boundaries:
+    # kpop|rock, rock|kpop, kpop|rock -- verified directly against
+    # _chained_by_energy with no tags argument). With the gate: D-B-A-C, crossing
+    # the genre boundary exactly once (B->A), the unavoidable minimum for two
+    # clusters of two tracks each.
+    assert [track["title"] for track in result] == ["D", "B", "A", "C"]
 
 
 def test_tag_compatible_is_fail_open_on_missing_evidence() -> None:
