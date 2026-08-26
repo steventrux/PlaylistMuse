@@ -54,7 +54,7 @@
   padding: 4px;
   border: 1px solid rgba(169, 155, 255, .2);
   border-radius: 12px;
-  background: #090c1b;
+  background: var(--tab-strip-bg);
 }
 
 .library-filter {
@@ -76,8 +76,8 @@
 
 .library-filter:hover {
   border-color: rgba(183, 156, 255, .38);
-  background: #29315b;
-  color: #fff;
+  background: var(--bg-hover);
+  color: var(--text-primary);
   transform: translateY(-1px);
 }
 
@@ -219,7 +219,7 @@
   aspect-ratio: 1;
   overflow: hidden;
   border-radius: 11px;
-  background: linear-gradient(145deg, #151a36, #080a16 70%);
+  background: var(--cover-placeholder-gradient);
   transition: width 200ms ease, border-radius 200ms ease, box-shadow 200ms ease;
 }
 
@@ -237,7 +237,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  background: linear-gradient(145deg, rgba(77, 67, 210, .42), rgba(7, 9, 22, .96));
+  background: var(--cover-placeholder-icon-gradient);
 }
 
 .library-copy {
@@ -484,8 +484,8 @@
 
 .library-page-number:hover {
   border-color: rgba(183, 156, 255, .38);
-  background: #29315b;
-  color: #fff;
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .library-page-number.active,

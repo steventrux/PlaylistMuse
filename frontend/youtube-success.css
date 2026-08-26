@@ -6,7 +6,7 @@
   grid-template-columns: none;
   min-height: 74px;
   border-color: rgba(125, 220, 255, .52);
-  background: linear-gradient(135deg, rgba(16, 65, 82, .58), rgba(31, 27, 71, .74));
+  background: var(--success-bg);
   box-shadow:
     0 12px 30px rgba(3, 18, 34, .22),
     inset 0 1px 0 rgba(255, 255, 255, .04);
@@ -21,7 +21,7 @@
 
 .youtube-publish-success p {
   margin: 0;
-  color: #e8fbff;
+  color: var(--text-primary);
   font-size: .94rem;
   font-weight: 760;
   line-height: 1.45;
@@ -34,13 +34,13 @@
 }
 
 .youtube-publish-success a:hover {
-  color: #fff;
+  color: var(--text-primary);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 
 .youtube-publish-success-warning {
-  color: #b8dce6;
+  color: var(--text-secondary);
   font-size: .82rem;
   line-height: 1.45;
 }

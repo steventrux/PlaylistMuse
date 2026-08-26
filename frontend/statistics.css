@@ -76,7 +76,7 @@
 }
 
 .stats-switch[aria-checked="true"] .stats-switch-thumb {
-  background: #86efac;
+  background: var(--success-text);
   transform: translateX(20px);
 }
 
@@ -85,7 +85,7 @@
 }
 
 .stats-telemetry-status.ok {
-  color: #86efac;
+  color: var(--success-text);
 }
 
 .stats-telemetry-status.error {

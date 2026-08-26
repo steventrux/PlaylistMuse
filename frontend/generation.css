@@ -52,7 +52,7 @@
 }
 
 .ai-warning-link:hover {
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .generation-feedback {

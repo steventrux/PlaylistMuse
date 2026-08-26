@@ -48,6 +48,11 @@
   --tab-strip-bg: rgba(6, 8, 21, .7);
   --item-bg: rgba(8, 11, 27, .72);
   --item-bg-hover: rgba(21, 26, 51, .86);
+  --cover-placeholder-gradient: linear-gradient(145deg, #151a36, #080a16 70%);
+  --cover-placeholder-icon-gradient: linear-gradient(145deg, rgba(77, 67, 210, .42), rgba(7, 9, 22, .96));
+  --sidebar-gradient:
+    radial-gradient(circle at 90% 0%, rgba(139, 92, 246, .18), transparent 18rem),
+    linear-gradient(180deg, rgba(14, 18, 39, .98), rgba(7, 9, 22, .99));
 
   background: var(--bg-primary);
   color: var(--text-primary);
@@ -67,6 +72,9 @@
     --field-bg: #ffffff;
 
     --violet-light: #7c3aed;
+    --cyan: #0284c7;
+    --cyan-light: #0369a1;
+    --magenta: #be185d;
     --text-primary: #14162a;
     --text-secondary: #4b4f6b;
     --text-muted: #6b7094;
@@ -98,6 +106,11 @@
     --tab-strip-bg: rgba(230, 230, 244, .75);
     --item-bg: rgba(255, 255, 255, .78);
     --item-bg-hover: rgba(237, 238, 247, .92);
+    --cover-placeholder-gradient: linear-gradient(145deg, #e4e4f2, #f4f4fa 70%);
+    --cover-placeholder-icon-gradient: linear-gradient(145deg, rgba(124, 58, 237, .16), rgba(230, 230, 244, .9));
+    --sidebar-gradient:
+      radial-gradient(circle at 90% 0%, rgba(139, 92, 246, .12), transparent 18rem),
+      linear-gradient(180deg, #ffffff, #f6f6fb);
   }
 }
 :root[data-theme="light"] {
@@ -110,6 +123,9 @@
   --field-bg: #ffffff;
 
   --violet-light: #7c3aed;
+  --cyan: #0284c7;
+  --cyan-light: #0369a1;
+  --magenta: #be185d;
   --text-primary: #14162a;
   --text-secondary: #4b4f6b;
   --text-muted: #6b7094;
@@ -141,6 +157,11 @@
   --tab-strip-bg: rgba(230, 230, 244, .75);
   --item-bg: rgba(255, 255, 255, .78);
   --item-bg-hover: rgba(237, 238, 247, .92);
+  --cover-placeholder-gradient: linear-gradient(145deg, #e4e4f2, #f4f4fa 70%);
+  --cover-placeholder-icon-gradient: linear-gradient(145deg, rgba(124, 58, 237, .16), rgba(230, 230, 244, .9));
+  --sidebar-gradient:
+    radial-gradient(circle at 90% 0%, rgba(139, 92, 246, .12), transparent 18rem),
+    linear-gradient(180deg, #ffffff, #f6f6fb);
 }
 
 * { box-sizing: border-box; }
@@ -224,7 +245,7 @@ h1, h2, h3, p { margin-top: 0; }
   height: 30px;
   border: 1px solid var(--border);
   border-radius: 999px;
-  background: rgba(14, 18, 39, .76);
+  background: var(--bg-elevated);
   color: var(--text-muted);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
   backdrop-filter: blur(12px);
@@ -316,7 +337,7 @@ textarea { min-height: 138px; resize: vertical; line-height: 1.55; }
 textarea:hover, input:hover, select:hover { border-color: rgba(183, 156, 255, .32); }
 textarea:focus, input:focus, select:focus {
   border-color: var(--violet-light);
-  background: rgba(10, 13, 31, .96);
+  background: var(--field-bg);
   box-shadow: 0 0 0 3px rgba(139, 92, 246, .17), 0 10px 30px rgba(40, 20, 90, .13);
 }
 .inline input { flex: 1; }
@@ -342,14 +363,14 @@ textarea:focus, input:focus, select:focus {
 .primary:active:not(:disabled) { transform: translateY(0); }
 .secondary {
   border: 1px solid var(--border);
-  background: rgba(24, 29, 57, .78);
+  background: var(--bg-elevated);
   color: var(--text-primary);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.035);
 }
 .secondary:hover:not(:disabled) {
   transform: translateY(-1px);
   border-color: var(--border-strong);
-  background: rgba(37, 43, 80, .9);
+  background: var(--bg-hover);
 }
 .settings-icon-btn {
   width: 42px;
@@ -443,13 +464,13 @@ dialog::backdrop { background: rgba(2, 3, 12, .82); backdrop-filter: blur(8px); 
   background: var(--item-bg);
   transition: transform 150ms ease, border-color 150ms ease, background 150ms ease;
 }
-.track:hover { transform: translateY(-1px); border-color: rgba(56, 189, 248, .42); background: rgba(21, 26, 51, .83); }
+.track:hover { transform: translateY(-1px); border-color: rgba(56, 189, 248, .42); background: var(--item-bg-hover); }
 .track img { width: 58px; height: 58px; object-fit: cover; border-radius: 11px; background: var(--bg-tertiary); }
 .track-copy { display: grid; gap: 3px; min-width: 0; }
 .track-copy strong, .track-copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .track-copy span { color: var(--text-secondary); font-size: .88rem; }
 .track a { color: var(--cyan-light); font-weight: 850; text-decoration: none; }
-.track a:hover { color: #fff; }
+.track a:hover { color: var(--text-primary); }
 .empty-state { padding: 32px; text-align: center; color: var(--text-secondary); }
 
 @media (max-width: 650px) {

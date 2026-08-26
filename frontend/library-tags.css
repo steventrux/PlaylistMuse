@@ -124,7 +124,7 @@
 .library-tag-delete:hover {
   border-color: rgba(251, 113, 133, .35);
   background: rgba(251, 113, 133, .1);
-  color: #fda4af;
+  color: var(--error-text);
 }
 
 .library-tag-add-form {
@@ -160,7 +160,7 @@
 
 .playlist-tag-status {
   margin: 6px 0 0;
-  color: #fda4af;
+  color: var(--error-text);
   font-size: .74rem;
   line-height: 1.35;
 }

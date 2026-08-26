@@ -240,7 +240,7 @@
     if (document.querySelector('link[href^="/static/theme-toggle.css"]')) return;
     const stylesheet = document.createElement('link');
     stylesheet.rel = 'stylesheet';
-    stylesheet.href = '/static/theme-toggle.css?v=2';
+    stylesheet.href = '/static/theme-toggle.css?v=3';
     document.head.append(stylesheet);
   }
 

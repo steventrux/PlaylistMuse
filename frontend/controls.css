@@ -36,8 +36,8 @@ input::placeholder,
 
 .secondary:hover:not(:disabled) {
   border-color: rgba(183, 156, 255, .5);
-  background: #29315b;
-  color: #ffffff;
+  background: var(--bg-hover);
+  color: var(--text-primary);
   transform: translateY(-1px);
 }
 
@@ -92,8 +92,8 @@ input::placeholder,
 
 .mode:hover {
   border-color: rgba(183, 156, 255, .38);
-  background: #29315b;
-  color: #ffffff;
+  background: var(--bg-hover);
+  color: var(--text-primary);
   transform: translateY(-1px);
 }
 
@@ -121,13 +121,13 @@ input::placeholder,
   padding: 14px;
   border: 1px solid rgba(169, 155, 255, .16);
   border-radius: 12px;
-  background: rgba(9, 12, 27, .62);
+  background: var(--field-bg);
 }
 
 .seed-mode-label {
   display: block;
   margin-bottom: 9px;
-  color: #f3f1ff;
+  color: var(--text-primary);
   font-size: .86rem;
   font-weight: 750;
 }
@@ -262,7 +262,7 @@ input::placeholder,
 .track-result-card:not(.expanded):hover {
   transform: none;
   border-color: rgba(183, 156, 255, .38);
-  background: rgba(21, 26, 51, .86);
+  background: var(--item-bg-hover);
   box-shadow: none;
 }
 
@@ -275,7 +275,7 @@ input::placeholder,
   padding: 11px;
   border-color: rgba(183, 156, 255, .42);
   border-radius: 15px;
-  background: rgba(21, 26, 51, .86);
+  background: var(--item-bg-hover);
   box-shadow: none;
 }
 

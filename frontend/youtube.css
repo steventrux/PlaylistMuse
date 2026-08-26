@@ -35,7 +35,7 @@
   padding: 11px 13px;
   border: 1px solid rgba(56, 189, 248, .36);
   border-radius: 14px;
-  background: rgba(14, 48, 68, .34);
+  background: var(--item-bg);
 }
 
 .youtube-account-profile.no-photo {
@@ -47,7 +47,7 @@
   height: 46px;
   border-radius: 50%;
   object-fit: cover;
-  background: #11162c;
+  background: var(--bg-tertiary);
 }
 
 .youtube-account-profile > div {
@@ -96,7 +96,7 @@
   padding: 0 15px;
   border: 1px solid rgba(125, 220, 255, .5);
   border-radius: 12px;
-  background: #090c1b;
+  background: var(--field-bg);
   color: var(--cyan-light);
   font-size: 1.05rem;
   font-weight: 900;
@@ -158,7 +158,7 @@
   padding: 16px;
   border: 1px solid rgba(169, 155, 255, .23);
   border-radius: 16px;
-  background: rgba(8, 11, 27, .64);
+  background: var(--item-bg);
 }
 
 .youtube-publish-copy {
@@ -183,7 +183,7 @@
   padding: 5px;
   border: 1px solid rgba(169, 155, 255, .2);
   border-radius: 14px;
-  background: #090c1b;
+  background: var(--tab-strip-bg);
 }
 
 .youtube-privacy-option {
@@ -200,8 +200,8 @@
 
 .youtube-privacy-option:hover:not(:disabled) {
   border-color: rgba(183, 156, 255, .38);
-  background: #29315b;
-  color: #fff;
+  background: var(--bg-hover);
+  color: var(--text-primary);
   transform: translateY(-1px);
 }
 

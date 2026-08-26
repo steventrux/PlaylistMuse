@@ -18,7 +18,7 @@ def test_refinement_moves_from_library_to_playlist_editor() -> None:
     assert "PlaylistMuseLibraryRefine" not in library_script
     assert 'id="refine-playlist"' in playlist
     assert '>Playlist Studio</button>' in playlist
-    assert '/static/playlist-refine.css?v=7' in playlist
+    assert '/static/playlist-refine.css?v=8' in playlist
     assert '/static/playlist-refine.js?v=7' in playlist
 
 

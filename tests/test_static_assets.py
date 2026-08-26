@@ -109,8 +109,8 @@ def test_prompt_complexity_uses_compact_icon_popover() -> None:
     style = _style("style.css")
     complexity_style = _style("prompt-complexity.css")
 
-    assert '<link rel="stylesheet" href="/static/style.css?v=11">' in index
-    assert '<link rel="stylesheet" href="/static/prompt-complexity.css?v=5">' in index
+    assert '<link rel="stylesheet" href="/static/style.css?v=12">' in index
+    assert '<link rel="stylesheet" href="/static/prompt-complexity.css?v=6">' in index
     assert '<script src="/static/prompt-complexity.js?v=10"></script>' in index
     assert 'id="prompt-complexity-trigger"' in index
     assert '<div class="prompt-label-row">' in index
@@ -401,7 +401,7 @@ def test_youtube_publish_progress_is_compact_and_not_redundant() -> None:
     youtube_publish = _script("youtube-publish.js")
     youtube_results = _style("youtube-results.css")
 
-    assert '/static/youtube-results.css?v=4' in playlist
+    assert '/static/youtube-results.css?v=5' in playlist
     assert '/static/youtube-publish.js?v=15' in playlist
     assert (
         'id="youtube-publish-status" class="youtube-publish-status hidden"'

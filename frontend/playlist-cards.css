@@ -8,7 +8,7 @@
 
 .track-result-card:hover {
   border-color: rgba(183, 156, 255, .5);
-  background: #29315b;
+  background: var(--bg-hover);
   box-shadow: none;
 }
 

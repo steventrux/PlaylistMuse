@@ -342,7 +342,7 @@ def test_library_tag_ui_is_read_only_but_keeps_search_filters() -> None:
     assert 'id="library-genre-filter"' not in page
     assert 'id="library-mood-filter"' not in page
     assert 'id="library-period-filter"' not in page
-    assert "/static/library-tags.css?v=3" in page
+    assert "/static/library-tags.css?v=4" in page
     assert "/static/library-tags.js?v=5" in page
     assert "tagTools?.searchValues(item)" in library_script
     assert "tagTools?.matchesFilters(item)" in library_script
@@ -406,7 +406,7 @@ def test_playlist_page_shows_ai_and_personal_tags_with_shared_controls() -> None
 
     assert 'id="playlist-tags"' in page
     assert 'id="playlist-tags-status"' in page
-    assert "/static/library-tags.css?v=3" in page
+    assert "/static/library-tags.css?v=4" in page
     assert "/static/library-tags.js?v=5" in page
     assert "/static/playlist.js?v=26" in page
     assert "const tagTools = window.PlaylistMuseTags" in script

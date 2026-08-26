@@ -28,7 +28,7 @@
   place-items: center;
   border: 1px solid rgba(183, 156, 255, .18);
   border-radius: 9px;
-  background: rgba(20, 24, 48, .52);
+  background: var(--bg-elevated);
   color: rgba(216, 205, 255, .62);
   box-shadow: none;
   backdrop-filter: blur(8px);
@@ -67,7 +67,7 @@
   opacity: 1;
   color: var(--violet-light);
   border-color: rgba(183, 156, 255, .42);
-  background: rgba(37, 43, 80, .78);
+  background: var(--bg-hover);
   transform: translateY(-1px);
 }
 

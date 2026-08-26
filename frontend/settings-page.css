@@ -8,7 +8,7 @@
   overflow: hidden;
   border: 1px solid rgba(169, 155, 255, .25);
   border-radius: 22px;
-  background: rgba(15, 19, 42, .88);
+  background: var(--bg-elevated);
   box-shadow: 0 28px 80px rgba(1, 3, 15, .22);
   backdrop-filter: blur(18px);
 }
@@ -16,7 +16,7 @@
 .settings-page-navigation {
   padding: 22px 16px;
   border-right: 1px solid var(--border);
-  background: rgba(7, 10, 25, .48);
+  background: var(--field-bg);
 }
 
 .settings-page-title-block {
@@ -98,7 +98,7 @@
 
 .settings-section-link:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px rgba(15, 19, 42, .9), 0 0 0 4px rgba(183, 156, 255, .65);
+  box-shadow: 0 0 0 2px var(--bg-elevated), 0 0 0 4px rgba(183, 156, 255, .65);
 }
 
 .settings-section-link.active {

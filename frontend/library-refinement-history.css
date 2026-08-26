@@ -28,7 +28,7 @@
   padding: 8px 10px 8px 12px;
   border-left: 2px solid rgba(139, 92, 246, .46);
   border-radius: 0 9px 9px 0;
-  background: rgba(8, 11, 27, .28);
+  background: var(--bg-tertiary);
   color: var(--text-secondary);
   font-size: .82rem;
   line-height: 1.45;

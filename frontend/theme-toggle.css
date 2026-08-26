@@ -9,7 +9,7 @@
   margin: 0 2px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: rgba(6, 8, 21, .35);
+  background: var(--field-bg);
 }
 
 .theme-toggle-option {
