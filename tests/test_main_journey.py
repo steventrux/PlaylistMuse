@@ -518,7 +518,7 @@ def test_generate_from_journey_playlist_wires_real_proximity_ordering_end_to_end
     async def fake_tags(tracks):
         return [tags_by_title[t["title"]] for t in tracks]
 
-    async def fake_audio(tracks):
+    async def fake_audio(tracks, **kwargs):
         return [audio_by_title[t["title"]] for t in tracks]
 
     monkeypatch.setattr(main_module, "similar_track_candidates", fake_similar)

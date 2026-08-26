@@ -521,15 +521,28 @@ async def audio_evidence_for_track(
 
 async def audio_evidence_for_tracks(
     tracks: list[dict[str, Any]],
+    *,
+    timeout_seconds: float | None = None,
 ) -> list[ReccoBeatsAudioEvidence]:
     """Fetch optional evidence with a hard batch budget; unfinished work is neutral.
 
     Tasks are fanned out per track, but the shared ReccoBeats HTTP layer already
     serializes every actual network request behind one global semaphore — there is
     no local concurrency limit to apply here on top of that.
+
+    `timeout_seconds` defaults to `BATCH_TIMEOUT_SECONDS` (read at call time, not
+    bound at import time, so tests can still monkeypatch the module constant).
+    Callers fetching evidence for a handful of tracks (e.g. creative-fit refinement)
+    can rely on the default; callers fetching for a whole playlist's worth of tracks
+    should pass a larger explicit budget -- ReccoBeats' global rate limit
+    (MAX_CONCURRENT_REQUESTS=1, MIN_REQUEST_INTERVAL_SECONDS=0.5s in
+    reccobeats_http.py) makes ~2.5-3.5s/track the real serialized cost, so the
+    default budget completes at most 1-2 tracks in a 20-track batch.
     """
     if not tracks:
         return []
+    if timeout_seconds is None:
+        timeout_seconds = BATCH_TIMEOUT_SECONDS
 
     async def one(
         client: httpx.AsyncClient,
@@ -547,14 +560,14 @@ async def audio_evidence_for_tracks(
     tasks = [asyncio.create_task(one(client, track)) for track in tracks]
     done, pending = await asyncio.wait(
         tasks,
-        timeout=BATCH_TIMEOUT_SECONDS,
+        timeout=timeout_seconds,
     )
     if pending:
         LOGGER.info(
             "ReccoBeats audio batch budget reached completed=%s total=%s timeout_seconds=%s",
             len(done),
             len(tasks),
-            BATCH_TIMEOUT_SECONDS,
+            timeout_seconds,
         )
         for task in pending:
             task.cancel()

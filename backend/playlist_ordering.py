@@ -702,7 +702,9 @@ async def order_journey_tracks_by_proximity(
     try:
         tag_evidence, audio_evidence = await asyncio.gather(
             tag_evidence_for_tracks(all_tracks),
-            audio_evidence_for_tracks(all_tracks),
+            audio_evidence_for_tracks(
+                all_tracks, timeout_seconds=_ENERGY_FETCH_BUDGET_SECONDS
+            ),
         )
     except Exception:
         return list(middle_tracks)

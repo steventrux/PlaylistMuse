@@ -284,3 +284,41 @@ def test_batch_budget_preserves_completed_results_and_cancels_slow_work(monkeypa
 
     assert results == [fast, ReccoBeatsAudioEvidence()]
     assert elapsed < 0.15
+
+
+def test_batch_timeout_seconds_override_takes_priority_over_module_default(
+    monkeypatch,
+) -> None:
+    """A caller-supplied timeout_seconds must win even when it's larger than the
+    module default -- this is how order_journey_tracks_by_proximity gets a
+    realistic budget for a whole playlist without changing the default used by
+    smaller callers like creative_intent's refinement fetch."""
+    fast = ReccoBeatsAudioEvidence(match_source="test", energy=0.8)
+
+    async def fake_evidence(artist, title, *, client=None, now=time.monotonic):
+        if title == "Fast":
+            return fast
+        await asyncio.sleep(0.05)
+        return ReccoBeatsAudioEvidence(match_source="too-late", energy=0.9)
+
+    monkeypatch.setattr(
+        "backend.reccobeats_features.audio_evidence_for_track",
+        fake_evidence,
+    )
+    # Module default stays tiny; the explicit override must still let "Slow" finish.
+    monkeypatch.setattr("backend.reccobeats_features.BATCH_TIMEOUT_SECONDS", 0.01)
+
+    results = asyncio.run(
+        audio_evidence_for_tracks(
+            [
+                {"artist": "Artist A", "title": "Fast"},
+                {"artist": "Artist B", "title": "Slow"},
+            ],
+            timeout_seconds=1.0,
+        )
+    )
+
+    assert results == [
+        fast,
+        ReccoBeatsAudioEvidence(match_source="too-late", energy=0.9),
+    ]

@@ -656,7 +656,7 @@ def test_journey_proximity_ordering_skips_reorder_when_end_has_no_evidence(monke
     async def fake_tags(tracks):
         return [ordering.LastfmTagEvidence() for _ in tracks]
 
-    async def fake_audio(tracks):
+    async def fake_audio(tracks, **kwargs):
         return [ReccoBeatsAudioEvidence() for _ in tracks]
 
     monkeypatch.setattr(ordering, "tag_evidence_for_tracks", fake_tags)
@@ -668,6 +668,38 @@ def test_journey_proximity_ordering_skips_reorder_when_end_has_no_evidence(monke
         )
     )
     assert result == middle
+
+
+def test_journey_proximity_ordering_requests_the_energy_fetch_budget_for_audio(
+    monkeypatch,
+) -> None:
+    """ReccoBeats' global rate limit (1 concurrent request, 0.5s minimum interval)
+    makes each track cost ~2.5-3.5s serialized; audio_evidence_for_tracks' own
+    default budget (6s) completes at most 1-2 tracks out of a journey-sized batch
+    (confirmed empirically: 0/20 matched in production). The journey reorder must
+    request the same generous budget order_tracks_by_energy already uses for the
+    same kind of whole-playlist fetch, not the small-batch default."""
+    captured_kwargs: dict = {}
+
+    async def fake_tags(tracks):
+        return [ordering.LastfmTagEvidence(track_tags=("rock",)) for _ in tracks]
+
+    async def fake_audio(tracks, **kwargs):
+        captured_kwargs.update(kwargs)
+        return [ReccoBeatsAudioEvidence() for _ in tracks]
+
+    monkeypatch.setattr(ordering, "tag_evidence_for_tracks", fake_tags)
+    monkeypatch.setattr(ordering, "audio_evidence_for_tracks", fake_audio)
+
+    asyncio.run(
+        ordering.order_journey_tracks_by_proximity(
+            _track("Start", "A"),
+            [_track("M1", "X"), _track("M2", "Y")],
+            _track("End", "B"),
+        )
+    )
+
+    assert captured_kwargs.get("timeout_seconds") == ordering._ENERGY_FETCH_BUDGET_SECONDS
 
 
 def test_journey_proximity_ordering_prefers_tag_compatible_neighbor_over_closer_audio_match(
@@ -699,7 +731,7 @@ def test_journey_proximity_ordering_prefers_tag_compatible_neighbor_over_closer_
     async def fake_tags(tracks):
         return [tags_by_title[t["title"]] for t in tracks]
 
-    async def fake_audio(tracks):
+    async def fake_audio(tracks, **kwargs):
         return [audio_by_title[t["title"]] for t in tracks]
 
     monkeypatch.setattr(ordering, "tag_evidence_for_tracks", fake_tags)
@@ -737,7 +769,7 @@ def test_journey_proximity_ordering_keeps_unmatched_tracks_in_original_slot(monk
     async def fake_tags(tracks):
         return [tags_by_title[t["title"]] for t in tracks]
 
-    async def fake_audio(tracks):
+    async def fake_audio(tracks, **kwargs):
         return [audio_by_title[t["title"]] for t in tracks]
 
     monkeypatch.setattr(ordering, "tag_evidence_for_tracks", fake_tags)
@@ -781,7 +813,7 @@ def test_journey_proximity_ordering_convergence_filter_prefers_closer_candidate(
     async def fake_tags(tracks):
         return [tags_by_title[t["title"]] for t in tracks]
 
-    async def fake_audio(tracks):
+    async def fake_audio(tracks, **kwargs):
         return [audio_by_title[t["title"]] for t in tracks]
 
     monkeypatch.setattr(ordering, "tag_evidence_for_tracks", fake_tags)
@@ -832,7 +864,7 @@ def test_journey_proximity_ordering_falls_back_to_audio_when_genre_gate_empties(
     async def fake_tags(tracks):
         return [tags_by_title[t["title"]] for t in tracks]
 
-    async def fake_audio(tracks):
+    async def fake_audio(tracks, **kwargs):
         return [audio_by_title[t["title"]] for t in tracks]
 
     monkeypatch.setattr(ordering, "tag_evidence_for_tracks", fake_tags)
