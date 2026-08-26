@@ -25,3 +25,7 @@ CLAUDE.md
 # Superpowers brainstorming/planning working docs (specs, plans) -- internal
 # working documents, never meant to ship in the public GitHub repo
 docs/superpowers/
+
+# Playwright MCP debug output (console logs, DOM snapshots) from manual
+# browser-driven testing sessions
+.playwright-mcp/
