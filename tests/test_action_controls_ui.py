@@ -33,6 +33,10 @@ def test_playlist_actions_are_compact_responsive_and_accessible() -> None:
     assert "if (element.id === 'playlist-feedback') return 'feedback';" in script
     assert "feedback: {label: 'Give feedback', icon: ICONS.feedback}" in script
     assert ".playlist-feedback-action.compact-action" in style
+
+    assert "'#playlist-positive-feedback'" in script
+    assert "if (element.id === 'playlist-positive-feedback') return 'loved';" in script
+    assert "loved: {label: 'This got it right', icon: ICONS.loved}" in script
     assert "element.setAttribute('aria-label', action.label);" in script
     assert "element.title = action.label;" in script
     assert "new MutationObserver" in script

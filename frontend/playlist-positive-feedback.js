@@ -5,7 +5,6 @@
   const REQUEST_KEY = 'playlistmuse-generation-request';
   const ENDPOINT = '/api/quality/local-feedback';
   const CONFIRMED_LABEL = 'Noted, thanks!';
-  const CONFIRMED_VISIBLE_MS = 2000;
   const button = document.getElementById('playlist-positive-feedback');
   if (!button) return;
   const {readJson} = window.PlaylistMuseCommon;
@@ -30,7 +29,6 @@
     if (!playlist || !Array.isArray(playlist.tracks) || !playlist.tracks.length) return;
     const generationRequest = readStoredJson(REQUEST_KEY);
     const label = button.querySelector('.compact-action-label');
-    const originalLabel = label ? label.textContent : button.textContent;
 
     button.disabled = true;
     try {
@@ -42,13 +40,13 @@
           generation_request: generationRequest || null,
         }),
       }));
+      // Stays disabled with the confirmation label for the rest of the page's
+      // session (deliberately not restored): the button remains visible after
+      // capture, and re-enabling it would let repeat clicks create duplicate
+      // near-identical entries that inflate the "seen N times" grouping count
+      // in the review panel.
       if (label) label.textContent = CONFIRMED_LABEL;
       else button.textContent = CONFIRMED_LABEL;
-      window.setTimeout(() => {
-        if (label) label.textContent = originalLabel;
-        else button.textContent = originalLabel;
-        button.disabled = false;
-      }, CONFIRMED_VISIBLE_MS);
     } catch (error) {
       button.disabled = false;
       console.warn('Positive feedback could not be saved:', error);

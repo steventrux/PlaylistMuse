@@ -4,14 +4,23 @@
   const ENDPOINT = '/api/quality/local-feedback';
   const list = document.getElementById('taste-memory-list');
   const empty = document.getElementById('taste-memory-empty');
+  const statusEl = document.getElementById('taste-memory-status');
   if (!list || !empty) return;
   const {readJson} = window.PlaylistMuseCommon;
 
   const STATUS_LABELS = {
-    pending: 'Still processing...',
+    pending: 'Still processing…',
     captured: null,
     distillation_failed: 'Could not be generated',
   };
+
+  const PROMPT_PREVIEW_LIMIT = 120;
+
+  function truncatedPrompt(promptSummary) {
+    const text = String(promptSummary || '').trim();
+    if (text.length <= PROMPT_PREVIEW_LIMIT) return text;
+    return `${text.slice(0, PROMPT_PREVIEW_LIMIT)}…`;
+  }
 
   function tagKey(tags) {
     const values = [
@@ -44,6 +53,30 @@
     guidance.textContent = entry.distilled_guidance || statusLabel || 'Nothing notable beyond what you already asked for.';
     body.append(guidance);
 
+    const promptText = truncatedPrompt(entry.prompt_summary);
+    if (promptText) {
+      const prompt = document.createElement('p');
+      prompt.className = 'taste-memory-prompt';
+      prompt.textContent = promptText;
+      body.append(prompt);
+    }
+
+    const genreMoodTags = [
+      ...(entry.tags?.genre || []),
+      ...(entry.tags?.mood || []),
+    ];
+    if (genreMoodTags.length) {
+      const tagRow = document.createElement('div');
+      tagRow.className = 'taste-memory-tags';
+      genreMoodTags.forEach((tag) => {
+        const chip = document.createElement('span');
+        chip.className = 'taste-memory-tag-chip';
+        chip.textContent = tag;
+        tagRow.append(chip);
+      });
+      body.append(tagRow);
+    }
+
     const meta = document.createElement('p');
     meta.className = 'taste-memory-meta';
     const tagCount = counts.get(tagKey(entry.tags)) || 0;
@@ -62,7 +95,8 @@
     remove.addEventListener('click', async () => {
       remove.disabled = true;
       try {
-        await fetch(`${ENDPOINT}/${encodeURIComponent(entry.id)}`, {method: 'DELETE'});
+        const response = await fetch(`${ENDPOINT}/${encodeURIComponent(entry.id)}`, {method: 'DELETE'});
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         await render();
       } catch (error) {
         remove.disabled = false;
@@ -81,8 +115,22 @@
       entries = Array.isArray(payload.entries) ? payload.entries : [];
     } catch (error) {
       console.warn('Could not load taste memory:', error);
+      list.replaceChildren();
+      list.classList.add('hidden');
+      empty.classList.add('hidden');
+      if (statusEl) {
+        statusEl.textContent = error.message || 'Taste memory is unavailable right now.';
+        statusEl.classList.remove('hidden');
+        statusEl.classList.add('error');
+      }
+      return;
     }
 
+    if (statusEl) {
+      statusEl.classList.add('hidden');
+      statusEl.classList.remove('error');
+    }
+    list.classList.remove('hidden');
     entries.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
     const counts = groupCounts(entries);
     list.replaceChildren(...entries.map((entry) => entryRow(entry, counts)));

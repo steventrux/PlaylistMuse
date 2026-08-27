@@ -595,10 +595,41 @@
   line-height: 1.4;
 }
 
+.taste-memory-prompt {
+  margin: 4px 0 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: .78rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.taste-memory-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.taste-memory-tag-chip {
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--item-bg);
+  color: var(--text-muted);
+  font-size: .7rem;
+  font-weight: 650;
+}
+
 .taste-memory-meta {
   margin: 4px 0 0;
   color: var(--text-muted);
   font-size: .74rem;
+}
+
+#taste-memory-status.error {
+  color: var(--error);
 }
 
 .taste-memory-delete {

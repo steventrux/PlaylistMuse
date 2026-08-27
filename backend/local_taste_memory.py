@@ -81,12 +81,20 @@ def _save_memory(memory: LocalTasteMemory) -> None:
 def _prompt_summary(
     playlist: dict[str, Any], generation_request: dict[str, Any] | None
 ) -> str:
+    """Intentional, independent re-implementation of the summary text also
+    produced client-side by requestText() in frontend/playlist-feedback.js: this
+    version re-derives the summary from the raw playlist/generation_request
+    payload rather than trusting client-formatted text (the client cannot be
+    trusted to send an accurate summary of its own state), so the two are not
+    guaranteed to produce identical strings -- the JS version, for example,
+    appends refinement/similarity-mode context this one does not.
+    """
     generation_request = generation_request or {}
     if generation_request.get("mode") == "seed":
         seed = generation_request.get("seed") or {}
         title = str(seed.get("title") or "").strip()
         artists = str(seed.get("artists") or seed.get("artist") or "").strip()
-        return f"Seed: {title or 'Unknown track'} — {artists or 'Unknown artist'}"
+        return f"Seed: {title or 'Unknown track'} by {artists or 'Unknown artist'}"
     prompt = str(generation_request.get("prompt") or playlist.get("prompt") or "").strip()
     return (prompt[:1950] or "Not available")
 
