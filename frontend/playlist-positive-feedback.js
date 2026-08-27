@@ -29,7 +29,8 @@
     const playlist = readStoredJson(STORAGE_KEY);
     if (!playlist || !Array.isArray(playlist.tracks) || !playlist.tracks.length) return;
     const generationRequest = readStoredJson(REQUEST_KEY);
-    const originalLabel = button.textContent;
+    const label = button.querySelector('.compact-action-label');
+    const originalLabel = label ? label.textContent : button.textContent;
 
     button.disabled = true;
     try {
@@ -41,9 +42,11 @@
           generation_request: generationRequest || null,
         }),
       }));
-      button.textContent = CONFIRMED_LABEL;
+      if (label) label.textContent = CONFIRMED_LABEL;
+      else button.textContent = CONFIRMED_LABEL;
       window.setTimeout(() => {
-        button.textContent = originalLabel;
+        if (label) label.textContent = originalLabel;
+        else button.textContent = originalLabel;
         button.disabled = false;
       }, CONFIRMED_VISIBLE_MS);
     } catch (error) {

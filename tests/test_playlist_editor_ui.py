@@ -114,3 +114,6 @@ def test_positive_feedback_button_exists_with_matching_gating_to_negative_feedba
     assert "STORAGE_KEY = 'playlistmuse-generated-playlist'" in script
     assert "new URLSearchParams(window.location.search).has('id')" in script
     assert "STORAGE_KEY = 'playlistmuse-generated-playlist'" in negative_script
+    # Mutation observer fix: target .compact-action-label span, not button.textContent
+    assert "const label = button.querySelector('.compact-action-label');" in script
+    assert "if (label) label.textContent = CONFIRMED_LABEL;" in script
