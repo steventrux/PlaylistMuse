@@ -41,6 +41,9 @@
     // field is absent from an update; tag edits go through persistPlaylistTags,
     // which fetches the latest record first instead of relying on this snapshot.
     delete playlist.tags;
+    // Client-only session markers -- must never reach a persisted library record.
+    delete playlist.playlistmuseFreshlyGenerated;
+    delete playlist.playlistmuseTasteCaptured;
     return playlist;
   }
 

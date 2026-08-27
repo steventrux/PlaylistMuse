@@ -531,6 +531,7 @@
       );
 
 
+      data.playlistmuseFreshlyGenerated = true;
       sessionStorage.setItem('playlistmuse-generated-playlist', JSON.stringify(data));
       sessionStorage.setItem('playlistmuse-generation-request', JSON.stringify({
         mode: state.mode,

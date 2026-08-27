@@ -65,9 +65,9 @@
     }
   }
 
-  if (new URLSearchParams(window.location.search).has('id')) return;
   const playlist = readStoredJson(STORAGE_KEY);
   if (!playlist || !Array.isArray(playlist.tracks) || !playlist.tracks.length) return;
+  if (!playlist.playlistmuseFreshlyGenerated) return;
 
   button.classList.remove('hidden');
   if (playlist.playlistmuseTasteCaptured) {

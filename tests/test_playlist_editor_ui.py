@@ -45,7 +45,7 @@ def test_playlist_autosave_status_tracks_persistent_library_writes() -> None:
     style = _text("playlist-header.css")
 
     status_script = '<script src="/static/playlist-save-status.js?v=2"></script>'
-    playlist_script = '<script src="/static/playlist.js?v=27"></script>'
+    playlist_script = '<script src="/static/playlist.js?v=28"></script>'
     assert status_script in html
     assert html.index(status_script) < html.index(playlist_script)
     assert "saving: 'Saving…'" in script
@@ -106,14 +106,24 @@ def test_positive_feedback_button_exists_with_matching_gating_to_negative_feedba
     negative_script = _text("playlist-feedback.js")
 
     assert 'id="playlist-positive-feedback"' in html
-    assert '/static/playlist-positive-feedback.js?v=3' in html
+    assert '/static/playlist-positive-feedback.js?v=4' in html
     assert '/static/action-controls.js?v=8' in html
     assert "const ENDPOINT = '/api/quality/local-feedback';" in script
-    # Same session-storage keys and the same "?id= present -> hidden" gating as
-    # the existing negative-feedback button, deliberately.
+    # Same session-storage keys and flag-based gating as the existing
+    # negative-feedback button, deliberately.
     assert "STORAGE_KEY = 'playlistmuse-generated-playlist'" in script
-    assert "new URLSearchParams(window.location.search).has('id')" in script
+    assert "if (!playlist.playlistmuseFreshlyGenerated) return;" in script
+    assert "new URLSearchParams(window.location.search).has('id')" not in script
     assert "STORAGE_KEY = 'playlistmuse-generated-playlist'" in negative_script
+    assert "if (!playlist.playlistmuseFreshlyGenerated) return;" in negative_script
+    assert "new URLSearchParams(window.location.search).has('id')" not in negative_script
+
+    app_script = _text("app.js")
+    assert "data.playlistmuseFreshlyGenerated = true;" in app_script
+
+    playlist_script = _text("playlist.js")
+    assert "delete playlist.playlistmuseFreshlyGenerated;" in playlist_script
+    assert "delete playlist.playlistmuseTasteCaptured;" in playlist_script
     # Mutation observer fix: target .compact-action-label span, not button.textContent
     assert "const label = button.querySelector('.compact-action-label');" in script
     assert "if (label) label.textContent = CONFIRMED_LABEL;" in script
