@@ -255,3 +255,19 @@ def test_taste_memory_signal_context_var_round_trips() -> None:
     assert core.active_taste_memory_signal() == {"genre": ["techno"], "mood": []}
     core.activate_taste_memory_signal(None)
     assert core.active_taste_memory_signal() is None
+
+
+def test_resolve_taste_memory_signal_fails_open_on_unexpected_error(monkeypatch) -> None:
+    """A corrupt/mismatched local_taste_memory.json (e.g. a schema-validation error from
+    generation_influence_enabled's underlying _load_memory) must never break generation."""
+
+    def broken_enabled_check():
+        raise ValueError("corrupt local_taste_memory.json")
+
+    monkeypatch.setattr(
+        "backend.local_taste_memory.generation_influence_enabled", broken_enabled_check
+    )
+
+    signal = asyncio.run(core._resolve_taste_memory_signal(_config(), "upbeat house set"))
+
+    assert signal is None

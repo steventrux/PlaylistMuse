@@ -484,17 +484,21 @@ async def _resolve_taste_memory_signal(
     config: Any, source_prompt: str
 ) -> dict[str, list[str]] | None:
     """Extract a taste-memory matching signal for this request, or None if the feature is
-    off. Kept as its own top-level function (not an inline closure) so it can be tested in
+    off or anything goes wrong. Never raises: this must never be able to break generation.
+    Kept as its own top-level function (not an inline closure) so it can be tested in
     isolation, the same way _initial_reccobeats_guidance is.
     """
-    from backend.local_taste_memory import (
-        generation_influence_enabled,
-        interpret_taste_signal,
-    )
+    try:
+        from backend.local_taste_memory import (
+            generation_influence_enabled,
+            interpret_taste_signal,
+        )
 
-    if not generation_influence_enabled():
+        if not generation_influence_enabled():
+            return None
+        return await interpret_taste_signal(config, source_prompt)
+    except Exception:
         return None
-    return await interpret_taste_signal(config, source_prompt)
 
 
 async def _initial_reccobeats_guidance(
