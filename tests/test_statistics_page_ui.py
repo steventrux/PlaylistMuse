@@ -205,6 +205,6 @@ def test_taste_memory_section_is_wired_like_every_other_stats_section() -> None:
     assert "'taste'" in page_script
     assert "taste: 'Taste memory'" in page_script
     assert "const ENDPOINT = '/api/quality/local-feedback';" in render_script
-    assert '/static/local-taste-memory.js?v=1' in html
+    assert '/static/local-taste-memory.js?v=2' in html
     assert '/static/statistics-page.js?v=4' in html
     assert '/static/statistics.css?v=13' in html

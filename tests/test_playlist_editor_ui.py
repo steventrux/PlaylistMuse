@@ -106,7 +106,7 @@ def test_positive_feedback_button_exists_with_matching_gating_to_negative_feedba
     negative_script = _text("playlist-feedback.js")
 
     assert 'id="playlist-positive-feedback"' in html
-    assert '/static/playlist-positive-feedback.js?v=1' in html
+    assert '/static/playlist-positive-feedback.js?v=2' in html
     assert '/static/action-controls.js?v=8' in html
     assert "const ENDPOINT = '/api/quality/local-feedback';" in script
     # Same session-storage keys and the same "?id= present -> hidden" gating as
