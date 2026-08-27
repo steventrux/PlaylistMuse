@@ -98,3 +98,19 @@ def test_manual_add_and_remove_are_recorded_in_refinement_history() -> None:
     assert "prompt: `${action}: ${trackHistoryText(track)}`" in script
     assert "request.refinements = refinements;" in script
     assert "applied_at: new Date().toISOString()" in script
+
+
+def test_positive_feedback_button_exists_with_matching_gating_to_negative_feedback() -> None:
+    html = _text("playlist.html")
+    script = _text("playlist-positive-feedback.js")
+    negative_script = _text("playlist-feedback.js")
+
+    assert 'id="playlist-positive-feedback"' in html
+    assert '/static/playlist-positive-feedback.js?v=1' in html
+    assert '/static/action-controls.js?v=8' in html
+    assert "const ENDPOINT = '/api/quality/local-feedback';" in script
+    # Same session-storage keys and the same "?id= present -> hidden" gating as
+    # the existing negative-feedback button, deliberately.
+    assert "STORAGE_KEY = 'playlistmuse-generated-playlist'" in script
+    assert "new URLSearchParams(window.location.search).has('id')" in script
+    assert "STORAGE_KEY = 'playlistmuse-generated-playlist'" in negative_script
