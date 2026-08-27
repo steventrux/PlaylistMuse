@@ -193,21 +193,34 @@ def taste_memory_guidance(signal: dict[str, list[str]] | None) -> str:
     single "this got it right" must never influence generation on its own. Reuses each
     group's already-distilled sentence verbatim (no new AI call). Returns "" whenever there
     is nothing convergent to say, so callers can append the result unconditionally.
+
+    Never raises: called on every generation and replenishment round, so a corrupt or
+    schema-mismatched memory file must degrade to "" here too, the same way
+    _resolve_taste_memory_signal already degrades on failure. Loads the memory file at
+    most once per call (the enabled-toggle check reads straight off that same loaded
+    object instead of re-loading).
     """
-    if not signal or not generation_influence_enabled():
+    if not signal:
         return ""
-    request_tags = {*signal.get("genre", []), *signal.get("mood", [])}
+    request_tags = {tag.casefold() for tag in (*signal.get("genre", []), *signal.get("mood", []))}
     if not request_tags:
         return ""
 
-    memory = _load_memory()
+    try:
+        memory = _load_memory()
+    except Exception:
+        return ""
+    if not memory.generation_influence_enabled:
+        return ""
+
     matches: dict[str, list[LocalTasteEntry]] = {}
     for entry in memory.entries:
         if entry.status != "captured":
             continue
         entry_tags = {*entry.tags.get("genre", []), *entry.tags.get("mood", [])}
-        for tag in entry_tags & request_tags:
-            matches.setdefault(tag, []).append(entry)
+        for tag in entry_tags:
+            if tag.casefold() in request_tags:
+                matches.setdefault(tag, []).append(entry)
 
     converged = [
         (tag, entries)
@@ -240,6 +253,29 @@ def taste_memory_guidance(signal: dict[str, list[str]] | None) -> str:
         "an informal style preference, not a requirement. Weigh it alongside, never "
         f"above, the explicit request above.\n{lines}"
     )
+
+
+def has_convergent_taste_memory() -> bool:
+    """Cheap pre-check: does any tag have enough captured entries to matter yet?
+
+    Lets callers skip the taste-signal AI call entirely on a fresh installation or one
+    still below the convergence threshold -- the common case this feature must cost
+    nothing extra in. Coarse on purpose: it does not check whether a specific request's
+    tags would match, only whether convergence exists anywhere right now.
+    """
+    try:
+        memory = _load_memory()
+    except Exception:
+        return False
+    counts: dict[str, int] = {}
+    for entry in memory.entries:
+        if entry.status != "captured":
+            continue
+        for tag in {*entry.tags.get("genre", []), *entry.tags.get("mood", [])}:
+            counts[tag] = counts.get(tag, 0) + 1
+            if counts[tag] >= CONVERGENCE_THRESHOLD:
+                return True
+    return False
 
 
 async def _distill_guidance(
@@ -361,6 +397,28 @@ async def list_local_taste() -> dict[str, list[dict[str, Any]]]:
     return {"entries": [entry.model_dump() for entry in _load_memory().entries]}
 
 
+class LocalTasteSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    generation_influence_enabled: bool
+
+
+# Registered before the /{entry_id} routes below: FastAPI matches routes in
+# registration order, and /settings must never risk being shadowed by a future
+# bare /{entry_id}-style route added after it.
+@router.get("/settings")
+async def get_local_taste_settings() -> LocalTasteSettings:
+    return LocalTasteSettings(generation_influence_enabled=generation_influence_enabled())
+
+
+@router.put("/settings")
+async def update_local_taste_settings(request: LocalTasteSettings) -> LocalTasteSettings:
+    memory = _load_memory()
+    memory.generation_influence_enabled = request.generation_influence_enabled
+    _save_memory(memory)
+    return request
+
+
 def _not_found(entry_id: str) -> HTTPException:
     return HTTPException(status_code=404, detail=f"Entry {entry_id} was not found.")
 
@@ -402,22 +460,3 @@ async def delete_local_taste(entry_id: str) -> None:
         raise _not_found(entry_id)
     memory.entries = remaining
     _save_memory(memory)
-
-
-class LocalTasteSettings(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    generation_influence_enabled: bool
-
-
-@router.get("/settings")
-async def get_local_taste_settings() -> LocalTasteSettings:
-    return LocalTasteSettings(generation_influence_enabled=generation_influence_enabled())
-
-
-@router.put("/settings")
-async def update_local_taste_settings(request: LocalTasteSettings) -> LocalTasteSettings:
-    memory = _load_memory()
-    memory.generation_influence_enabled = request.generation_influence_enabled
-    _save_memory(memory)
-    return request

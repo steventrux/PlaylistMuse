@@ -383,8 +383,14 @@ async def _interpret_request(
     config: Any,
     source_prompt: str,
     fallback: Any,
+    stage: str,
+    is_seed_generation: bool = False,
 ) -> tuple[dict[str, Any] | None, Any, Any, dict[str, list[str]] | None]:
     """Interpret one request's constraints and recording/creative policy in parallel.
+
+    stage and is_seed_generation are forwarded to _resolve_taste_memory_signal only, to
+    scope taste-memory influence to initial text-prompt generation (see that function's
+    docstring) -- they play no role in the rest of this function's interpretation.
 
     Returns (interpreted_payload, assessment, enforced_constraints, taste_signal) and
     raises ValueError when the interpreted request is impossible to satisfy.
@@ -406,7 +412,7 @@ async def _interpret_request(
         assess_prompt(config, source_prompt),
         interpret_recording_policy(config, source_prompt),
         interpret_creative_intent(config, source_prompt),
-        _resolve_taste_memory_signal(config, source_prompt),
+        _resolve_taste_memory_signal(config, source_prompt, stage, is_seed_generation),
     )
     if active_favorite_artist_allowlist():
         # The artist pool is hard-restricted to bookmarked favorites below; if the
@@ -481,22 +487,31 @@ async def _replenishment_reccobeats_guidance(stage: str, optimized_count: int) -
 
 
 async def _resolve_taste_memory_signal(
-    config: Any, source_prompt: str
+    config: Any, source_prompt: str, stage: str, is_seed_generation: bool = False
 ) -> dict[str, list[str]] | None:
     """Extract a taste-memory matching signal for this request, or None if the feature is
-    off or anything goes wrong. Never raises: this must never be able to break generation.
+    off, out of scope for this stage, has no convergent data yet, times out, or anything
+    else goes wrong. Never raises: this must never be able to break generation.
     Kept as its own top-level function (not an inline closure) so it can be tested in
     isolation, the same way _initial_reccobeats_guidance is.
+
+    Scoped to the initial text-prompt generation only (not seed mode, not a replacement
+    round) -- mirrors _initial_reccobeats_guidance's exact stage/seed gate.
     """
+    if stage != "llm_initial" or is_seed_generation:
+        return None
     try:
         from backend.local_taste_memory import (
             generation_influence_enabled,
+            has_convergent_taste_memory,
             interpret_taste_signal,
         )
 
-        if not generation_influence_enabled():
+        if not generation_influence_enabled() or not has_convergent_taste_memory():
             return None
-        return await interpret_taste_signal(config, source_prompt)
+        return await asyncio.wait_for(
+            interpret_taste_signal(config, source_prompt), timeout=3.0
+        )
     except Exception:
         return None
 
@@ -635,7 +650,9 @@ async def generate_playlist_draft(
     try:
         if should_interpret:
             interpreted, assessment, enforced_constraints, taste_signal = (
-                await _interpret_request(config, source_prompt, fallback)
+                await _interpret_request(
+                    config, source_prompt, fallback, stage, is_seed_generation
+                )
             )
             _LAST_INTERPRETED_CONSTRAINTS.set(interpreted)
             activate_taste_memory_signal(taste_signal)

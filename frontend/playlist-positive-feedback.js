@@ -32,6 +32,9 @@
     const document = JSON.parse(JSON.stringify(playlist));
     delete document.library_id;
     delete document.tags;
+    // Client-only session markers -- must never reach a persisted snapshot.
+    delete document.playlistmuseFreshlyGenerated;
+    delete document.playlistmuseTasteCaptured;
     return document;
   }
 

@@ -107,7 +107,7 @@ def test_library_cards_match_compact_result_card_proportions_and_expand() -> Non
     script = _text("library.js")
     style = _text("library.css")
 
-    assert "/static/library.js?v=15" in html
+    assert "/static/library.js?v=16" in html
     assert "/static/library.css?v=14" in html
     assert "let expandedLibraryId = null;" in script
     assert "function toggleLibraryCard(card, item)" in script

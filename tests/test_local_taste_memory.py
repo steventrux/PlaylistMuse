@@ -569,3 +569,166 @@ def test_taste_memory_guidance_caps_at_three_sentences(tmp_path: Path, monkeypat
     )
 
     assert result.count("Guidance for ") == 3
+
+
+def test_taste_memory_guidance_matches_tags_case_insensitively(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Fix 3: a stored tag "House" must still match a request signal tag "house" --
+    the underlying label normalizer preserves original casing, only dedupes
+    case-insensitively, so a plain set intersection on raw labels silently never
+    converges."""
+    monkeypatch.setattr(
+        local_taste_memory_module, "LOCAL_TASTE_MEMORY_PATH", tmp_path / "taste.json"
+    )
+    memory = local_taste_memory_module.LocalTasteMemory(
+        entries=[
+            local_taste_memory_module.LocalTasteEntry.model_validate(
+                _captured_entry(
+                    f"e{i}",
+                    genre="House",
+                    guidance="Keeps energy rising throughout.",
+                    created_at=f"2026-08-2{i}T00:00:00+00:00",
+                )
+            )
+            for i in range(3)
+        ]
+    )
+    local_taste_memory_module._save_memory(memory)
+
+    result = local_taste_memory_module.taste_memory_guidance({"genre": ["house"], "mood": []})
+
+    assert "Keeps energy rising throughout." in result
+
+
+def test_taste_memory_guidance_loads_memory_exactly_once(tmp_path: Path, monkeypatch) -> None:
+    """Fix 6: generation_influence_enabled's check must read off the already-loaded
+    memory object rather than triggering a second _load_memory() call."""
+    monkeypatch.setattr(
+        local_taste_memory_module, "LOCAL_TASTE_MEMORY_PATH", tmp_path / "taste.json"
+    )
+    memory = local_taste_memory_module.LocalTasteMemory(
+        entries=[
+            local_taste_memory_module.LocalTasteEntry.model_validate(
+                _captured_entry(
+                    f"e{i}",
+                    genre="house",
+                    guidance="Keeps energy rising.",
+                    created_at=f"2026-08-2{i}T00:00:00+00:00",
+                )
+            )
+            for i in range(3)
+        ]
+    )
+    local_taste_memory_module._save_memory(memory)
+
+    original_load_memory = local_taste_memory_module._load_memory
+    call_count = {"n": 0}
+
+    def counting_load_memory():
+        call_count["n"] += 1
+        return original_load_memory()
+
+    monkeypatch.setattr(local_taste_memory_module, "_load_memory", counting_load_memory)
+
+    result = local_taste_memory_module.taste_memory_guidance({"genre": ["house"], "mood": []})
+
+    assert "Keeps energy rising." in result
+    assert call_count["n"] == 1
+
+
+def test_taste_memory_guidance_degrades_to_empty_on_load_failure(monkeypatch) -> None:
+    """Fix 6: a corrupt/schema-mismatched memory file must never raise out of
+    taste_memory_guidance -- it must degrade to "" just like _resolve_taste_memory_signal
+    already does."""
+
+    def broken_load_memory():
+        raise ValueError("corrupt local_taste_memory.json")
+
+    monkeypatch.setattr(local_taste_memory_module, "_load_memory", broken_load_memory)
+
+    result = local_taste_memory_module.taste_memory_guidance({"genre": ["house"], "mood": []})
+
+    assert result == ""
+
+
+def test_has_convergent_taste_memory_below_threshold_is_false(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        local_taste_memory_module, "LOCAL_TASTE_MEMORY_PATH", tmp_path / "taste.json"
+    )
+    memory = local_taste_memory_module.LocalTasteMemory(
+        entries=[
+            local_taste_memory_module.LocalTasteEntry.model_validate(
+                _captured_entry(
+                    f"e{i}",
+                    genre="house",
+                    guidance="Keeps energy rising.",
+                    created_at=f"2026-08-2{i}T00:00:00+00:00",
+                )
+            )
+            for i in range(local_taste_memory_module.CONVERGENCE_THRESHOLD - 1)
+        ]
+    )
+    local_taste_memory_module._save_memory(memory)
+
+    assert local_taste_memory_module.has_convergent_taste_memory() is False
+
+
+def test_has_convergent_taste_memory_at_threshold_is_true(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        local_taste_memory_module, "LOCAL_TASTE_MEMORY_PATH", tmp_path / "taste.json"
+    )
+    memory = local_taste_memory_module.LocalTasteMemory(
+        entries=[
+            local_taste_memory_module.LocalTasteEntry.model_validate(
+                _captured_entry(
+                    f"e{i}",
+                    genre="house",
+                    guidance="Keeps energy rising.",
+                    created_at=f"2026-08-2{i}T00:00:00+00:00",
+                )
+            )
+            for i in range(local_taste_memory_module.CONVERGENCE_THRESHOLD)
+        ]
+    )
+    local_taste_memory_module._save_memory(memory)
+
+    assert local_taste_memory_module.has_convergent_taste_memory() is True
+
+
+def test_has_convergent_taste_memory_only_counts_captured_entries(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        local_taste_memory_module, "LOCAL_TASTE_MEMORY_PATH", tmp_path / "taste.json"
+    )
+    entries = [
+        local_taste_memory_module.LocalTasteEntry.model_validate(
+            _captured_entry(
+                f"e{i}",
+                genre="house",
+                guidance="Keeps energy rising.",
+                created_at=f"2026-08-2{i}T00:00:00+00:00",
+            )
+        )
+        for i in range(local_taste_memory_module.CONVERGENCE_THRESHOLD - 1)
+    ]
+    entries.append(
+        local_taste_memory_module.LocalTasteEntry(
+            id="pending-1",
+            created_at="2026-08-27T00:00:00+00:00",
+            flow="generation",
+            prompt_summary="test prompt",
+            tags={"genre": ["house"], "mood": []},
+            status="pending",
+        )
+    )
+    local_taste_memory_module._save_memory(
+        local_taste_memory_module.LocalTasteMemory(entries=entries)
+    )
+
+    assert local_taste_memory_module.has_convergent_taste_memory() is False

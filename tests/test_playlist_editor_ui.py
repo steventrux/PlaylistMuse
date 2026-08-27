@@ -106,7 +106,7 @@ def test_positive_feedback_button_exists_with_matching_gating_to_negative_feedba
     negative_script = _text("playlist-feedback.js")
 
     assert 'id="playlist-positive-feedback"' in html
-    assert '/static/playlist-positive-feedback.js?v=4' in html
+    assert '/static/playlist-positive-feedback.js?v=5' in html
     assert '/static/action-controls.js?v=8' in html
     assert "const ENDPOINT = '/api/quality/local-feedback';" in script
     # Same session-storage keys and flag-based gating as the existing
@@ -128,6 +128,15 @@ def test_positive_feedback_button_exists_with_matching_gating_to_negative_feedba
     add_track_script = _text("playlist-add-track.js")
     assert "delete document.playlistmuseFreshlyGenerated;" in add_track_script
     assert "delete document.playlistmuseTasteCaptured;" in add_track_script
+
+    library_script = _text("library.js")
+    assert "delete playlistDocument.playlistmuseFreshlyGenerated;" in library_script
+    assert "delete playlistDocument.playlistmuseTasteCaptured;" in library_script
+
+    # This file's own playlistDocument() (separate from playlist.js's) must strip
+    # the same two markers before building the taste-memory capture request body.
+    assert "delete document.playlistmuseFreshlyGenerated;" in script
+    assert "delete document.playlistmuseTasteCaptured;" in script
     # Mutation observer fix: target .compact-action-label span, not button.textContent
     assert "const label = button.querySelector('.compact-action-label');" in script
     assert "if (label) label.textContent = CONFIRMED_LABEL;" in script

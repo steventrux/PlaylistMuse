@@ -219,6 +219,17 @@ def test_initial_guidance_worst_case_is_bounded_not_multiplied(monkeypatch) -> N
     assert elapsed < 2.0
 
 
+def _patch_taste_memory_ready(monkeypatch) -> None:
+    """Convenience for tests exercising the AI-call path: makes both gates upstream of
+    the actual call (enabled + convergent data present) pass."""
+    monkeypatch.setattr(
+        "backend.local_taste_memory.generation_influence_enabled", lambda: True
+    )
+    monkeypatch.setattr(
+        "backend.local_taste_memory.has_convergent_taste_memory", lambda: True
+    )
+
+
 def test_resolve_taste_memory_signal_returns_none_when_disabled(monkeypatch) -> None:
     monkeypatch.setattr(
         "backend.local_taste_memory.generation_influence_enabled", lambda: False
@@ -229,15 +240,15 @@ def test_resolve_taste_memory_signal_returns_none_when_disabled(monkeypatch) -> 
 
     monkeypatch.setattr("backend.local_taste_memory.interpret_taste_signal", fail_if_called)
 
-    signal = asyncio.run(core._resolve_taste_memory_signal(_config(), "upbeat house set"))
+    signal = asyncio.run(
+        core._resolve_taste_memory_signal(_config(), "upbeat house set", "llm_initial")
+    )
 
     assert signal is None
 
 
 def test_resolve_taste_memory_signal_delegates_when_enabled(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "backend.local_taste_memory.generation_influence_enabled", lambda: True
-    )
+    _patch_taste_memory_ready(monkeypatch)
 
     async def fake_signal(config, prompt):
         assert prompt == "upbeat house set"
@@ -245,7 +256,9 @@ def test_resolve_taste_memory_signal_delegates_when_enabled(monkeypatch) -> None
 
     monkeypatch.setattr("backend.local_taste_memory.interpret_taste_signal", fake_signal)
 
-    signal = asyncio.run(core._resolve_taste_memory_signal(_config(), "upbeat house set"))
+    signal = asyncio.run(
+        core._resolve_taste_memory_signal(_config(), "upbeat house set", "llm_initial")
+    )
 
     assert signal == {"genre": ["house"], "mood": ["euphoric"]}
 
@@ -268,6 +281,104 @@ def test_resolve_taste_memory_signal_fails_open_on_unexpected_error(monkeypatch)
         "backend.local_taste_memory.generation_influence_enabled", broken_enabled_check
     )
 
-    signal = asyncio.run(core._resolve_taste_memory_signal(_config(), "upbeat house set"))
+    signal = asyncio.run(
+        core._resolve_taste_memory_signal(_config(), "upbeat house set", "llm_initial")
+    )
 
     assert signal is None
+
+
+def test_resolve_taste_memory_signal_scoped_to_llm_initial_stage(monkeypatch) -> None:
+    """Fix 4: the design spec scoped this feature to initial text-prompt generation only
+    -- seed-mode generation and the replace-track endpoint were explicit non-goals. The
+    gate must short-circuit before any I/O, so interpret_taste_signal must never even be
+    called for an out-of-scope stage."""
+    _patch_taste_memory_ready(monkeypatch)
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("interpret_taste_signal should not run outside llm_initial")
+
+    monkeypatch.setattr("backend.local_taste_memory.interpret_taste_signal", fail_if_called)
+
+    for stage in ("llm_replacement", "llm_replenishment", "something_else"):
+        signal = asyncio.run(
+            core._resolve_taste_memory_signal(_config(), "upbeat house set", stage)
+        )
+        assert signal is None
+
+
+def test_resolve_taste_memory_signal_scoped_away_from_seed_generation(monkeypatch) -> None:
+    """Fix 4: seed-mode generation is an explicit non-goal, even when stage is
+    llm_initial (seed generation also runs its interpretation under that stage name)."""
+    _patch_taste_memory_ready(monkeypatch)
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("interpret_taste_signal should not run for seed generation")
+
+    monkeypatch.setattr("backend.local_taste_memory.interpret_taste_signal", fail_if_called)
+
+    signal = asyncio.run(
+        core._resolve_taste_memory_signal(
+            _config(), "upbeat house set", "llm_initial", is_seed_generation=True
+        )
+    )
+
+    assert signal is None
+
+
+def test_resolve_taste_memory_signal_skips_call_without_convergent_data(monkeypatch) -> None:
+    """Fix 5a: on a fresh install or one still below the convergence threshold (the
+    common case), the AI call must be skipped entirely -- its result would be discarded
+    downstream by taste_memory_guidance anyway."""
+    monkeypatch.setattr(
+        "backend.local_taste_memory.generation_influence_enabled", lambda: True
+    )
+    monkeypatch.setattr(
+        "backend.local_taste_memory.has_convergent_taste_memory", lambda: False
+    )
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError(
+            "interpret_taste_signal should not run without convergent taste memory"
+        )
+
+    monkeypatch.setattr("backend.local_taste_memory.interpret_taste_signal", fail_if_called)
+
+    signal = asyncio.run(
+        core._resolve_taste_memory_signal(_config(), "upbeat house set", "llm_initial")
+    )
+
+    assert signal is None
+
+
+def test_resolve_taste_memory_signal_uses_a_three_second_wait_for_timeout(
+    monkeypatch,
+) -> None:
+    """Fix 5b: the call must be wrapped in asyncio.wait_for(..., timeout=3.0), and a
+    timeout must degrade to None rather than raising. Verified via a fake wait_for that
+    raises TimeoutError immediately, rather than an actual multi-second sleep, to keep
+    this test fast and non-flaky."""
+    _patch_taste_memory_ready(monkeypatch)
+
+    async def never_called_signal(config, prompt):
+        raise AssertionError("interpret_taste_signal's coroutine must not be awaited here")
+
+    monkeypatch.setattr(
+        "backend.local_taste_memory.interpret_taste_signal", never_called_signal
+    )
+
+    captured_timeout = {}
+
+    async def fake_wait_for(awaitable, timeout):
+        captured_timeout["value"] = timeout
+        awaitable.close()  # avoid a "coroutine was never awaited" warning
+        raise TimeoutError()
+
+    monkeypatch.setattr(core.asyncio, "wait_for", fake_wait_for)
+
+    signal = asyncio.run(
+        core._resolve_taste_memory_signal(_config(), "upbeat house set", "llm_initial")
+    )
+
+    assert signal is None
+    assert captured_timeout["value"] == 3.0

@@ -64,7 +64,7 @@ def test_library_uses_open_for_drafts_and_published_playlists() -> None:
     script = _text("action-controls.js")
 
     assert '/static/action-controls.js?v=8' in html
-    assert html.index('/static/library.js?v=15') < html.index('/static/action-controls.js?v=8')
+    assert html.index('/static/library.js?v=16') < html.index('/static/action-controls.js?v=8')
     assert "if (text === 'Edit') link.textContent = 'Open';" in script
     assert "if (text === 'Editing…') link.textContent = 'Opening…';" in script
     assert "if (ariaLabel.startsWith('Edit '))" in script
