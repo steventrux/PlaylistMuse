@@ -217,3 +217,41 @@ def test_initial_guidance_worst_case_is_bounded_not_multiplied(monkeypatch) -> N
     # sandbox jitter — this guards against an accidental retry loop or extra timeout
     # layer, which would push elapsed well past this ceiling.
     assert elapsed < 2.0
+
+
+def test_resolve_taste_memory_signal_returns_none_when_disabled(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.local_taste_memory.generation_influence_enabled", lambda: False
+    )
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("interpret_taste_signal should not run when disabled")
+
+    monkeypatch.setattr("backend.local_taste_memory.interpret_taste_signal", fail_if_called)
+
+    signal = asyncio.run(core._resolve_taste_memory_signal(_config(), "upbeat house set"))
+
+    assert signal is None
+
+
+def test_resolve_taste_memory_signal_delegates_when_enabled(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "backend.local_taste_memory.generation_influence_enabled", lambda: True
+    )
+
+    async def fake_signal(config, prompt):
+        assert prompt == "upbeat house set"
+        return {"genre": ["house"], "mood": ["euphoric"]}
+
+    monkeypatch.setattr("backend.local_taste_memory.interpret_taste_signal", fake_signal)
+
+    signal = asyncio.run(core._resolve_taste_memory_signal(_config(), "upbeat house set"))
+
+    assert signal == {"genre": ["house"], "mood": ["euphoric"]}
+
+
+def test_taste_memory_signal_context_var_round_trips() -> None:
+    core.activate_taste_memory_signal({"genre": ["techno"], "mood": []})
+    assert core.active_taste_memory_signal() == {"genre": ["techno"], "mood": []}
+    core.activate_taste_memory_signal(None)
+    assert core.active_taste_memory_signal() is None

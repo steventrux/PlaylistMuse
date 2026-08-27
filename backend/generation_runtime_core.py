@@ -45,6 +45,17 @@ _REQUESTED_SESSION_COUNT: ContextVar[int] = ContextVar(
 _LAST_INTERPRETED_CONSTRAINTS: ContextVar[dict[str, Any] | None] = ContextVar(
     "playlistmuse_last_interpreted_constraints", default=None
 )
+_TASTE_MEMORY_SIGNAL: ContextVar[dict[str, list[str]] | None] = ContextVar(
+    "playlistmuse_taste_memory_signal", default=None
+)
+
+
+def activate_taste_memory_signal(signal: dict[str, list[str]] | None) -> None:
+    _TASTE_MEMORY_SIGNAL.set(signal)
+
+
+def active_taste_memory_signal() -> dict[str, list[str]] | None:
+    return _TASTE_MEMORY_SIGNAL.get()
 
 
 def _stage_name(prompt: str) -> str:
@@ -372,11 +383,11 @@ async def _interpret_request(
     config: Any,
     source_prompt: str,
     fallback: Any,
-) -> tuple[dict[str, Any] | None, Any, Any]:
+) -> tuple[dict[str, Any] | None, Any, Any, dict[str, list[str]] | None]:
     """Interpret one request's constraints and recording/creative policy in parallel.
 
-    Returns (interpreted_payload, assessment, enforced_constraints) and raises ValueError
-    when the interpreted request is impossible to satisfy.
+    Returns (interpreted_payload, assessment, enforced_constraints, taste_signal) and
+    raises ValueError when the interpreted request is impossible to satisfy.
     """
     from backend.creative_intent import (
         activate_creative_intent,
@@ -391,10 +402,11 @@ async def _interpret_request(
     from backend.recording_variants import activate_recording_policy, interpret_recording_policy
     from backend.request_constraints import open_ended_year_range
 
-    assessment, recording_policy, creative_intent = await asyncio.gather(
+    assessment, recording_policy, creative_intent, taste_signal = await asyncio.gather(
         assess_prompt(config, source_prompt),
         interpret_recording_policy(config, source_prompt),
         interpret_creative_intent(config, source_prompt),
+        _resolve_taste_memory_signal(config, source_prompt),
     )
     if active_favorite_artist_allowlist():
         # The artist pool is hard-restricted to bookmarked favorites below; if the
@@ -428,7 +440,7 @@ async def _interpret_request(
             if enforced_constraints.release_year_to is not None
             else upper,
         )
-    return interpreted, assessment, enforced_constraints
+    return interpreted, assessment, enforced_constraints, taste_signal
 
 
 async def _replenishment_reccobeats_guidance(stage: str, optimized_count: int) -> str:
@@ -466,6 +478,23 @@ async def _replenishment_reccobeats_guidance(stage: str, optimized_count: int) -
         bool(guidance),
     )
     return guidance
+
+
+async def _resolve_taste_memory_signal(
+    config: Any, source_prompt: str
+) -> dict[str, list[str]] | None:
+    """Extract a taste-memory matching signal for this request, or None if the feature is
+    off. Kept as its own top-level function (not an inline closure) so it can be tested in
+    isolation, the same way _initial_reccobeats_guidance is.
+    """
+    from backend.local_taste_memory import (
+        generation_influence_enabled,
+        interpret_taste_signal,
+    )
+
+    if not generation_influence_enabled():
+        return None
+    return await interpret_taste_signal(config, source_prompt)
 
 
 async def _initial_reccobeats_guidance(
@@ -601,15 +630,20 @@ async def generate_playlist_draft(
     enforced_constraints = None
     try:
         if should_interpret:
-            interpreted, assessment, enforced_constraints = await _interpret_request(
-                config, source_prompt, fallback
+            interpreted, assessment, enforced_constraints, taste_signal = (
+                await _interpret_request(config, source_prompt, fallback)
             )
             _LAST_INTERPRETED_CONSTRAINTS.set(interpreted)
+            activate_taste_memory_signal(taste_signal)
         else:
             enforced_constraints = active_constraints()
 
         hard_guidance = _hard_constraint_guidance(enforced_constraints)
         submitted_prompt += hard_guidance
+
+        from backend.local_taste_memory import taste_memory_guidance
+
+        submitted_prompt += taste_memory_guidance(active_taste_memory_signal())
 
         reccobeats_guidance = await _replenishment_reccobeats_guidance(
             stage, optimized_count
