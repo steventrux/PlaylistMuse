@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const SECTIONS = new Set(['overview', 'timeline', 'artists', 'genres', 'moods', 'periods', 'tags', 'advanced', 'cache']);
+  const SECTIONS = new Set(['overview', 'timeline', 'artists', 'genres', 'moods', 'periods', 'tags', 'taste', 'advanced', 'cache']);
   const sectionTitles = {
     overview: 'Overview',
     timeline: 'Timeline',
@@ -10,6 +10,7 @@
     moods: 'Top moods',
     periods: 'Top periods',
     tags: 'Personal tags',
+    taste: 'Taste memory',
     advanced: 'AI performance',
     cache: 'Cache',
   };
@@ -21,6 +22,7 @@
     moods: 'Music',
     periods: 'Music',
     tags: 'Music',
+    taste: 'Music',
     advanced: 'Technical',
     cache: 'Technical',
   };

@@ -172,13 +172,13 @@ def test_statistics_page_is_organized_into_sidebar_categories() -> None:
 
     assert "settings-page-shell" in html
     for section in (
-        "overview", "timeline", "artists", "genres", "moods", "periods", "tags", "advanced", "cache",
+        "overview", "timeline", "artists", "genres", "moods", "periods", "tags", "taste", "advanced", "cache",
     ):
         assert f'data-stats-section="{section}"' in html
         assert f'id="stats-{section}-panel"' in html
     assert (
         "SECTIONS = new Set(['overview', 'timeline', 'artists', 'genres', "
-        "'moods', 'periods', 'tags', 'advanced', 'cache'])"
+        "'moods', 'periods', 'tags', 'taste', 'advanced', 'cache'])"
     ) in script
     assert "function selectSection(section" in script
 
@@ -192,3 +192,19 @@ def test_timeline_bar_height_reserves_room_for_the_month_label() -> None:
     assert "calc((100% - 20px) * ${ratio})" in script
     assert ".stats-timeline-col {" in style
     assert ".stats-timeline-month {" in style
+
+
+def test_taste_memory_section_is_wired_like_every_other_stats_section() -> None:
+    html = _text("statistics.html")
+    page_script = _text("statistics-page.js")
+    render_script = _text("local-taste-memory.js")
+
+    assert 'data-stats-section="taste"' in html
+    assert 'id="stats-taste-panel"' in html
+    assert 'id="taste-memory-list"' in html
+    assert "'taste'" in page_script
+    assert "taste: 'Taste memory'" in page_script
+    assert "const ENDPOINT = '/api/quality/local-feedback';" in render_script
+    assert '/static/local-taste-memory.js?v=1' in html
+    assert '/static/statistics-page.js?v=4' in html
+    assert '/static/statistics.css?v=12' in html

@@ -565,3 +565,55 @@
     transition: none;
   }
 }
+
+.taste-memory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.taste-memory-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--item-bg);
+}
+
+.taste-memory-body {
+  min-width: 0;
+}
+
+.taste-memory-guidance {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: .86rem;
+  line-height: 1.4;
+}
+
+.taste-memory-meta {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: .74rem;
+}
+
+.taste-memory-delete {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: .74rem;
+  cursor: pointer;
+}
+
+.taste-memory-delete:hover {
+  border-color: rgba(251, 113, 133, .4);
+  background: rgba(127, 29, 29, .12);
+  color: var(--error-text);
+}
