@@ -136,12 +136,12 @@
 }
 
 .favorite-toggle-button .compact-action-icon > svg {
-  stroke: #ffffff;
+  stroke: currentColor;
 }
 
 .favorite-toggle-button.is-favorited .compact-action-icon > svg {
-  fill: #ffffff;
-  stroke: #ffffff;
+  fill: currentColor;
+  stroke: currentColor;
 }
 
 /* Split favorite icon: a single white heart whose fill is a hard-stop

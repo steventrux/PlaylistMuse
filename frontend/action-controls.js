@@ -50,13 +50,13 @@
     return `<svg class="favorite-icon-split" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <defs>
         <linearGradient id="${gradientId}" x1="0" y1="0" x2="1" y2="0">
-          <stop class="favorite-icon-stop favorite-icon-stop--left" offset="0" stop-color="#ffffff"/>
-          <stop class="favorite-icon-stop favorite-icon-stop--left" offset="0.5" stop-color="#ffffff"/>
-          <stop class="favorite-icon-stop favorite-icon-stop--right" offset="0.5" stop-color="#ffffff"/>
-          <stop class="favorite-icon-stop favorite-icon-stop--right" offset="1" stop-color="#ffffff"/>
+          <stop class="favorite-icon-stop favorite-icon-stop--left" offset="0" stop-color="currentColor"/>
+          <stop class="favorite-icon-stop favorite-icon-stop--left" offset="0.5" stop-color="currentColor"/>
+          <stop class="favorite-icon-stop favorite-icon-stop--right" offset="0.5" stop-color="currentColor"/>
+          <stop class="favorite-icon-stop favorite-icon-stop--right" offset="1" stop-color="currentColor"/>
         </linearGradient>
       </defs>
-      <path d="${HEART_PATH}" fill="url(#${gradientId})" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="${HEART_PATH}" fill="url(#${gradientId})" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>`;
   }
 
