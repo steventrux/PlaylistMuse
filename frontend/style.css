@@ -261,15 +261,6 @@ h1, h2, h3, p { margin-top: 0; }
 
 main { padding-bottom: 64px; }
 
-/* The create-playlist page (the only page whose <main> wraps a bare .hero.card)
-   otherwise leaves a large empty gap below the card on tall viewports; center
-   it in the remaining space instead of adding new content. */
-main:has(> .hero.card) {
-  display: flex;
-  align-items: center;
-  min-height: calc(100dvh - 210px);
-}
-
 .card, .dialog-card {
   position: relative;
   overflow: hidden;

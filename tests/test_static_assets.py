@@ -109,7 +109,7 @@ def test_prompt_complexity_uses_compact_icon_popover() -> None:
     style = _style("style.css")
     complexity_style = _style("prompt-complexity.css")
 
-    assert '<link rel="stylesheet" href="/static/style.css?v=12">' in index
+    assert '<link rel="stylesheet" href="/static/style.css?v=13">' in index
     assert '<link rel="stylesheet" href="/static/prompt-complexity.css?v=6">' in index
     assert '<script src="/static/prompt-complexity.js?v=10"></script>' in index
     assert 'id="prompt-complexity-trigger"' in index

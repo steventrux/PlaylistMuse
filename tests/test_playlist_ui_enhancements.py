@@ -70,7 +70,7 @@ def test_results_page_reuses_shared_navigation_controls_and_card_palette() -> No
     card_style = _text("playlist-cards.css")
     header_style = _text("playlist-header.css")
 
-    assert '/static/style.css?v=12' in html
+    assert '/static/style.css?v=13' in html
     assert '/static/controls.css?v=12' in html
     assert '/static/header-navigation.css?v=25' in html
     assert '/static/playlist-cards.css?v=5' in html
