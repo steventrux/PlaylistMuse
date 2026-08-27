@@ -134,6 +134,7 @@ async def suggest_playlist_tags(
 
     request = _classification_request(playlist)
     errors: list[Exception] = []
+    empty_result: dict[str, list[str]] | None = None
     for model in config.model_chain:
         try:
             text = await request_structured_json(
@@ -145,6 +146,11 @@ async def suggest_playlist_tags(
             )
             tags = parse_playlist_tags(text)
             if not has_playlist_tags(tags):
+                # A well-formed but empty classification is a legitimate answer (the
+                # system prompt explicitly allows leaving a category empty rather than
+                # forcing a weak tag) -- keep it as a fallback and still give the next
+                # model a chance to find a stronger match instead of erroring out.
+                empty_result = tags
                 raise ValueError("The AI model returned an empty playlist classification.")
             tags["custom"] = normalize_playlist_tags(playlist.get("tags"))["custom"]
             return tags
@@ -156,6 +162,10 @@ async def suggest_playlist_tags(
             json.JSONDecodeError,
         ) as error:
             errors.append(error)
+
+    if empty_result is not None:
+        empty_result["custom"] = normalize_playlist_tags(playlist.get("tags"))["custom"]
+        return empty_result
 
     if errors:
         raise ValueError("The AI provider returned no valid playlist tags.") from errors[-1]

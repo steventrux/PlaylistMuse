@@ -35,6 +35,12 @@
   function playlistDocument() {
     const playlist = JSON.parse(JSON.stringify(data));
     delete playlist.library_id;
+    // Never resend a cached tags snapshot here: it can predate the AI tag
+    // suggestion that runs in the background right after creation, and would
+    // silently overwrite it. The server preserves existing tags whenever the
+    // field is absent from an update; tag edits go through persistPlaylistTags,
+    // which fetches the latest record first instead of relying on this snapshot.
+    delete playlist.tags;
     return playlist;
   }
 
@@ -203,9 +209,31 @@
     renderPlaylistTags();
   }
 
+  async function regeneratePlaylistTags() {
+    const libraryId = await ensureLibraryRecord();
+    if (!libraryId) throw new Error('Playlist tags could not be regenerated.');
+
+    const updated = await readJson(await fetch(
+      `${LIBRARY_ENDPOINT}/${encodeURIComponent(libraryId)}/tags/suggest`,
+      {method: 'POST'},
+    ));
+    data.tags = updated.playlist?.tags || data.tags;
+    writeSessionPlaylist();
+    renderPlaylistTags();
+  }
+
+  function hasAiTags(tags) {
+    const normalized = tagTools.normalize(tags);
+    return Boolean(normalized.genre.length || normalized.mood.length || normalized.period.length);
+  }
+
   function renderPlaylistTags() {
     const container = $('playlist-tags');
     if (!container || !tagTools) return;
+    // Regenerating would silently replace a human's own edits, so only offer it
+    // for an untagged draft -- once tags exist, or the playlist is published,
+    // the only way to change them is the explicit add/remove personal-tag controls.
+    const canRegenerate = !isPublished() && !hasAiTags(data?.tags);
     container.replaceChildren(tagTools.editableSummary(data?.tags, {
       onAddPersonal: async (value) => {
         setPlaylistTagStatus('Adding personal tag…');
@@ -219,6 +247,11 @@
         await persistPlaylistTags(nextTags);
         setPlaylistTagStatus('');
       },
+      onRegenerate: canRegenerate ? async () => {
+        setPlaylistTagStatus('Regenerating AI tags…');
+        await regeneratePlaylistTags();
+        setPlaylistTagStatus('');
+      } : undefined,
       onError: (error) => setPlaylistTagStatus(error.message || String(error), true),
     }));
   }

@@ -189,8 +189,16 @@ def test_playlist_tagger_falls_back_when_a_model_is_rate_limited(monkeypatch) ->
     }
 
 
-def test_playlist_tagger_rejects_empty_classification_from_all_models(monkeypatch) -> None:
+def test_playlist_tagger_accepts_empty_classification_when_every_model_agrees(monkeypatch) -> None:
+    """An honest 'no clear genre/mood/period' from every model is a valid result,
+    not a failure -- the system prompt explicitly allows leaving a category empty
+    rather than forcing a weak tag. Previously this raised and the playlist was
+    left with no tags at all and no way to retry from the UI.
+    """
+    models: list[str] = []
+
     async def fake_request(config, prompt, *, system_prompt, max_tokens, model):
+        models.append(model)
         return '{"genre":[],"mood":[],"period":[]}'
 
     monkeypatch.setattr(playlist_tags_module, "request_structured_json", fake_request)
@@ -199,8 +207,10 @@ def test_playlist_tagger_rejects_empty_classification_from_all_models(monkeypatc
         model_chain=("model-a", "model-b"),
     )
 
-    with pytest.raises(ValueError, match="no valid playlist tags"):
-        asyncio.run(suggest_playlist_tags(config, sample_playlist()))
+    tags = asyncio.run(suggest_playlist_tags(config, sample_playlist()))
+
+    assert models == ["model-a", "model-b"]
+    assert tags == {"genre": [], "mood": [], "period": [], "custom": []}
 
 
 def test_library_preserves_existing_tags_when_legacy_update_omits_them(tmp_path: Path) -> None:
@@ -342,8 +352,8 @@ def test_library_tag_ui_is_read_only_but_keeps_search_filters() -> None:
     assert 'id="library-genre-filter"' not in page
     assert 'id="library-mood-filter"' not in page
     assert 'id="library-period-filter"' not in page
-    assert "/static/library-tags.css?v=4" in page
-    assert "/static/library-tags.js?v=5" in page
+    assert "/static/library-tags.css?v=5" in page
+    assert "/static/library-tags.js?v=6" in page
     assert "tagTools?.searchValues(item)" in library_script
     assert "tagTools?.matchesFilters(item)" in library_script
     assert "const activeTagFilters = new Set();" in tags_script
@@ -406,9 +416,9 @@ def test_playlist_page_shows_ai_and_personal_tags_with_shared_controls() -> None
 
     assert 'id="playlist-tags"' in page
     assert 'id="playlist-tags-status"' in page
-    assert "/static/library-tags.css?v=4" in page
-    assert "/static/library-tags.js?v=5" in page
-    assert "/static/playlist.js?v=26" in page
+    assert "/static/library-tags.css?v=5" in page
+    assert "/static/library-tags.js?v=6" in page
+    assert "/static/playlist.js?v=27" in page
     assert "const tagTools = window.PlaylistMuseTags" in script
     assert "function renderPlaylistTags()" in script
     assert "tagTools.editableSummary(data?.tags" in script

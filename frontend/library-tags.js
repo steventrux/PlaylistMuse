@@ -149,6 +149,10 @@
     return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5"/></svg>';
   }
 
+  function refreshIcon() {
+    return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16m0 5v-5h5"/></svg>';
+  }
+
   function addPersonal(tags, value) {
     const next = normalize(tags);
     const label = clean(value);
@@ -268,6 +272,27 @@
     input.focus();
   }
 
+  function regenerateButton(onRegenerate, onError) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'library-tag-regenerate';
+    button.innerHTML = refreshIcon();
+    button.setAttribute('aria-label', 'Regenerate AI tags');
+    button.title = 'Regenerate AI tags';
+    button.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      button.disabled = true;
+      try {
+        await onRegenerate();
+      } catch (error) {
+        onError?.(error);
+      } finally {
+        button.disabled = false;
+      }
+    });
+    return button;
+  }
+
   function addButton(container, onAdd, onError) {
     const button = document.createElement('button');
     button.type = 'button';
@@ -286,6 +311,7 @@
     filterable = true,
     onAddPersonal,
     onRemovePersonal,
+    onRegenerate,
     onError,
   } = {}) {
     const tags = normalize(tagsValue);
@@ -316,6 +342,7 @@
     }
 
     container.append(aiGroup);
+    if (onRegenerate) container.append(regenerateButton(onRegenerate, onError));
     if (onAddPersonal) container.append(addButton(container, onAddPersonal, onError));
     container.append(personalGroup);
     return container;

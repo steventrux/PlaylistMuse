@@ -265,7 +265,8 @@
 
 body.playlist-readonly #playlist-tags .library-tag-add,
 body.playlist-readonly #playlist-tags .library-tag-delete,
-body.playlist-readonly #playlist-tags .library-tag-add-form {
+body.playlist-readonly #playlist-tags .library-tag-add-form,
+body.playlist-readonly #playlist-tags .library-tag-regenerate {
   display: none;
 }
 

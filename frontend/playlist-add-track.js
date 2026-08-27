@@ -47,6 +47,9 @@
   function playlistDocument(playlist) {
     const document = JSON.parse(JSON.stringify(playlist));
     delete document.library_id;
+    // See the matching comment in playlist.js: a cached tags snapshot here can
+    // predate the background AI tag suggestion and would silently overwrite it.
+    delete document.tags;
     return document;
   }
 

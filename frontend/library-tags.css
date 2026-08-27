@@ -20,7 +20,8 @@
 .library-tag-chip,
 .library-tag-add,
 .library-tag-delete,
-.library-tag-confirm {
+.library-tag-confirm,
+.library-tag-regenerate {
   display: inline-grid;
   place-items: center;
   min-width: 0;
@@ -51,7 +52,8 @@
 .library-tag-chip:hover,
 .library-tag-add:hover,
 .library-tag-delete:hover,
-.library-tag-confirm:hover {
+.library-tag-confirm:hover,
+.library-tag-regenerate:hover {
   border-color: rgba(183, 156, 255, .55);
   background: rgba(139, 92, 246, .18);
   color: #fff;
@@ -68,7 +70,8 @@
 }
 
 .library-tag-add,
-.library-tag-confirm {
+.library-tag-confirm,
+.library-tag-regenerate {
   width: var(--playlist-tag-height);
   height: var(--playlist-tag-height);
   padding: 0;
@@ -76,9 +79,15 @@
   color: var(--violet-light);
 }
 
+.library-tag-regenerate:disabled {
+  opacity: .5;
+  pointer-events: none;
+}
+
 .library-tag-add svg,
 .library-tag-confirm svg,
-.library-tag-delete svg {
+.library-tag-delete svg,
+.library-tag-regenerate svg {
   width: 12px;
   height: 12px;
   fill: none;
@@ -181,7 +190,8 @@
   .library-tag-chip,
   .library-tag-add,
   .library-tag-delete,
-  .library-tag-confirm {
+  .library-tag-confirm,
+  .library-tag-regenerate {
     transition: none;
   }
 }
