@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 from types import SimpleNamespace
 
+from fastapi import BackgroundTasks
 from fastapi.testclient import TestClient
 
 import backend.local_taste_memory as local_taste_memory_module
@@ -75,22 +77,24 @@ def test_capture_endpoint_returns_before_distillation_runs(
         local_taste_memory_module, "_distill_local_taste_entry", slow_distill
     )
 
-    client = TestClient(app)
-    response = client.post(
-        "/api/quality/local-feedback",
-        json={
-            "playlist": sample_playlist(),
-            "generation_request": {"mode": "prompt", "prompt": sample_playlist()["prompt"]},
-        },
+    request = local_taste_memory_module.LocalTasteCaptureRequest(
+        playlist=sample_playlist(),
+        generation_request={"mode": "prompt", "prompt": sample_playlist()["prompt"]},
+    )
+    background_tasks = BackgroundTasks()
+
+    payload = asyncio.run(
+        local_taste_memory_module.capture_local_taste(request, background_tasks)
     )
 
-    assert response.status_code == 201
-    payload = response.json()
     assert payload["status"] == "pending"
     assert payload["distilled_guidance"] is None
     assert not distill_called, (
         "the endpoint must return before the background distillation task runs"
     )
+
+    asyncio.run(background_tasks())
+    assert distill_called
 
 
 def test_distillation_captures_guidance_and_tags(monkeypatch, tmp_path: Path) -> None:
