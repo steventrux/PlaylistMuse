@@ -566,6 +566,21 @@
   }
 }
 
+.taste-memory-influence-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  color: var(--text-secondary);
+  font-size: .92rem;
+  font-weight: 550;
+}
+
+.taste-memory-influence-toggle input {
+  width: auto;
+  accent-color: var(--magenta);
+}
+
 .taste-memory-list {
   display: flex;
   flex-direction: column;

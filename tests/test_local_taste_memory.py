@@ -396,3 +396,29 @@ def test_retry_422s_when_no_snapshot_was_stored(tmp_path: Path, monkeypatch) -> 
     client = TestClient(app)
     response = client.post("/api/quality/local-feedback/legacy-entry/retry")
     assert response.status_code == 422
+
+
+def test_generation_influence_defaults_to_enabled(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        local_taste_memory_module, "LOCAL_TASTE_MEMORY_PATH", tmp_path / "taste.json"
+    )
+    assert local_taste_memory_module.generation_influence_enabled() is True
+
+
+def test_settings_endpoint_round_trips(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        local_taste_memory_module, "LOCAL_TASTE_MEMORY_PATH", tmp_path / "taste.json"
+    )
+    client = TestClient(app)
+
+    response = client.get("/api/quality/local-feedback/settings")
+    assert response.status_code == 200
+    assert response.json() == {"generation_influence_enabled": True}
+
+    response = client.put(
+        "/api/quality/local-feedback/settings",
+        json={"generation_influence_enabled": False},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"generation_influence_enabled": False}
+    assert local_taste_memory_module.generation_influence_enabled() is False

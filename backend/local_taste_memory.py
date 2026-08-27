@@ -69,6 +69,10 @@ class LocalTasteMemory(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     entries: list[LocalTasteEntry] = Field(default_factory=list)
+    # Separate from capture/review, which always stay on: lets the user turn off
+    # sub-project 2b's generation-influencing behavior specifically, e.g. to isolate
+    # whether an observed change in output came from this mechanism.
+    generation_influence_enabled: bool = True
 
 
 def _load_memory() -> LocalTasteMemory:
@@ -80,6 +84,10 @@ def _load_memory() -> LocalTasteMemory:
 
 def _save_memory(memory: LocalTasteMemory) -> None:
     write_secure_json(LOCAL_TASTE_MEMORY_PATH, memory.model_dump())
+
+
+def generation_influence_enabled() -> bool:
+    return _load_memory().generation_influence_enabled
 
 
 def _prompt_summary(
@@ -280,3 +288,22 @@ async def delete_local_taste(entry_id: str) -> None:
         raise _not_found(entry_id)
     memory.entries = remaining
     _save_memory(memory)
+
+
+class LocalTasteSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    generation_influence_enabled: bool
+
+
+@router.get("/settings")
+async def get_local_taste_settings() -> LocalTasteSettings:
+    return LocalTasteSettings(generation_influence_enabled=generation_influence_enabled())
+
+
+@router.put("/settings")
+async def update_local_taste_settings(request: LocalTasteSettings) -> LocalTasteSettings:
+    memory = _load_memory()
+    memory.generation_influence_enabled = request.generation_influence_enabled
+    _save_memory(memory)
+    return request

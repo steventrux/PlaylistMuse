@@ -157,6 +157,44 @@
     empty.classList.toggle('hidden', entries.length > 0);
   }
 
+  async function initGenerationInfluenceToggle() {
+    const label = document.createElement('label');
+    label.className = 'taste-memory-influence-toggle';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.id = 'taste-memory-generation-influence';
+
+    label.append(checkbox, document.createTextNode(' Let converged taste memory patterns influence future generations'));
+    list.before(label);
+
+    try {
+      const payload = await readJson(await fetch(`${ENDPOINT}/settings`, {cache: 'no-store'}));
+      checkbox.checked = Boolean(payload.generation_influence_enabled);
+    } catch (error) {
+      console.warn('Could not load taste memory settings:', error);
+      checkbox.checked = true;
+    }
+
+    checkbox.addEventListener('change', async () => {
+      const nextValue = checkbox.checked;
+      checkbox.disabled = true;
+      try {
+        await readJson(await fetch(`${ENDPOINT}/settings`, {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({generation_influence_enabled: nextValue}),
+        }));
+      } catch (error) {
+        checkbox.checked = !nextValue;
+        console.warn('Could not update taste memory settings:', error);
+      } finally {
+        checkbox.disabled = false;
+      }
+    });
+  }
+
+  initGenerationInfluenceToggle();
   document.querySelector('[data-stats-section="taste"]')?.addEventListener('click', render);
   if (new URLSearchParams(window.location.search).get('section') === 'taste') render();
 })();
