@@ -24,6 +24,7 @@ class PromptQualityCase(BaseModel):
     id: str = Field(min_length=3, max_length=120, pattern=r"^[a-z0-9][a-z0-9-]*$")
     status: CaseStatus = "candidate"
     origin: CaseOrigin
+    source: str | None = Field(default=None, max_length=300)
     flows: list[CaseFlow] = Field(min_length=1, max_length=2)
     prompt: str = Field(min_length=3, max_length=2000)
     context: dict[str, Any] = Field(default_factory=dict)

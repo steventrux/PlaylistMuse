@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 from backend.artist_quota_detection import (
     extract_artist_exact_quotas,
@@ -170,3 +172,36 @@ def test_latest_feedback_case_activates_temporal_and_live_guards() -> None:
         "live",
     )
     assert case.expectations["creative_intent_scope"] == "playlist_wide"
+
+
+def test_case_source_field_is_optional_and_round_trips(tmp_path: Path) -> None:
+    payload = {
+        "schema_version": 1,
+        "cases": [
+            {
+                "id": "generation-example-without-source",
+                "origin": "maintainer",
+                "flows": ["generation"],
+                "prompt": "Example prompt for schema test.",
+                "failure": "Example failure text.",
+                "desired_behavior": "Example desired behavior text.",
+            },
+            {
+                "id": "generation-example-with-source",
+                "origin": "user_feedback",
+                "source": "https://github.com/steventrux/PlaylistMuse/issues/1",
+                "flows": ["generation"],
+                "prompt": "Example prompt for schema test.",
+                "failure": "Example failure text.",
+                "desired_behavior": "Example desired behavior text.",
+            },
+        ],
+    }
+    memory_path = tmp_path / "prompt_cases.json"
+    memory_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    memory = load_prompt_quality_memory(memory_path)
+
+    without_source, with_source = memory.cases
+    assert without_source.source is None
+    assert with_source.source == "https://github.com/steventrux/PlaylistMuse/issues/1"
