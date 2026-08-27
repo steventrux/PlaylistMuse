@@ -461,3 +461,111 @@ def test_interpret_taste_signal_returns_none_on_malformed_json(monkeypatch) -> N
     )
 
     assert signal is None
+
+
+def _captured_entry(entry_id: str, *, genre: str, guidance: str, created_at: str) -> dict:
+    return {
+        "id": entry_id,
+        "created_at": created_at,
+        "flow": "generation",
+        "prompt_summary": "test prompt",
+        "tags": {"genre": [genre], "mood": [], "period": [], "custom": []},
+        "distilled_guidance": guidance,
+        "status": "captured",
+    }
+
+
+def test_taste_memory_guidance_requires_convergence(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        local_taste_memory_module, "LOCAL_TASTE_MEMORY_PATH", tmp_path / "taste.json"
+    )
+    memory = local_taste_memory_module.LocalTasteMemory(
+        entries=[
+            local_taste_memory_module.LocalTasteEntry.model_validate(
+                _captured_entry(f"e{i}", genre="house", guidance="Keeps energy rising.", created_at=f"2026-08-2{i}T00:00:00+00:00")
+            )
+            for i in range(2)
+        ]
+    )
+    local_taste_memory_module._save_memory(memory)
+
+    result = local_taste_memory_module.taste_memory_guidance({"genre": ["house"], "mood": []})
+
+    assert result == ""
+
+
+def test_taste_memory_guidance_injects_once_converged(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        local_taste_memory_module, "LOCAL_TASTE_MEMORY_PATH", tmp_path / "taste.json"
+    )
+    memory = local_taste_memory_module.LocalTasteMemory(
+        entries=[
+            local_taste_memory_module.LocalTasteEntry.model_validate(
+                _captured_entry(f"e{i}", genre="house", guidance="Keeps energy rising throughout.", created_at=f"2026-08-2{i}T00:00:00+00:00")
+            )
+            for i in range(3)
+        ]
+    )
+    local_taste_memory_module._save_memory(memory)
+
+    result = local_taste_memory_module.taste_memory_guidance({"genre": ["house"], "mood": []})
+
+    assert "Keeps energy rising throughout." in result
+    assert "previously responded well" in result
+    assert "not a requirement" in result
+
+
+def test_taste_memory_guidance_returns_empty_without_signal(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        local_taste_memory_module, "LOCAL_TASTE_MEMORY_PATH", tmp_path / "taste.json"
+    )
+    assert local_taste_memory_module.taste_memory_guidance(None) == ""
+    assert local_taste_memory_module.taste_memory_guidance({"genre": [], "mood": []}) == ""
+
+
+def test_taste_memory_guidance_respects_the_settings_toggle(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        local_taste_memory_module, "LOCAL_TASTE_MEMORY_PATH", tmp_path / "taste.json"
+    )
+    memory = local_taste_memory_module.LocalTasteMemory(
+        entries=[
+            local_taste_memory_module.LocalTasteEntry.model_validate(
+                _captured_entry(f"e{i}", genre="house", guidance="Keeps energy rising.", created_at=f"2026-08-2{i}T00:00:00+00:00")
+            )
+            for i in range(3)
+        ],
+        generation_influence_enabled=False,
+    )
+    local_taste_memory_module._save_memory(memory)
+
+    result = local_taste_memory_module.taste_memory_guidance({"genre": ["house"], "mood": []})
+
+    assert result == ""
+
+
+def test_taste_memory_guidance_caps_at_three_sentences(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        local_taste_memory_module, "LOCAL_TASTE_MEMORY_PATH", tmp_path / "taste.json"
+    )
+    entries = []
+    for tag_index, tag in enumerate(["house", "techno", "trance", "ambient"]):
+        for i in range(3):
+            entries.append(
+                local_taste_memory_module.LocalTasteEntry.model_validate(
+                    _captured_entry(
+                        f"e{tag_index}-{i}",
+                        genre=tag,
+                        guidance=f"Guidance for {tag}.",
+                        created_at=f"2026-08-2{i}T00:00:00+00:00",
+                    )
+                )
+            )
+    local_taste_memory_module._save_memory(
+        local_taste_memory_module.LocalTasteMemory(entries=entries)
+    )
+
+    result = local_taste_memory_module.taste_memory_guidance(
+        {"genre": ["house", "techno", "trance", "ambient"], "mood": []}
+    )
+
+    assert result.count("Guidance for ") == 3

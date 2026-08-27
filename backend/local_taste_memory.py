@@ -28,6 +28,8 @@ from backend.storage import read_json_object, write_secure_json
 LOCAL_TASTE_MEMORY_PATH = DATA_DIR / "local_taste_memory.json"
 LOCAL_TASTE_STATUSES = Literal["pending", "captured", "distillation_failed"]
 LOCAL_TASTE_FLOW = Literal["generation", "studio"]
+CONVERGENCE_THRESHOLD = 3
+MAX_INJECTED_SENTENCES = 3
 
 LOGGER = logging.getLogger("playlistmuse.local_taste_memory")
 
@@ -182,6 +184,62 @@ async def interpret_taste_signal(config: Any, prompt: str) -> dict[str, list[str
             "Taste memory signal extraction skipped error=%s", type(error).__name__
         )
         return None
+
+
+def taste_memory_guidance(signal: dict[str, list[str]] | None) -> str:
+    """Soft generation guidance from converged taste-memory patterns matching signal.
+
+    A tag only counts once CONVERGENCE_THRESHOLD or more captured entries share it -- a
+    single "this got it right" must never influence generation on its own. Reuses each
+    group's already-distilled sentence verbatim (no new AI call). Returns "" whenever there
+    is nothing convergent to say, so callers can append the result unconditionally.
+    """
+    if not signal or not generation_influence_enabled():
+        return ""
+    request_tags = {*signal.get("genre", []), *signal.get("mood", [])}
+    if not request_tags:
+        return ""
+
+    memory = _load_memory()
+    matches: dict[str, list[LocalTasteEntry]] = {}
+    for entry in memory.entries:
+        if entry.status != "captured":
+            continue
+        entry_tags = {*entry.tags.get("genre", []), *entry.tags.get("mood", [])}
+        for tag in entry_tags & request_tags:
+            matches.setdefault(tag, []).append(entry)
+
+    converged = [
+        (tag, entries)
+        for tag, entries in matches.items()
+        if len(entries) >= CONVERGENCE_THRESHOLD
+    ]
+    if not converged:
+        return ""
+
+    converged.sort(
+        key=lambda item: (len(item[1]), max(entry.created_at for entry in item[1])),
+        reverse=True,
+    )
+
+    sentences: list[str] = []
+    seen: set[str] = set()
+    for _tag, entries in converged[:MAX_INJECTED_SENTENCES]:
+        latest = max(entries, key=lambda entry: entry.created_at)
+        guidance = (latest.distilled_guidance or "").strip()
+        if guidance and guidance not in seen:
+            seen.add(guidance)
+            sentences.append(guidance)
+
+    if not sentences:
+        return ""
+
+    lines = "\n".join(f"- {sentence}" for sentence in sentences)
+    return (
+        "\n\nThe listener has previously responded well to playlists like this. This is "
+        "an informal style preference, not a requirement. Weigh it alongside, never "
+        f"above, the explicit request above.\n{lines}"
+    )
 
 
 async def _distill_guidance(
