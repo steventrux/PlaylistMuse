@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 
 from backend.config import AppConfig
-from backend.constraint_interpreter import request_structured_json
+from backend.constraint_interpreter import request_structured_json_with_retry
 from backend.provider_rate_limits import ProviderRateLimitedError
 
 AI_TAG_LIMITS = {"genre": 3, "mood": 2, "period": 1}
@@ -137,11 +137,18 @@ async def suggest_playlist_tags(
     empty_result: dict[str, list[str]] | None = None
     for model in config.model_chain:
         try:
-            text = await request_structured_json(
+            text = await request_structured_json_with_retry(
                 config,
                 request,
                 system_prompt=SYSTEM_PROMPT,
-                max_tokens=500,
+                # Generous relative to the actual JSON output (well under 200 tokens):
+                # a reasoning-capable model routed via OpenRouter ("auto"/"free") can
+                # spend 200-1000+ tokens on invisible thinking before writing the
+                # answer, all counted against this same completion budget. A tight
+                # cap here truncates mid-JSON (finish_reason "length") often enough
+                # to make tagging fail routinely instead of rarely -- verified live
+                # against google/gemini-3.7-flash via openrouter/auto.
+                max_tokens=2000,
                 model=model,
             )
             tags = parse_playlist_tags(text)

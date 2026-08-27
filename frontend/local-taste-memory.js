@@ -87,6 +87,26 @@
 
     row.append(body);
 
+    if (entry.status === 'distillation_failed') {
+      const retry = document.createElement('button');
+      retry.type = 'button';
+      retry.className = 'taste-memory-retry';
+      retry.setAttribute('aria-label', 'Retry generating guidance for this entry');
+      retry.textContent = 'Retry';
+      retry.addEventListener('click', async () => {
+        retry.disabled = true;
+        try {
+          const response = await fetch(`${ENDPOINT}/${encodeURIComponent(entry.id)}/retry`, {method: 'POST'});
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          await render();
+        } catch (error) {
+          retry.disabled = false;
+          console.warn('Could not retry taste memory entry:', error);
+        }
+      });
+      row.append(retry);
+    }
+
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.className = 'taste-memory-delete';

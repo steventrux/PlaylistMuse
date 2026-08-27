@@ -106,7 +106,7 @@ def test_playlist_tagger_uses_multilingual_library_only_categories(monkeypatch) 
             '"period":["1970s–1980s"]}'
         )
 
-    monkeypatch.setattr(playlist_tags_module, "request_structured_json", fake_request)
+    monkeypatch.setattr(playlist_tags_module, "request_structured_json_with_retry", fake_request)
     config = SimpleNamespace(configured=True, model_chain=("model-a",))
 
     playlist = sample_playlist()
@@ -136,7 +136,7 @@ def test_playlist_tagger_retries_fallback_after_empty_classification(monkeypatch
             '"period":["2020s"]}'
         )
 
-    monkeypatch.setattr(playlist_tags_module, "request_structured_json", fake_request)
+    monkeypatch.setattr(playlist_tags_module, "request_structured_json_with_retry", fake_request)
     config = SimpleNamespace(
         configured=True,
         model_chain=("model-a", "model-b"),
@@ -172,7 +172,7 @@ def test_playlist_tagger_falls_back_when_a_model_is_rate_limited(monkeypatch) ->
             '"period":["2020s"]}'
         )
 
-    monkeypatch.setattr(playlist_tags_module, "request_structured_json", fake_request)
+    monkeypatch.setattr(playlist_tags_module, "request_structured_json_with_retry", fake_request)
     config = SimpleNamespace(
         configured=True,
         model_chain=("model-a", "model-b"),
@@ -201,7 +201,7 @@ def test_playlist_tagger_accepts_empty_classification_when_every_model_agrees(mo
         models.append(model)
         return '{"genre":[],"mood":[],"period":[]}'
 
-    monkeypatch.setattr(playlist_tags_module, "request_structured_json", fake_request)
+    monkeypatch.setattr(playlist_tags_module, "request_structured_json_with_retry", fake_request)
     config = SimpleNamespace(
         configured=True,
         model_chain=("model-a", "model-b"),

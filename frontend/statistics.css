@@ -632,7 +632,8 @@
   color: var(--error);
 }
 
-.taste-memory-delete {
+.taste-memory-delete,
+.taste-memory-retry {
   flex: 0 0 auto;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -647,4 +648,15 @@
   border-color: rgba(251, 113, 133, .4);
   background: rgba(127, 29, 29, .12);
   color: var(--error-text);
+}
+
+.taste-memory-retry:hover {
+  border-color: rgba(139, 92, 246, .4);
+  background: rgba(139, 92, 246, .12);
+  color: var(--violet-light);
+}
+
+.taste-memory-retry:disabled {
+  opacity: .5;
+  pointer-events: none;
 }

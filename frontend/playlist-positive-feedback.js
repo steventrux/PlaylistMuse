@@ -17,6 +17,17 @@
     }
   }
 
+  function markCaptured(playlist) {
+    // Persisted on the same stored playlist object (which is wholly replaced by
+    // a fresh one on every new generation, so this naturally resets for the next
+    // playlist) so the button stays disabled across a page reload/revisit of the
+    // same freshly generated playlist, not just for the remainder of this one
+    // in-memory page load -- without this, reloading let the button re-enable
+    // and send duplicate capture entries for a playlist already marked.
+    playlist.playlistmuseTasteCaptured = true;
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(playlist));
+  }
+
   function playlistDocument(playlist) {
     const document = JSON.parse(JSON.stringify(playlist));
     delete document.library_id;
@@ -47,6 +58,7 @@
       // in the review panel.
       if (label) label.textContent = CONFIRMED_LABEL;
       else button.textContent = CONFIRMED_LABEL;
+      markCaptured(playlist);
     } catch (error) {
       button.disabled = false;
       console.warn('Positive feedback could not be saved:', error);
@@ -58,5 +70,13 @@
   if (!playlist || !Array.isArray(playlist.tracks) || !playlist.tracks.length) return;
 
   button.classList.remove('hidden');
-  button.addEventListener('click', sendPositiveFeedback);
+  if (playlist.playlistmuseTasteCaptured) {
+    // Not setting textContent here: action-controls.js decorates this button
+    // (rebuilding its icon/label children) right after this script runs, and
+    // mutating textContent first would just be overwritten by that decoration.
+    // Disabling alone needs no DOM children, so it survives the redecoration.
+    button.disabled = true;
+  } else {
+    button.addEventListener('click', sendPositiveFeedback);
+  }
 })();

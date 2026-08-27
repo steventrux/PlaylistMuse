@@ -305,3 +305,94 @@ def test_capture_rejects_empty_track_list(tmp_path: Path, monkeypatch) -> None:
         json={"playlist": {"name": "Empty", "tracks": []}, "generation_request": None},
     )
     assert response.status_code == 422
+
+
+def test_capture_stores_a_playlist_snapshot_for_later_retry(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        local_taste_memory_module, "LOCAL_TASTE_MEMORY_PATH", tmp_path / "taste.json"
+    )
+
+    async def slow_distill(entry_id, prompt_summary, playlist):
+        return None
+
+    monkeypatch.setattr(
+        local_taste_memory_module, "_distill_local_taste_entry", slow_distill
+    )
+
+    client = TestClient(app)
+    created = client.post(
+        "/api/quality/local-feedback",
+        json={"playlist": sample_playlist(), "generation_request": None},
+    ).json()
+
+    assert created["playlist"] == sample_playlist()
+    stored = local_taste_memory_module._load_memory().entries[0]
+    assert stored.playlist == sample_playlist()
+
+
+def test_retry_reruns_distillation_from_the_stored_snapshot(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        local_taste_memory_module, "LOCAL_TASTE_MEMORY_PATH", tmp_path / "taste.json"
+    )
+    failed = LocalTasteEntry(
+        id="entry-1",
+        created_at="2026-08-27T12:00:00+00:00",
+        flow="generation",
+        prompt_summary="Chill synthwave for a sunset drive along the coast.",
+        status="distillation_failed",
+        playlist=sample_playlist(),
+    )
+    local_taste_memory_module._save_memory(LocalTasteMemory(entries=[failed]))
+
+    async def fake_suggest_tags(config, playlist):
+        return {"genre": ["Synthwave"], "mood": [], "period": [], "custom": []}
+
+    async def fake_distill(config, prompt_summary, playlist, tags):
+        return "Retried successfully this time."
+
+    monkeypatch.setattr(local_taste_memory_module, "suggest_playlist_tags", fake_suggest_tags)
+    monkeypatch.setattr(local_taste_memory_module, "_distill_guidance", fake_distill)
+    monkeypatch.setattr(local_taste_memory_module, "load_config", lambda: SimpleNamespace())
+
+    client = TestClient(app)
+    response = client.post("/api/quality/local-feedback/entry-1/retry")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "captured"
+    assert payload["distilled_guidance"] == "Retried successfully this time."
+    assert payload["tags"]["genre"] == ["Synthwave"]
+
+
+def test_retry_404s_on_unknown_entry(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        local_taste_memory_module, "LOCAL_TASTE_MEMORY_PATH", tmp_path / "taste.json"
+    )
+    client = TestClient(app)
+    response = client.post("/api/quality/local-feedback/unknown-id/retry")
+    assert response.status_code == 404
+
+
+def test_retry_422s_when_no_snapshot_was_stored(tmp_path: Path, monkeypatch) -> None:
+    """Entries captured before this field existed have no playlist snapshot --
+    retry cannot work for them and must fail clearly, not silently no-op.
+    """
+    monkeypatch.setattr(
+        local_taste_memory_module, "LOCAL_TASTE_MEMORY_PATH", tmp_path / "taste.json"
+    )
+    legacy = LocalTasteEntry(
+        id="legacy-entry",
+        created_at="2026-08-27T12:00:00+00:00",
+        flow="generation",
+        prompt_summary="Example.",
+        status="distillation_failed",
+    )
+    local_taste_memory_module._save_memory(LocalTasteMemory(entries=[legacy]))
+
+    client = TestClient(app)
+    response = client.post("/api/quality/local-feedback/legacy-entry/retry")
+    assert response.status_code == 422

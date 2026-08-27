@@ -205,6 +205,16 @@ def test_taste_memory_section_is_wired_like_every_other_stats_section() -> None:
     assert "'taste'" in page_script
     assert "taste: 'Taste memory'" in page_script
     assert "const ENDPOINT = '/api/quality/local-feedback';" in render_script
-    assert '/static/local-taste-memory.js?v=2' in html
+    assert '/static/local-taste-memory.js?v=3' in html
     assert '/static/statistics-page.js?v=4' in html
-    assert '/static/statistics.css?v=13' in html
+    assert '/static/statistics.css?v=14' in html
+
+
+def test_taste_memory_failed_entries_offer_a_retry_action() -> None:
+    render_script = _text("local-taste-memory.js")
+    style = _text("statistics.css")
+
+    assert "entry.status === 'distillation_failed'" in render_script
+    assert "${ENDPOINT}/${encodeURIComponent(entry.id)}/retry" in render_script
+    assert "taste-memory-retry" in render_script
+    assert ".taste-memory-retry" in style

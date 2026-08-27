@@ -435,6 +435,47 @@ async def request_structured_json(
         return _openai_text(response.json())
 
 
+async def request_structured_json_with_retry(
+    config: AppConfig,
+    prompt: str,
+    *,
+    system_prompt: str = SYSTEM_PROMPT,
+    max_tokens: int = 1_600,
+    model: str | None = None,
+    attempts: int = 2,
+) -> str:
+    """Retry request_structured_json on the same model for a transient failure.
+
+    request_structured_json itself is left untouched (every other caller,
+    including the generation-critical path, keeps its exact current latency
+    and retry behavior). This wrapper exists for callers with no fallback
+    chain of their own to lean on -- a fixed OpenRouter router ("auto"/"free")
+    configured with no other model slots has exactly one shot per call
+    otherwise, and an intermittent malformed/failed response then has no
+    safety net at all.
+    """
+    last_error: Exception | None = None
+    for _ in range(max(1, attempts)):
+        try:
+            return await request_structured_json(
+                config,
+                prompt,
+                system_prompt=system_prompt,
+                max_tokens=max_tokens,
+                model=model,
+            )
+        except (
+            ProviderRateLimitedError,
+            httpx.HTTPError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as error:
+            last_error = error
+    assert last_error is not None
+    raise last_error
+
+
 async def interpret_constraints(config: AppConfig, prompt: str) -> dict[str, Any] | None:
     """Interpret multilingual constraints, returning None only once every model fails."""
     if not config.configured:

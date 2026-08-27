@@ -106,7 +106,7 @@ def test_positive_feedback_button_exists_with_matching_gating_to_negative_feedba
     negative_script = _text("playlist-feedback.js")
 
     assert 'id="playlist-positive-feedback"' in html
-    assert '/static/playlist-positive-feedback.js?v=2' in html
+    assert '/static/playlist-positive-feedback.js?v=3' in html
     assert '/static/action-controls.js?v=8' in html
     assert "const ENDPOINT = '/api/quality/local-feedback';" in script
     # Same session-storage keys and the same "?id= present -> hidden" gating as
@@ -117,3 +117,7 @@ def test_positive_feedback_button_exists_with_matching_gating_to_negative_feedba
     # Mutation observer fix: target .compact-action-label span, not button.textContent
     assert "const label = button.querySelector('.compact-action-label');" in script
     assert "if (label) label.textContent = CONFIRMED_LABEL;" in script
+    # Capture state survives a page reload of the same freshly generated
+    # playlist, not just the remainder of one in-memory page load.
+    assert "playlist.playlistmuseTasteCaptured = true;" in script
+    assert "if (playlist.playlistmuseTasteCaptured) {" in script

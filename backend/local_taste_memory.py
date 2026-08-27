@@ -18,7 +18,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.config import DATA_DIR, load_config
-from backend.constraint_interpreter import request_structured_json
+from backend.constraint_interpreter import request_structured_json_with_retry
 from backend.playlist_tags import suggest_playlist_tags
 from backend.storage import read_json_object, write_secure_json
 
@@ -59,6 +59,10 @@ class LocalTasteEntry(BaseModel):
     tags: dict[str, list[str]] = Field(default_factory=dict)
     distilled_guidance: str | None = Field(default=None, max_length=400)
     status: LOCAL_TASTE_STATUSES = "pending"
+    # Snapshot of the captured playlist (name/description/prompt/tracks), kept so a
+    # failed distillation can be retried later without the client resending it.
+    # Empty for entries captured before this field existed -- retry is a 422 for those.
+    playlist: dict[str, Any] = Field(default_factory=dict)
 
 
 class LocalTasteMemory(BaseModel):
@@ -127,11 +131,14 @@ async def _distill_guidance(
         "track_count": len(tracks) if isinstance(tracks, list) else 0,
         "tags": tags,
     }
-    text = await request_structured_json(
+    text = await request_structured_json_with_retry(
         config,
         json.dumps(summary, ensure_ascii=False),
         system_prompt=_DISTILL_SYSTEM_PROMPT,
-        max_tokens=200,
+        # See the matching comment in playlist_tags.py: a reasoning-capable model
+        # routed via OpenRouter can burn hundreds of hidden "thinking" tokens
+        # against this same budget before writing the actual short sentence.
+        max_tokens=2000,
     )
     return _parse_guidance(text)
 
@@ -215,6 +222,7 @@ async def capture_local_taste(
         flow=_flow(request.generation_request),
         prompt_summary=_prompt_summary(request.playlist, request.generation_request),
         options=options if isinstance(options, dict) else {},
+        playlist=request.playlist,
     )
     memory = _load_memory()
     memory.entries.append(entry)
@@ -231,11 +239,44 @@ async def list_local_taste() -> dict[str, list[dict[str, Any]]]:
     return {"entries": [entry.model_dump() for entry in _load_memory().entries]}
 
 
+def _not_found(entry_id: str) -> HTTPException:
+    return HTTPException(status_code=404, detail=f"Entry {entry_id} was not found.")
+
+
+@router.post("/{entry_id}/retry")
+async def retry_local_taste_distillation(entry_id: str) -> dict[str, Any]:
+    """Manual retry for a failed distillation, e.g. after a transient AI-provider
+    error. Synchronous (unlike the fire-and-forget capture path) since it is an
+    explicit user action, same shape as the playlist tags "Regenerate" endpoint.
+    """
+    memory = _load_memory()
+    entry = next((item for item in memory.entries if item.id == entry_id), None)
+    if entry is None:
+        raise _not_found(entry_id)
+    if not entry.playlist:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "This entry has no stored playlist snapshot to retry from "
+                "(captured before retry was supported). Delete it and use "
+                "\"This got it right\" again on that playlist."
+            ),
+        )
+
+    await _distill_local_taste_entry(entry.id, entry.prompt_summary, entry.playlist)
+
+    memory = _load_memory()
+    updated = next((item for item in memory.entries if item.id == entry_id), None)
+    if updated is None:
+        raise _not_found(entry_id)
+    return updated.model_dump()
+
+
 @router.delete("/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_local_taste(entry_id: str) -> None:
     memory = _load_memory()
     remaining = [entry for entry in memory.entries if entry.id != entry_id]
     if len(remaining) == len(memory.entries):
-        raise HTTPException(status_code=404, detail=f"Entry {entry_id} was not found.")
+        raise _not_found(entry_id)
     memory.entries = remaining
     _save_memory(memory)

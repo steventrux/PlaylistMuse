@@ -234,3 +234,73 @@ def test_system_prompt_schema_includes_energy_order():
     assert '"energy_order"' in constraint_interpreter.SYSTEM_PROMPT
     assert '"field_confidence"' in constraint_interpreter.SYSTEM_PROMPT
     assert constraint_interpreter.INTERPRETER_SCHEMA_VERSION == 9
+
+
+def test_request_structured_json_with_retry_succeeds_on_first_attempt(monkeypatch) -> None:
+    """request_structured_json itself must stay untouched -- every other caller
+    keeps its exact current behavior; this wrapper is opt-in for callers with
+    no fallback chain of their own (see backend/playlist_tags.py,
+    backend/local_taste_memory.py).
+    """
+    calls: list[str | None] = []
+
+    async def fake_request(config, prompt, *, system_prompt, max_tokens, model):
+        calls.append(model)
+        return '{"ok": true}'
+
+    monkeypatch.setattr(constraint_interpreter, "request_structured_json", fake_request)
+
+    result = asyncio.run(
+        constraint_interpreter.request_structured_json_with_retry(
+            _config(), "prompt", model="model-a",
+        )
+    )
+
+    assert result == '{"ok": true}'
+    assert calls == ["model-a"], "a successful first attempt must not retry"
+
+
+def test_request_structured_json_with_retry_retries_once_on_transient_failure(
+    monkeypatch,
+) -> None:
+    attempts = 0
+
+    async def flaky_request(config, prompt, *, system_prompt, max_tokens, model):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise ValueError("malformed response")
+        return '{"ok": true}'
+
+    monkeypatch.setattr(constraint_interpreter, "request_structured_json", flaky_request)
+
+    result = asyncio.run(
+        constraint_interpreter.request_structured_json_with_retry(
+            _config(), "prompt", model="model-a",
+        )
+    )
+
+    assert result == '{"ok": true}'
+    assert attempts == 2
+
+
+def test_request_structured_json_with_retry_raises_after_exhausting_attempts(
+    monkeypatch,
+) -> None:
+    attempts = 0
+
+    async def always_fails(config, prompt, *, system_prompt, max_tokens, model):
+        nonlocal attempts
+        attempts += 1
+        raise ValueError(f"attempt {attempts} failed")
+
+    monkeypatch.setattr(constraint_interpreter, "request_structured_json", always_fails)
+
+    with pytest.raises(ValueError, match="attempt 2 failed"):
+        asyncio.run(
+            constraint_interpreter.request_structured_json_with_retry(
+                _config(), "prompt", model="model-a",
+            )
+        )
+
+    assert attempts == 2
