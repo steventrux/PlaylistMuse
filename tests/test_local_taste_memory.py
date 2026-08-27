@@ -422,3 +422,42 @@ def test_settings_endpoint_round_trips(tmp_path: Path, monkeypatch) -> None:
     assert response.status_code == 200
     assert response.json() == {"generation_influence_enabled": False}
     assert local_taste_memory_module.generation_influence_enabled() is False
+
+
+def test_interpret_taste_signal_parses_genre_and_mood(monkeypatch) -> None:
+    async def fake_request(config, prompt, *, system_prompt, max_tokens):
+        return '{"genre": ["house", "house"], "mood": ["euphoric"]}'
+
+    monkeypatch.setattr(local_taste_memory_module, "request_structured_json", fake_request)
+
+    signal = asyncio.run(
+        local_taste_memory_module.interpret_taste_signal(SimpleNamespace(), "upbeat house set")
+    )
+
+    assert signal == {"genre": ["house"], "mood": ["euphoric"]}
+
+
+def test_interpret_taste_signal_returns_none_on_provider_failure(monkeypatch) -> None:
+    async def failing_request(config, prompt, *, system_prompt, max_tokens):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(local_taste_memory_module, "request_structured_json", failing_request)
+
+    signal = asyncio.run(
+        local_taste_memory_module.interpret_taste_signal(SimpleNamespace(), "anything")
+    )
+
+    assert signal is None
+
+
+def test_interpret_taste_signal_returns_none_on_malformed_json(monkeypatch) -> None:
+    async def malformed_request(config, prompt, *, system_prompt, max_tokens):
+        return "not json at all"
+
+    monkeypatch.setattr(local_taste_memory_module, "request_structured_json", malformed_request)
+
+    signal = asyncio.run(
+        local_taste_memory_module.interpret_taste_signal(SimpleNamespace(), "anything")
+    )
+
+    assert signal is None
