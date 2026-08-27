@@ -35,7 +35,7 @@ def test_playlist_page_centralizes_draft_editing_controls() -> None:
     assert '>Playlist Studio</button>' in html
     assert '/static/playlist-header.css?v=13' in html
     assert '/static/playlist-editor.css?v=8' in html
-    assert '/static/playlist-add-track.js?v=3' in html
+    assert '/static/playlist-add-track.js?v=4' in html
     assert '/static/playlist-refine.js?v=7' in html
 
 
@@ -124,6 +124,10 @@ def test_positive_feedback_button_exists_with_matching_gating_to_negative_feedba
     playlist_script = _text("playlist.js")
     assert "delete playlist.playlistmuseFreshlyGenerated;" in playlist_script
     assert "delete playlist.playlistmuseTasteCaptured;" in playlist_script
+
+    add_track_script = _text("playlist-add-track.js")
+    assert "delete document.playlistmuseFreshlyGenerated;" in add_track_script
+    assert "delete document.playlistmuseTasteCaptured;" in add_track_script
     # Mutation observer fix: target .compact-action-label span, not button.textContent
     assert "const label = button.querySelector('.compact-action-label');" in script
     assert "if (label) label.textContent = CONFIRMED_LABEL;" in script
