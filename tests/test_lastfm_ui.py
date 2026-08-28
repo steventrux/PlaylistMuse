@@ -10,7 +10,7 @@ def test_shared_frontend_loader_only_adds_lastfm_styles() -> None:
     script = (FRONTEND / "common.js").read_text(encoding="utf-8")
 
     assert "function ensureLastFmStyles()" in script
-    assert "/static/lastfm.css?v=1" in script
+    assert "/static/lastfm.css?v=4" in script
     assert "ensureLastFmStyles();" in script
     assert "function loadScript(" not in script
     assert "/static/lastfm-settings.js" not in script
@@ -28,7 +28,7 @@ def test_lastfm_home_status_updates_existing_shared_indicator() -> None:
     assert "playlistmuse-lastfm-status" in script
     assert "PlaylistMuseOpenLastFmSettings" not in script
     assert "window.location.assign('/')" not in script
-    assert ".header-indicator.lastfm.on" in stylesheet
+    assert ".lastfm-mark" in stylesheet
 
 
 def test_lastfm_settings_module_is_scoped_to_settings_page() -> None:
@@ -46,6 +46,10 @@ def test_lastfm_settings_module_is_scoped_to_settings_page() -> None:
 
 
 def test_lastfm_indicator_uses_the_official_brand_mark_and_red() -> None:
+    """The card chrome (border/background/pill) uses the same green/red
+    status language across every integration, but the icon glyph itself
+    keeps each service's own natural/brand color -- Last.fm's mark stays
+    its official red rather than being forced to the status color."""
     shared_status = (FRONTEND / "home-status.js").read_text(encoding="utf-8")
     stylesheet = (FRONTEND / "lastfm.css").read_text(encoding="utf-8")
 
@@ -72,7 +76,7 @@ def test_seed_die_is_shown_only_for_valid_lastfm_status() -> None:
     app = (FRONTEND / "app.js").read_text(encoding="utf-8")
     status = (FRONTEND / "lastfm-status.js").read_text(encoding="utf-8")
     style = (FRONTEND / "prompt-surprise.css").read_text(encoding="utf-8")
-    app_asset = '<script src="/static/app.js?v=21"></script>'
+    app_asset = '<script src="/static/app.js?v=24"></script>'
     status_asset = '<script src="/static/lastfm-status.js?v=2"></script>'
 
     assert 'id="seed-surprise"' in html

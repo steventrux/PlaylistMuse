@@ -110,6 +110,9 @@
     const generationRequest = readSessionJson(REQUEST_KEY);
     const playlistDocument = {...playlist};
     delete playlistDocument.library_id;
+    // Client-only session markers -- must never reach a persisted library record.
+    delete playlistDocument.playlistmuseFreshlyGenerated;
+    delete playlistDocument.playlistmuseTasteCaptured;
     const record = await readJson(await fetch(ENDPOINT, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},

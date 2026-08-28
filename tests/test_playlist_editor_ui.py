@@ -33,9 +33,9 @@ def test_playlist_page_centralizes_draft_editing_controls() -> None:
     assert 'id="add-track"' in html
     assert 'id="refine-playlist"' in html
     assert '>Playlist Studio</button>' in html
-    assert '/static/playlist-header.css?v=12' in html
-    assert '/static/playlist-editor.css?v=6' in html
-    assert '/static/playlist-add-track.js?v=2' in html
+    assert '/static/playlist-header.css?v=13' in html
+    assert '/static/playlist-editor.css?v=8' in html
+    assert '/static/playlist-add-track.js?v=4' in html
     assert '/static/playlist-refine.js?v=7' in html
 
 
@@ -45,7 +45,7 @@ def test_playlist_autosave_status_tracks_persistent_library_writes() -> None:
     style = _text("playlist-header.css")
 
     status_script = '<script src="/static/playlist-save-status.js?v=2"></script>'
-    playlist_script = '<script src="/static/playlist.js?v=26"></script>'
+    playlist_script = '<script src="/static/playlist.js?v=28"></script>'
     assert status_script in html
     assert html.index(status_script) < html.index(playlist_script)
     assert "saving: 'Saving…'" in script
@@ -98,3 +98,49 @@ def test_manual_add_and_remove_are_recorded_in_refinement_history() -> None:
     assert "prompt: `${action}: ${trackHistoryText(track)}`" in script
     assert "request.refinements = refinements;" in script
     assert "applied_at: new Date().toISOString()" in script
+
+
+def test_positive_feedback_button_exists_with_matching_gating_to_negative_feedback() -> None:
+    html = _text("playlist.html")
+    script = _text("playlist-positive-feedback.js")
+    negative_script = _text("playlist-feedback.js")
+
+    assert 'id="playlist-positive-feedback"' in html
+    assert '/static/playlist-positive-feedback.js?v=5' in html
+    assert '/static/action-controls.js?v=8' in html
+    assert "const ENDPOINT = '/api/quality/local-feedback';" in script
+    # Same session-storage keys and flag-based gating as the existing
+    # negative-feedback button, deliberately.
+    assert "STORAGE_KEY = 'playlistmuse-generated-playlist'" in script
+    assert "if (!playlist.playlistmuseFreshlyGenerated) return;" in script
+    assert "new URLSearchParams(window.location.search).has('id')" not in script
+    assert "STORAGE_KEY = 'playlistmuse-generated-playlist'" in negative_script
+    assert "if (!playlist.playlistmuseFreshlyGenerated) return;" in negative_script
+    assert "new URLSearchParams(window.location.search).has('id')" not in negative_script
+
+    app_script = _text("app.js")
+    assert "data.playlistmuseFreshlyGenerated = true;" in app_script
+
+    playlist_script = _text("playlist.js")
+    assert "delete playlist.playlistmuseFreshlyGenerated;" in playlist_script
+    assert "delete playlist.playlistmuseTasteCaptured;" in playlist_script
+
+    add_track_script = _text("playlist-add-track.js")
+    assert "delete document.playlistmuseFreshlyGenerated;" in add_track_script
+    assert "delete document.playlistmuseTasteCaptured;" in add_track_script
+
+    library_script = _text("library.js")
+    assert "delete playlistDocument.playlistmuseFreshlyGenerated;" in library_script
+    assert "delete playlistDocument.playlistmuseTasteCaptured;" in library_script
+
+    # This file's own playlistDocument() (separate from playlist.js's) must strip
+    # the same two markers before building the taste-memory capture request body.
+    assert "delete document.playlistmuseFreshlyGenerated;" in script
+    assert "delete document.playlistmuseTasteCaptured;" in script
+    # Mutation observer fix: target .compact-action-label span, not button.textContent
+    assert "const label = button.querySelector('.compact-action-label');" in script
+    assert "if (label) label.textContent = CONFIRMED_LABEL;" in script
+    # Capture state survives a page reload of the same freshly generated
+    # playlist, not just the remainder of one in-memory page load.
+    assert "playlist.playlistmuseTasteCaptured = true;" in script
+    assert "if (playlist.playlistmuseTasteCaptured) {" in script

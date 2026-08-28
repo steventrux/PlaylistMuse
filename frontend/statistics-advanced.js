@@ -39,7 +39,7 @@
   }
 
   const STAGE_LABELS = {
-    ai_draft: 'AI draft generation',
+    llm_initial: 'AI draft generation',
     lastfm_prompt_discovery: 'Last.fm prompt discovery',
     lastfm_seed_discovery: 'Last.fm seed discovery',
     catalogue_resolution: 'Catalogue resolution (total)',

@@ -5,6 +5,7 @@
     '#add-track',
     '#refine-playlist',
     '#playlist-feedback',
+    '#playlist-positive-feedback',
     '#export-playlist',
     'a.primary.track-action',
     '.replace-track-button',
@@ -22,6 +23,7 @@
     add: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg>',
     refine: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>',
     feedback: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 5.5h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-8l-5 3v-3H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z"/><path d="M8 10h8M8 13h5"/></svg>',
+    loved: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 11v9H4a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3Zm3.5-7 .5-2a2 2 0 0 1 2-1.5c1 0 1.5.7 1.5 1.7V8h4a2 2 0 0 1 2 2.3l-1.2 7A2 2 0 0 1 17.3 19H10a1 1 0 0 1-1-1v-8.3c0-.4.1-.8.3-1.1L10.5 4Z"/></svg>',
     export: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 4v11"/><path d="m7.5 11 4.5 4.5 4.5-4.5"/><path d="M4.5 18.5v1a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-1"/></svg>',
     favorite: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35Z"/></svg>',
     favorited: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="currentColor" stroke="none"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35Z"/></svg>',
@@ -50,13 +52,13 @@
     return `<svg class="favorite-icon-split" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <defs>
         <linearGradient id="${gradientId}" x1="0" y1="0" x2="1" y2="0">
-          <stop class="favorite-icon-stop favorite-icon-stop--left" offset="0" stop-color="#ffffff"/>
-          <stop class="favorite-icon-stop favorite-icon-stop--left" offset="0.5" stop-color="#ffffff"/>
-          <stop class="favorite-icon-stop favorite-icon-stop--right" offset="0.5" stop-color="#ffffff"/>
-          <stop class="favorite-icon-stop favorite-icon-stop--right" offset="1" stop-color="#ffffff"/>
+          <stop class="favorite-icon-stop favorite-icon-stop--left" offset="0" stop-color="currentColor"/>
+          <stop class="favorite-icon-stop favorite-icon-stop--left" offset="0.5" stop-color="currentColor"/>
+          <stop class="favorite-icon-stop favorite-icon-stop--right" offset="0.5" stop-color="currentColor"/>
+          <stop class="favorite-icon-stop favorite-icon-stop--right" offset="1" stop-color="currentColor"/>
         </linearGradient>
       </defs>
-      <path d="${HEART_PATH}" fill="url(#${gradientId})" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="${HEART_PATH}" fill="url(#${gradientId})" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>`;
   }
 
@@ -76,6 +78,7 @@
     add: {label: 'Add track', icon: ICONS.add},
     refine: {label: 'Playlist Studio', icon: ICONS.refine},
     feedback: {label: 'Give feedback', icon: ICONS.feedback},
+    loved: {label: 'This got it right', icon: ICONS.loved},
     export: {label: 'Export', icon: ICONS.export},
   });
 
@@ -150,6 +153,7 @@
     if (element.id === 'add-track') return 'add';
     if (element.id === 'refine-playlist') return 'refine';
     if (element.id === 'playlist-feedback') return 'feedback';
+    if (element.id === 'playlist-positive-feedback') return 'loved';
     if (element.id === 'export-playlist') return 'export';
     if (element.classList.contains('replace-track-button')) return 'replace';
     if (element.classList.contains('remove-track-button')) return 'remove';

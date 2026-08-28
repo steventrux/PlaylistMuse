@@ -460,7 +460,7 @@ def _seed_draft(prompt: str, count: int, tracks: list[dict]) -> dict:
 def test_seed_generation_removes_alternate_upload_of_same_song(monkeypatch) -> None:
     calls: list[str] = []
 
-    async def fake_generate(prompt, count, options):
+    async def fake_generate(prompt, count, options, *, allow_shortfall=False):
         calls.append(prompt)
         assert count == 4
         if len(calls) == 1:
@@ -501,7 +501,7 @@ def test_seed_generation_removes_alternate_upload_of_same_song(monkeypatch) -> N
 def test_seed_generation_keeps_every_track_when_seed_is_not_reproduced(monkeypatch) -> None:
     calls: list[str] = []
 
-    async def fake_generate(prompt, count, options):
+    async def fake_generate(prompt, count, options, *, allow_shortfall=False):
         calls.append(prompt)
         assert count == 4
         tracks = [
@@ -532,7 +532,7 @@ def test_seed_generation_keeps_every_track_when_seed_is_not_reproduced(monkeypat
 
 
 def test_seed_generation_fails_loudly_when_seed_keeps_being_reproduced(monkeypatch) -> None:
-    async def fake_generate(prompt, count, options):
+    async def fake_generate(prompt, count, options, *, allow_shortfall=False):
         tracks = [
             _seed_track_payload("alternate-upload", "Woman", "Wolfmother"),
             _seed_track_payload("track-2", "No One Knows", "Queens of the Stone Age"),
@@ -546,3 +546,40 @@ def test_seed_generation_fails_loudly_when_seed_keeps_being_reproduced(monkeypat
     response = client.post("/api/playlists/generate-from-seed", json=_seed_request())
 
     assert response.status_code == 400
+
+
+def test_anchored_other_tracks_retries_when_either_anchor_reappears(monkeypatch) -> None:
+    start = main_module.SeedTrack(
+        video_id="start-vid", title="Start Song", artists="Start Artist"
+    )
+    end = main_module.SeedTrack(video_id="end-vid", title="End Song", artists="End Artist")
+    calls: list[str] = []
+
+    async def fake_generate(prompt, count, options, *, allow_shortfall=False):
+        calls.append(prompt)
+        assert count == 3
+        if len(calls) == 1:
+            tracks = [
+                {"video_id": "alt-end", "title": "End Song", "artists": "End Artist"},
+                {"video_id": "t2", "title": "Bridge Two", "artists": "Bridge Artist"},
+                {"video_id": "t3", "title": "Bridge Three", "artists": "Bridge Artist"},
+            ]
+        else:
+            assert "Do not include" in prompt
+            tracks = [
+                {"video_id": "t2", "title": "Bridge Two", "artists": "Bridge Artist"},
+                {"video_id": "t3", "title": "Bridge Three", "artists": "Bridge Artist"},
+                {"video_id": "t4", "title": "Bridge Four", "artists": "Bridge Artist"},
+            ]
+        return {"tracks": tracks}
+
+    monkeypatch.setattr(main_module, "_generate", fake_generate)
+    result, reproduced = asyncio.run(
+        main_module._anchored_other_tracks(
+            "bridge prompt", 3, main_module.PlaylistOptions(), [start, end]
+        )
+    )
+
+    assert len(calls) == 2
+    assert {t["video_id"] for t in result["tracks"]} == {"t2", "t3", "t4"}
+    assert reproduced == {"video_id": "alt-end", "title": "End Song", "artists": "End Artist"}

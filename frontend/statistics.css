@@ -76,7 +76,7 @@
 }
 
 .stats-switch[aria-checked="true"] .stats-switch-thumb {
-  background: #86efac;
+  background: var(--success-text);
   transform: translateX(20px);
 }
 
@@ -85,7 +85,7 @@
 }
 
 .stats-telemetry-status.ok {
-  color: #86efac;
+  color: var(--success-text);
 }
 
 .stats-telemetry-status.error {
@@ -563,5 +563,219 @@
   .stats-switch-thumb,
   .stats-section {
     transition: none;
+  }
+}
+
+.taste-memory-influence-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  color: var(--text-secondary);
+  font-size: .92rem;
+  font-weight: 550;
+}
+
+.taste-memory-influence-toggle input {
+  width: auto;
+  accent-color: var(--magenta);
+}
+
+.taste-memory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.taste-memory-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--item-bg);
+}
+
+.taste-memory-body {
+  min-width: 0;
+}
+
+.taste-memory-guidance {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: .86rem;
+  line-height: 1.4;
+}
+
+.taste-memory-prompt {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: .78rem;
+  line-height: 1.4;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.taste-memory-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.taste-memory-tag-chip {
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--item-bg);
+  color: var(--text-muted);
+  font-size: .7rem;
+  font-weight: 650;
+}
+
+.taste-memory-meta {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: .74rem;
+}
+
+.taste-memory-details-toggle {
+  margin-top: 6px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--violet-light);
+  font-size: .74rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.taste-memory-details {
+  margin-top: 6px;
+}
+
+.taste-memory-details.hidden {
+  display: none;
+}
+
+.taste-memory-tracks {
+  margin: 6px 0 0;
+  padding-left: 20px;
+  color: var(--text-muted);
+  font-size: .78rem;
+  line-height: 1.5;
+}
+
+#taste-memory-status.error {
+  color: var(--error);
+}
+
+.taste-memory-delete,
+.taste-memory-retry {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: .74rem;
+  cursor: pointer;
+}
+
+.taste-memory-delete:hover {
+  border-color: rgba(251, 113, 133, .4);
+  background: rgba(127, 29, 29, .12);
+  color: var(--error-text);
+}
+
+.taste-memory-retry:hover {
+  border-color: rgba(139, 92, 246, .4);
+  background: rgba(139, 92, 246, .12);
+  color: var(--violet-light);
+}
+
+.taste-memory-retry:disabled {
+  opacity: .5;
+  pointer-events: none;
+}
+
+.taste-memory-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.taste-memory-page-numbers {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  gap: 5px;
+}
+
+.taste-memory-page-nav,
+.taste-memory-page-number {
+  min-height: 34px;
+  font-size: .78rem;
+  font-weight: 760;
+}
+
+.taste-memory-page-nav {
+  display: inline-grid;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0;
+  place-items: center;
+  border-radius: 9px;
+}
+
+.taste-memory-page-nav svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.taste-memory-page-nav:disabled {
+  opacity: .42;
+  cursor: default;
+}
+
+.taste-memory-page-number {
+  min-width: 34px;
+  padding: 0 8px;
+  border: 1px solid rgba(169, 155, 255, .2);
+  border-radius: 9px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.taste-memory-page-number:hover {
+  border-color: rgba(183, 156, 255, .38);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.taste-memory-page-number.active,
+.taste-memory-page-number.active:hover {
+  border-color: var(--violet);
+  background: var(--violet);
+  color: #fff;
+}
+
+@media (max-width: 650px) {
+  .taste-memory-pagination,
+  .taste-memory-page-numbers {
+    gap: 4px;
   }
 }

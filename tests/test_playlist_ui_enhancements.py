@@ -70,15 +70,15 @@ def test_results_page_reuses_shared_navigation_controls_and_card_palette() -> No
     card_style = _text("playlist-cards.css")
     header_style = _text("playlist-header.css")
 
-    assert '/static/style.css?v=10' in html
-    assert '/static/controls.css?v=8' in html
-    assert '/static/header-navigation.css?v=21' in html
-    assert '/static/playlist-cards.css?v=4' in html
-    assert '/static/playlist-header.css?v=12' in html
+    assert '/static/style.css?v=13' in html
+    assert '/static/controls.css?v=12' in html
+    assert '/static/header-navigation.css?v=25' in html
+    assert '/static/playlist-cards.css?v=5' in html
+    assert '/static/playlist-header.css?v=13' in html
     assert 'class="playlist-toolbar"' not in html
     assert 'class="secondary new-playlist-link"' not in html
     assert ".new-playlist-link" not in header_style
-    assert "background: rgba(21, 26, 51, .86);" in card_style
+    assert "background: var(--item-bg-hover);" in card_style
     assert "box-shadow: none;" in card_style
     assert "linear-gradient(" not in card_style
 
@@ -107,8 +107,8 @@ def test_library_cards_match_compact_result_card_proportions_and_expand() -> Non
     script = _text("library.js")
     style = _text("library.css")
 
-    assert "/static/library.js?v=15" in html
-    assert "/static/library.css?v=12" in html
+    assert "/static/library.js?v=16" in html
+    assert "/static/library.css?v=14" in html
     assert "let expandedLibraryId = null;" in script
     assert "function toggleLibraryCard(card, item)" in script
     assert "function setLibraryCardExpanded(card, expanded)" in script
@@ -202,10 +202,10 @@ def test_selected_seed_matches_compact_card_layout_and_restrained_palette() -> N
     html = _text("index.html")
     style = _text("controls.css")
 
-    assert "/static/controls.css?v=8" in html
+    assert "/static/controls.css?v=12" in html
     assert ".selected-seed {" in style
     assert "grid-template-columns: 54px minmax(0, 1fr) auto;" in style
-    assert "background: rgba(21, 26, 51, .86);" in style
+    assert "background: var(--item-bg-hover);" in style
     assert "box-shadow: none;" in style
     assert ".selected-seed img" in style
     assert "width: 54px;" in style

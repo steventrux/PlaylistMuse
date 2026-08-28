@@ -4,22 +4,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#070916">
+  <script>(function(){try{var t=localStorage.getItem('playlistmuse-theme');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();</script>
   <link rel="icon" type="image/png" href="/static/playlistmuse-favicon.png?v=1">
   <title>PlaylistMuse</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=10">
+  <link rel="stylesheet" href="/static/style.css?v=13">
   <link rel="stylesheet" href="/static/layout.css?v=7">
-  <link rel="stylesheet" href="/static/controls.css?v=8">
-  <link rel="stylesheet" href="/static/prompt-complexity.css?v=4">
-  <link rel="stylesheet" href="/static/prompt-surprise.css?v=3">
-  <link rel="stylesheet" href="/static/generation.css?v=5">
-  <link rel="stylesheet" href="/static/youtube.css?v=3">
+  <link rel="stylesheet" href="/static/controls.css?v=12">
+  <link rel="stylesheet" href="/static/prompt-complexity.css?v=6">
+  <link rel="stylesheet" href="/static/prompt-surprise.css?v=4">
+  <link rel="stylesheet" href="/static/generation.css?v=7">
+  <link rel="stylesheet" href="/static/youtube.css?v=7">
   <link rel="stylesheet" href="/static/youtube-settings.css?v=1">
   <link rel="stylesheet" href="/static/onboarding.css?v=2">
   <link rel="stylesheet" href="/static/ai-settings.css?v=3">
-  <link rel="stylesheet" href="/static/header-navigation.css?v=21">
+  <link rel="stylesheet" href="/static/header-navigation.css?v=25">
 </head>
 <body>
   <header class="app-header">
@@ -131,7 +132,7 @@
 
       <div id="generation-controls" class="hidden">
         <div class="grid filters compact-filters">
-          <label>Tracks
+          <label id="track-count-field">Tracks
             <input id="track-count" type="number" min="5" max="100" value="25">
           </label>
         </div>
@@ -307,16 +308,16 @@
     </form>
   </dialog>
 
-  <script src="/static/replacement-history.js?v=3"></script>
-  <script src="/static/common.js?v=18"></script>
+  <script src="/static/replacement-history.js?v=5"></script>
+  <script src="/static/common.js?v=22"></script>
   <script src="/static/ai-settings.js?v=13"></script>
   <script src="/static/youtube-account.js?v=5"></script>
   <script src="/static/lastfm-settings.js?v=2"></script>
-  <script src="/static/home-status.js?v=34"></script>
-  <script src="/static/generation-state.js?v=3"></script>
+  <script src="/static/home-status.js?v=37"></script>
+  <script src="/static/generation-state.js?v=5"></script>
   <script src="/static/prompt-surprise.js?v=3"></script>
   <script src="/static/prompt-complexity.js?v=10"></script>
-  <script src="/static/app.js?v=21"></script>
+  <script src="/static/app.js?v=24"></script>
   <script src="/static/lastfm-status.js?v=2"></script>
   <script src="/static/prompt-validation-guard.js?v=4"></script>
 </body>

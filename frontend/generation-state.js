@@ -21,9 +21,8 @@
   }
 
   function isGenerationReady(mode, prompt, selectedSeed) {
-    return mode === 'prompt'
-      ? Boolean(normalizePrompt(prompt))
-      : Boolean(selectedSeed);
+    if (mode === 'prompt') return Boolean(normalizePrompt(prompt));
+    return Boolean(selectedSeed);
   }
 
   function isSeedSearchEnabled(query, searching = false) {

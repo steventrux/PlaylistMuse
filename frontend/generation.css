@@ -20,12 +20,12 @@
   padding: 15px 17px;
   border: 1px solid rgba(251, 113, 133, .48);
   border-radius: 16px;
-  background: linear-gradient(135deg, rgba(82, 22, 48, .56), rgba(28, 24, 59, .7));
+  background: var(--error-bg);
   box-shadow: 0 12px 30px rgba(35, 8, 26, .18);
 }
 
 .ai-generation-warning strong {
-  color: #fecdd3;
+  color: var(--error-text);
   font-size: .94rem;
 }
 
@@ -34,7 +34,7 @@
   align-items: baseline;
   flex-wrap: wrap;
   gap: 7px;
-  color: #fda4af;
+  color: var(--error-text);
   font-size: .86rem;
   line-height: 1.45;
 }
@@ -52,7 +52,7 @@
 }
 
 .ai-warning-link:hover {
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .generation-feedback {
@@ -66,9 +66,9 @@
   padding: 14px 16px;
   border: 1px solid rgba(251, 113, 133, .48);
   border-radius: 14px;
-  background: linear-gradient(135deg, rgba(82, 22, 48, .56), rgba(28, 24, 59, .7));
+  background: var(--error-bg);
   box-shadow: 0 12px 30px rgba(35, 8, 26, .18);
-  color: #fda4af;
+  color: var(--error-text);
   font-size: .9rem;
   line-height: 1.48;
 }
@@ -79,7 +79,7 @@
   width: 24px;
   height: 24px;
   place-items: center;
-  color: #fecdd3;
+  color: var(--error-text);
   font-size: 1rem;
   font-weight: 900;
   line-height: 1;
@@ -87,19 +87,19 @@
 
 .status.error.generation-feedback-incomplete,
 .generation-feedback-incomplete {
-  border-color: #fbbf24;
-  background: linear-gradient(135deg, rgba(92, 61, 14, .5), rgba(28, 24, 59, .72));
-  color: #fbbf24;
+  border-color: var(--warning);
+  background: var(--warning-bg);
+  color: var(--warning);
 }
 
 .status.error.generation-feedback-incomplete::before,
 .generation-feedback-incomplete::before {
-  color: #fbbf24;
+  color: var(--warning);
 }
 
 .generation-feedback-impossible::before,
 .generation-feedback-error::before {
-  color: #fb7185;
+  color: var(--error);
 }
 
 .replace-track-button {
@@ -115,7 +115,7 @@
 #create-youtube-playlist.is-loading:disabled {
   opacity: 1;
   cursor: wait;
-  border-color: #8b5cf6;
+  border-color: var(--violet);
   background: #7c3aed;
   color: #ffffff;
   animation: generation-button-pulse 1.65s ease-in-out infinite;
@@ -175,7 +175,7 @@
     box-shadow: 0 0 0 rgba(139, 92, 246, 0);
   }
   50% {
-    background: #8b5cf6;
+    background: var(--violet);
     box-shadow: 0 0 22px rgba(139, 92, 246, .32);
   }
 }

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -105,7 +106,7 @@ def test_playlist_tagger_uses_multilingual_library_only_categories(monkeypatch) 
             '"period":["1970s–1980s"]}'
         )
 
-    monkeypatch.setattr(playlist_tags_module, "request_structured_json", fake_request)
+    monkeypatch.setattr(playlist_tags_module, "request_structured_json_with_retry", fake_request)
     config = SimpleNamespace(configured=True, model_chain=("model-a",))
 
     playlist = sample_playlist()
@@ -135,7 +136,7 @@ def test_playlist_tagger_retries_fallback_after_empty_classification(monkeypatch
             '"period":["2020s"]}'
         )
 
-    monkeypatch.setattr(playlist_tags_module, "request_structured_json", fake_request)
+    monkeypatch.setattr(playlist_tags_module, "request_structured_json_with_retry", fake_request)
     config = SimpleNamespace(
         configured=True,
         model_chain=("model-a", "model-b"),
@@ -171,7 +172,7 @@ def test_playlist_tagger_falls_back_when_a_model_is_rate_limited(monkeypatch) ->
             '"period":["2020s"]}'
         )
 
-    monkeypatch.setattr(playlist_tags_module, "request_structured_json", fake_request)
+    monkeypatch.setattr(playlist_tags_module, "request_structured_json_with_retry", fake_request)
     config = SimpleNamespace(
         configured=True,
         model_chain=("model-a", "model-b"),
@@ -188,18 +189,28 @@ def test_playlist_tagger_falls_back_when_a_model_is_rate_limited(monkeypatch) ->
     }
 
 
-def test_playlist_tagger_rejects_empty_classification_from_all_models(monkeypatch) -> None:
+def test_playlist_tagger_accepts_empty_classification_when_every_model_agrees(monkeypatch) -> None:
+    """An honest 'no clear genre/mood/period' from every model is a valid result,
+    not a failure -- the system prompt explicitly allows leaving a category empty
+    rather than forcing a weak tag. Previously this raised and the playlist was
+    left with no tags at all and no way to retry from the UI.
+    """
+    models: list[str] = []
+
     async def fake_request(config, prompt, *, system_prompt, max_tokens, model):
+        models.append(model)
         return '{"genre":[],"mood":[],"period":[]}'
 
-    monkeypatch.setattr(playlist_tags_module, "request_structured_json", fake_request)
+    monkeypatch.setattr(playlist_tags_module, "request_structured_json_with_retry", fake_request)
     config = SimpleNamespace(
         configured=True,
         model_chain=("model-a", "model-b"),
     )
 
-    with pytest.raises(ValueError, match="no valid playlist tags"):
-        asyncio.run(suggest_playlist_tags(config, sample_playlist()))
+    tags = asyncio.run(suggest_playlist_tags(config, sample_playlist()))
+
+    assert models == ["model-a", "model-b"]
+    assert tags == {"genre": [], "mood": [], "period": [], "custom": []}
 
 
 def test_library_preserves_existing_tags_when_legacy_update_omits_them(tmp_path: Path) -> None:
@@ -250,12 +261,27 @@ def test_library_api_auto_tags_new_playlist_without_changing_generation(
 
     assert created.status_code == 201
     payload = created.json()
+    # Tag suggestion now runs in a background task after the response is sent
+    # (see test_create_playlist_endpoint_does_not_block_on_tag_suggestion for why:
+    # a synchronous await here made saves take 40-50s under provider fallback
+    # pressure), so the create response itself carries only the default empty tags.
     assert payload["playlist"]["tags"] == {
+        "genre": [], "mood": [], "period": [], "custom": [],
+    }
+
+    expected_tags = {
         "genre": ["Rock"],
         "mood": ["Atmospheric"],
         "period": ["1970s"],
         "custom": [],
     }
+    library = playlist_library_module.get_library()
+    for _ in range(50):
+        if library.get(payload["id"])["playlist"]["tags"] == expected_tags:
+            break
+        time.sleep(0.02)
+    else:
+        pytest.fail("Background tag suggestion never applied to the stored playlist")
 
     legacy_playlist = sample_playlist()
     updated = client.put(
@@ -263,7 +289,58 @@ def test_library_api_auto_tags_new_playlist_without_changing_generation(
         json={"playlist": legacy_playlist, "generation_request": {"mode": mode}},
     )
     assert updated.status_code == 200
-    assert updated.json()["playlist"]["tags"] == payload["playlist"]["tags"]
+    assert updated.json()["playlist"]["tags"] == expected_tags
+
+
+def test_create_playlist_endpoint_does_not_block_on_tag_suggestion(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """A real production incident: automatic tag suggestion went through a slow AI
+    fallback chain (40-50s) while the create endpoint awaited it directly, so the
+    save appeared hung and the user reloaded the page repeatedly, each reload
+    creating a brand-new duplicate playlist (11 in one session). The create
+    response must return as soon as the playlist row exists, with tag suggestion
+    applied afterward via a background task instead of blocking the request.
+    """
+    from fastapi import BackgroundTasks
+
+    monkeypatch.setattr(
+        playlist_library_module,
+        "_library",
+        PlaylistLibrary(tmp_path / "no-block.db"),
+    )
+
+    suggestion_called = False
+
+    async def slow_suggest(config, playlist):
+        nonlocal suggestion_called
+        suggestion_called = True
+        return {"genre": ["Rock"], "mood": [], "period": [], "custom": []}
+
+    monkeypatch.setattr(playlist_library_module, "suggest_playlist_tags", slow_suggest)
+
+    request = playlist_library_module.PlaylistWriteRequest(
+        playlist=sample_playlist(), generation_request={"mode": "prompt"}
+    )
+    background_tasks = BackgroundTasks()
+
+    created = asyncio.run(
+        playlist_library_module.create_playlist(request, background_tasks)
+    )
+
+    assert not suggestion_called, (
+        "create_playlist returned before the background tag suggestion ran"
+    )
+    assert created["playlist"]["tags"] == {
+        "genre": [], "mood": [], "period": [], "custom": [],
+    }
+
+    asyncio.run(background_tasks())
+
+    assert suggestion_called
+    stored = playlist_library_module.get_library().get(created["id"])
+    assert stored["playlist"]["tags"]["genre"] == ["Rock"]
 
 
 def test_library_tag_ui_is_read_only_but_keeps_search_filters() -> None:
@@ -275,8 +352,8 @@ def test_library_tag_ui_is_read_only_but_keeps_search_filters() -> None:
     assert 'id="library-genre-filter"' not in page
     assert 'id="library-mood-filter"' not in page
     assert 'id="library-period-filter"' not in page
-    assert "/static/library-tags.css?v=3" in page
-    assert "/static/library-tags.js?v=5" in page
+    assert "/static/library-tags.css?v=5" in page
+    assert "/static/library-tags.js?v=6" in page
     assert "tagTools?.searchValues(item)" in library_script
     assert "tagTools?.matchesFilters(item)" in library_script
     assert "const activeTagFilters = new Set();" in tags_script
@@ -339,9 +416,9 @@ def test_playlist_page_shows_ai_and_personal_tags_with_shared_controls() -> None
 
     assert 'id="playlist-tags"' in page
     assert 'id="playlist-tags-status"' in page
-    assert "/static/library-tags.css?v=3" in page
-    assert "/static/library-tags.js?v=5" in page
-    assert "/static/playlist.js?v=26" in page
+    assert "/static/library-tags.css?v=5" in page
+    assert "/static/library-tags.js?v=6" in page
+    assert "/static/playlist.js?v=28" in page
     assert "const tagTools = window.PlaylistMuseTags" in script
     assert "function renderPlaylistTags()" in script
     assert "tagTools.editableSummary(data?.tags" in script

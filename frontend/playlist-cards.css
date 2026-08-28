@@ -2,20 +2,20 @@
 
 .track-result-card {
   border-color: rgba(183, 156, 255, .42);
-  background: rgba(21, 26, 51, .86);
+  background: var(--item-bg-hover);
   box-shadow: none;
 }
 
 .track-result-card:hover {
   border-color: rgba(183, 156, 255, .5);
-  background: #29315b;
+  background: var(--bg-hover);
   box-shadow: none;
 }
 
 .track-result-card.expanded,
 .track-result-card.expanded:hover {
   border-color: rgba(183, 156, 255, .5);
-  background: rgba(21, 26, 51, .96);
+  background: var(--item-bg-hover);
   box-shadow: none;
 }
 

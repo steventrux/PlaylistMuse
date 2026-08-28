@@ -59,10 +59,10 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     index = _html("index.html")
     playlist = _html("playlist.html")
     settings = _html("settings.html")
-    common = '<script src="/static/common.js?v=18"></script>'
-    home_status = '<script src="/static/home-status.js?v=34"></script>'
-    generation_state = '<script src="/static/generation-state.js?v=3"></script>'
-    app = '<script src="/static/app.js?v=21"></script>'
+    common = '<script src="/static/common.js?v=22"></script>'
+    home_status = '<script src="/static/home-status.js?v=37"></script>'
+    generation_state = '<script src="/static/generation-state.js?v=5"></script>'
+    app = '<script src="/static/app.js?v=24"></script>'
 
     assert index.index(common) < index.index(
         '<script src="/static/ai-settings.js?v=13"></script>'
@@ -79,10 +79,10 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
 
     playlist_home_status = (
         '<script data-playlistmuse-footer-status '
-        'src="/static/home-status.js?v=34"></script>'
+        'src="/static/home-status.js?v=37"></script>'
     )
     assert playlist.index(common) < playlist.index(
-        '<script src="/static/playlist.js?v=26"></script>'
+        '<script src="/static/playlist.js?v=28"></script>'
     )
     assert playlist.index(common) < playlist.index(playlist_home_status)
     assert playlist.index(playlist_home_status) < playlist.index(
@@ -109,8 +109,8 @@ def test_prompt_complexity_uses_compact_icon_popover() -> None:
     style = _style("style.css")
     complexity_style = _style("prompt-complexity.css")
 
-    assert '<link rel="stylesheet" href="/static/style.css?v=10">' in index
-    assert '<link rel="stylesheet" href="/static/prompt-complexity.css?v=4">' in index
+    assert '<link rel="stylesheet" href="/static/style.css?v=13">' in index
+    assert '<link rel="stylesheet" href="/static/prompt-complexity.css?v=6">' in index
     assert '<script src="/static/prompt-complexity.js?v=10"></script>' in index
     assert 'id="prompt-complexity-trigger"' in index
     assert '<div class="prompt-label-row">' in index
@@ -220,11 +220,11 @@ def test_seed_guidance_follows_search_and_selection() -> None:
 
     assert '<p id="seed-guidance" class="hint hidden" aria-live="polite"></p>' in index
     assert choose_text not in index
-    assert "function setSeedGuidance(text = '')" in app
+    assert "function setSlotGuidance(slot, text = '')" in app
     assert "guidance.classList.toggle('hidden', !text)" in app
     assert choose_text in app
-    assert "This playlist will be built around “${seed.title}” by ${seed.artists}." in app
-    assert "setSeedGuidance('');\n    message('Searching YouTube Music…');" in app
+    assert "This playlist will be built around “${track.title}” by ${track.artists}." in app
+    assert "setSlotGuidance(slot, '');\n    message('Searching YouTube Music…');" in app
     assert "change.addEventListener('click'" in app
 
 
@@ -235,8 +235,8 @@ def test_header_uses_exact_uploaded_banner() -> None:
     brand = _style("brand.css")
     banner = (FRONTEND / "playlistmuse-banner.svg").read_bytes()
 
-    assert '/static/home-status.js?v=34' in index
-    assert '/static/home-status.js?v=34' in playlist
+    assert '/static/home-status.js?v=37' in index
+    assert '/static/home-status.js?v=37' in playlist
     assert "const HEADER_BANNER_URL = '/static/playlistmuse-banner.svg?v=1';" in status
     assert "function installBrandBanner()" in status
     assert "header.querySelector('.brand-banner')" in status
@@ -314,7 +314,7 @@ def test_ai_settings_separate_active_and_selected_provider_states() -> None:
     assert '/static/ai-settings.css?v=3' in index
     assert '/static/ai-settings.css?v=3' in settings
     assert '/static/ai-settings.css' not in playlist
-    assert '/static/app.js?v=21' in index
+    assert '/static/app.js?v=24' in index
     assert 'id="ai-active-status"' in index
     assert 'id="ai-active-status"' in settings
     assert "Choose or configure a provider" in index
@@ -350,7 +350,7 @@ def test_results_page_opens_ai_settings_via_shared_navigation_helper() -> None:
     assert 'id="youtube-settings-dialog"' not in playlist
     assert '/static/ai-results-settings.js' not in playlist
     assert '/static/ai-settings.js' not in playlist
-    assert '/static/home-status.js?v=34' in playlist
+    assert '/static/home-status.js?v=37' in playlist
     assert "window.PlaylistMuseCommon.openSettings(section);" in status
 
 
@@ -401,7 +401,7 @@ def test_youtube_publish_progress_is_compact_and_not_redundant() -> None:
     youtube_publish = _script("youtube-publish.js")
     youtube_results = _style("youtube-results.css")
 
-    assert '/static/youtube-results.css?v=4' in playlist
+    assert '/static/youtube-results.css?v=5' in playlist
     assert '/static/youtube-publish.js?v=15' in playlist
     assert (
         'id="youtube-publish-status" class="youtube-publish-status hidden"'
@@ -424,7 +424,7 @@ def test_published_playlist_hides_track_replacement_controls() -> None:
     playlist_script = _script("playlist.js")
     youtube_publish = _script("youtube-publish.js")
 
-    assert '/static/playlist.js?v=26' in playlist
+    assert '/static/playlist.js?v=28' in playlist
     assert '/static/youtube-publish.js?v=15' in playlist
     assert 'id="youtube-publish-account"' not in playlist
     assert "YouTube Music account connected" not in playlist

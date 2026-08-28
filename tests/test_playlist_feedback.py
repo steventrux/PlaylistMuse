@@ -28,7 +28,7 @@ def test_playlist_page_exposes_feedback_without_coupling_it_to_draft_editing() -
 
     assert 'id="playlist-feedback"' in html
     assert '>Give feedback</button>' in html
-    assert '/static/playlist-feedback.js?v=1' in html
+    assert '/static/playlist-feedback.js?v=4' in html
     draft_start = html.index('id="playlist-draft-actions"')
     draft_end = html.index('</div>', draft_start)
     feedback_position = html.index('id="playlist-feedback"')

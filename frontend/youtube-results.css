@@ -8,7 +8,7 @@
   padding: 16px;
   border: 1px solid rgba(169, 155, 255, .23);
   border-radius: 16px;
-  background: rgba(8, 11, 27, .64);
+  background: var(--item-bg);
   color: var(--text-secondary);
   font-size: .88rem;
   font-weight: 650;
@@ -48,7 +48,7 @@
 }
 
 .youtube-warning-link:hover {
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .youtube-results-settings {
@@ -61,7 +61,7 @@
 }
 
 .youtube-publish-warning-inline {
-  color: #fda4af;
+  color: var(--error-text);
   font-weight: 650;
 }
 

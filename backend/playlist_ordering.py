@@ -19,7 +19,9 @@ from backend.metadata_validation import (
     lookup_track_metadata,
     validate_candidate,
 )
+from backend.lastfm_tags import LastfmTagEvidence, tag_evidence_for_tracks
 from backend.reccobeats_features import ReccoBeatsAudioEvidence, audio_evidence_for_track
+from backend.text_normalization import normalize_identity
 
 LOGGER = logging.getLogger("playlistmuse.performance")
 
@@ -463,15 +465,41 @@ def _stable_sort_by_key(
 def _chained_by_energy(
     tracks: list[dict[str, Any]],
     energies: list[float],
+    tags: list[LastfmTagEvidence] | None = None,
 ) -> list[dict[str, Any]]:
-    """Greedily chain tracks by nearest energy, starting from the median, to minimize jumps."""
-    remaining = sorted(zip(energies, tracks, strict=True), key=lambda item: item[0])
+    """Greedily chain tracks by nearest energy, starting from the median, to minimize jumps.
+
+    When `tags` is given, a candidate is only chosen while it stays genre-compatible
+    with the last placed track (missing tag data on either side never blocks
+    placement, same fail-open rule as elsewhere). If every remaining candidate
+    becomes tag-incompatible with the current position, the gate turns off for the
+    rest of the chain rather than blocking placement. This guards "steady energy"
+    ordering against an audio-only genre-incoherence risk: two tracks can have
+    near-identical energy (e.g. a K-pop track and an unrelated French-house track)
+    while being completely unrelated in genre, so energy proximity alone is not a
+    safe adjacency signal.
+    """
+    order = sorted(range(len(tracks)), key=lambda index: energies[index])
+    remaining = list(order)
     chain = [remaining.pop(len(remaining) // 2)]
+    genre_gate_active = tags is not None
+
     while remaining:
-        last_energy, _ = chain[-1]
-        remaining.sort(key=lambda item: abs(item[0] - last_energy))
-        chain.append(remaining.pop(0))
-    return [track for _, track in chain]
+        last_index = chain[-1]
+        pool = remaining
+        if genre_gate_active:
+            compatible = [
+                index for index in remaining if _tag_compatible(tags[last_index], tags[index])
+            ]
+            if compatible:
+                pool = compatible
+            else:
+                genre_gate_active = False
+        chosen = min(pool, key=lambda index: abs(energies[index] - energies[last_index]))
+        chain.append(chosen)
+        remaining.remove(chosen)
+
+    return [tracks[index] for index in chain]
 
 
 def _energy_bands(energies: list[float], *, band_count: int = 5) -> list[int]:
@@ -554,7 +582,11 @@ async def order_tracks_by_energy(
     if direction == "steady":
         matched_tracks = [tracks[index] for index in matched_indices]
         matched_energies = [energies[index] for index in matched_indices]
-        chained = _chained_by_energy(matched_tracks, matched_energies)
+        try:
+            matched_tags = await tag_evidence_for_tracks(matched_tracks)
+        except Exception:
+            matched_tags = None
+        chained = _chained_by_energy(matched_tracks, matched_energies, matched_tags)
         result = list(tracks)
         for slot, track in zip(matched_indices, chained, strict=True):
             result[slot] = track
@@ -604,3 +636,14 @@ async def order_tracks_by_energy(
     for slot, index in zip(matched_indices, ordered_matched_indices, strict=True):
         result[slot] = tracks[index]
     return result
+
+
+def _tag_set(evidence: LastfmTagEvidence) -> frozenset[str]:
+    return frozenset(normalize_identity(tag) for tag in evidence.track_tags)
+
+
+def _tag_compatible(a: LastfmTagEvidence, b: LastfmTagEvidence) -> bool:
+    """Missing tag data on either side never blocks placement (fail-open)."""
+    if not a.available or not b.available:
+        return True
+    return bool(_tag_set(a) & _tag_set(b))

@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
 FRONTEND = ROOT / "frontend"
 STATIC_ASSET_RE = re.compile(r"/static/([A-Za-z0-9._/-]+)")
+STATIC_ASSET_VERSION_RE = re.compile(r"/static/([A-Za-z0-9._/-]+)\?v=(\d+)")
 HTML_ENTRY_POINTS = (
     "index.html",
     "playlist.html",
@@ -78,6 +79,29 @@ def test_frontend_static_graph_has_no_missing_or_orphan_assets() -> None:
     }
     orphaned = sorted(runtime_assets - reachable)
     assert not orphaned, f"Unreferenced frontend assets: {', '.join(orphaned)}"
+
+
+def test_shared_static_assets_use_the_same_cache_bust_version_everywhere() -> None:
+    # A shared JS/CSS file's cache-bust query (?v=N) must be identical across
+    # every HTML entry point that references it -- bumping it in some pages but
+    # not others has happened twice already (action-controls.js, then
+    # statistics.css), and leaves the un-bumped pages serving a stale cached
+    # copy of a file whose content already changed.
+    versions_by_asset: dict[str, dict[str, str]] = {}
+    for entry_name in HTML_ENTRY_POINTS:
+        html = (FRONTEND / entry_name).read_text(encoding="utf-8")
+        for asset_name, version in STATIC_ASSET_VERSION_RE.findall(html):
+            versions_by_asset.setdefault(asset_name, {})[entry_name] = version
+
+    inconsistent = {
+        asset_name: entry_versions
+        for asset_name, entry_versions in versions_by_asset.items()
+        if len(entry_versions) > 1 and len(set(entry_versions.values())) > 1
+    }
+    assert inconsistent == {}, (
+        "Shared static assets referenced with mismatched ?v= versions across "
+        f"HTML entry points: {inconsistent}"
+    )
 
 
 def test_obsolete_compatibility_files_are_removed() -> None:

@@ -47,7 +47,7 @@ def _seed_library(database_path: Path) -> PlaylistLibrary:
         generation_meta={
             "provider": "gemini",
             "duration_ms": 4000,
-            "stage_timings_ms": {"ai_draft": 1000, "youtube_resolution": 3000},
+            "stage_timings_ms": {"llm_initial": 1000, "youtube_resolution": 3000},
             "complexity_score": 40,
         },
     ))
@@ -58,7 +58,7 @@ def _seed_library(database_path: Path) -> PlaylistLibrary:
         generation_meta={
             "provider": "openai",
             "duration_ms": 2000,
-            "stage_timings_ms": {"ai_draft": 600, "youtube_resolution": 1400},
+            "stage_timings_ms": {"llm_initial": 600, "youtube_resolution": 1400},
         },
         youtube=True,
     ))
@@ -139,7 +139,7 @@ def test_compute_stats_aggregates_across_the_library(monkeypatch, tmp_path: Path
     assert gemini["draft_vs_published"] == {"draft": 1, "published": 0}
     assert gemini["error_breakdown"] == {"ValueError": 1}
     assert gemini["total_errors"] == 1
-    assert gemini["stage_timings"]["ai_draft"] == {
+    assert gemini["stage_timings"]["llm_initial"] == {
         "avg_ms": 1000,
         "median_ms": 1000,
         "p95_ms": 1000,
@@ -243,6 +243,43 @@ def test_expand_period_only_splits_genuine_decade_ranges() -> None:
     # A hyphenated value that isn't a decade-to-decade range is left untouched
     # rather than being split apart.
     assert playlist_stats._expand_period("Post-2000") == ["Post-2000"]
+
+
+def test_stage_timings_filter_out_retired_stage_names(monkeypatch, tmp_path: Path) -> None:
+    """Regression: a playlist generated before a feature's removal (e.g. the
+    retired Track Journey mode) can still carry that feature's stage name baked
+    into its persisted generation_meta. The playlist data itself is never
+    touched, but a stage nothing can produce anymore must not keep surfacing in
+    the aggregate "AI performance" stats.
+    """
+    database_path = tmp_path / "playlists.db"
+    monkeypatch.setattr(playlist_stats, "DATABASE_PATH", database_path)
+    monkeypatch.setattr(
+        generation_counter, "GENERATION_COUNTER_PATH", tmp_path / "generation_counter.json"
+    )
+    monkeypatch.setattr(
+        generation_errors, "GENERATION_ERRORS_PATH", tmp_path / "generation_errors.json"
+    )
+
+    library = PlaylistLibrary(database_path)
+    library.create(_playlist(
+        name="Old Journey Mix",
+        artists=["Some Artist"],
+        generation_meta={
+            "provider": "gemini",
+            "duration_ms": 5000,
+            "stage_timings_ms": {
+                "llm_initial": 2000,
+                "journey_ordering": 3000,
+            },
+        },
+    ))
+
+    stats = playlist_stats.compute_stats()
+
+    stage_timings = stats["nerd"]["by_provider"]["gemini"]["stage_timings"]
+    assert "llm_initial" in stage_timings
+    assert "journey_ordering" not in stage_timings
 
 
 def test_compute_stats_handles_an_empty_library(monkeypatch, tmp_path: Path) -> None:

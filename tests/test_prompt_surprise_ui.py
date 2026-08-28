@@ -13,7 +13,7 @@ def test_random_prompt_control_uses_shared_generator_with_concise_profiles() -> 
     script = _text("prompt-surprise.js")
     style = _text("prompt-surprise.css")
 
-    assert '/static/prompt-surprise.css?v=3' in html
+    assert '/static/prompt-surprise.css?v=4' in html
     assert '/static/prompt-surprise.js?v=3' in html
     assert 'id="prompt-surprise"' in html
     assert 'class="prompt-input-shell"' in html

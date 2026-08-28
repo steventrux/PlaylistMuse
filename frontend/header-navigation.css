@@ -15,7 +15,7 @@
   display: grid;
   place-items: center;
   border: 1px solid rgba(183, 156, 255, .42);
-  background: rgba(10, 13, 30, .82);
+  background: var(--bg-elevated);
   color: var(--text-secondary);
   box-shadow: 0 10px 28px rgba(1, 3, 15, .24);
   backdrop-filter: blur(14px);
@@ -42,7 +42,7 @@
 .sidebar-close:hover,
 .sidebar-close:focus-visible {
   border-color: rgba(125, 220, 255, .7);
-  background: rgba(22, 28, 57, .94);
+  background: var(--bg-hover);
   color: var(--text-primary);
 }
 
@@ -50,7 +50,7 @@
 .sidebar-close:focus-visible,
 .sidebar-link:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px rgba(7, 9, 22, .9), 0 0 0 4px rgba(183, 156, 255, .65);
+  box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px rgba(183, 156, 255, .65);
 }
 
 .sidebar-menu-toggle:hover,
@@ -91,9 +91,7 @@
   flex-direction: column;
   overflow-y: auto;
   border-left: 1px solid rgba(169, 155, 255, .24);
-  background:
-    radial-gradient(circle at 90% 0%, rgba(139, 92, 246, .18), transparent 18rem),
-    linear-gradient(180deg, rgba(14, 18, 39, .98), rgba(7, 9, 22, .99));
+  background: var(--sidebar-gradient);
   box-shadow: -28px 0 70px rgba(1, 3, 15, .44);
   opacity: 0;
   transform: translateX(102%);
@@ -250,7 +248,7 @@ body.sidebar-open .playlistmuse-sidebar {
   align-items: center;
   border: 1px solid rgba(169, 155, 255, .18);
   border-radius: 14px;
-  background: rgba(8, 11, 27, .56);
+  background: var(--item-bg);
   color: var(--text-secondary);
   box-shadow: none;
   filter: none;
@@ -263,7 +261,7 @@ body.sidebar-open .playlistmuse-sidebar {
 .playlistmuse-sidebar .header-indicator:focus-visible {
   transform: translateX(1px);
   border-color: rgba(183, 156, 255, .36);
-  background: rgba(22, 27, 54, .72);
+  background: var(--item-bg-hover);
 }
 
 .playlistmuse-sidebar .header-indicator svg {
@@ -328,6 +326,15 @@ body.sidebar-open .playlistmuse-sidebar {
   content: "Checking…";
 }
 
+/* The card chrome (border/background/pill) uses the same green/red status
+   language for every integration -- but the icon glyph itself keeps each
+   service's own natural/brand color (set per-service, e.g. lastfm.css),
+   not forced to the status color. */
+.playlistmuse-sidebar .header-indicator.on {
+  border-color: rgba(74, 222, 128, .38);
+  background: rgba(22, 101, 52, .1);
+}
+
 .playlistmuse-sidebar .header-indicator.on svg {
   background: rgba(74, 222, 128, .16);
 }
@@ -335,39 +342,32 @@ body.sidebar-open .playlistmuse-sidebar {
 .playlistmuse-sidebar .header-indicator.on::after {
   content: "Configured";
   background: rgba(74, 222, 128, .14);
-  color: #86efac;
+  color: var(--success-text);
 }
 
-.playlistmuse-sidebar .header-indicator.off {
-  border-color: rgba(251, 191, 36, .34);
-  background: rgba(120, 74, 8, .09);
+.playlistmuse-sidebar .header-indicator.off,
+.playlistmuse-sidebar .header-indicator.error {
+  border-color: rgba(251, 113, 133, .4);
+  background: rgba(127, 29, 29, .12);
   color: var(--text-muted);
   filter: none;
 }
 
-.playlistmuse-sidebar .header-indicator.off svg {
-  background: rgba(251, 191, 36, .14);
+.playlistmuse-sidebar .header-indicator.off svg,
+.playlistmuse-sidebar .header-indicator.error svg {
+  background: rgba(251, 113, 133, .16);
 }
 
 .playlistmuse-sidebar .header-indicator.off::after {
   content: "Not configured";
-  background: rgba(251, 191, 36, .12);
-  color: #fde68a;
-}
-
-.playlistmuse-sidebar .header-indicator.error {
-  border-color: rgba(251, 113, 133, .4);
-  background: rgba(127, 29, 29, .12);
-}
-
-.playlistmuse-sidebar .header-indicator.error svg {
-  background: rgba(251, 113, 133, .16);
+  background: rgba(251, 113, 133, .14);
+  color: var(--error-text);
 }
 
 .playlistmuse-sidebar .header-indicator.error::after {
   content: "Configuration error";
   background: rgba(251, 113, 133, .14);
-  color: #fda4af;
+  color: var(--error-text);
 }
 
 /* The active AI row exposes which provider is actually in use; the label itself
@@ -412,7 +412,7 @@ body.sidebar-open .playlistmuse-sidebar {
 }
 
 .sidebar-build-version--update {
-  color: #fde68a;
+  color: var(--warning-text);
 }
 
 .sidebar-update-badge {
@@ -426,7 +426,7 @@ body.sidebar-open .playlistmuse-sidebar {
   border-radius: 999px;
   border: 1px solid rgba(251, 191, 36, .34);
   background: rgba(120, 74, 8, .12);
-  color: #fde68a;
+  color: var(--warning-text);
 }
 
 .sidebar-update-badge:not([hidden]) {

@@ -45,3 +45,4 @@ test('seed search is disabled when blank or already running', () => {
   assert.equal(generationState.isSeedSearchEnabled('a', false), true);
   assert.equal(generationState.isSeedSearchEnabled('artist', true), false);
 });
+

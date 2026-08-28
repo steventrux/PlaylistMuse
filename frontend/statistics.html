@@ -4,20 +4,21 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#070916">
+  <script>(function(){try{var t=localStorage.getItem('playlistmuse-theme');if(t==='light'||t==='dark'){document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();</script>
   <link rel="icon" type="image/png" href="/static/playlistmuse-favicon.png?v=1">
   <title>Statistics · PlaylistMuse</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=10">
+  <link rel="stylesheet" href="/static/style.css?v=13">
   <link rel="stylesheet" href="/static/layout.css?v=7">
-  <link rel="stylesheet" href="/static/controls.css?v=8">
-  <link rel="stylesheet" href="/static/settings-dialog.css?v=11">
-  <link rel="stylesheet" href="/static/settings-page.css?v=5">
-  <link rel="stylesheet" href="/static/statistics.css?v=10">
+  <link rel="stylesheet" href="/static/controls.css?v=12">
+  <link rel="stylesheet" href="/static/settings-dialog.css?v=14">
+  <link rel="stylesheet" href="/static/settings-page.css?v=6">
+  <link rel="stylesheet" href="/static/statistics.css?v=17">
   <link rel="stylesheet" href="/static/statistics-advanced.css?v=7">
-  <link rel="stylesheet" href="/static/action-controls.css?v=8">
-  <link rel="stylesheet" href="/static/header-navigation.css?v=21">
+  <link rel="stylesheet" href="/static/action-controls.css?v=10">
+  <link rel="stylesheet" href="/static/header-navigation.css?v=25">
 </head>
 <body>
   <header class="app-header">
@@ -87,6 +88,12 @@
               <circle cx="22" cy="10" r="1.6" />
             </svg>
             <span>Personal tags</span>
+          </button>
+          <button class="settings-section-link" type="button" data-stats-section="taste">
+            <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+              <path d="M9 15v11H5a1 1 0 0 1-1-1V16a1 1 0 0 1 1-1h4Zm4.5-9 .6-2.4A2.4 2.4 0 0 1 16.4 2c1.3 0 2 .9 2 2.2V10h5a2.4 2.4 0 0 1 2.4 2.8l-1.6 9A2.4 2.4 0 0 1 21.9 24H13a1 1 0 0 1-1-1V13.2c0-.5.1-1 .3-1.4L13.5 6Z" />
+            </svg>
+            <span>Taste memory</span>
           </button>
 
           <p class="settings-section-label">Technical</p>
@@ -229,6 +236,65 @@
           <button type="button" id="stats-custom-tag-list-toggle" class="stats-see-all-link hidden">Show more &rarr;</button>
         </section>
 
+        <section id="stats-taste-panel" class="settings-page-panel hidden" aria-label="Taste memory">
+          <p class="field-hint">
+            Playlists you marked as a great match, and the short judgment PlaylistMuse
+            distilled from each one. Nothing here ever leaves this installation.
+          </p>
+          <p id="taste-memory-status" class="field-hint hidden"></p>
+          <div id="taste-memory-list" class="taste-memory-list"></div>
+          <p id="taste-memory-empty" class="field-hint hidden">Nothing marked yet. Use "This got it right" on a playlist you loved.</p>
+          <nav id="taste-memory-pagination" class="taste-memory-pagination hidden" aria-label="Taste memory pages">
+            <button
+              id="taste-memory-page-first"
+              class="secondary taste-memory-page-nav"
+              type="button"
+              aria-label="Go to first page"
+              title="Go to first page"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M6 5v14"/>
+                <path d="m18 6-7 6 7 6"/>
+              </svg>
+            </button>
+            <button
+              id="taste-memory-page-previous"
+              class="secondary taste-memory-page-nav"
+              type="button"
+              aria-label="Go to previous page"
+              title="Go to previous page"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="m15 6-6 6 6 6"/>
+              </svg>
+            </button>
+            <div id="taste-memory-page-numbers" class="taste-memory-page-numbers"></div>
+            <button
+              id="taste-memory-page-next"
+              class="secondary taste-memory-page-nav"
+              type="button"
+              aria-label="Go to next page"
+              title="Go to next page"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="m9 6 6 6-6 6"/>
+              </svg>
+            </button>
+            <button
+              id="taste-memory-page-last"
+              class="secondary taste-memory-page-nav"
+              type="button"
+              aria-label="Go to last page"
+              title="Go to last page"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M18 5v14"/>
+                <path d="m6 6 7 6-7 6"/>
+              </svg>
+            </button>
+          </nav>
+        </section>
+
         <section id="stats-advanced-panel" class="settings-page-panel hidden" aria-label="AI performance">
           <p id="stats-advanced-status" class="status" aria-live="polite">Loading statistics&hellip;</p>
 
@@ -254,13 +320,15 @@
     </div>
   </main>
 
-  <script src="/static/common.js?v=18"></script>
-  <script src="/static/action-controls.js?v=6"></script>
+  <script src="/static/common.js?v=22"></script>
+  <script src="/static/action-controls.js?v=8"></script>
   <script src="/static/statistics-render.js?v=2"></script>
   <script src="/static/statistics.js?v=17"></script>
   <script src="/static/statistics-advanced.js?v=6"></script>
   <script src="/static/statistics-cache.js?v=1"></script>
-  <script src="/static/statistics-page.js?v=3"></script>
-  <script src="/static/home-status.js?v=34"></script>
+  <script src="/static/statistics-page.js?v=4"></script>
+  <script src="/static/library-pagination.js?v=2"></script>
+  <script src="/static/local-taste-memory.js?v=6"></script>
+  <script src="/static/home-status.js?v=37"></script>
 </body>
 </html>

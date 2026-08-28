@@ -13,7 +13,7 @@ def test_library_pagination_uses_icon_boundary_controls_with_tooltips() -> None:
 
     assert '/static/library-pagination.css?v=1' in html
     assert '/static/library-pagination.js?v=2' in html
-    assert '/static/library.js?v=15' in html
+    assert '/static/library.js?v=16' in html
 
     for control_id, tooltip in (
         ('library-page-first', 'Go to first page'),

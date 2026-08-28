@@ -13,9 +13,9 @@ def test_playlist_actions_are_compact_responsive_and_accessible() -> None:
     script = _text("action-controls.js")
     style = _text("action-controls.css")
 
-    assert '/static/action-controls.css?v=8' in html
-    assert '/static/action-controls.js?v=6' in html
-    assert html.index('/static/playlist-refine.js?v=7') < html.index('/static/action-controls.js?v=6')
+    assert '/static/action-controls.css?v=10' in html
+    assert '/static/action-controls.js?v=8' in html
+    assert html.index('/static/playlist-refine.js?v=7') < html.index('/static/action-controls.js?v=8')
 
     for label in (
         "Open in YouTube Music",
@@ -33,6 +33,10 @@ def test_playlist_actions_are_compact_responsive_and_accessible() -> None:
     assert "if (element.id === 'playlist-feedback') return 'feedback';" in script
     assert "feedback: {label: 'Give feedback', icon: ICONS.feedback}" in script
     assert ".playlist-feedback-action.compact-action" in style
+
+    assert "'#playlist-positive-feedback'" in script
+    assert "if (element.id === 'playlist-positive-feedback') return 'loved';" in script
+    assert "loved: {label: 'This got it right', icon: ICONS.loved}" in script
     assert "element.setAttribute('aria-label', action.label);" in script
     assert "element.title = action.label;" in script
     assert "new MutationObserver" in script
@@ -55,12 +59,27 @@ def test_playlist_actions_are_compact_responsive_and_accessible() -> None:
     assert "flex-wrap: nowrap;" in style
 
 
+def test_compact_action_never_overrides_hidden() -> None:
+    """Regression: action-controls.js decorates a matching element into compact form
+    regardless of whether it is currently hidden (e.g. a feedback button gated by JS to a
+    specific page state). action-controls.css loads after style.css, so .compact-action's
+    !important alone would win the cascade over .hidden's !important on source order,
+    making a JS-hidden button visible again. A combined .hidden.compact-action selector
+    (higher specificity than either single-class rule) must keep .hidden in charge
+    regardless of link order.
+    """
+    style = _text("action-controls.css")
+
+    assert style.index(".hidden.compact-action") < style.index(".compact-action {")
+    assert "display: none !important;" in style
+
+
 def test_library_uses_open_for_drafts_and_published_playlists() -> None:
     html = _text("library.html")
     script = _text("action-controls.js")
 
-    assert '/static/action-controls.js?v=6' in html
-    assert html.index('/static/library.js?v=15') < html.index('/static/action-controls.js?v=6')
+    assert '/static/action-controls.js?v=8' in html
+    assert html.index('/static/library.js?v=16') < html.index('/static/action-controls.js?v=8')
     assert "if (text === 'Edit') link.textContent = 'Open';" in script
     assert "if (text === 'Editing…') link.textContent = 'Opening…';" in script
     assert "if (ariaLabel.startsWith('Edit '))" in script

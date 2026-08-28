@@ -37,6 +37,20 @@
     },
   };
 
+  const PICKER_SLOTS = {
+    seed: {
+      key: 'selectedSeed',
+      searchingKey: 'seedSearching',
+      queryId: 'seed-query',
+      searchId: 'seed-search',
+      resultsId: 'seed-results',
+      selectedId: 'selected-seed',
+      guidanceId: 'seed-guidance',
+      guidance: (track) => `This playlist will be built around “${track.title}” by ${track.artists}.`,
+      clearedGuidance: 'Choose a track to use as the musical reference for the new playlist.',
+    },
+  };
+
   const GENERATION_LOCKED_CONTROL_IDS = [
     'prompt',
     'track-count',
@@ -52,8 +66,8 @@
     $('status').classList.toggle('error', error);
   }
 
-  function setSeedGuidance(text = '') {
-    const guidance = $('seed-guidance');
+  function setSlotGuidance(slot, text = '') {
+    const guidance = $(slot.guidanceId);
     guidance.textContent = text;
     guidance.classList.toggle('hidden', !text);
   }
@@ -109,21 +123,21 @@
     if (!ready && state.mode === 'prompt') message('');
   }
 
-  function updateSeedSearchAvailability() {
+  function updateSlotSearchAvailability(slot) {
     const enabled = generationState.isSeedSearchEnabled(
-      $('seed-query').value,
-      state.seedSearching,
+      $(slot.queryId).value,
+      state[slot.searchingKey],
     );
-    const button = $('seed-search');
+    const button = $(slot.searchId);
     button.disabled = !enabled;
     button.setAttribute('aria-disabled', String(!enabled));
   }
 
-  function setSeedSearching(searching) {
-    state.seedSearching = searching;
-    $('seed-search').textContent = searching ? 'Searching…' : 'Search';
-    updateSeedSearchAvailability();
-    updateSeedSurpriseAvailability();
+  function setSlotSearching(slot, searching) {
+    state[slot.searchingKey] = searching;
+    $(slot.searchId).textContent = searching ? 'Searching…' : 'Search';
+    updateSlotSearchAvailability(slot);
+    if (slot === PICKER_SLOTS.seed) updateSeedSurpriseAvailability();
   }
 
   function updateSeedModeControls() {
@@ -179,12 +193,12 @@
     updateSeedModeControls();
   }
 
-  function clearSelectedSeed({showResults = false, guidance = ''} = {}) {
-    state.selectedSeed = null;
-    $('selected-seed').classList.add('hidden');
-    $('seed-mode-controls')?.classList.add('hidden');
-    if (showResults) $('seed-results').classList.remove('hidden');
-    setSeedGuidance(guidance);
+  function clearSlotTrack(slot, {showResults = false, guidance = ''} = {}) {
+    state[slot.key] = null;
+    $(slot.selectedId).classList.add('hidden');
+    if (slot === PICKER_SLOTS.seed) $('seed-mode-controls')?.classList.add('hidden');
+    if (showResults) $(slot.resultsId).classList.remove('hidden');
+    setSlotGuidance(slot, guidance);
     updateGenerationControls();
   }
 
@@ -288,19 +302,20 @@
     }
   }
 
-  function selectSeed(seed) {
-    state.selectedSeed = seed;
-    $('selected-seed').replaceChildren();
+  function selectSlotTrack(slot, track) {
+    state[slot.key] = track;
+    const selectedEl = $(slot.selectedId);
+    selectedEl.replaceChildren();
 
     const artwork = document.createElement('img');
-    artwork.src = seed.thumbnail_url || '';
+    artwork.src = track.thumbnail_url || '';
     artwork.alt = '';
 
     const copy = document.createElement('div');
     const title = document.createElement('strong');
-    title.textContent = seed.title;
+    title.textContent = track.title;
     const meta = document.createElement('span');
-    meta.textContent = [seed.artists, seed.album, seed.duration].filter(Boolean).join(' · ');
+    meta.textContent = [track.artists, track.album, track.duration].filter(Boolean).join(' · ');
     copy.append(title, meta);
 
     const change = document.createElement('button');
@@ -308,47 +323,44 @@
     change.className = 'secondary compact-button';
     change.textContent = 'Change';
     change.addEventListener('click', () => {
-      clearSelectedSeed({
-        showResults: true,
-        guidance: 'Choose a track to use as the musical reference for the new playlist.',
-      });
+      clearSlotTrack(slot, {showResults: true, guidance: slot.clearedGuidance});
       message('');
     });
 
-    $('selected-seed').append(artwork, copy, change);
-    $('selected-seed').classList.remove('hidden');
-    $('seed-results').classList.add('hidden');
-    $('seed-mode-controls').classList.remove('hidden');
-    setSeedGuidance(`This playlist will be built around “${seed.title}” by ${seed.artists}.`);
+    selectedEl.append(artwork, copy, change);
+    selectedEl.classList.remove('hidden');
+    $(slot.resultsId).classList.add('hidden');
+    if (slot === PICKER_SLOTS.seed) $('seed-mode-controls').classList.remove('hidden');
+    setSlotGuidance(slot, slot.guidance(track));
     updateGenerationControls();
     message('');
   }
 
-  function createSeedResult(seed) {
+  function createSlotResult(slot, track) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'seed-result';
 
     const artwork = document.createElement('img');
-    artwork.src = seed.thumbnail_url || '';
+    artwork.src = track.thumbnail_url || '';
     artwork.alt = '';
     artwork.loading = 'lazy';
 
     const copy = document.createElement('span');
     copy.className = 'seed-result-copy';
     const title = document.createElement('strong');
-    title.textContent = seed.title;
+    title.textContent = track.title;
     const meta = document.createElement('small');
-    meta.textContent = [seed.artists, seed.album, seed.duration].filter(Boolean).join(' · ');
+    meta.textContent = [track.artists, track.album, track.duration].filter(Boolean).join(' · ');
     copy.append(title, meta);
 
     button.append(artwork, copy);
-    button.addEventListener('click', () => selectSeed(seed));
+    button.addEventListener('click', () => selectSlotTrack(slot, track));
     return button;
   }
 
-  function renderSeedResults(results) {
-    const container = $('seed-results');
+  function renderSlotResults(slot, results) {
+    const container = $(slot.resultsId);
     container.replaceChildren();
 
     if (!results.length) {
@@ -361,7 +373,7 @@
     }
 
     const fragment = document.createDocumentFragment();
-    results.forEach((seed) => fragment.append(createSeedResult(seed)));
+    results.forEach((track) => fragment.append(createSlotResult(slot, track)));
     container.append(fragment);
     container.classList.remove('hidden');
   }
@@ -385,11 +397,11 @@
       const query = String(suggestion.query || '').trim();
       if (!query) throw new Error('Last.fm returned an empty suggestion.');
 
-      clearSelectedSeed();
+      clearSlotTrack(PICKER_SLOTS.seed);
       $('seed-results').classList.add('hidden');
       $('seed-query').value = query;
       $('seed-query').dispatchEvent(new Event('input', {bubbles: true}));
-      setSeedGuidance('');
+      setSlotGuidance(PICKER_SLOTS.seed, '');
       message('');
     } catch (error) {
       message(error.message || String(error), true);
@@ -399,15 +411,15 @@
     }
   }
 
-  async function searchSeed() {
-    if (state.seedSearching) return;
+  async function searchSlot(slot) {
+    if (state[slot.searchingKey]) return;
 
-    const query = $('seed-query').value.trim();
+    const query = $(slot.queryId).value.trim();
     if (query.length < 2) return message('Enter an artist or song title.', true);
 
-    clearSelectedSeed();
-    setSeedSearching(true);
-    setSeedGuidance('');
+    clearSlotTrack(slot);
+    setSlotSearching(slot, true);
+    setSlotGuidance(slot, '');
     message('Searching YouTube Music…');
 
     try {
@@ -417,18 +429,14 @@
       );
       const results = data.results || [];
 
-      renderSeedResults(results);
-      setSeedGuidance(
-        results.length
-          ? 'Choose a track to use as the musical reference for the new playlist.'
-          : '',
-      );
+      renderSlotResults(slot, results);
+      setSlotGuidance(slot, results.length ? slot.clearedGuidance : '');
       message(results.length ? '' : 'No matching songs found.', !results.length);
     } catch (error) {
-      setSeedGuidance('');
+      setSlotGuidance(slot, '');
       message(error.message || String(error), true);
     } finally {
-      setSeedSearching(false);
+      setSlotSearching(slot, false);
     }
   }
 
@@ -521,6 +529,9 @@
         }),
         (event) => message(event.message),
       );
+
+
+      data.playlistmuseFreshlyGenerated = true;
       sessionStorage.setItem('playlistmuse-generated-playlist', JSON.stringify(data));
       sessionStorage.setItem('playlistmuse-generation-request', JSON.stringify({
         mode: state.mode,
@@ -549,14 +560,17 @@
   ensureSeedModeControls();
   $('generate').addEventListener('click', generate);
   $('prompt').addEventListener('input', updateGenerationControls);
-  $('seed-search').addEventListener('click', searchSeed);
   $('seed-surprise').addEventListener('click', () => void suggestRandomSeed());
-  $('seed-query').addEventListener('input', updateSeedSearchAvailability);
-  $('seed-query').addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      void searchSeed();
-    }
+
+  Object.values(PICKER_SLOTS).forEach((slot) => {
+    $(slot.searchId).addEventListener('click', () => void searchSlot(slot));
+    $(slot.queryId).addEventListener('input', () => updateSlotSearchAvailability(slot));
+    $(slot.queryId).addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        void searchSlot(slot);
+      }
+    });
   });
 
   window.addEventListener('playlistmuse-lastfm-status', (event) => {
@@ -585,7 +599,7 @@
     renderSetup();
   });
 
-  updateSeedSearchAvailability();
+  Object.values(PICKER_SLOTS).forEach((slot) => updateSlotSearchAvailability(slot));
   updateSeedSurpriseAvailability();
   updateGenerationControls();
   void showInitialSetupIfRequired();

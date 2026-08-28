@@ -677,14 +677,14 @@ def _artist_identity_keys(value: str) -> set[str]:
 
 
 def _seed_evidence_guidance(candidates: list[dict[str, str]], *, seed_mode: str) -> str:
-    """Fold Last.fm seed evidence directly into the single initial draft prompt.
+    """Fold Last.fm seed/anchor evidence directly into the single initial draft prompt.
 
     Seed requests always have real Last.fm-derived candidates before any draft exists
     (unlike prompt-based generation, whose lastfm_candidates is always empty -- see
     discover_from_anchors's deliberate no-op in lastfm_discovery.py). Folding the evidence
     into the one llm_initial draft, instead of running a second llm_guided draft
     afterwards, removes an entire redundant LLM generation pass (with its own quota-repair
-    and creative-repair rounds) for every seed request.
+    and creative-repair rounds) for every such request.
     """
     evidence = "\n".join(
         f"- {candidate.get('artist', 'Unknown artist')} — "
@@ -693,12 +693,14 @@ def _seed_evidence_guidance(candidates: list[dict[str, str]], *, seed_mode: str)
         for candidate in candidates[:MAX_LASTFM_CONTEXT_TRACKS]
     )
     seed_instruction = f"\n{_seed_mode_instruction(seed_mode)}\n" if seed_mode else ""
+    mode_clause = " and the selected seed mode" if seed_mode else ""
+    seed_attribution = " derived from the seed" if seed_mode else ""
     return (
         f"{seed_instruction}\n"
-        "Last.fm collaborative-listening evidence derived from the seed:\n"
+        f"Last.fm collaborative-listening evidence{seed_attribution}:\n"
         f"{evidence or '- None'}\n\n"
-        "Use this evidence only when it satisfies the original request and the selected "
-        "seed mode. You may also select tracks not listed above when they satisfy every "
+        f"Use this evidence only when it satisfies the original request{mode_clause}. "
+        "You may also select tracks not listed above when they satisfy every "
         "mandatory constraint and have a clear musical justification. Do not mechanically "
         "copy the evidence list; use your own musical judgment. For every selected song, "
         "write a natural song description and a playlist-specific reason. Use canonical "
@@ -1021,7 +1023,13 @@ def _initial_draft_overshoot(count: int) -> int:
     return min(8, max(3, round(count * 0.15)))
 
 
-async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
+async def _generate(
+    prompt: str,
+    count: int,
+    options: PlaylistOptions,
+    *,
+    allow_shortfall: bool = False,
+) -> dict:
     config = load_config()
     seed_mode = _SEED_MODE.get()
     lastfm_anchors = list(_SEED_ANCHORS.get())
@@ -1113,7 +1121,12 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
 
     stalled_rounds = 0
     for round_index in range(MAX_REPLENISHMENT_ROUNDS):
-        if skip_initial_ai:
+        if skip_initial_ai or allow_shortfall:
+            # allow_shortfall callers want the AI's one-shot initial draft to be the
+            # final word on how many tracks the request actually needs -- iterative
+            # replenishment rounds would just apply padding pressure back toward
+            # `count`, defeating the point of letting the AI choose a shorter, more
+            # natural result.
             break
         missing = count - len(tracks)
         if missing <= 0:
@@ -1193,7 +1206,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
     # explicit mood/style requirement may simply have no matching tracks among those
     # few artists -- a shortfall (or, if nothing matches at all, a clear error) is the
     # honest outcome, not padding the count with genre-incompatible picks.
-    allow_shortfall = (
+    favorites_allow_shortfall = (
         explicit_tracks and not explicit_artists
     ) or favorite_artist_creative_conflict
     if explicit_tracks and not explicit_artists and not tracks:
@@ -1206,7 +1219,7 @@ async def _generate(prompt: str, count: int, options: PlaylistOptions) -> dict:
             "in this request, so PlaylistMuse could not build this playlist. Try a "
             "different style/mood, or drop the favorite-artists request."
         )
-    if len(tracks) < count and not allow_shortfall:
+    if len(tracks) < count and not (allow_shortfall or favorites_allow_shortfall):
         raise ValueError(
             f"PlaylistMuse found only {len(tracks)} of {count} distinct tracks that "
             "could be verified on YouTube Music without deliberately relaxing the "
@@ -1365,8 +1378,8 @@ async def _generate_with_telemetry(
 
     Wraps `_generate()`/`_generate_from_seed_playlist()` at the route boundary (not
     inside `_generate()` itself) because seed-mode generation can call `_generate()`
-    internally more than once per user-facing request (`_seed_other_tracks()` retries
-    once if the AI reproduces the seed track) -- hooking inside `_generate()` would
+    internally more than once per user-facing request (`_anchored_other_tracks()` retries
+    once if the AI reproduces an anchor track) -- hooking inside `_generate()` would
     double-count those retries as separate playlists.
     """
     reset_stage_timings()
@@ -1422,45 +1435,88 @@ async def analyze_prompt(request: PromptAnalysisRequest) -> dict:
         ) from error
 
 
-def _is_seed_track(track: dict, seed: SeedTrack, seed_key: str) -> bool:
-    return track.get("video_id") == seed.video_id or track_identity_key(
-        track.get("title", ""), track.get("artists", "")
-    ) == seed_key
+def _is_anchor_track(track: dict, video_ids: set[str], anchor_keys: set[str]) -> bool:
+    if track.get("video_id") in video_ids:
+        return True
+    key = track_identity_key(track.get("title", ""), track.get("artists", ""))
+    return key in anchor_keys
 
 
-async def _seed_other_tracks(
+async def _anchored_other_tracks(
     prompt: str,
     other_count: int,
     options: PlaylistOptions,
-    seed: SeedTrack,
-    seed_key: str,
+    anchors: list[SeedTrack],
+    *,
+    allow_shortfall: bool = False,
 ) -> tuple[dict, dict | None]:
-    """Ask _generate() for exactly `other_count` tracks distinct from the seed.
+    """Ask _generate() for up to `other_count` tracks distinct from every anchor.
 
-    _generate() itself guarantees exactly `other_count` verified, quota-checked tracks. The
-    only way this can fall short of the seed handler's needs is if the AI independently
-    reproduces the seed among its own suggestions; that is retried once, explicitly
-    forbidding the seed song, so the caller never has to fall back to silently dropping an
-    already-verified track to make room for the seed.
+    Generalized to an arbitrary number of anchor tracks (currently always one: the
+    single seed) so the same retry-once-forbidding-anchors logic can serve any
+    anchor-based generation mode. `_generate()` guarantees exactly `other_count`
+    verified tracks for non-shortfall callers. The only way such a call can fall
+    short is if the AI independently reproduces an anchor among its own
+    suggestions, retried once with all anchors explicitly forbidden.
+
+    `allow_shortfall=True` exists for callers that tolerate a shorter-than-requested
+    result when the AI determines fewer tracks are natural: a reproduction there is
+    not treated as a hard failure and does not spend a second full generation
+    round-trip either -- the AI's own list is filtered to drop the anchor
+    duplicate(s) after the first attempt and the (now possibly shorter) result is
+    returned immediately. This mirrors real observed behavior -- some models
+    restate an anchor song among their own suggestions despite the explicit
+    exclusion instruction, sometimes on both the initial attempt and a reinforced
+    retry, so the retry does not reliably fix it -- while each attempt is itself a
+    slow (observed 150-275s), non-deterministic LLM call, so shortfall-tolerant
+    callers get one attempt only. Non-shortfall callers (single-seed) keep the
+    original two-attempt retry, since an exact count still matters there and a
+    second attempt has a real chance of avoiding the duplicate entirely.
     """
+    video_ids = {anchor.video_id for anchor in anchors}
+    anchor_keys = {track_identity_key(a.title, a.artists) for a in anchors}
+    attempts = 1 if allow_shortfall else 2
     attempt_prompt = prompt
     reproduced_track: dict | None = None
-    for _ in range(2):
-        result = await _generate(attempt_prompt, other_count, options)
+    for attempt_index in range(attempts):
+        result = await _generate(
+            attempt_prompt, other_count, options, allow_shortfall=allow_shortfall
+        )
         match = next(
-            (track for track in result["tracks"] if _is_seed_track(track, seed, seed_key)),
+            (
+                track
+                for track in result["tracks"]
+                if _is_anchor_track(track, video_ids, anchor_keys)
+            ),
             None,
         )
         if match is None:
             return result, reproduced_track
         reproduced_track = reproduced_track or match
-        attempt_prompt = (
-            f"{prompt}\n\nDo not include '{seed.title}' by {seed.artists} among your "
-            "suggestions -- it is already the playlist's first track."
+        if attempt_index + 1 >= attempts:
+            break
+        forbidden = "; ".join(f"'{a.title}' by {a.artists}" for a in anchors)
+        placement = (
+            "it is already placed in the playlist"
+            if len(anchors) == 1
+            else "they are already placed in the playlist"
         )
+        attempt_prompt = (
+            f"{prompt}\n\nDo not include {forbidden} among your suggestions -- "
+            f"{placement}."
+        )
+    if allow_shortfall:
+        result["tracks"] = [
+            track
+            for track in result["tracks"]
+            if not _is_anchor_track(track, video_ids, anchor_keys)
+        ]
+        result["resolved_count"] = len(result["tracks"])
+        return result, reproduced_track
+    names = " and ".join(f"'{a.title}' by {a.artists}" for a in anchors)
     raise ValueError(
-        "PlaylistMuse could not find enough tracks distinct from the seed song. "
-        "Try a different seed or request more tracks."
+        f"PlaylistMuse could not find enough tracks distinct from {names}. "
+        "Try different tracks or request more tracks."
     )
 
 
@@ -1471,7 +1527,6 @@ async def _generate_from_seed_playlist(request: SeedGenerateRequest) -> dict:
     both the plain JSON endpoint and the streaming endpoint below can share it.
     """
     seed = request.seed
-    seed_key = track_identity_key(seed.title, seed.artists)
     other_count = request.track_count - 1
     prompt = (
         f"Create a playlist from the seed song '{seed.title}' by {seed.artists}. "
@@ -1499,8 +1554,8 @@ async def _generate_from_seed_playlist(request: SeedGenerateRequest) -> dict:
     anchor_token = _SEED_ANCHORS.set((seed_anchor,))
     mode_token = _SEED_MODE.set(request.seed_mode)
     try:
-        result, reproduced_track = await _seed_other_tracks(
-            prompt, other_count, request.options, seed, seed_key
+        result, reproduced_track = await _anchored_other_tracks(
+            prompt, other_count, request.options, [seed]
         )
     finally:
         _SEED_MODE.reset(mode_token)

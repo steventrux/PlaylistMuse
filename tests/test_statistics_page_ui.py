@@ -172,13 +172,13 @@ def test_statistics_page_is_organized_into_sidebar_categories() -> None:
 
     assert "settings-page-shell" in html
     for section in (
-        "overview", "timeline", "artists", "genres", "moods", "periods", "tags", "advanced", "cache",
+        "overview", "timeline", "artists", "genres", "moods", "periods", "tags", "taste", "advanced", "cache",
     ):
         assert f'data-stats-section="{section}"' in html
         assert f'id="stats-{section}-panel"' in html
     assert (
         "SECTIONS = new Set(['overview', 'timeline', 'artists', 'genres', "
-        "'moods', 'periods', 'tags', 'advanced', 'cache'])"
+        "'moods', 'periods', 'tags', 'taste', 'advanced', 'cache'])"
     ) in script
     assert "function selectSection(section" in script
 
@@ -192,3 +192,74 @@ def test_timeline_bar_height_reserves_room_for_the_month_label() -> None:
     assert "calc((100% - 20px) * ${ratio})" in script
     assert ".stats-timeline-col {" in style
     assert ".stats-timeline-month {" in style
+
+
+def test_taste_memory_section_is_wired_like_every_other_stats_section() -> None:
+    html = _text("statistics.html")
+    page_script = _text("statistics-page.js")
+    render_script = _text("local-taste-memory.js")
+
+    assert 'data-stats-section="taste"' in html
+    assert 'id="stats-taste-panel"' in html
+    assert 'id="taste-memory-list"' in html
+    assert "'taste'" in page_script
+    assert "taste: 'Taste memory'" in page_script
+    assert "const ENDPOINT = '/api/quality/local-feedback';" in render_script
+    assert '/static/local-taste-memory.js?v=6' in html
+    assert '/static/statistics-page.js?v=4' in html
+    assert '/static/statistics.css?v=17' in html
+
+
+def test_taste_memory_generation_influence_toggle_is_wired() -> None:
+    script = _text("local-taste-memory.js")
+
+    assert "function initGenerationInfluenceToggle()" in script
+    assert "generation_influence_enabled" in script
+    assert "${ENDPOINT}/settings" in script
+    assert "Let converged taste memory patterns influence future generations" in script
+
+
+def test_taste_memory_failed_entries_offer_a_retry_action() -> None:
+    render_script = _text("local-taste-memory.js")
+    style = _text("statistics.css")
+
+    assert "entry.status === 'distillation_failed'" in render_script
+    assert "${ENDPOINT}/${encodeURIComponent(entry.id)}/retry" in render_script
+    assert "taste-memory-retry" in render_script
+    assert ".taste-memory-retry" in style
+
+
+def test_taste_memory_prompt_is_shown_in_full_not_truncated() -> None:
+    render_script = _text("local-taste-memory.js")
+    style = _text("statistics.css")
+
+    assert "PROMPT_PREVIEW_LIMIT" not in render_script
+    assert "truncatedPrompt" not in render_script
+    assert "String(entry.prompt_summary || '').trim()" in render_script
+    assert "white-space: normal" in style
+
+
+def test_taste_memory_entries_can_expand_their_details() -> None:
+    render_script = _text("local-taste-memory.js")
+    style = _text("statistics.css")
+
+    assert "entry.playlist?.tracks" in render_script
+    assert "taste-memory-details-toggle" in render_script
+    assert "Details" in render_script
+    assert "Hide details" in render_script
+    assert ".taste-memory-details-toggle" in style
+    assert ".taste-memory-details" in style
+
+
+def test_taste_memory_list_is_paginated_like_the_library() -> None:
+    html = _text("statistics.html")
+    render_script = _text("local-taste-memory.js")
+    style = _text("statistics.css")
+
+    assert '/static/library-pagination.js?v=2' in html
+    assert 'id="taste-memory-pagination"' in html
+    assert 'id="taste-memory-page-numbers"' in html
+    assert "window.PlaylistMuseLibraryPagination" in render_script
+    assert "paginationTools.paginate(allEntries, currentPage, PAGE_SIZE)" in render_script
+    assert ".taste-memory-pagination" in style
+    assert ".taste-memory-page-number" in style

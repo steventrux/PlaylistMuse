@@ -1,5 +1,15 @@
 /* Compact action controls keep the existing PlaylistMuse button palette while reducing width. */
 
+/* action-controls.js decorates a matching element into compact form regardless of whether
+   it is currently hidden (e.g. a feedback button gated by JS to a specific page state) --
+   this file loads after style.css, so .compact-action's !important would otherwise win the
+   cascade over .hidden's !important on source order alone and make the element visible
+   again. The combined two-class selector below has higher specificity than either single-
+   class rule, so .hidden wins regardless of link order. */
+.hidden.compact-action {
+  display: none !important;
+}
+
 .compact-action {
   display: inline-flex !important;
   align-items: center;
@@ -136,12 +146,12 @@
 }
 
 .favorite-toggle-button .compact-action-icon > svg {
-  stroke: #ffffff;
+  stroke: currentColor;
 }
 
 .favorite-toggle-button.is-favorited .compact-action-icon > svg {
-  fill: #ffffff;
-  stroke: #ffffff;
+  fill: currentColor;
+  stroke: currentColor;
 }
 
 /* Split favorite icon: a single white heart whose fill is a hard-stop

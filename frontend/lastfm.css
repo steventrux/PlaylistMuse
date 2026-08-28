@@ -6,11 +6,8 @@
   fill: currentColor;
 }
 
-.header-indicator.lastfm.on {
-  border-color: rgba(213, 16, 7, .68);
-  background: linear-gradient(145deg, rgba(213, 16, 7, .24), rgba(236, 72, 153, .12));
+.header-indicator.lastfm.on .lastfm-mark {
   color: #d51007;
-  box-shadow: none;
 }
 
 .lastfm-settings-panel .settings-fields {
