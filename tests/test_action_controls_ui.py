@@ -13,7 +13,7 @@ def test_playlist_actions_are_compact_responsive_and_accessible() -> None:
     script = _text("action-controls.js")
     style = _text("action-controls.css")
 
-    assert '/static/action-controls.css?v=9' in html
+    assert '/static/action-controls.css?v=10' in html
     assert '/static/action-controls.js?v=8' in html
     assert html.index('/static/playlist-refine.js?v=7') < html.index('/static/action-controls.js?v=8')
 
@@ -57,6 +57,21 @@ def test_playlist_actions_are_compact_responsive_and_accessible() -> None:
     assert "margin-left: auto;" in style
     assert "justify-content: flex-end;" in style
     assert "flex-wrap: nowrap;" in style
+
+
+def test_compact_action_never_overrides_hidden() -> None:
+    """Regression: action-controls.js decorates a matching element into compact form
+    regardless of whether it is currently hidden (e.g. a feedback button gated by JS to a
+    specific page state). action-controls.css loads after style.css, so .compact-action's
+    !important alone would win the cascade over .hidden's !important on source order,
+    making a JS-hidden button visible again. A combined .hidden.compact-action selector
+    (higher specificity than either single-class rule) must keep .hidden in charge
+    regardless of link order.
+    """
+    style = _text("action-controls.css")
+
+    assert style.index(".hidden.compact-action") < style.index(".compact-action {")
+    assert "display: none !important;" in style
 
 
 def test_library_uses_open_for_drafts_and_published_playlists() -> None:
