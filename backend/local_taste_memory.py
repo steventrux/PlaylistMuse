@@ -220,7 +220,7 @@ def taste_memory_guidance(signal: dict[str, list[str]] | None) -> str:
         entry_tags = {*entry.tags.get("genre", []), *entry.tags.get("mood", [])}
         for tag in entry_tags:
             if tag.casefold() in request_tags:
-                matches.setdefault(tag, []).append(entry)
+                matches.setdefault(tag.casefold(), []).append(entry)
 
     converged = [
         (tag, entries)
@@ -272,8 +272,9 @@ def has_convergent_taste_memory() -> bool:
         if entry.status != "captured":
             continue
         for tag in {*entry.tags.get("genre", []), *entry.tags.get("mood", [])}:
-            counts[tag] = counts.get(tag, 0) + 1
-            if counts[tag] >= CONVERGENCE_THRESHOLD:
+            key = tag.casefold()
+            counts[key] = counts.get(key, 0) + 1
+            if counts[key] >= CONVERGENCE_THRESHOLD:
                 return True
     return False
 

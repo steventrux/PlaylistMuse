@@ -47,7 +47,7 @@ def _seed_library(database_path: Path) -> PlaylistLibrary:
         generation_meta={
             "provider": "gemini",
             "duration_ms": 4000,
-            "stage_timings_ms": {"ai_draft": 1000, "youtube_resolution": 3000},
+            "stage_timings_ms": {"llm_initial": 1000, "youtube_resolution": 3000},
             "complexity_score": 40,
         },
     ))
@@ -58,7 +58,7 @@ def _seed_library(database_path: Path) -> PlaylistLibrary:
         generation_meta={
             "provider": "openai",
             "duration_ms": 2000,
-            "stage_timings_ms": {"ai_draft": 600, "youtube_resolution": 1400},
+            "stage_timings_ms": {"llm_initial": 600, "youtube_resolution": 1400},
         },
         youtube=True,
     ))
@@ -139,7 +139,7 @@ def test_compute_stats_aggregates_across_the_library(monkeypatch, tmp_path: Path
     assert gemini["draft_vs_published"] == {"draft": 1, "published": 0}
     assert gemini["error_breakdown"] == {"ValueError": 1}
     assert gemini["total_errors"] == 1
-    assert gemini["stage_timings"]["ai_draft"] == {
+    assert gemini["stage_timings"]["llm_initial"] == {
         "avg_ms": 1000,
         "median_ms": 1000,
         "p95_ms": 1000,

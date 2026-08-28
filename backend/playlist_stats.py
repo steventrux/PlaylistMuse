@@ -46,10 +46,6 @@ _CURRENT_GENERATION_STAGES = frozenset(
         "energy_ordering",
         "youtube_resolution",
         "metadata_validation",
-        # Not produced by record_stage_ms() call sites today (grepped), but kept
-        # recognized: the frontend's STAGE_LABELS already has a friendly label for
-        # it and existing tests use it as the canonical initial-draft stage example.
-        "ai_draft",
     }
 )
 

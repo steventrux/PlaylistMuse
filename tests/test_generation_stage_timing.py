@@ -14,7 +14,7 @@ def test_snapshot_is_empty_without_a_reset() -> None:
 
 def test_record_stage_ms_is_a_noop_without_a_reset() -> None:
     def scenario() -> dict[str, int]:
-        stage_timing.record_stage_ms("ai_draft", 123)
+        stage_timing.record_stage_ms("llm_initial", 123)
         return stage_timing.stage_timings_snapshot()
 
     assert Context().run(scenario) == {}
@@ -23,18 +23,18 @@ def test_record_stage_ms_is_a_noop_without_a_reset() -> None:
 def test_reset_then_record_accumulates_per_stage() -> None:
     def scenario() -> dict[str, int]:
         stage_timing.reset_stage_timings()
-        stage_timing.record_stage_ms("ai_draft", 100)
+        stage_timing.record_stage_ms("llm_initial", 100)
         stage_timing.record_stage_ms("youtube_resolution", 50)
         stage_timing.record_stage_ms("youtube_resolution", 25.4)
         return stage_timing.stage_timings_snapshot()
 
-    assert Context().run(scenario) == {"ai_draft": 100, "youtube_resolution": 75}
+    assert Context().run(scenario) == {"llm_initial": 100, "youtube_resolution": 75}
 
 
 def test_reset_starts_a_fresh_accumulator() -> None:
     def scenario() -> dict[str, int]:
         stage_timing.reset_stage_timings()
-        stage_timing.record_stage_ms("ai_draft", 100)
+        stage_timing.record_stage_ms("llm_initial", 100)
         stage_timing.reset_stage_timings()
         return stage_timing.stage_timings_snapshot()
 

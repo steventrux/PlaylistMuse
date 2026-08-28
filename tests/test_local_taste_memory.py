@@ -601,6 +601,37 @@ def test_taste_memory_guidance_matches_tags_case_insensitively(
     assert "Keeps energy rising throughout." in result
 
 
+def test_taste_memory_guidance_converges_across_differently_cased_entries(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Regression: entries captured with different casing for the same tag (e.g.
+    "House" and "house", each returned by an independent, uncoordinated AI call at
+    distillation time) must still count toward the same convergence group -- grouping
+    by the raw tag silently split them into separate buckets that never reached the
+    threshold on their own."""
+    monkeypatch.setattr(
+        local_taste_memory_module, "LOCAL_TASTE_MEMORY_PATH", tmp_path / "taste.json"
+    )
+    memory = local_taste_memory_module.LocalTasteMemory(
+        entries=[
+            local_taste_memory_module.LocalTasteEntry.model_validate(
+                _captured_entry(
+                    f"e{i}",
+                    genre=casing,
+                    guidance="Keeps energy rising throughout.",
+                    created_at=f"2026-08-2{i}T00:00:00+00:00",
+                )
+            )
+            for i, casing in enumerate(["House", "house", "HOUSE"])
+        ]
+    )
+    local_taste_memory_module._save_memory(memory)
+
+    result = local_taste_memory_module.taste_memory_guidance({"genre": ["house"], "mood": []})
+
+    assert "Keeps energy rising throughout." in result
+
+
 def test_taste_memory_guidance_loads_memory_exactly_once(tmp_path: Path, monkeypatch) -> None:
     """Fix 6: generation_influence_enabled's check must read off the already-loaded
     memory object rather than triggering a second _load_memory() call."""
@@ -732,3 +763,31 @@ def test_has_convergent_taste_memory_only_counts_captured_entries(
     )
 
     assert local_taste_memory_module.has_convergent_taste_memory() is False
+
+
+def test_has_convergent_taste_memory_converges_across_differently_cased_entries(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Regression: the cheap pre-check must also group differently-cased tags together,
+    the same way taste_memory_guidance does -- otherwise it can report "not converged
+    yet" and skip the AI signal call even though taste_memory_guidance would have found
+    a converged group."""
+    monkeypatch.setattr(
+        local_taste_memory_module, "LOCAL_TASTE_MEMORY_PATH", tmp_path / "taste.json"
+    )
+    memory = local_taste_memory_module.LocalTasteMemory(
+        entries=[
+            local_taste_memory_module.LocalTasteEntry.model_validate(
+                _captured_entry(
+                    f"e{i}",
+                    genre=casing,
+                    guidance="Keeps energy rising.",
+                    created_at=f"2026-08-2{i}T00:00:00+00:00",
+                )
+            )
+            for i, casing in enumerate(["House", "house", "HOUSE"])
+        ]
+    )
+    local_taste_memory_module._save_memory(memory)
+
+    assert local_taste_memory_module.has_convergent_taste_memory() is True
