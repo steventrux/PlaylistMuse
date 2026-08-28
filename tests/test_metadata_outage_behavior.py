@@ -57,6 +57,45 @@ def test_complete_musicbrainz_outage_raises_temporary_service_error(monkeypatch)
         )
 
 
+def test_severe_partial_outage_raises_without_waiting_for_total_failure(monkeypatch):
+    """A round where MusicBrainz fails on the overwhelming majority of lookups (but
+    happens to let one through) must still trip the circuit breaker -- this mirrors
+    the real incident where round 1 had 21/22 temporary failures (95%) yet the old
+    exact-100% check let three more expensive replenishment rounds run before the
+    ratio eventually hit exactly 100% by chance."""
+    activate_constraints_from_prompt("songs released in 2026 only")
+
+    async def mostly_unavailable(candidate, constraints, client=None):
+        if candidate["title"] == "Lucky":
+            return ValidationResult(
+                status="valid",
+                violations=[],
+                metadata=TrackMetadata(
+                    artist=candidate["artist"],
+                    title=candidate["title"],
+                    original_release_year=2026,
+                    match_score=0.97,
+                    confidence="high",
+                ),
+            )
+        return _unknown_result(
+            candidate,
+            "Metadata lookup unavailable: ReadTimeout",
+        )
+
+    monkeypatch.setattr("backend.youtube.validate_candidate", mostly_unavailable)
+
+    candidates = [{"artist": "Artist A", "title": "Lucky"}] + [
+        {"artist": f"Artist {i}", "title": f"Unavailable {i}"} for i in range(8)
+    ]
+
+    with pytest.raises(
+        MetadataServiceUnavailableError,
+        match="temporarily unavailable",
+    ):
+        asyncio.run(metadata_filter(candidates))
+
+
 def test_genuine_unknown_metadata_remains_a_rejection(monkeypatch):
     activate_constraints_from_prompt("songs released in 2026 only")
 

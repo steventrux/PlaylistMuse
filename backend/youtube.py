@@ -404,6 +404,25 @@ def _incremental_metadata_target(candidate_count: int) -> int | None:
     return target if target < candidate_count else None
 
 
+# Below this sample size a skewed ratio is too easy to hit by chance (e.g. one
+# genuinely obscure candidate among three), so only the exact-100% path below
+# applies until enough attempts have accumulated to trust the ratio.
+_METADATA_OUTAGE_MIN_ATTEMPTS = 5
+_METADATA_OUTAGE_FAILURE_RATIO = 0.8
+
+
+def _metadata_service_outage(network_attempts: int, temporary_failures: int) -> bool:
+    """Whether MusicBrainz looks down enough to abort generation instead of retrying."""
+    if network_attempts == 0:
+        return False
+    if temporary_failures == network_attempts:
+        return True
+    return (
+        network_attempts >= _METADATA_OUTAGE_MIN_ATTEMPTS
+        and temporary_failures / network_attempts >= _METADATA_OUTAGE_FAILURE_RATIO
+    )
+
+
 async def _metadata_filter(
     candidates: list[dict[str, str]],
     *,
@@ -531,10 +550,18 @@ async def _metadata_filter(
                 else:
                     rejected.append(rejection)
 
-    if network_attempts > 0 and temporary_failures == network_attempts:
-        raise MetadataServiceUnavailableError(
-            "MusicBrainz metadata verification is temporarily unavailable."
-        )
+            # Check after every batch, not just once at the end: a round can rack up
+            # several minutes of MusicBrainz timeouts across many candidates before
+            # its *overall* failure rate happens to land on exactly 100%. Bailing out
+            # mid-round as soon as the outage is statistically obvious (rather than
+            # waiting for a lucky/unlucky fully-failed round) saves the wasted
+            # candidate lookups still queued in this round, plus every subsequent
+            # replenishment round's LLM call and catalogue resolution.
+            if _metadata_service_outage(network_attempts, temporary_failures):
+                raise MetadataServiceUnavailableError(
+                    "MusicBrainz metadata verification is temporarily unavailable."
+                )
+
     return accepted, rejected
 
 
