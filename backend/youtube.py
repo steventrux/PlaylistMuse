@@ -559,7 +559,10 @@ async def _metadata_filter(
             # replenishment round's LLM call and catalogue resolution.
             if _metadata_service_outage(network_attempts, temporary_failures):
                 raise MetadataServiceUnavailableError(
-                    "MusicBrainz metadata verification is temporarily unavailable."
+                    "MusicBrainz metadata verification is temporarily unavailable "
+                    "(the MusicBrainz service is down or too slow to respond right "
+                    "now). This is an external outage, not a problem with your "
+                    "request. Please try again in a few minutes."
                 )
 
     return accepted, rejected

@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 import backend.main as main_module
 from backend.config import AppConfig
+from backend.metadata_runtime import MetadataServiceUnavailableError
 
 
 def _parse_sse(text: str) -> list[dict]:
@@ -135,6 +136,51 @@ def test_generate_stream_reports_error_with_last_stage(monkeypatch) -> None:
         main_module.GENERATION_STAGE_MESSAGES["catalogue_resolution_replenishment"]
     )
     assert "PlaylistMuse found only" in events[-1]["message"]
+
+
+def test_generate_stream_surfaces_metadata_outage_message(monkeypatch) -> None:
+    """A MusicBrainz outage must reach the client as its own explanatory message,
+    not the generic catch-all error text used for unanticipated failures."""
+
+    async def fake_generate(config, prompt, count, is_seed_generation=False):
+        return {
+            "title": "Test Playlist",
+            "description": "A test playlist.",
+            "tracks": [
+                {
+                    "artist": f"Artist {index}",
+                    "title": f"Track {index}",
+                    "description": "d",
+                    "reason": "r",
+                }
+                for index in range(count)
+            ],
+        }
+
+    async def fake_resolve(candidates, exclusions):
+        raise MetadataServiceUnavailableError(
+            "MusicBrainz metadata verification is temporarily unavailable."
+        )
+
+    monkeypatch.setattr(
+        main_module,
+        "load_config",
+        lambda: AppConfig(provider="openai", api_key="sk-test", model="model"),
+    )
+    monkeypatch.setattr(main_module, "generate_playlist_draft", fake_generate)
+    monkeypatch.setattr(main_module, "resolve_candidates", fake_resolve)
+
+    client = TestClient(main_module.app)
+    response = client.post(
+        "/api/playlists/generate/stream",
+        json={"prompt": "A test playlist", "track_count": 5},
+    )
+
+    assert response.status_code == 200
+    events = _parse_sse(response.text)
+
+    assert events[-1]["type"] == "error"
+    assert "MusicBrainz" in events[-1]["message"]
 
 
 def test_generate_from_seed_stream_keeps_seed_first(monkeypatch) -> None:

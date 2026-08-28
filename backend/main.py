@@ -41,6 +41,7 @@ from backend.generation_runtime import (
 )
 from backend.favorites import FavoritesRequestLevel
 from backend.llm import safe_error_message
+from backend.metadata_runtime import MetadataServiceUnavailableError
 from backend.metadata_validation import extract_metadata_constraints
 from backend.playlist_ordering import (
     chronological_order_from_payload,
@@ -1408,6 +1409,9 @@ async def generate_playlist(request: GenerateRequest) -> dict:
     except ValueError as error:
         record_generation_error(error, provider=load_config().stats_key)
         raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
+    except MetadataServiceUnavailableError as error:
+        record_generation_error(error, provider=load_config().stats_key)
+        raise HTTPException(status_code=502, detail=safe_error_message(error)) from error
     except Exception as error:
         record_generation_error(error, provider=load_config().stats_key)
         raise HTTPException(
@@ -1593,6 +1597,9 @@ async def generate_from_seed(request: SeedGenerateRequest) -> dict:
     except ValueError as error:
         record_generation_error(error, provider=load_config().stats_key)
         raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
+    except MetadataServiceUnavailableError as error:
+        record_generation_error(error, provider=load_config().stats_key)
+        raise HTTPException(status_code=502, detail=safe_error_message(error)) from error
     except Exception as error:
         record_generation_error(error, provider=load_config().stats_key)
         raise HTTPException(
@@ -1631,6 +1638,16 @@ async def _stream_generation(
             result = await work()
             await queue.put(("result", {"playlist": result}))
         except ValueError as error:
+            record_generation_error(error, provider=load_config().stats_key)
+            await queue.put((
+                "error",
+                {
+                    "stage": last_stage["key"],
+                    "stage_message": last_stage["message"],
+                    "message": safe_error_message(error),
+                },
+            ))
+        except MetadataServiceUnavailableError as error:
             record_generation_error(error, provider=load_config().stats_key)
             await queue.put((
                 "error",
@@ -1761,6 +1778,8 @@ async def replace_track(request: ReplaceTrackRequest) -> dict:
         raise ValueError("No suitable non-duplicate replacement could be resolved.")
     except ValueError as error:
         raise HTTPException(status_code=400, detail=safe_error_message(error)) from error
+    except MetadataServiceUnavailableError as error:
+        raise HTTPException(status_code=502, detail=safe_error_message(error)) from error
     except Exception as error:
         raise HTTPException(
             status_code=502,
