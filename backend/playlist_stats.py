@@ -25,6 +25,34 @@ from backend.playlist_library import DATABASE_PATH, split_artist_credit
 
 _DECADE_RE = re.compile(r"^\d{3,4}0s$")
 
+# Stage names generation code can currently emit via record_stage_ms()/_log_stage()
+# (see backend/generation_runtime_core.py, backend/generation_runtime.py,
+# backend/main.py, backend/youtube.py). Older saved playlists can carry stage keys
+# from a since-removed feature (e.g. "journey_ordering" from the retired Track
+# Journey mode) baked into their persisted generation_meta -- those are real
+# historical facts about how that specific playlist was generated, so the data is
+# never deleted, but a stage nothing can produce anymore has no reason to keep
+# surfacing in the aggregate "AI performance" stats. Filtered at aggregation time,
+# not at the source, so it stays a display concern rather than data loss.
+_CURRENT_GENERATION_STAGES = frozenset(
+    {
+        "llm_initial",
+        "llm_replacement",
+        "llm_replenishment",
+        "llm_guided",
+        "lastfm_prompt_discovery",
+        "lastfm_seed_discovery",
+        "catalogue_resolution",
+        "energy_ordering",
+        "youtube_resolution",
+        "metadata_validation",
+        # Not produced by record_stage_ms() call sites today (grepped), but kept
+        # recognized: the frontend's STAGE_LABELS already has a friendly label for
+        # it and existing tests use it as the canonical initial-draft stage example.
+        "ai_draft",
+    }
+)
+
 
 def _normalize_tag(value: str) -> str:
     """Fold casing variants (e.g. "energetic" / "Energetic") into one label."""
@@ -204,6 +232,8 @@ def compute_stats() -> dict[str, Any]:
             bucket["durations_ms"].append(int(duration))
         if isinstance(stage_timings, dict):
             for stage, stage_duration in stage_timings.items():
+                if str(stage) not in _CURRENT_GENERATION_STAGES:
+                    continue
                 if isinstance(stage_duration, int | float) and stage_duration >= 0:
                     bucket["durations_by_stage"].setdefault(str(stage), []).append(
                         int(stage_duration)

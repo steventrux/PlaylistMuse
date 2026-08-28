@@ -245,6 +245,43 @@ def test_expand_period_only_splits_genuine_decade_ranges() -> None:
     assert playlist_stats._expand_period("Post-2000") == ["Post-2000"]
 
 
+def test_stage_timings_filter_out_retired_stage_names(monkeypatch, tmp_path: Path) -> None:
+    """Regression: a playlist generated before a feature's removal (e.g. the
+    retired Track Journey mode) can still carry that feature's stage name baked
+    into its persisted generation_meta. The playlist data itself is never
+    touched, but a stage nothing can produce anymore must not keep surfacing in
+    the aggregate "AI performance" stats.
+    """
+    database_path = tmp_path / "playlists.db"
+    monkeypatch.setattr(playlist_stats, "DATABASE_PATH", database_path)
+    monkeypatch.setattr(
+        generation_counter, "GENERATION_COUNTER_PATH", tmp_path / "generation_counter.json"
+    )
+    monkeypatch.setattr(
+        generation_errors, "GENERATION_ERRORS_PATH", tmp_path / "generation_errors.json"
+    )
+
+    library = PlaylistLibrary(database_path)
+    library.create(_playlist(
+        name="Old Journey Mix",
+        artists=["Some Artist"],
+        generation_meta={
+            "provider": "gemini",
+            "duration_ms": 5000,
+            "stage_timings_ms": {
+                "llm_initial": 2000,
+                "journey_ordering": 3000,
+            },
+        },
+    ))
+
+    stats = playlist_stats.compute_stats()
+
+    stage_timings = stats["nerd"]["by_provider"]["gemini"]["stage_timings"]
+    assert "llm_initial" in stage_timings
+    assert "journey_ordering" not in stage_timings
+
+
 def test_compute_stats_handles_an_empty_library(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(playlist_stats, "DATABASE_PATH", tmp_path / "missing.db")
     monkeypatch.setattr(
