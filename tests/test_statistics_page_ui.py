@@ -205,9 +205,9 @@ def test_taste_memory_section_is_wired_like_every_other_stats_section() -> None:
     assert "'taste'" in page_script
     assert "taste: 'Taste memory'" in page_script
     assert "const ENDPOINT = '/api/quality/local-feedback';" in render_script
-    assert '/static/local-taste-memory.js?v=5' in html
+    assert '/static/local-taste-memory.js?v=6' in html
     assert '/static/statistics-page.js?v=4' in html
-    assert '/static/statistics.css?v=16' in html
+    assert '/static/statistics.css?v=17' in html
 
 
 def test_taste_memory_generation_influence_toggle_is_wired() -> None:
@@ -239,12 +239,27 @@ def test_taste_memory_prompt_is_shown_in_full_not_truncated() -> None:
     assert "white-space: normal" in style
 
 
-def test_taste_memory_entries_can_expand_their_tracklist() -> None:
+def test_taste_memory_entries_can_expand_their_details() -> None:
     render_script = _text("local-taste-memory.js")
     style = _text("statistics.css")
 
     assert "entry.playlist?.tracks" in render_script
-    assert "taste-memory-tracks-toggle" in render_script
-    assert "View tracks" in render_script
-    assert "Hide tracks" in render_script
-    assert ".taste-memory-tracks-toggle" in style
+    assert "taste-memory-details-toggle" in render_script
+    assert "Details" in render_script
+    assert "Hide details" in render_script
+    assert ".taste-memory-details-toggle" in style
+    assert ".taste-memory-details" in style
+
+
+def test_taste_memory_list_is_paginated_like_the_library() -> None:
+    html = _text("statistics.html")
+    render_script = _text("local-taste-memory.js")
+    style = _text("statistics.css")
+
+    assert '/static/library-pagination.js?v=2' in html
+    assert 'id="taste-memory-pagination"' in html
+    assert 'id="taste-memory-page-numbers"' in html
+    assert "window.PlaylistMuseLibraryPagination" in render_script
+    assert "paginationTools.paginate(allEntries, currentPage, PAGE_SIZE)" in render_script
+    assert ".taste-memory-pagination" in style
+    assert ".taste-memory-page-number" in style

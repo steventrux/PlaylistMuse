@@ -611,7 +611,7 @@
 }
 
 .taste-memory-prompt {
-  margin: 4px 0 0;
+  margin: 0;
   color: var(--text-muted);
   font-size: .78rem;
   line-height: 1.4;
@@ -642,7 +642,7 @@
   font-size: .74rem;
 }
 
-.taste-memory-tracks-toggle {
+.taste-memory-details-toggle {
   margin-top: 6px;
   border: none;
   background: transparent;
@@ -653,16 +653,20 @@
   cursor: pointer;
 }
 
+.taste-memory-details {
+  margin-top: 6px;
+}
+
+.taste-memory-details.hidden {
+  display: none;
+}
+
 .taste-memory-tracks {
   margin: 6px 0 0;
   padding-left: 20px;
   color: var(--text-muted);
   font-size: .78rem;
   line-height: 1.5;
-}
-
-.taste-memory-tracks.hidden {
-  display: none;
 }
 
 #taste-memory-status.error {
@@ -696,4 +700,82 @@
 .taste-memory-retry:disabled {
   opacity: .5;
   pointer-events: none;
+}
+
+.taste-memory-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.taste-memory-page-numbers {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  gap: 5px;
+}
+
+.taste-memory-page-nav,
+.taste-memory-page-number {
+  min-height: 34px;
+  font-size: .78rem;
+  font-weight: 760;
+}
+
+.taste-memory-page-nav {
+  display: inline-grid;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0;
+  place-items: center;
+  border-radius: 9px;
+}
+
+.taste-memory-page-nav svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.taste-memory-page-nav:disabled {
+  opacity: .42;
+  cursor: default;
+}
+
+.taste-memory-page-number {
+  min-width: 34px;
+  padding: 0 8px;
+  border: 1px solid rgba(169, 155, 255, .2);
+  border-radius: 9px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.taste-memory-page-number:hover {
+  border-color: rgba(183, 156, 255, .38);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.taste-memory-page-number.active,
+.taste-memory-page-number.active:hover {
+  border-color: var(--violet);
+  background: var(--violet);
+  color: #fff;
+}
+
+@media (max-width: 650px) {
+  .taste-memory-pagination,
+  .taste-memory-page-numbers {
+    gap: 4px;
+  }
 }

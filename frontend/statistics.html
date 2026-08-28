@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="/static/controls.css?v=12">
   <link rel="stylesheet" href="/static/settings-dialog.css?v=14">
   <link rel="stylesheet" href="/static/settings-page.css?v=6">
-  <link rel="stylesheet" href="/static/statistics.css?v=16">
+  <link rel="stylesheet" href="/static/statistics.css?v=17">
   <link rel="stylesheet" href="/static/statistics-advanced.css?v=7">
   <link rel="stylesheet" href="/static/action-controls.css?v=10">
   <link rel="stylesheet" href="/static/header-navigation.css?v=25">
@@ -244,6 +244,55 @@
           <p id="taste-memory-status" class="field-hint hidden"></p>
           <div id="taste-memory-list" class="taste-memory-list"></div>
           <p id="taste-memory-empty" class="field-hint hidden">Nothing marked yet. Use "This got it right" on a playlist you loved.</p>
+          <nav id="taste-memory-pagination" class="taste-memory-pagination hidden" aria-label="Taste memory pages">
+            <button
+              id="taste-memory-page-first"
+              class="secondary taste-memory-page-nav"
+              type="button"
+              aria-label="Go to first page"
+              title="Go to first page"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M6 5v14"/>
+                <path d="m18 6-7 6 7 6"/>
+              </svg>
+            </button>
+            <button
+              id="taste-memory-page-previous"
+              class="secondary taste-memory-page-nav"
+              type="button"
+              aria-label="Go to previous page"
+              title="Go to previous page"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="m15 6-6 6 6 6"/>
+              </svg>
+            </button>
+            <div id="taste-memory-page-numbers" class="taste-memory-page-numbers"></div>
+            <button
+              id="taste-memory-page-next"
+              class="secondary taste-memory-page-nav"
+              type="button"
+              aria-label="Go to next page"
+              title="Go to next page"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="m9 6 6 6-6 6"/>
+              </svg>
+            </button>
+            <button
+              id="taste-memory-page-last"
+              class="secondary taste-memory-page-nav"
+              type="button"
+              aria-label="Go to last page"
+              title="Go to last page"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M18 5v14"/>
+                <path d="m6 6 7 6-7 6"/>
+              </svg>
+            </button>
+          </nav>
         </section>
 
         <section id="stats-advanced-panel" class="settings-page-panel hidden" aria-label="AI performance">
@@ -278,7 +327,8 @@
   <script src="/static/statistics-advanced.js?v=6"></script>
   <script src="/static/statistics-cache.js?v=1"></script>
   <script src="/static/statistics-page.js?v=4"></script>
-  <script src="/static/local-taste-memory.js?v=5"></script>
+  <script src="/static/library-pagination.js?v=2"></script>
+  <script src="/static/local-taste-memory.js?v=6"></script>
   <script src="/static/home-status.js?v=37"></script>
 </body>
 </html>

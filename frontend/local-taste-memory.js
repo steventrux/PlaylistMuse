@@ -7,12 +7,17 @@
   const statusEl = document.getElementById('taste-memory-status');
   if (!list || !empty) return;
   const {readJson} = window.PlaylistMuseCommon;
+  const paginationTools = window.PlaylistMuseLibraryPagination;
+  const PAGE_SIZE = paginationTools?.DEFAULT_PAGE_SIZE ?? 10;
 
   const STATUS_LABELS = {
     pending: 'Still processing…',
     captured: null,
     distillation_failed: 'Could not be generated',
   };
+
+  let allEntries = [];
+  let currentPage = 1;
 
   function tagKey(tags) {
     const values = [
@@ -45,14 +50,6 @@
     guidance.textContent = entry.distilled_guidance || statusLabel || 'Nothing notable beyond what you already asked for.';
     body.append(guidance);
 
-    const promptText = String(entry.prompt_summary || '').trim();
-    if (promptText) {
-      const prompt = document.createElement('p');
-      prompt.className = 'taste-memory-prompt';
-      prompt.textContent = promptText;
-      body.append(prompt);
-    }
-
     const genreMoodTags = [
       ...(entry.tags?.genre || []),
       ...(entry.tags?.mood || []),
@@ -77,32 +74,46 @@
     meta.textContent = parts.join(' · ');
     body.append(meta);
 
+    const promptText = String(entry.prompt_summary || '').trim();
     const snapshotTracks = Array.isArray(entry.playlist?.tracks) ? entry.playlist.tracks : [];
-    if (snapshotTracks.length) {
+    if (promptText || snapshotTracks.length) {
       const toggle = document.createElement('button');
       toggle.type = 'button';
-      toggle.className = 'taste-memory-tracks-toggle';
-      toggle.textContent = 'View tracks';
+      toggle.className = 'taste-memory-details-toggle';
+      toggle.textContent = 'Details';
       toggle.setAttribute('aria-expanded', 'false');
 
-      const trackList = document.createElement('ol');
-      trackList.className = 'taste-memory-tracks hidden';
-      snapshotTracks.forEach((track) => {
-        const item = document.createElement('li');
-        const artist = String(track?.artists || track?.artist || '').trim();
-        const title = String(track?.title || '').trim();
-        item.textContent = [artist, title].filter(Boolean).join(' — ');
-        trackList.append(item);
-      });
+      const details = document.createElement('div');
+      details.className = 'taste-memory-details hidden';
+
+      if (promptText) {
+        const prompt = document.createElement('p');
+        prompt.className = 'taste-memory-prompt';
+        prompt.textContent = promptText;
+        details.append(prompt);
+      }
+
+      if (snapshotTracks.length) {
+        const trackList = document.createElement('ol');
+        trackList.className = 'taste-memory-tracks';
+        snapshotTracks.forEach((track) => {
+          const item = document.createElement('li');
+          const artist = String(track?.artists || track?.artist || '').trim();
+          const title = String(track?.title || '').trim();
+          item.textContent = [artist, title].filter(Boolean).join(' — ');
+          trackList.append(item);
+        });
+        details.append(trackList);
+      }
 
       toggle.addEventListener('click', () => {
         const expanded = toggle.getAttribute('aria-expanded') === 'true';
         toggle.setAttribute('aria-expanded', String(!expanded));
-        toggle.textContent = expanded ? 'View tracks' : 'Hide tracks';
-        trackList.classList.toggle('hidden', expanded);
+        toggle.textContent = expanded ? 'Details' : 'Hide details';
+        details.classList.toggle('hidden', expanded);
       });
 
-      body.append(toggle, trackList);
+      body.append(toggle, details);
     }
 
     row.append(body);
@@ -148,16 +159,72 @@
     return row;
   }
 
+  function $(id) {
+    return document.getElementById(id);
+  }
+
+  function createPageButton(pageNumber) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'taste-memory-page-number';
+    button.textContent = String(pageNumber);
+    button.setAttribute('aria-label', `Go to page ${pageNumber}`);
+    const active = pageNumber === currentPage;
+    button.classList.toggle('active', active);
+    if (active) button.setAttribute('aria-current', 'page');
+    button.addEventListener('click', () => setPage(pageNumber));
+    return button;
+  }
+
+  function renderPagination(pageState) {
+    const nav = $('taste-memory-pagination');
+    if (!nav) return;
+    const numbers = $('taste-memory-page-numbers');
+    const showPagination = pageState.totalPages > 1;
+    nav.classList.toggle('hidden', !showPagination);
+    if (!showPagination) {
+      numbers.replaceChildren();
+      return;
+    }
+
+    const atFirstPage = currentPage <= 1;
+    const atLastPage = currentPage >= pageState.totalPages;
+    $('taste-memory-page-first').disabled = atFirstPage;
+    $('taste-memory-page-previous').disabled = atFirstPage;
+    $('taste-memory-page-next').disabled = atLastPage;
+    $('taste-memory-page-last').disabled = atLastPage;
+
+    const controls = paginationTools
+      .pageTokens(currentPage, pageState.totalPages)
+      .map(createPageButton);
+    numbers.replaceChildren(...controls);
+  }
+
+  function setPage(pageNumber) {
+    const nextPage = paginationTools.clampPage(pageNumber, allEntries.length, PAGE_SIZE);
+    if (nextPage === currentPage) return;
+    currentPage = nextPage;
+    renderPage();
+  }
+
+  function renderPage() {
+    const pageState = paginationTools.paginate(allEntries, currentPage, PAGE_SIZE);
+    currentPage = pageState.currentPage;
+    const counts = groupCounts(allEntries);
+    list.replaceChildren(...pageState.items.map((entry) => entryRow(entry, counts)));
+    renderPagination(pageState);
+  }
+
   async function render() {
-    let entries = [];
     try {
       const payload = await readJson(await fetch(ENDPOINT, {cache: 'no-store'}));
-      entries = Array.isArray(payload.entries) ? payload.entries : [];
+      allEntries = Array.isArray(payload.entries) ? payload.entries : [];
     } catch (error) {
       console.warn('Could not load taste memory:', error);
       list.replaceChildren();
       list.classList.add('hidden');
       empty.classList.add('hidden');
+      $('taste-memory-pagination')?.classList.add('hidden');
       if (statusEl) {
         statusEl.textContent = error.message || 'Taste memory is unavailable right now.';
         statusEl.classList.remove('hidden');
@@ -171,10 +238,10 @@
       statusEl.classList.remove('error');
     }
     list.classList.remove('hidden');
-    entries.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
-    const counts = groupCounts(entries);
-    list.replaceChildren(...entries.map((entry) => entryRow(entry, counts)));
-    empty.classList.toggle('hidden', entries.length > 0);
+    allEntries.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+    currentPage = 1;
+    renderPage();
+    empty.classList.toggle('hidden', allEntries.length > 0);
   }
 
   async function initGenerationInfluenceToggle() {
@@ -217,4 +284,9 @@
   initGenerationInfluenceToggle();
   document.querySelector('[data-stats-section="taste"]')?.addEventListener('click', render);
   if (new URLSearchParams(window.location.search).get('section') === 'taste') render();
+
+  $('taste-memory-page-first')?.addEventListener('click', () => setPage(1));
+  $('taste-memory-page-previous')?.addEventListener('click', () => setPage(currentPage - 1));
+  $('taste-memory-page-next')?.addEventListener('click', () => setPage(currentPage + 1));
+  $('taste-memory-page-last')?.addEventListener('click', () => setPage(Number.MAX_SAFE_INTEGER));
 })();
