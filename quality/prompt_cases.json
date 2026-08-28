@@ -194,6 +194,20 @@
         "creative_intent_scope": "playlist_wide"
       },
       "tags": ["generation", "temporal-range", "live", "recording-version", "mood", "user-feedback", "regression", "multilingual"]
+    },
+    {
+      "id": "genre-boundary-blues-rock-vs-hard-rock",
+      "status": "candidate",
+      "origin": "user_feedback",
+      "source": "chat session 2026-08-28",
+      "flows": ["generation"],
+      "prompt": "Build a blues rock playlist, for a workout session",
+      "context": {},
+      "failure": "The generated playlist included tracks the user judged genre-adjacent rather than blues rock (e.g. Guns N' Roses \"Welcome To The Jungle\", a hard-rock/glam track, and The White Stripes \"Seven Nation Army\", a garage-rock track), even though \"blues rock\" was the only genre named in the request.",
+      "desired_behavior": "When a request names one specific genre or style with no wording implying breadth (e.g. \"and its influences\", \"adjacent styles\"), selected tracks should stay within that genre's boundary rather than drifting into a broader or adjacent genre the model judges close enough.",
+      "guidance": "Root-caused via a direct A/B comparison (same prompt, sub-project 2b's taste-memory guidance toggled off vs on, real generations on the production container): the same two genre-adjacent tracks appeared in both runs, so this is not caused by 2b's injected guidance. SYSTEM_PROMPT in backend/llm.py already lists \"genre or style\" as part of the prioritized core musical brief (line ~41) and warns against collapsing a request to a broad category while ignoring mood/energy/context (line ~43), but has no explicit instruction to respect a named genre's boundary against adjacent genres specifically. Left as a candidate, not approved: genre-boundary precision has no deterministic verification layer anywhere in the codebase (creative_intent.py's INTERPRET_SYSTEM_PROMPT explicitly excludes inferring requirements from genre alone), so there is no real code to check expectations against without first writing and testing an actual SYSTEM_PROMPT change to backend/llm.py -- a high-blast-radius file used by every generation. A single, genuinely debatable data point (both named tracks have real blues-rock lineage/influence) does not yet justify that change.",
+      "expectations": {},
+      "tags": ["genre-boundary", "prompt-quality", "generation", "user-feedback", "candidate"]
     }
   ]
 }
