@@ -205,9 +205,9 @@ def test_taste_memory_section_is_wired_like_every_other_stats_section() -> None:
     assert "'taste'" in page_script
     assert "taste: 'Taste memory'" in page_script
     assert "const ENDPOINT = '/api/quality/local-feedback';" in render_script
-    assert '/static/local-taste-memory.js?v=4' in html
+    assert '/static/local-taste-memory.js?v=5' in html
     assert '/static/statistics-page.js?v=4' in html
-    assert '/static/statistics.css?v=15' in html
+    assert '/static/statistics.css?v=16' in html
 
 
 def test_taste_memory_generation_influence_toggle_is_wired() -> None:
@@ -227,3 +227,24 @@ def test_taste_memory_failed_entries_offer_a_retry_action() -> None:
     assert "${ENDPOINT}/${encodeURIComponent(entry.id)}/retry" in render_script
     assert "taste-memory-retry" in render_script
     assert ".taste-memory-retry" in style
+
+
+def test_taste_memory_prompt_is_shown_in_full_not_truncated() -> None:
+    render_script = _text("local-taste-memory.js")
+    style = _text("statistics.css")
+
+    assert "PROMPT_PREVIEW_LIMIT" not in render_script
+    assert "truncatedPrompt" not in render_script
+    assert "String(entry.prompt_summary || '').trim()" in render_script
+    assert "white-space: normal" in style
+
+
+def test_taste_memory_entries_can_expand_their_tracklist() -> None:
+    render_script = _text("local-taste-memory.js")
+    style = _text("statistics.css")
+
+    assert "entry.playlist?.tracks" in render_script
+    assert "taste-memory-tracks-toggle" in render_script
+    assert "View tracks" in render_script
+    assert "Hide tracks" in render_script
+    assert ".taste-memory-tracks-toggle" in style

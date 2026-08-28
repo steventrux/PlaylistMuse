@@ -14,14 +14,6 @@
     distillation_failed: 'Could not be generated',
   };
 
-  const PROMPT_PREVIEW_LIMIT = 120;
-
-  function truncatedPrompt(promptSummary) {
-    const text = String(promptSummary || '').trim();
-    if (text.length <= PROMPT_PREVIEW_LIMIT) return text;
-    return `${text.slice(0, PROMPT_PREVIEW_LIMIT)}…`;
-  }
-
   function tagKey(tags) {
     const values = [
       ...(tags?.genre || []),
@@ -53,7 +45,7 @@
     guidance.textContent = entry.distilled_guidance || statusLabel || 'Nothing notable beyond what you already asked for.';
     body.append(guidance);
 
-    const promptText = truncatedPrompt(entry.prompt_summary);
+    const promptText = String(entry.prompt_summary || '').trim();
     if (promptText) {
       const prompt = document.createElement('p');
       prompt.className = 'taste-memory-prompt';
@@ -84,6 +76,34 @@
     if (tagCount > 1) parts.push(`seen ${tagCount} times`);
     meta.textContent = parts.join(' · ');
     body.append(meta);
+
+    const snapshotTracks = Array.isArray(entry.playlist?.tracks) ? entry.playlist.tracks : [];
+    if (snapshotTracks.length) {
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'taste-memory-tracks-toggle';
+      toggle.textContent = 'View tracks';
+      toggle.setAttribute('aria-expanded', 'false');
+
+      const trackList = document.createElement('ol');
+      trackList.className = 'taste-memory-tracks hidden';
+      snapshotTracks.forEach((track) => {
+        const item = document.createElement('li');
+        const artist = String(track?.artists || track?.artist || '').trim();
+        const title = String(track?.title || '').trim();
+        item.textContent = [artist, title].filter(Boolean).join(' — ');
+        trackList.append(item);
+      });
+
+      toggle.addEventListener('click', () => {
+        const expanded = toggle.getAttribute('aria-expanded') === 'true';
+        toggle.setAttribute('aria-expanded', String(!expanded));
+        toggle.textContent = expanded ? 'View tracks' : 'Hide tracks';
+        trackList.classList.toggle('hidden', expanded);
+      });
+
+      body.append(toggle, trackList);
+    }
 
     row.append(body);
 

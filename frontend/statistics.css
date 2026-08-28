@@ -590,7 +590,7 @@
 
 .taste-memory-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   padding: 10px 14px;
@@ -612,12 +612,11 @@
 
 .taste-memory-prompt {
   margin: 4px 0 0;
-  overflow: hidden;
   color: var(--text-muted);
   font-size: .78rem;
   line-height: 1.4;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .taste-memory-tags {
@@ -641,6 +640,29 @@
   margin: 4px 0 0;
   color: var(--text-muted);
   font-size: .74rem;
+}
+
+.taste-memory-tracks-toggle {
+  margin-top: 6px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--violet-light);
+  font-size: .74rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.taste-memory-tracks {
+  margin: 6px 0 0;
+  padding-left: 20px;
+  color: var(--text-muted);
+  font-size: .78rem;
+  line-height: 1.5;
+}
+
+.taste-memory-tracks.hidden {
+  display: none;
 }
 
 #taste-memory-status.error {
