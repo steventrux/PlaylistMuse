@@ -19,22 +19,34 @@
   let allEntries = [];
   let currentPage = 1;
 
-  function tagKey(tags) {
+  function entryTags(tags) {
     const values = [
       ...(tags?.genre || []),
       ...(tags?.mood || []),
     ].map((value) => String(value).toLocaleLowerCase());
-    return values.sort().join('|');
+    return new Set(values);
   }
 
+  // Counts how many entries share each individual tag (case-insensitive), mirroring
+  // backend/local_taste_memory.py's per-tag convergence grouping -- not an exact match
+  // on the full tag combination, since the AI rarely extracts the identical genre/mood
+  // set twice even for clearly similar playlists.
   function groupCounts(entries) {
     const counts = new Map();
     entries.forEach((entry) => {
-      const key = tagKey(entry.tags);
-      if (!key) return;
-      counts.set(key, (counts.get(key) || 0) + 1);
+      entryTags(entry.tags).forEach((tag) => {
+        counts.set(tag, (counts.get(tag) || 0) + 1);
+      });
     });
     return counts;
+  }
+
+  function maxTagCount(entry, counts) {
+    let max = 0;
+    entryTags(entry.tags).forEach((tag) => {
+      max = Math.max(max, counts.get(tag) || 0);
+    });
+    return max;
   }
 
   function entryRow(entry, counts) {
@@ -68,7 +80,7 @@
 
     const meta = document.createElement('p');
     meta.className = 'taste-memory-meta';
-    const tagCount = counts.get(tagKey(entry.tags)) || 0;
+    const tagCount = maxTagCount(entry, counts);
     const parts = [new Date(entry.created_at).toLocaleDateString()];
     if (tagCount > 1) parts.push(`seen ${tagCount} times`);
     meta.textContent = parts.join(' · ');
