@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_application_version_is_centralized() -> None:
-    assert APP_VERSION == "0.4.0"
+    assert APP_VERSION == "0.4.1"
     assert app.version == APP_VERSION
 
 
