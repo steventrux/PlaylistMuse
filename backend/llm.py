@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
 import unicodedata
@@ -11,7 +12,7 @@ from typing import Any
 import httpx
 
 from backend.config import AppConfig
-from backend.constraint_interpreter import _dated_system_prompt
+from backend.constraint_interpreter import _date_context_suffix, _dated_system_prompt
 from backend.provider_rate_limits import (
     ProviderRateLimitedError,
     cooldown_seconds_for_response,
@@ -77,6 +78,9 @@ PROVIDER_BATCH_SIZES = {
     "openrouter_auto": 16,
     "anthropic": 16,
 }
+MAX_MALFORMED_JSON_FAILURES = 3
+
+logger = logging.getLogger("playlistmuse.llm")
 
 _GEMINI_SCHEMA_KEYS = {
     "$id",
@@ -115,6 +119,44 @@ class ProviderRequestError(ValueError):
         self.provider = provider
         self.status_code = status_code
         super().__init__(message)
+
+
+class MalformedJsonResponseError(ValueError):
+    """The model produced no usable JSON (empty completion, or reasoning tokens
+    exhausted the budget before any content was written -- finish_reason "length")."""
+
+
+class _MalformedJsonBudget:
+    """Caps repeated "the model returned nothing usable" failures across a whole
+    generate_playlist_draft call, independent of how many models/batches are tried.
+
+    HTTP/rate-limit errors are not counted here -- those must keep cascading to the
+    next fallback model as before; this budget targets only the pathology where the
+    same kind of failure (e.g. reasoning burning the token budget) repeats regardless
+    of which model in the chain is tried.
+    """
+
+    def __init__(self, limit: int = MAX_MALFORMED_JSON_FAILURES) -> None:
+        self.limit = limit
+        self.count = 0
+
+    def record(self, model: str, attempt: int, error: Exception) -> None:
+        self.count += 1
+        logger.warning(
+            "playlist generation: model %s attempt %s returned no usable JSON "
+            "(failure %d/%d): %s",
+            model,
+            attempt,
+            self.count,
+            self.limit,
+            safe_error_message(error),
+        )
+        if self.count >= self.limit:
+            raise MalformedJsonResponseError(
+                f"The AI provider repeatedly failed to return valid JSON "
+                f"({self.count} failures, last from model '{model}'): "
+                f"{safe_error_message(error)}"
+            ) from error
 
 
 def _track_schema() -> dict[str, Any]:
@@ -186,27 +228,103 @@ def _openrouter_max_tokens(count: int) -> int:
     return min(32_768, max(4_096, count * 500))
 
 
+def _openrouter_reasoning_budget(max_tokens: int) -> int:
+    """Cap how many of the completion's tokens a reasoning-capable auto-routed model
+    may spend "thinking" before writing the JSON, so it can never repeat the incident
+    that motivated this: a model burning ~96% of its budget on reasoning and hitting
+    finish_reason "length" without ever producing content. Some OpenRouter endpoints
+    reject disabling reasoning outright ("Reasoning is mandatory for this endpoint and
+    cannot be disabled", verified against the live API), so this bounds it instead of
+    turning it off -- OpenRouter requires max_tokens to stay strictly above this value.
+    """
+    budget = max(256, min(2048, max_tokens // 4))
+    return min(budget, max(1, max_tokens - 1))
+
+
+def _is_mandatory_reasoning_error(response: httpx.Response) -> bool:
+    """True only for OpenRouter's specific "this endpoint requires reasoning" rejection
+    (e.g. "Reasoning is mandatory for this endpoint and cannot be disabled"), so every
+    other 400 (bad schema, bad key, etc.) still propagates normally."""
+    if response.status_code != 400:
+        return False
+    try:
+        payload = response.json()
+    except ValueError:
+        return False
+    error = payload.get("error") if isinstance(payload, dict) else None
+    message = error.get("message") if isinstance(error, dict) else None
+    if not isinstance(message, str):
+        return False
+    lowered = message.lower()
+    return "reasoning" in lowered and "mandatory" in lowered
+
+
+def _is_reasoning_effort_error(response: httpx.Response) -> bool:
+    """True for a provider's rejection of the "reasoning_effort" field itself (unsupported
+    value, or the field not supported by this model at all). Verified live against Groq's
+    real API: both rejection shapes -- '`reasoning_effort` must be one of `low`, `medium`,
+    or `high`' and '`reasoning_effort` is not supported with this model' -- always name the
+    field explicitly, so this never matches an unrelated 400 (bad key, bad model, etc.)."""
+    if response.status_code != 400:
+        return False
+    try:
+        payload = response.json()
+    except ValueError:
+        return False
+    error = payload.get("error") if isinstance(payload, dict) else None
+    message = error.get("message") if isinstance(error, dict) else None
+    if not isinstance(message, str):
+        return False
+    return "reasoning_effort" in message.lower()
+
+
+def _gemini_thinking_config(model: str) -> dict[str, Any]:
+    """Bound how many tokens a thinking-capable Gemini model spends reasoning before
+    writing the response, mirroring the OpenRouter/Groq fixes for the same underlying
+    risk (thinking tokens share the same maxOutputTokens budget as the actual output).
+
+    Deterministic by model name rather than try-and-fall-back-on-error: verified live
+    that Gemini's rejection of an incompatible thinkingConfig field is a generic 400
+    "Request contains an invalid argument" with no mention of the field itself, so a
+    retry-on-error strategy (used for OpenRouter/Groq above) can't reliably distinguish
+    it from any other malformed request here.
+    """
+    is_pro = "pro" in model.lower()
+    # gemini-2.5-*/1.5-* use the older thinkingBudget field; gemini-2.5-* is already
+    # unreachable for new accounts (verified live: 404 "no longer available to new
+    # users"), and ambiguous bare aliases (e.g. "gemini-flash-latest") default to the
+    # current 3.x generation, since that's what a new account resolves to today.
+    if re.search(r"gemini-[12]\.", model.lower()):
+        return {"thinkingBudget": 128 if is_pro else 0}
+    return {"thinkingLevel": "low" if is_pro else "minimal"}
+
+
 def _extract_json(text: str) -> dict[str, Any]:
     cleaned = text.strip()
     cleaned = _CODE_FENCE_RE.sub("", cleaned)
     start = cleaned.find("{")
     end = cleaned.rfind("}")
     if start < 0 or end <= start:
-        raise ValueError("The AI provider did not return a JSON playlist object.")
+        raise MalformedJsonResponseError("The AI provider did not return a JSON playlist object.")
 
-    payload: Any = json.loads(cleaned[start : end + 1])
+    try:
+        payload: Any = json.loads(cleaned[start : end + 1])
+    except json.JSONDecodeError as error:
+        raise MalformedJsonResponseError(
+            "The AI provider returned text that was not valid JSON."
+        ) from error
     if not isinstance(payload, dict):
-        raise ValueError("The AI provider returned an invalid playlist format.")
+        raise MalformedJsonResponseError("The AI provider returned an invalid playlist format.")
 
     title = str(payload.get("title", "")).strip()
     description = str(payload.get("description", "")).strip()
     raw_tracks = payload.get("tracks")
     if not title or len(title) > 100:
-        raise ValueError("The AI provider returned an invalid playlist title.")
+        raise MalformedJsonResponseError("The AI provider returned an invalid playlist title.")
     if not description or len(description) > 500:
-        raise ValueError("The AI provider returned an invalid playlist description.")
+        raise MalformedJsonResponseError("The AI provider returned an invalid playlist description.")
     if not isinstance(raw_tracks, list):
-        raise ValueError("The AI provider did not return a JSON track list.")
+        raise MalformedJsonResponseError("The AI provider did not return a JSON track list.")
 
     tracks: list[dict[str, str]] = []
     for item in raw_tracks:
@@ -226,7 +344,7 @@ def _extract_json(text: str) -> dict[str, Any]:
                 }
             )
     if not tracks:
-        raise ValueError("The AI provider returned no usable tracks with explanations.")
+        raise MalformedJsonResponseError("The AI provider returned no usable tracks with explanations.")
     return {"title": title, "description": description, "tracks": tracks}
 
 
@@ -328,16 +446,28 @@ def _content_from_openai(data: dict[str, Any]) -> str:
     if error:
         message = error.get("message") if isinstance(error, dict) else str(error)
         raise ProviderRequestError("AI provider", None, str(message or "Provider error"))
+    # For routed providers (e.g. openrouter/auto) this is the actual underlying model
+    # picked for the request, not the requested alias -- the only place it's available.
+    routed_model = data.get("model")
     choices = data.get("choices")
     if not isinstance(choices, list) or not choices:
         raise ValueError("The AI provider returned no completion choices.")
     choice = choices[0]
     if not isinstance(choice, dict) or choice.get("finish_reason") == "error":
         raise ValueError("The upstream model stopped with a provider error.")
+    if choice.get("finish_reason") == "length":
+        model_detail = f" (model '{routed_model}')" if routed_model else ""
+        raise MalformedJsonResponseError(
+            f"The upstream model{model_detail} exhausted its token budget "
+            "(finish_reason=length) before completing a response."
+        )
     message = choice.get("message")
     content = message.get("content") if isinstance(message, dict) else None
     if not isinstance(content, str) or not content.strip():
-        raise ValueError("The AI provider returned an empty completion.")
+        model_detail = f" (model '{routed_model}')" if routed_model else ""
+        raise MalformedJsonResponseError(
+            f"The AI provider{model_detail} returned an empty completion."
+        )
     return content
 
 
@@ -387,6 +517,7 @@ async def _request_model(
                     "responseJsonSchema": _gemini_json_schema(
                         _playlist_json_schema(count, exact_count=exact_count)
                     ),
+                    "thinkingConfig": _gemini_thinking_config(model),
                 },
             },
         )
@@ -394,6 +525,10 @@ async def _request_model(
         return _gemini_text(response.json())
 
     if config.provider == "anthropic":
+        # Unlike OpenRouter/Groq/Gemini, Anthropic's extended thinking is opt-in via a
+        # "thinking" field we never send here -- so it's already off by default and
+        # can't repeat the reasoning-token-runaway failure this module guards against
+        # elsewhere. No equivalent control needed on this branch.
         response = await client.post(
             "https://api.anthropic.com/v1/messages",
             headers={
@@ -404,7 +539,14 @@ async def _request_model(
             json={
                 "model": model,
                 "max_tokens": min(32_000, max(8_192, count * 500)),
-                "system": dated_system_prompt,
+                "system": [
+                    {
+                        "type": "text",
+                        "text": SYSTEM_PROMPT,
+                        "cache_control": {"type": "ephemeral"},
+                    },
+                    {"type": "text", "text": _date_context_suffix()},
+                ],
                 "messages": [{"role": "user", "content": user_prompt}],
             },
         )
@@ -432,29 +574,45 @@ async def _request_model(
         return str(response.json().get("message", {}).get("content", ""))
 
     if config.provider in OPENROUTER_PROVIDERS:
+        openrouter_max_tokens = _openrouter_max_tokens(count)
+        openrouter_headers = {
+            "authorization": f"Bearer {config.api_key}",
+            "content-type": "application/json",
+            "http-referer": "https://github.com/steventrux/PlaylistMuse",
+            "x-title": "PlaylistMuse",
+        }
+        openrouter_base_payload = {
+            "model": model,
+            "max_tokens": openrouter_max_tokens,
+            "stream": False,
+            "response_format": _playlist_response_format(count, exact_count=exact_count),
+            "plugins": [{"id": "response-healing"}],
+            "provider": {"require_parameters": True},
+            "messages": [
+                {"role": "system", "content": dated_system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
         response = await client.post(
             f"{OPENROUTER_BASE_URL}/chat/completions",
-            headers={
-                "authorization": f"Bearer {config.api_key}",
-                "content-type": "application/json",
-                "http-referer": "https://github.com/steventrux/PlaylistMuse",
-                "x-title": "PlaylistMuse",
-            },
-            json={
-                "model": model,
-                "max_tokens": _openrouter_max_tokens(count),
-                "stream": False,
-                "response_format": _playlist_response_format(
-                    count, exact_count=exact_count
-                ),
-                "plugins": [{"id": "response-healing"}],
-                "provider": {"require_parameters": True},
-                "messages": [
-                    {"role": "system", "content": dated_system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-            },
+            headers=openrouter_headers,
+            json={**openrouter_base_payload, "reasoning": {"effort": "none"}},
         )
+        if _is_mandatory_reasoning_error(response):
+            # Some OpenRouter endpoints refuse to disable reasoning outright ("Reasoning
+            # is mandatory for this endpoint and cannot be disabled", confirmed against
+            # the live API). Retry once with a bounded reasoning budget instead of a hard
+            # failure -- this stays invisible to the model-chain/attempt loop above us.
+            response = await client.post(
+                f"{OPENROUTER_BASE_URL}/chat/completions",
+                headers=openrouter_headers,
+                json={
+                    **openrouter_base_payload,
+                    "reasoning": {
+                        "max_tokens": _openrouter_reasoning_budget(openrouter_max_tokens)
+                    },
+                },
+            )
         _raise_for_provider(response, "OpenRouter", provider_key=config.provider, model=model)
         return _content_from_openai(response.json())
 
@@ -462,18 +620,34 @@ async def _request_model(
     headers = {"content-type": "application/json"}
     if config.api_key:
         headers["authorization"] = f"Bearer {config.api_key}"
+    custom_base_payload = {
+        "model": model,
+        "temperature": 0.7,
+        "messages": [
+            {"role": "system", "content": dated_system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
     response = await client.post(
         f"{base_url}/chat/completions",
         headers=headers,
-        json={
-            "model": model,
-            "temperature": 0.7,
-            "messages": [
-                {"role": "system", "content": dated_system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-        },
+        json={**custom_base_payload, "reasoning_effort": "none"},
     )
+    if _is_reasoning_effort_error(response):
+        # Some reasoning-capable models served this way (e.g. Groq's GPT-OSS family,
+        # confirmed live) reject "none" outright but accept "low". Others don't support
+        # the field at all (any arbitrary OpenAI-compatible endpoint) and reject every
+        # value the same way, so a second rejection falls all the way back to omitting
+        # the field rather than looping.
+        response = await client.post(
+            f"{base_url}/chat/completions",
+            headers=headers,
+            json={**custom_base_payload, "reasoning_effort": "low"},
+        )
+        if _is_reasoning_effort_error(response):
+            response = await client.post(
+                f"{base_url}/chat/completions", headers=headers, json=custom_base_payload
+            )
     _raise_for_provider(response, "OpenAI-compatible provider", provider_key=config.provider, model=model)
     return _content_from_openai(response.json())
 
@@ -522,7 +696,10 @@ async def _try_complete_request(
     config: AppConfig,
     prompt: str,
     count: int,
+    *,
+    budget: _MalformedJsonBudget | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, list[str]]:
+    budget = budget if budget is not None else _MalformedJsonBudget()
     best_partial: dict[str, Any] | None = None
     errors: list[str] = []
     base_prompt = _complete_prompt(prompt, count)
@@ -547,6 +724,13 @@ async def _try_complete_request(
                 )
                 draft = _extract_json(text)
                 draft["tracks"] = _unique_tracks(draft["tracks"], limit=count)
+            except MalformedJsonResponseError as error:
+                budget.record(model, attempt, error)
+                errors.append(
+                    f"{model} complete attempt {attempt}/{attempts}: "
+                    f"{safe_error_message(error)}"
+                )
+                continue
             except Exception as error:
                 errors.append(
                     f"{model} complete attempt {attempt}/{attempts}: "
@@ -576,9 +760,11 @@ async def _complete_in_batches(
     prompt: str,
     count: int,
     *,
+    budget: _MalformedJsonBudget | None = None,
     initial_draft: dict[str, Any] | None = None,
     previous_errors: list[str] | None = None,
 ) -> dict[str, Any]:
+    budget = budget if budget is not None else _MalformedJsonBudget()
     tracks = _unique_tracks((initial_draft or {}).get("tracks", []), limit=count)
     seen = {_candidate_key(track) for track in tracks}
     title = str((initial_draft or {}).get("title", "")).strip()
@@ -622,6 +808,13 @@ async def _complete_in_batches(
                         exact_count=False,
                     )
                     draft = _extract_json(text)
+                except MalformedJsonResponseError as error:
+                    budget.record(model, attempt, error)
+                    errors.append(
+                        f"{model} batch {batch_number} attempt {attempt}/{attempts}: "
+                        f"{safe_error_message(error)}"
+                    )
+                    continue
                 except Exception as error:
                     errors.append(
                         f"{model} batch {batch_number} attempt {attempt}/{attempts}: "
@@ -698,9 +891,10 @@ async def generate_playlist_draft(
     if rate_limit_message is not None:
         raise ValueError(rate_limit_message)
     timeout = httpx.Timeout(150.0, connect=10.0)
+    budget = _MalformedJsonBudget()
     async with httpx.AsyncClient(timeout=timeout) as client:
         complete, best_partial, errors = await _try_complete_request(
-            client, config, prompt, count
+            client, config, prompt, count, budget=budget
         )
         if complete is not None:
             return complete
@@ -709,6 +903,7 @@ async def generate_playlist_draft(
             config,
             prompt,
             count,
+            budget=budget,
             initial_draft=best_partial,
             previous_errors=errors,
         )

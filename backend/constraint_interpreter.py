@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
+import re
 import sqlite3
 import time
 from pathlib import Path
@@ -23,6 +25,85 @@ from backend.provider_rate_limits import (
 
 OPENROUTER_PROVIDERS = {"openrouter_auto", "openrouter_free"}
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+
+def _openrouter_reasoning_budget(max_tokens: int) -> int:
+    """Cap how many of the completion's tokens a reasoning-capable auto-routed model
+    may spend "thinking" before writing the JSON, so it can never repeat the incident
+    that motivated this: a model burning ~96% of its budget on reasoning and hitting
+    finish_reason "length" without ever producing content. Some OpenRouter endpoints
+    reject disabling reasoning outright ("Reasoning is mandatory for this endpoint and
+    cannot be disabled", verified against the live API), so this bounds it instead of
+    turning it off -- OpenRouter requires max_tokens to stay strictly above this value.
+    """
+    budget = max(256, min(2048, max_tokens // 4))
+    return min(budget, max(1, max_tokens - 1))
+
+
+def _is_mandatory_reasoning_error(response: httpx.Response) -> bool:
+    """True only for OpenRouter's specific "this endpoint requires reasoning" rejection
+    (e.g. "Reasoning is mandatory for this endpoint and cannot be disabled"), so every
+    other 400 (bad schema, bad key, etc.) still propagates normally."""
+    if response.status_code != 400:
+        return False
+    try:
+        payload = response.json()
+    except ValueError:
+        return False
+    error = payload.get("error") if isinstance(payload, dict) else None
+    message = error.get("message") if isinstance(error, dict) else None
+    if not isinstance(message, str):
+        return False
+    lowered = message.lower()
+    return "reasoning" in lowered and "mandatory" in lowered
+
+
+def _is_reasoning_effort_error(response: httpx.Response) -> bool:
+    """True for a provider's rejection of the "reasoning_effort" field itself (unsupported
+    value, or the field not supported by this model at all). Verified live against Groq's
+    real API: both rejection shapes -- '`reasoning_effort` must be one of `low`, `medium`,
+    or `high`' and '`reasoning_effort` is not supported with this model' -- always name the
+    field explicitly, so this never matches an unrelated 400 (bad key, bad model, etc.)."""
+    if response.status_code != 400:
+        return False
+    try:
+        payload = response.json()
+    except ValueError:
+        return False
+    error = payload.get("error") if isinstance(payload, dict) else None
+    message = error.get("message") if isinstance(error, dict) else None
+    if not isinstance(message, str):
+        return False
+    return "reasoning_effort" in message.lower()
+
+
+def _gemini_thinking_config(model: str) -> dict[str, Any]:
+    """Bound how many tokens a thinking-capable Gemini model spends reasoning before
+    writing the JSON, mirroring the OpenRouter/Groq fixes for the same underlying risk
+    (thinking tokens share the same maxOutputTokens budget as the actual output).
+
+    Deterministic by model name rather than try-and-fall-back-on-error: verified live
+    that Gemini's rejection of an incompatible thinkingConfig field is a generic 400
+    "Request contains an invalid argument" with no mention of the field itself, so a
+    retry-on-error strategy (used for OpenRouter/Groq above) can't reliably distinguish
+    it from any other malformed request here.
+    """
+    is_pro = "pro" in model.lower()
+    # gemini-2.5-*/1.5-* use the older thinkingBudget field; gemini-2.5-* is already
+    # unreachable for new accounts (verified live: 404 "no longer available to new
+    # users"), and ambiguous bare aliases (e.g. "gemini-flash-latest") default to the
+    # current 3.x generation, since that's what a new account resolves to today.
+    if re.search(r"gemini-[12]\.", model.lower()):
+        return {"thinkingBudget": 128 if is_pro else 0}
+    return {"thinkingLevel": "low" if is_pro else "minimal"}
+
+
+logger = logging.getLogger("playlistmuse.constraint_interpreter")
+
+
+class MalformedJsonResponseError(ValueError):
+    """The model produced no usable JSON (empty completion, or reasoning tokens
+    exhausted the budget before any content was written -- finish_reason "length")."""
 CACHE_TTL_SECONDS = 30 * 24 * 60 * 60
 PURGE_INTERVAL_SECONDS = 3600
 INTERPRETER_SCHEMA_VERSION = 9
@@ -281,13 +362,24 @@ def _gemini_text(data: dict[str, Any]) -> str:
 
 
 def _openai_text(data: dict[str, Any]) -> str:
+    # For routed providers (e.g. openrouter/auto) this is the actual underlying model
+    # picked for the request, not the requested alias -- the only place it's available.
+    routed_model = data.get("model")
     choices = data.get("choices")
     if not isinstance(choices, list) or not choices:
         raise ValueError("Provider returned no choices")
-    message = choices[0].get("message") if isinstance(choices[0], dict) else None
+    choice = choices[0]
+    if isinstance(choice, dict) and choice.get("finish_reason") == "length":
+        model_detail = f" (model '{routed_model}')" if routed_model else ""
+        raise MalformedJsonResponseError(
+            f"The upstream model{model_detail} exhausted its token budget "
+            "(finish_reason=length) before completing a response."
+        )
+    message = choice.get("message") if isinstance(choice, dict) else None
     content = message.get("content") if isinstance(message, dict) else None
-    if not isinstance(content, str):
-        raise ValueError("Provider returned no text")
+    if not isinstance(content, str) or not content.strip():
+        model_detail = f" (model '{routed_model}')" if routed_model else ""
+        raise MalformedJsonResponseError(f"Provider{model_detail} returned no text")
     return content
 
 
@@ -299,6 +391,24 @@ def _raise_for_structured_json(response: httpx.Response, provider: str, model: s
             cooldown_seconds=cooldown_seconds_for_response(response, provider),
         )
     response.raise_for_status()
+
+
+def _date_context_suffix() -> str:
+    """The dynamic "today" context appended after a system prompt, computed fresh per
+    call. Split out from _dated_system_prompt so callers that support prompt caching
+    (Anthropic) can cache the static base prompt separately from this daily-changing
+    suffix -- see _dated_system_prompt's docstring for why the date context exists."""
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    return (
+        f"\n\nToday's date is {today} (UTC). Use it only to reason about what "
+        '"recent", "current", "this year" or "upcoming" mean in the request -- it is not '
+        "itself a request constraint. You do not have verified knowledge of events, "
+        "releases or chart data announced after your own training cutoff, even for years "
+        f"at or before {today}. When that lack of verified data limits what you can do, "
+        'describe it that way (e.g. "not verifiable from training data") -- never call '
+        f"{today.split('-')[0]} or any earlier year \"the future\" or \"an upcoming year\", "
+        "since it is not chronologically future relative to today's date above."
+    )
 
 
 def _dated_system_prompt(base: str) -> str:
@@ -313,17 +423,7 @@ def _dated_system_prompt(base: str) -> str:
     year while the request was made in August 2026). The explicit ban on that phrasing
     below is what actually fixes the user-facing wording; the date alone does not.
     """
-    today = time.strftime("%Y-%m-%d", time.gmtime())
-    return (
-        f"{base}\n\nToday's date is {today} (UTC). Use it only to reason about what "
-        '"recent", "current", "this year" or "upcoming" mean in the request -- it is not '
-        "itself a request constraint. You do not have verified knowledge of events, "
-        "releases or chart data announced after your own training cutoff, even for years "
-        f"at or before {today}. When that lack of verified data limits what you can do, "
-        'describe it that way (e.g. "not verifiable from training data") -- never call '
-        f"{today.split('-')[0]} or any earlier year \"the future\" or \"an upcoming year\", "
-        "since it is not chronologically future relative to today's date above."
-    )
+    return f"{base}{_date_context_suffix()}"
 
 
 async def request_structured_json(
@@ -335,6 +435,7 @@ async def request_structured_json(
     model: str | None = None,
 ) -> str:
     """Request one provider-neutral JSON object using the active AI configuration."""
+    base_system_prompt = system_prompt
     system_prompt = _dated_system_prompt(system_prompt)
     selected_model = model or config.model_chain[0]
     if is_rate_limited(config.provider, selected_model):
@@ -357,6 +458,7 @@ async def request_structured_json(
                         "temperature": 0,
                         "maxOutputTokens": max_tokens,
                         "responseMimeType": "application/json",
+                        "thinkingConfig": _gemini_thinking_config(selected_model),
                     },
                 },
             )
@@ -364,6 +466,9 @@ async def request_structured_json(
             return _gemini_text(response.json())
 
         if config.provider == "anthropic":
+            # Unlike OpenRouter/Groq/Gemini, Anthropic's extended thinking is opt-in via
+            # a "thinking" field we never send here -- so it's already off by default and
+            # can't repeat the reasoning-token-runaway failure guarded against elsewhere.
             response = await client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={
@@ -375,7 +480,14 @@ async def request_structured_json(
                     "model": selected_model,
                     "max_tokens": max_tokens,
                     "temperature": 0,
-                    "system": system_prompt,
+                    "system": [
+                        {
+                            "type": "text",
+                            "text": base_system_prompt,
+                            "cache_control": {"type": "ephemeral"},
+                        },
+                        {"type": "text", "text": _date_context_suffix()},
+                    ],
                     "messages": [{"role": "user", "content": prompt}],
                 },
             )
@@ -403,7 +515,8 @@ async def request_structured_json(
             _raise_for_structured_json(response, config.provider, selected_model)
             return str(response.json().get("message", {}).get("content", ""))
 
-        if config.provider in OPENROUTER_PROVIDERS:
+        is_openrouter = config.provider in OPENROUTER_PROVIDERS
+        if is_openrouter:
             base_url = OPENROUTER_BASE_URL
             headers = {
                 "authorization": f"Bearer {config.api_key}",
@@ -417,20 +530,56 @@ async def request_structured_json(
             if config.api_key:
                 headers["authorization"] = f"Bearer {config.api_key}"
 
+        payload: dict[str, Any] = {
+            "model": selected_model,
+            "temperature": 0,
+            "max_tokens": max_tokens,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+        }
+        if is_openrouter:
+            payload["reasoning"] = {"effort": "none"}
+        else:
+            payload["reasoning_effort"] = "none"
+
         response = await client.post(
             f"{base_url}/chat/completions",
             headers=headers,
-            json={
-                "model": selected_model,
-                "temperature": 0,
-                "max_tokens": max_tokens,
-                "response_format": {"type": "json_object"},
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt},
-                ],
-            },
+            json=payload,
         )
+        if is_openrouter and _is_mandatory_reasoning_error(response):
+            # Some OpenRouter endpoints refuse to disable reasoning outright ("Reasoning
+            # is mandatory for this endpoint and cannot be disabled", confirmed against
+            # the live API). Retry once with a bounded reasoning budget instead of a hard
+            # failure -- this stays invisible to callers (e.g. request_structured_json_with_retry).
+            response = await client.post(
+                f"{base_url}/chat/completions",
+                headers=headers,
+                json={
+                    **payload,
+                    "reasoning": {"max_tokens": _openrouter_reasoning_budget(max_tokens)},
+                },
+            )
+        elif not is_openrouter and _is_reasoning_effort_error(response):
+            # Some reasoning-capable models served this way (e.g. Groq's GPT-OSS family,
+            # confirmed live) reject "none" outright but accept "low". Others don't
+            # support the field at all (any arbitrary OpenAI-compatible endpoint) and
+            # reject every value the same way, so a second rejection falls all the way
+            # back to omitting the field rather than looping.
+            response = await client.post(
+                f"{base_url}/chat/completions",
+                headers=headers,
+                json={**payload, "reasoning_effort": "low"},
+            )
+            if _is_reasoning_effort_error(response):
+                no_reasoning_payload = dict(payload)
+                no_reasoning_payload.pop("reasoning_effort", None)
+                response = await client.post(
+                    f"{base_url}/chat/completions", headers=headers, json=no_reasoning_payload
+                )
         _raise_for_structured_json(response, config.provider, selected_model)
         return _openai_text(response.json())
 
@@ -454,8 +603,9 @@ async def request_structured_json_with_retry(
     otherwise, and an intermittent malformed/failed response then has no
     safety net at all.
     """
+    selected_model = model or config.model_chain[0]
     last_error: Exception | None = None
-    for _ in range(max(1, attempts)):
+    for attempt in range(1, max(1, attempts) + 1):
         try:
             return await request_structured_json(
                 config,
@@ -472,6 +622,13 @@ async def request_structured_json_with_retry(
             json.JSONDecodeError,
         ) as error:
             last_error = error
+            logger.warning(
+                "structured JSON request: model %s attempt %s/%s failed: %s",
+                selected_model,
+                attempt,
+                max(1, attempts),
+                error,
+            )
     assert last_error is not None
     raise last_error
 
@@ -497,7 +654,8 @@ async def interpret_constraints(config: AppConfig, prompt: str) -> dict[str, Any
             ValueError,
             TypeError,
             json.JSONDecodeError,
-        ):
+        ) as error:
+            logger.warning("constraint interpretation: model %s failed: %s", model, error)
             continue
         _write_cache(config, prompt, payload)
         return payload
