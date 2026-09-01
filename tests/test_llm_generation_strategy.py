@@ -4,7 +4,10 @@ import asyncio
 import json
 from types import SimpleNamespace
 
+import httpx
+
 import backend.llm as llm
+from backend.config import AppConfig
 
 
 def _draft(start: int, count: int) -> str:
@@ -108,3 +111,190 @@ def test_sparse_partial_still_allows_full_retry(monkeypatch) -> None:
 
     assert len(result["tracks"]) == 10
     assert calls == 2
+
+
+class _FakeAsyncClient:
+    def __init__(self, responses: list[httpx.Response]) -> None:
+        self._responses = list(responses)
+        self.calls: list[dict] = []
+
+    async def post(self, url, *, headers=None, json=None):
+        self.calls.append({"url": url, "headers": headers, "json": json})
+        return self._responses.pop(0)
+
+
+def _openai_success_response(content: str) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "model": "some/routed-model",
+            "choices": [{"finish_reason": "stop", "message": {"content": content}}],
+        },
+    )
+
+
+_MANDATORY_REASONING_RESPONSE = httpx.Response(
+    400,
+    json={
+        "error": {
+            "message": "Reasoning is mandatory for this endpoint and cannot be disabled.",
+            "code": 400,
+        }
+    },
+)
+
+
+def test_openrouter_falls_back_to_bounded_reasoning_when_disabling_is_rejected() -> None:
+    client = _FakeAsyncClient(
+        [_MANDATORY_REASONING_RESPONSE, _openai_success_response("hello")]
+    )
+    config = AppConfig(provider="openrouter_auto", api_key="test-key", model="openrouter/auto")
+
+    text = asyncio.run(
+        llm._request_model(client, config, "openrouter/auto", "prompt", 5, exact_count=True)
+    )
+
+    assert text == "hello"
+    assert len(client.calls) == 2
+    assert client.calls[0]["json"]["reasoning"] == {"effort": "none"}
+    second_reasoning = client.calls[1]["json"]["reasoning"]
+    assert "max_tokens" in second_reasoning
+    assert second_reasoning["max_tokens"] < client.calls[1]["json"]["max_tokens"]
+
+
+def test_openrouter_other_400_errors_do_not_trigger_reasoning_fallback() -> None:
+    unrelated_400 = httpx.Response(
+        400, json={"error": {"message": "Invalid model requested.", "code": 400}}
+    )
+    client = _FakeAsyncClient([unrelated_400])
+    config = AppConfig(provider="openrouter_auto", api_key="test-key", model="openrouter/auto")
+
+    try:
+        asyncio.run(
+            llm._request_model(client, config, "openrouter/auto", "prompt", 5, exact_count=True)
+        )
+    except llm.ProviderRequestError:
+        pass
+    else:
+        raise AssertionError("expected a ProviderRequestError for an unrelated 400")
+
+    assert len(client.calls) == 1
+
+
+def test_gemini_thinking_config_uses_thinking_level_for_3x_flash() -> None:
+    assert llm._gemini_thinking_config("gemini-3.6-flash") == {"thinkingLevel": "minimal"}
+
+
+def test_gemini_thinking_config_uses_low_level_for_3x_pro() -> None:
+    assert llm._gemini_thinking_config("gemini-3.1-pro-preview") == {"thinkingLevel": "low"}
+
+
+def test_gemini_thinking_config_uses_thinking_budget_for_legacy_flash() -> None:
+    assert llm._gemini_thinking_config("gemini-2.5-flash") == {"thinkingBudget": 0}
+
+
+def test_gemini_thinking_config_uses_minimum_budget_for_legacy_pro() -> None:
+    assert llm._gemini_thinking_config("gemini-2.5-pro") == {"thinkingBudget": 128}
+
+
+def test_gemini_thinking_config_treats_bare_alias_as_current_generation() -> None:
+    assert llm._gemini_thinking_config("gemini-flash-latest") == {"thinkingLevel": "minimal"}
+
+
+_REASONING_EFFORT_VALUE_REJECTED = httpx.Response(
+    400,
+    json={
+        "error": {
+            "message": "`reasoning_effort` must be one of `low`, `medium`, or `high`",
+            "type": "invalid_request_error",
+        }
+    },
+)
+
+_REASONING_EFFORT_UNSUPPORTED = httpx.Response(
+    400,
+    json={
+        "error": {
+            "message": "`reasoning_effort` is not supported with this model",
+            "type": "invalid_request_error",
+        }
+    },
+)
+
+
+def test_custom_provider_falls_back_from_none_to_low_reasoning_effort() -> None:
+    client = _FakeAsyncClient(
+        [_REASONING_EFFORT_VALUE_REJECTED, _openai_success_response("hello")]
+    )
+    config = AppConfig(provider="custom", api_key="test-key", base_url="https://api.groq.com/openai/v1")
+
+    text = asyncio.run(
+        llm._request_model(client, config, "openai/gpt-oss-120b", "prompt", 5, exact_count=True)
+    )
+
+    assert text == "hello"
+    assert len(client.calls) == 2
+    assert client.calls[0]["json"]["reasoning_effort"] == "none"
+    assert client.calls[1]["json"]["reasoning_effort"] == "low"
+
+
+def test_custom_provider_falls_back_to_omitting_reasoning_effort_when_unsupported() -> None:
+    client = _FakeAsyncClient(
+        [
+            _REASONING_EFFORT_UNSUPPORTED,
+            _REASONING_EFFORT_UNSUPPORTED,
+            _openai_success_response("hello"),
+        ]
+    )
+    config = AppConfig(provider="custom", api_key="test-key", base_url="https://api.groq.com/openai/v1")
+
+    text = asyncio.run(
+        llm._request_model(client, config, "allam-2-7b", "prompt", 5, exact_count=True)
+    )
+
+    assert text == "hello"
+    assert len(client.calls) == 3
+    assert client.calls[0]["json"]["reasoning_effort"] == "none"
+    assert client.calls[1]["json"]["reasoning_effort"] == "low"
+    assert "reasoning_effort" not in client.calls[2]["json"]
+
+
+def test_custom_provider_other_400_errors_do_not_trigger_reasoning_effort_fallback() -> None:
+    unrelated_400 = httpx.Response(
+        400, json={"error": {"message": "Invalid API key.", "type": "invalid_request_error"}}
+    )
+    client = _FakeAsyncClient([unrelated_400])
+    config = AppConfig(provider="custom", api_key="bad-key", base_url="https://api.groq.com/openai/v1")
+
+    try:
+        asyncio.run(
+            llm._request_model(client, config, "allam-2-7b", "prompt", 5, exact_count=True)
+        )
+    except llm.ProviderRequestError:
+        pass
+    else:
+        raise AssertionError("expected a ProviderRequestError for an unrelated 400")
+
+    assert len(client.calls) == 1
+
+
+def _anthropic_success_response(text: str) -> httpx.Response:
+    return httpx.Response(200, json={"content": [{"type": "text", "text": text}]})
+
+
+def test_anthropic_system_prompt_caches_only_the_static_block() -> None:
+    client = _FakeAsyncClient([_anthropic_success_response("hello")])
+    config = AppConfig(provider="anthropic", api_key="test-key", model="claude-sonnet-5")
+
+    text = asyncio.run(
+        llm._request_model(client, config, "claude-sonnet-5", "prompt", 5, exact_count=True)
+    )
+
+    assert text == "hello"
+    assert len(client.calls) == 1
+    system = client.calls[0]["json"]["system"]
+    assert isinstance(system, list) and len(system) == 2
+    assert system[0]["text"] == llm.SYSTEM_PROMPT
+    assert system[0]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in system[1]
+    assert system[0]["text"] + system[1]["text"] == llm._dated_system_prompt(llm.SYSTEM_PROMPT)
