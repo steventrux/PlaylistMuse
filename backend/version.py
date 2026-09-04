@@ -1,6 +1,6 @@
 """PlaylistMuse release identity shared by runtime integrations."""
 
-APP_VERSION = "0.4.1"
+APP_VERSION = "0.4.2"
 REPOSITORY_URL = "https://github.com/steventrux/PlaylistMuse"
 USER_AGENT = f"PlaylistMuse/{APP_VERSION} (+{REPOSITORY_URL})"
 PLAYLIST_SIGNATURE = f"Made with PlaylistMuse · {REPOSITORY_URL}"
