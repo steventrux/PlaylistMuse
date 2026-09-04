@@ -53,7 +53,7 @@ def test_prompt_and_seed_control_generation_visibility() -> None:
     script = (FRONTEND / "app.js").read_text(encoding="utf-8")
 
     assert '/static/generation-state.js?v=5' in html
-    assert '/static/app.js?v=24' in html
+    assert '/static/app.js?v=25' in html
     assert "const generationState = window.PlaylistMuseGenerationState" in script
     assert "function updateGenerationControls()" in script
     assert "generationState.isGenerationReady(" in script
@@ -115,6 +115,41 @@ def test_seed_results_are_built_in_one_dom_update() -> None:
     assert "const fragment = document.createDocumentFragment();" in script
     assert "results.forEach((track) => fragment.append(createSlotResult(slot, track)))" in script
     assert "container.append(fragment)" in script
+
+
+def test_seed_results_offer_an_audio_preview_without_breaking_selection() -> None:
+    html = (FRONTEND / "index.html").read_text(encoding="utf-8")
+    script = (FRONTEND / "app.js").read_text(encoding="utf-8")
+
+    # Shared preview modules must be loaded before app.js can use them.
+    assert '<script src="/static/track-preview.js?v=1"></script>' in html
+    assert '<script src="/static/action-controls.js?v=9"></script>' in html
+    assert '<link rel="stylesheet" href="/static/action-controls.css?v=10">' in html
+    assert html.index('<script src="/static/track-preview.js?v=1"></script>') < html.index(
+        '<script src="/static/app.js?v=25"></script>'
+    )
+    assert html.index('<script src="/static/action-controls.js?v=9"></script>') < html.index(
+        '<script src="/static/app.js?v=25"></script>'
+    )
+
+    # A row can no longer be a real <button> (it now nests one), so selection
+    # relies on role="button" plus explicit click/keydown handling instead of
+    # native button semantics.
+    assert "const item = document.createElement('div');" in script
+    assert "item.setAttribute('role', 'button');" in script
+    assert "if (event.target.closest('button')) return;" in script
+    assert "selectSlotTrack(slot, track);" in script
+
+    # Preview lookup is lazy (hover/focus), not fired for every rendered result.
+    assert "item.addEventListener('mouseenter', startPreviewLookup);" in script
+    assert "item.addEventListener('focus', startPreviewLookup);" in script
+    assert "window.PlaylistMusePreview.lookup(track)" in script
+    assert "previewButton.className = 'secondary track-action preview-track-button hidden';" in script
+
+    # Preview clicks must not also select the track, and playback must stop
+    # when results are replaced or a track gets selected.
+    assert "previewButton.addEventListener('click', (event) => {\n      event.stopPropagation();" in script
+    assert "window.PlaylistMusePreview?.stop();" in script
 
 
 def test_repeated_dom_lookups_are_cached() -> None:
