@@ -11,6 +11,7 @@
     '.replace-track-button',
     '.remove-track-button',
     '.track-move-button',
+    '.preview-track-button',
   ].join(', ');
   const LIBRARY_OPEN_SELECTOR = '.library-actions > a.primary';
 
@@ -27,6 +28,8 @@
     export: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 4v11"/><path d="m7.5 11 4.5 4.5 4.5-4.5"/><path d="M4.5 18.5v1a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-1"/></svg>',
     favorite: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35Z"/></svg>',
     favorited: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="currentColor" stroke="none"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35Z"/></svg>',
+    preview: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5.5v13l10-6.5Z"/></svg>',
+    pause: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 5.5v13M15 5.5v13"/></svg>',
   });
 
   // The classic Material Design "favorite" heart: every x-coordinate pairs up
@@ -80,6 +83,7 @@
     feedback: {label: 'Give feedback', icon: ICONS.feedback},
     loved: {label: 'This got it right', icon: ICONS.loved},
     export: {label: 'Export', icon: ICONS.export},
+    preview: {label: 'Preview', icon: ICONS.preview},
   });
 
   function elementsWithin(root, selector) {
@@ -160,8 +164,20 @@
     if (element.classList.contains('track-move-button')) {
       return element.textContent.trim().toLocaleLowerCase().includes('down') ? 'down' : 'up';
     }
+    if (element.classList.contains('preview-track-button')) return 'preview';
     if (element.matches('a.primary.track-action')) return 'youtube';
     return '';
+  }
+
+  function setPreviewPlaying(element, playing) {
+    if (!element) return;
+    const icon = element.querySelector('.compact-action-icon');
+    const label = element.querySelector('.compact-action-label');
+    if (icon) icon.innerHTML = playing ? ICONS.pause : ICONS.preview;
+    const text = playing ? 'Playing…' : 'Preview';
+    if (label) label.textContent = text;
+    element.setAttribute('aria-label', text);
+    element.title = text;
   }
 
   function decoratePlaylistActions(root = document) {
@@ -199,5 +215,5 @@
 
   observer.observe(document.body, {childList: true, subtree: true});
 
-  window.PlaylistMuseActionControls = {decorateFavoriteToggle};
+  window.PlaylistMuseActionControls = {decorateFavoriteToggle, setPreviewPlaying};
 })();
