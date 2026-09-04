@@ -45,7 +45,7 @@ def test_playlist_autosave_status_tracks_persistent_library_writes() -> None:
     style = _text("playlist-header.css")
 
     status_script = '<script src="/static/playlist-save-status.js?v=2"></script>'
-    playlist_script = '<script src="/static/playlist.js?v=28"></script>'
+    playlist_script = '<script src="/static/playlist.js?v=29"></script>'
     assert status_script in html
     assert html.index(status_script) < html.index(playlist_script)
     assert "saving: 'Saving…'" in script
@@ -107,7 +107,7 @@ def test_positive_feedback_button_exists_with_matching_gating_to_negative_feedba
 
     assert 'id="playlist-positive-feedback"' in html
     assert '/static/playlist-positive-feedback.js?v=5' in html
-    assert '/static/action-controls.js?v=8' in html
+    assert '/static/action-controls.js?v=9' in html
     assert "const ENDPOINT = '/api/quality/local-feedback';" in script
     # Same session-storage keys and flag-based gating as the existing
     # negative-feedback button, deliberately.

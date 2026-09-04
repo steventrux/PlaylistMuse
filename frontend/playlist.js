@@ -347,6 +347,7 @@
   }
 
   function toggleTrack(item, index) {
+    window.PlaylistMusePreview?.stop();
     const willExpand = !item.classList.contains('expanded');
     closeOtherTracks(item);
     item.classList.toggle('expanded', willExpand);
@@ -714,12 +715,38 @@
 
     const play = document.createElement('a');
     play.className = 'primary track-action';
-    play.href = track.url || `https://music.youtube.com/watch?v=${encodeURIComponent(track.video_id || '')}`;
+    play.href = trackUrl(track);
     play.target = '_blank';
     play.rel = 'noopener noreferrer';
     play.textContent = 'Open in YouTube Music';
     play.addEventListener('click', (event) => event.stopPropagation());
     actions.append(play);
+
+    const previewButton = document.createElement('button');
+    previewButton.type = 'button';
+    previewButton.className = 'secondary track-action preview-track-button hidden';
+    let previewUrl = null;
+    let previewLookupStarted = false;
+
+    function startPreviewLookup() {
+      if (previewLookupStarted || !window.PlaylistMusePreview) return;
+      previewLookupStarted = true;
+      window.PlaylistMusePreview.lookup(track).then((url) => {
+        if (!url || !item.classList.contains('expanded')) return;
+        previewUrl = url;
+        previewButton.classList.remove('hidden');
+      });
+    }
+
+    previewButton.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (!previewUrl) return;
+      window.PlaylistMusePreview.toggle(previewUrl, {
+        onStart: () => window.PlaylistMuseActionControls?.setPreviewPlaying(previewButton, true),
+        onStop: () => window.PlaylistMuseActionControls?.setPreviewPlaying(previewButton, false),
+      });
+    });
+    actions.append(previewButton);
 
     if (track.video_id) {
       actions.append(buildFavoriteTrackMenu(track));
@@ -776,17 +803,20 @@
     item.addEventListener('click', (event) => {
       if (event.target.closest('a, button')) return;
       toggleTrack(item, index);
+      if (item.classList.contains('expanded')) startPreviewLookup();
     });
     item.addEventListener('keydown', (event) => {
       if (event.target !== item || !['Enter', ' '].includes(event.key)) return;
       event.preventDefault();
       toggleTrack(item, index);
+      if (item.classList.contains('expanded')) startPreviewLookup();
     });
 
     return item;
   }
 
   function renderPlaylist() {
+    window.PlaylistMusePreview?.stop();
     updateSummary();
     $('playlist-description').textContent = data.description || data.prompt || '';
     renderPlaylistTags();
