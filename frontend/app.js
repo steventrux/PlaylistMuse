@@ -363,20 +363,14 @@
     previewButton.type = 'button';
     previewButton.className = 'secondary track-action preview-track-button hidden';
     let previewUrl = null;
-    let previewLookupStarted = false;
 
-    function startPreviewLookup() {
-      if (previewLookupStarted || !window.PlaylistMusePreview) return;
-      previewLookupStarted = true;
+    if (window.PlaylistMusePreview) {
       window.PlaylistMusePreview.lookup(track).then((url) => {
         if (!url) return;
         previewUrl = url;
         previewButton.classList.remove('hidden');
       });
     }
-
-    item.addEventListener('mouseenter', startPreviewLookup);
-    item.addEventListener('focus', startPreviewLookup);
 
     previewButton.addEventListener('click', (event) => {
       event.stopPropagation();
