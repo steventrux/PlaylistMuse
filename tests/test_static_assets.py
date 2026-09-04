@@ -62,7 +62,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     common = '<script src="/static/common.js?v=22"></script>'
     home_status = '<script src="/static/home-status.js?v=37"></script>'
     generation_state = '<script src="/static/generation-state.js?v=5"></script>'
-    app = '<script src="/static/app.js?v=24"></script>'
+    app = '<script src="/static/app.js?v=25"></script>'
 
     assert index.index(common) < index.index(
         '<script src="/static/ai-settings.js?v=13"></script>'
@@ -314,7 +314,7 @@ def test_ai_settings_separate_active_and_selected_provider_states() -> None:
     assert '/static/ai-settings.css?v=3' in index
     assert '/static/ai-settings.css?v=3' in settings
     assert '/static/ai-settings.css' not in playlist
-    assert '/static/app.js?v=24' in index
+    assert '/static/app.js?v=25' in index
     assert 'id="ai-active-status"' in index
     assert 'id="ai-active-status"' in settings
     assert "Choose or configure a provider" in index

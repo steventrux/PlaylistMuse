@@ -329,6 +329,7 @@
 
     selectedEl.append(artwork, copy, change);
     selectedEl.classList.remove('hidden');
+    window.PlaylistMusePreview?.stop();
     $(slot.resultsId).classList.add('hidden');
     if (slot === PICKER_SLOTS.seed) $('seed-mode-controls').classList.remove('hidden');
     setSlotGuidance(slot, slot.guidance(track));
@@ -337,9 +338,11 @@
   }
 
   function createSlotResult(slot, track) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'seed-result';
+    const item = document.createElement('div');
+    item.className = 'seed-result';
+    item.tabIndex = 0;
+    item.setAttribute('role', 'button');
+    item.setAttribute('aria-label', `Select ${track.title || 'this track'} as the seed`);
 
     const artwork = document.createElement('img');
     artwork.src = track.thumbnail_url || '';
@@ -354,13 +357,53 @@
     meta.textContent = [track.artists, track.album, track.duration].filter(Boolean).join(' · ');
     copy.append(title, meta);
 
-    button.append(artwork, copy);
-    button.addEventListener('click', () => selectSlotTrack(slot, track));
-    return button;
+    item.append(artwork, copy);
+
+    const previewButton = document.createElement('button');
+    previewButton.type = 'button';
+    previewButton.className = 'secondary track-action preview-track-button hidden';
+    let previewUrl = null;
+    let previewLookupStarted = false;
+
+    function startPreviewLookup() {
+      if (previewLookupStarted || !window.PlaylistMusePreview) return;
+      previewLookupStarted = true;
+      window.PlaylistMusePreview.lookup(track).then((url) => {
+        if (!url) return;
+        previewUrl = url;
+        previewButton.classList.remove('hidden');
+      });
+    }
+
+    item.addEventListener('mouseenter', startPreviewLookup);
+    item.addEventListener('focus', startPreviewLookup);
+
+    previewButton.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (!previewUrl) return;
+      window.PlaylistMusePreview.toggle(previewUrl, {
+        onStart: () => window.PlaylistMuseActionControls?.setPreviewPlaying(previewButton, true),
+        onStop: () => window.PlaylistMuseActionControls?.setPreviewPlaying(previewButton, false),
+      });
+    });
+    item.append(previewButton);
+
+    item.addEventListener('click', (event) => {
+      if (event.target.closest('button')) return;
+      selectSlotTrack(slot, track);
+    });
+    item.addEventListener('keydown', (event) => {
+      if (event.target !== item || !['Enter', ' '].includes(event.key)) return;
+      event.preventDefault();
+      selectSlotTrack(slot, track);
+    });
+
+    return item;
   }
 
   function renderSlotResults(slot, results) {
     const container = $(slot.resultsId);
+    window.PlaylistMusePreview?.stop();
     container.replaceChildren();
 
     if (!results.length) {

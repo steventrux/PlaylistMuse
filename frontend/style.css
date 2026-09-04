@@ -381,7 +381,7 @@ textarea:focus, input:focus, select:focus {
 .seed-results { display: grid; gap: 9px; margin-top: 15px; max-height: 350px; overflow-y: auto; padding-right: 3px; }
 .seed-result {
   display: grid;
-  grid-template-columns: 54px minmax(0, 1fr);
+  grid-template-columns: 54px minmax(0, 1fr) auto;
   align-items: center;
   gap: 13px;
   width: 100%;
@@ -391,9 +391,11 @@ textarea:focus, input:focus, select:focus {
   background: var(--item-bg);
   color: var(--text-primary);
   text-align: left;
+  cursor: pointer;
   transition: transform 150ms ease, border-color 150ms ease, background 150ms ease;
 }
 .seed-result:hover { transform: translateY(-1px); border-color: var(--violet-light); background: var(--brand-gradient-soft); }
+.seed-result:focus-visible { outline: 2px solid var(--violet-light); outline-offset: 2px; }
 .seed-result img, .selected-seed img { width: 54px; height: 54px; object-fit: cover; border-radius: 11px; background: var(--bg-tertiary); }
 .seed-result-copy, .selected-seed > div { display: grid; gap: 3px; min-width: 0; }
 .seed-result-copy strong, .seed-result-copy small, .selected-seed strong, .selected-seed span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
