@@ -71,7 +71,7 @@ def test_results_page_reuses_shared_navigation_controls_and_card_palette() -> No
     header_style = _text("playlist-header.css")
 
     assert '/static/style.css?v=13' in html
-    assert '/static/controls.css?v=12' in html
+    assert '/static/controls.css?v=16' in html
     assert '/static/header-navigation.css?v=25' in html
     assert '/static/playlist-cards.css?v=5' in html
     assert '/static/playlist-header.css?v=13' in html
@@ -107,8 +107,8 @@ def test_library_cards_match_compact_result_card_proportions_and_expand() -> Non
     script = _text("library.js")
     style = _text("library.css")
 
-    assert "/static/library.js?v=16" in html
-    assert "/static/library.css?v=14" in html
+    assert "/static/library.js?v=18" in html
+    assert "/static/library.css?v=17" in html
     assert "let expandedLibraryId = null;" in script
     assert "function toggleLibraryCard(card, item)" in script
     assert "function setLibraryCardExpanded(card, expanded)" in script
@@ -134,6 +134,63 @@ def test_library_cards_match_compact_result_card_proportions_and_expand() -> Non
     assert "grid-template-columns: 48px minmax(0, 1fr) 24px;" in style
     assert "width: 138px;" in style
     assert "width: 96px;" in style
+
+
+def test_library_cards_show_an_imported_badge_for_url_imported_playlists() -> None:
+    script = _text("library.js")
+
+    badge_start = script.index("badge.textContent = item.status === 'published' ? 'Published' : 'Draft';")
+    following = script[badge_start:badge_start + 400]
+    assert "if (item.imported)" in following
+    assert "importedBadge.className = 'library-status-badge imported';" in following
+    assert "importedBadge.textContent = 'Imported';" in following
+
+    style = _text("library.css")
+    assert ".library-status-badge.imported {" in style
+    rule_start = style.index(".library-status-badge.imported {")
+    rule_end = style.index("}", rule_start)
+    rule = style[rule_start:rule_end]
+    assert "color: var(--cyan-light);" in rule
+    # Must not reuse the published (green) tint -- imported and published are
+    # distinct states shown side by side on the same card.
+    assert "--success-text" not in rule
+
+
+def test_expanded_library_card_does_not_overlap_status_and_imported_badges() -> None:
+    script = _text("library.js")
+    style = _text("library.css")
+
+    # Both badges must be appended to a shared wrapper, not directly to the title
+    # row -- .library-item.expanded flattens .library-title-row via display:contents
+    # and grid-positions each of its direct children, so two badges appended
+    # separately would land in the exact same grid cell and render on top of
+    # each other.
+    assert "badgeGroup.append(badge);" in script
+    assert "badgeGroup.append(importedBadge);" in script
+    assert "titleRow.append(title, badgeGroup);" in script
+
+    assert ".library-badge-group {" in style
+    assert ".library-item.expanded .library-badge-group {" in style
+    assert ".library-item.expanded .library-status-badge {" not in style
+
+    # The badge group can wrap to two lines once it holds both the status and
+    # the imported badge, so meta text must sit in its own grid row below it --
+    # not share the badge group's row via a fixed margin-top offset, which only
+    # worked when there was ever a single, single-line badge.
+    badge_group_start = style.index(".library-item.expanded .library-badge-group {")
+    badge_group_rule = style[badge_group_start:style.index("}", badge_group_start)]
+    assert "grid-row: 2;" in badge_group_rule
+
+    meta_start = style.index(".library-item.expanded .library-meta {")
+    meta_rule = style[meta_start:style.index("}", meta_start)]
+    assert "grid-row: 3;" in meta_rule
+    assert "margin-top: 38px;" not in meta_rule
+
+    details_start = style.index(".library-item.expanded .library-details {")
+    details_rule = style[details_start:style.index("}", details_start)]
+    assert "grid-row: 4;" in details_rule
+
+    assert "grid-template-rows: auto auto auto auto;" in style
 
 
 def test_library_tag_filter_keeps_expanded_card_open_and_selected() -> None:
@@ -202,7 +259,7 @@ def test_selected_seed_matches_compact_card_layout_and_restrained_palette() -> N
     html = _text("index.html")
     style = _text("controls.css")
 
-    assert "/static/controls.css?v=12" in html
+    assert "/static/controls.css?v=16" in html
     assert ".selected-seed {" in style
     assert "grid-template-columns: 54px minmax(0, 1fr) auto;" in style
     assert "background: var(--item-bg-hover);" in style

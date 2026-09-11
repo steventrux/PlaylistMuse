@@ -28,6 +28,7 @@ from backend.lastfm_settings import (
 )
 from backend.onboarding import acknowledge_onboarding, onboarding_status
 from backend.playlist_cover import normalize_thumbnail_urls
+from backend.playlist_library import get_library
 from backend.prompt_validation import assess_prompt
 from backend.telemetry import set_telemetry_enabled, telemetry_settings_response
 from backend.youtube_account import (
@@ -39,6 +40,7 @@ from backend.youtube_account import (
     youtube_settings_response,
     youtube_status,
 )
+from backend.youtube_playlist_import import fetch_playlist_for_import, parse_playlist_id
 from backend.youtube_playlist_service import create_youtube_playlist
 
 router = APIRouter(prefix="/api")
@@ -137,6 +139,15 @@ class YouTubePlaylistCreateRequest(BaseModel):
     @classmethod
     def validate_thumbnail_urls(cls, values: list[str]) -> list[str]:
         return normalize_thumbnail_urls(values)
+
+
+class YouTubePlaylistImportRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=500)
+
+    @field_validator("url")
+    @classmethod
+    def trim_url(cls, value: str) -> str:
+        return value.strip()
 
 
 def _ensure_active_ai_config(config: AppConfig) -> AppConfig:
@@ -371,4 +382,32 @@ async def publish_youtube_playlist(request: YouTubePlaylistCreateRequest) -> dic
         raise HTTPException(
             status_code=502,
             detail="YouTube Music could not create the playlist. Please try again.",
+        ) from error
+
+
+@router.post("/youtube/playlists/import-preview", tags=["youtube-music"])
+async def preview_youtube_playlist_import(request: YouTubePlaylistImportRequest) -> dict:
+    try:
+        playlist_id = parse_playlist_id(request.url)
+    except YouTubeAccountError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    existing = get_library().find_by_import_source(playlist_id)
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "playlist_id": existing["id"],
+                "playlist_name": existing["name"],
+            },
+        )
+
+    try:
+        return await fetch_playlist_for_import(request.url)
+    except YouTubeAccountError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(
+            status_code=502,
+            detail="YouTube Music could not be reached to import this playlist. Please try again.",
         ) from error

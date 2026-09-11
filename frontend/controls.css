@@ -109,11 +109,41 @@ input::placeholder,
   background: #a78bfa;
 }
 
-/* Prompt and Seed labels are siblings of their fields, so they need margin. */
+/* Prompt, Seed and Import URL labels are siblings of their fields, so they need margin. */
 #prompt-panel > label,
-#seed-panel > label {
+#seed-panel > label,
+label[for="import-url"] {
   display: block;
   margin-bottom: 12px;
+}
+
+.import-url-alert {
+  display: grid;
+  gap: 5px;
+  margin: 14px 0 0;
+  padding: 15px 17px;
+  border: 1px solid rgba(251, 113, 133, .48);
+  border-radius: 16px;
+  background: var(--error-bg);
+  box-shadow: 0 12px 30px rgba(35, 8, 26, .18);
+  color: var(--error-text);
+  font-size: .86rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.import-url-alert p {
+  margin: 0;
+}
+
+.import-url-alert a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.import-url-alert a:hover {
+  color: var(--text-primary);
 }
 
 .seed-mode-controls {

@@ -698,16 +698,29 @@
     const detailsInner = document.createElement('div');
     detailsInner.className = 'track-details-inner';
 
+    // Imported tracks never had an AI-written description/reason to begin with, so
+    // the old placeholder ("generated before track explanations were introduced")
+    // would misleadingly imply a PlaylistMuse generation happened -- use honest
+    // import-specific text instead.
+    const isImported = Boolean(data.youtube_import);
     const explanation = document.createElement('div');
     explanation.className = 'track-explanation';
     explanation.append(
       detailBlock(
         'About this track',
-        track.description || 'Detailed notes are not available because this playlist was generated before track explanations were introduced.',
+        track.description || (
+          isImported
+            ? 'This track was imported directly from an existing YouTube Music playlist, so PlaylistMuse has no description for it.'
+            : 'Detailed notes are not available because this playlist was generated before track explanations were introduced.'
+        ),
       ),
       detailBlock(
         'Why it belongs here',
-        track.reason || 'The role of this track was not stored with this earlier playlist generation.',
+        track.reason || (
+          isImported
+            ? 'It was part of the original YouTube Music playlist you imported, not selected by PlaylistMuse.'
+            : 'The role of this track was not stored with this earlier playlist generation.'
+        ),
       ),
     );
     const actions = document.createElement('div');

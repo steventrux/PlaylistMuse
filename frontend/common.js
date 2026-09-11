@@ -128,6 +128,7 @@
       || path.endsWith('/diagnostics.html')
       || path.endsWith('/settings.html')
       || path.endsWith('/favorites.html')
+      || path.endsWith('/import.html')
       || path === '/'
       || path.endsWith('/index.html')
     ) {
@@ -152,6 +153,12 @@
       icon: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 18V6l10-2v12" /><circle cx="6.5" cy="18" r="2.5" /><circle cx="16.5" cy="16" r="2.5" /></svg>',
     },
     {
+      page: 'import',
+      href: '/static/import.html',
+      label: 'Import playlist',
+      icon: '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M4 19h16" /></svg>',
+    },
+    {
       page: 'library',
       href: '/static/library.html',
       label: 'My playlists',
@@ -162,6 +169,7 @@
   function primaryPage() {
     const path = window.location.pathname;
     if (path.endsWith('/library.html')) return 'library';
+    if (path.endsWith('/import.html')) return 'import';
     if (path === '/' || path.endsWith('/index.html') || path.endsWith('/playlist.html')) return 'create';
     return '';
   }

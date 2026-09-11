@@ -71,13 +71,21 @@ def _client() -> YTMusic:
     return YTMusic()
 
 
-def _thread_client() -> YTMusic:
-    """Return one YouTube Music client per worker thread."""
+def anonymous_client() -> YTMusic:
+    """Return one unauthenticated YouTube Music client per worker thread.
+
+    Public accessor: unauthenticated ytmusicapi calls work for the public catalogue
+    (search) and for any public/unlisted playlist lookup (get_playlist) -- no OAuth
+    needed for either.
+    """
     client = getattr(_THREAD_LOCAL, "client", None)
     if client is None:
         client = YTMusic()
         _THREAD_LOCAL.client = client
     return client
+
+
+_thread_client = anonymous_client
 
 
 def _artist_text(result: dict[str, Any]) -> str:
@@ -101,7 +109,7 @@ def track_identity_key(title: str, artists: str) -> str:
     return f"{_normalize_identity(artists)}::{_normalize_identity(title)}"
 
 
-def _serialize_song(result: dict[str, Any]) -> dict[str, Any] | None:
+def serialize_song(result: dict[str, Any]) -> dict[str, Any] | None:
     video_id = result.get("videoId")
     title = str(result.get("title", "")).strip()
     artists = _artist_text(result)
@@ -116,6 +124,9 @@ def _serialize_song(result: dict[str, Any]) -> dict[str, Any] | None:
         "thumbnail_url": _thumbnail(result),
         "url": f"https://music.youtube.com/watch?v={video_id}",
     }
+
+
+_serialize_song = serialize_song
 
 
 def _looks_like_collection(candidate_title: str, result_title: str) -> bool:

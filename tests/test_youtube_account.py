@@ -156,3 +156,63 @@ def test_successful_refresh_updates_access_token(monkeypatch, tmp_path: Path) ->
 def test_legacy_account_publisher_is_not_exposed() -> None:
     assert not hasattr(youtube_account, "create_youtube_playlist")
     assert not hasattr(youtube_account, "_create_playlist_sync")
+
+
+def test_ensure_ytmusic_client_requires_a_saved_token(monkeypatch, tmp_path: Path) -> None:
+    _use_temp_paths(monkeypatch, tmp_path)
+
+    with pytest.raises(youtube_account.YouTubeAccountError, match="Connect a YouTube Music account"):
+        asyncio.run(youtube_account.ensure_ytmusic_client())
+
+
+def test_ensure_ytmusic_client_rejects_expired_refresh_token(monkeypatch, tmp_path: Path) -> None:
+    _use_temp_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(youtube_account.time, "time", lambda: 1_000_000)
+    youtube_account.write_secure_json(
+        youtube_account.YOUTUBE_TOKEN_PATH,
+        _saved_token(refresh_expires_at=999_999),
+    )
+
+    with pytest.raises(youtube_account.YouTubeAccountError, match="expired or was revoked"):
+        asyncio.run(youtube_account.ensure_ytmusic_client())
+
+    assert not youtube_account.YOUTUBE_TOKEN_PATH.exists()
+
+
+def test_ensure_ytmusic_client_refreshes_a_stale_access_token(monkeypatch, tmp_path: Path) -> None:
+    _use_temp_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(youtube_account.time, "time", lambda: 1_000_000)
+    youtube_account.write_secure_json(
+        youtube_account.YOUTUBE_TOKEN_PATH,
+        _saved_token(expires_at=1_000_010),  # within the 60s freshness window
+    )
+
+    refresh_calls: list[bool] = []
+    monkeypatch.setattr(
+        youtube_account,
+        "_refresh_access_token_sync",
+        lambda: refresh_calls.append(True) or "fresh-access",
+    )
+    monkeypatch.setattr(youtube_account, "ytmusic_client", lambda: "client")
+
+    client = asyncio.run(youtube_account.ensure_ytmusic_client())
+
+    assert client == "client"
+    assert refresh_calls == [True]
+
+
+def test_ensure_ytmusic_client_skips_refresh_when_token_is_fresh(monkeypatch, tmp_path: Path) -> None:
+    _use_temp_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(youtube_account.time, "time", lambda: 1_000_000)
+    youtube_account.write_secure_json(
+        youtube_account.YOUTUBE_TOKEN_PATH,
+        _saved_token(expires_at=1_003_600),
+    )
+
+    def _fail_refresh() -> str:
+        raise AssertionError("refresh should not be called for a fresh access token")
+
+    monkeypatch.setattr(youtube_account, "_refresh_access_token_sync", _fail_refresh)
+    monkeypatch.setattr(youtube_account, "ytmusic_client", lambda: "client")
+
+    assert asyncio.run(youtube_account.ensure_ytmusic_client()) == "client"

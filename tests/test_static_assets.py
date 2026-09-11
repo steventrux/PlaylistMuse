@@ -59,7 +59,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
     index = _html("index.html")
     playlist = _html("playlist.html")
     settings = _html("settings.html")
-    common = '<script src="/static/common.js?v=22"></script>'
+    common = '<script src="/static/common.js?v=23"></script>'
     home_status = '<script src="/static/home-status.js?v=37"></script>'
     generation_state = '<script src="/static/generation-state.js?v=5"></script>'
     app = '<script src="/static/app.js?v=25"></script>'
@@ -82,7 +82,7 @@ def test_shared_frontend_helpers_load_before_dependents() -> None:
         'src="/static/home-status.js?v=37"></script>'
     )
     assert playlist.index(common) < playlist.index(
-        '<script src="/static/playlist.js?v=29"></script>'
+        '<script src="/static/playlist.js?v=32"></script>'
     )
     assert playlist.index(common) < playlist.index(playlist_home_status)
     assert playlist.index(playlist_home_status) < playlist.index(
@@ -424,7 +424,7 @@ def test_published_playlist_hides_track_replacement_controls() -> None:
     playlist_script = _script("playlist.js")
     youtube_publish = _script("youtube-publish.js")
 
-    assert '/static/playlist.js?v=29' in playlist
+    assert '/static/playlist.js?v=32' in playlist
     assert '/static/youtube-publish.js?v=15' in playlist
     assert 'id="youtube-publish-account"' not in playlist
     assert "YouTube Music account connected" not in playlist
