@@ -140,9 +140,10 @@ def test_seed_results_offer_an_audio_preview_without_breaking_selection() -> Non
     assert "if (event.target.closest('button')) return;" in script
     assert "selectSlotTrack(slot, track);" in script
 
-    # Preview lookup is lazy (hover/focus), not fired for every rendered result.
-    assert "item.addEventListener('mouseenter', startPreviewLookup);" in script
-    assert "item.addEventListener('focus', startPreviewLookup);" in script
+    # Preview lookup fires as soon as each result renders (at most 8 per
+    # search, small enough to not need a hover/focus gate like playlist.js's
+    # potentially much longer track list does).
+    assert "if (window.PlaylistMusePreview) {" in script
     assert "window.PlaylistMusePreview.lookup(track)" in script
     assert "previewButton.className = 'secondary track-action preview-track-button hidden';" in script
 

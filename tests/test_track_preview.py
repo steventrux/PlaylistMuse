@@ -15,8 +15,7 @@ def test_track_preview_returns_url_and_caches_result() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
-        assert 'artist:"AC/DC"' in request.url.params["q"]
-        assert 'track:"Back in Black"' in request.url.params["q"]
+        assert request.url.params["q"] == "AC/DC Back in Black"
         return httpx.Response(
             200,
             json={
@@ -46,6 +45,44 @@ def test_track_preview_returns_url_and_caches_result() -> None:
     assert first == "https://cdn.deezer.example/preview.mp3"
     assert second == first
     assert calls == 1
+
+
+def test_track_preview_skips_mismatched_artist_and_picks_the_right_result() -> None:
+    # Deezer's own advanced `artist:"..." track:"..."` filter syntax started
+    # returning zero results for well-known tracks (regression on their end,
+    # confirmed 2026-09-10) -- the plain free-text query below is what the
+    # backend actually sends now, so a cover band or same-titled track by
+    # someone else can rank first and must be skipped in favor of a later
+    # result whose artist actually matches.
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["q"] == "AC/DC Back in Black"
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "title": "Back in Black (Tribute)",
+                        "artist": {"name": "Rock Tribute Band"},
+                        "preview": "https://cdn.deezer.example/wrong.mp3",
+                    },
+                    {
+                        "title": "Back in Black",
+                        "artist": {"name": "AC/DC"},
+                        "preview": "https://cdn.deezer.example/right.mp3",
+                    },
+                ]
+            },
+        )
+
+    async def run() -> str | None:
+        transport = httpx.MockTransport(handler)
+        async with httpx.AsyncClient(transport=transport) as client:
+            return await find_preview_url(
+                "Back in Black", "AC/DC", client=client, now=lambda: 0.0
+            )
+
+    _clear_cache()
+    assert asyncio.run(run()) == "https://cdn.deezer.example/right.mp3"
 
 
 def test_track_preview_returns_none_without_match() -> None:
