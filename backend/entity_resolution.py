@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 
 from backend import cache_metrics
-from backend.musicbrainz_client import rate_limited_get
+from backend.musicbrainz_client import escape_lucene_phrase, rate_limited_get
 from backend.text_normalization import normalize_identity as _normalize
 from backend.version import USER_AGENT
 
@@ -100,7 +100,7 @@ async def _search_artist(name: str, client: httpx.AsyncClient) -> dict[str, str]
         client,
         f"{API_ROOT}/artist",
         params={
-            "query": f'artist:"{name}"',
+            "query": f'artist:"{escape_lucene_phrase(name)}"',
             "fmt": "json",
             "limit": "5",
         },
