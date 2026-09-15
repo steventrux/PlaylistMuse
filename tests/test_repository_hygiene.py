@@ -17,6 +17,7 @@ HTML_ENTRY_POINTS = (
     "statistics.html",
     "statistics-detail.html",
     "diagnostics.html",
+    "import.html",
 )
 REFERENCE_SOURCE_SUFFIXES = {".html", ".js", ".css"}
 RUNTIME_ASSET_SUFFIXES = {".js", ".css", ".png", ".svg"}

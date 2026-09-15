@@ -214,6 +214,7 @@ class PlaylistLibrary:
             "track_count": row["track_count"],
             "thumbnail_urls": self._thumbnails(playlist),
             "tags": tags,
+            "imported": bool(playlist.get("youtube_import")),
             "youtube_playlist_id": row["youtube_playlist_id"],
             "youtube_playlist_url": row["youtube_playlist_url"],
             "created_at": row["created_at"],
@@ -279,6 +280,19 @@ class PlaylistLibrary:
         if track_key:
             rows = [row for row in rows if self._has_track(row, track_key)]
         return [self._record(row, include_document=False) for row in rows]
+
+    def find_by_import_source(self, source_playlist_id: str) -> dict[str, Any] | None:
+        """Return the library record already imported from this YouTube playlist, if any."""
+        with self._connect() as connection:
+            rows = connection.execute("SELECT * FROM playlists").fetchall()
+        for row in rows:
+            playlist = self._decode(row["playlist_json"], {})
+            if not isinstance(playlist, dict):
+                continue
+            imported = playlist.get("youtube_import")
+            if isinstance(imported, dict) and imported.get("source_playlist_id") == source_playlist_id:
+                return self._record(row, include_document=False)
+        return None
 
     def _has_artist(self, row: sqlite3.Row, artist_key: str) -> bool:
         playlist = self._decode(row["playlist_json"], {})

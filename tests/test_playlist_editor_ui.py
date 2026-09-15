@@ -22,6 +22,26 @@ def test_library_is_read_only_and_uses_contextual_open_label() -> None:
     assert "function install(" not in tags
 
 
+def test_track_explanation_fallback_is_honest_for_imported_playlists() -> None:
+    script = _text("playlist.js")
+
+    assert "const isImported = Boolean(data.youtube_import);" in script
+    assert "detailsInner.append(explanation, actions);" in script
+    assert (
+        "'This track was imported directly from an existing YouTube Music playlist, "
+        "so PlaylistMuse has no description for it.'"
+    ) in script
+    assert (
+        "'It was part of the original YouTube Music playlist you imported, "
+        "not selected by PlaylistMuse.'"
+    ) in script
+    # The old placeholder implies a PlaylistMuse-generated playlist just predates a
+    # feature -- misleading for a playlist that was never AI-generated at all, so it
+    # must only be used in the non-imported branch.
+    assert "before track explanations were introduced" in script
+    assert "not stored with this earlier playlist generation" in script
+
+
 def test_playlist_page_centralizes_draft_editing_controls() -> None:
     html = _text("playlist.html")
 
@@ -45,7 +65,7 @@ def test_playlist_autosave_status_tracks_persistent_library_writes() -> None:
     style = _text("playlist-header.css")
 
     status_script = '<script src="/static/playlist-save-status.js?v=2"></script>'
-    playlist_script = '<script src="/static/playlist.js?v=29"></script>'
+    playlist_script = '<script src="/static/playlist.js?v=32"></script>'
     assert status_script in html
     assert html.index(status_script) < html.index(playlist_script)
     assert "saving: 'Saving…'" in script

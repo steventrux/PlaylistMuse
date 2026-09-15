@@ -62,6 +62,61 @@ def test_library_persists_and_updates_playlists(tmp_path: Path) -> None:
     assert library.list("title_asc")[0]["name"] == "Night drive revised"
 
 
+def test_imported_style_playlist_round_trips_as_a_draft_with_imported_flag(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "playlists.db"
+    library = PlaylistLibrary(database)
+
+    imported_playlist = sample_playlist("Someone else's mix")
+    imported_playlist["youtube_import"] = {
+        "source_playlist_id": "PLabc123",
+        "source_url": "https://music.youtube.com/playlist?list=PLabc123",
+        "imported_at": "2026-09-11T16:00:00+00:00",
+    }
+
+    created = library.create(imported_playlist)
+    assert created["status"] == "draft"
+    assert created["youtube_playlist_id"] is None
+    assert created["imported"] is True
+
+    reopened = library.get(created["id"])
+    assert reopened["imported"] is True
+    assert reopened["playlist"]["youtube_import"]["source_playlist_id"] == "PLabc123"
+    assert "youtube_playlist" not in reopened["playlist"]
+
+    listed = library.list()
+    assert next(item for item in listed if item["id"] == created["id"])["imported"] is True
+
+    generated = library.create(sample_playlist("A generated one"))
+    assert generated["imported"] is False
+
+
+def test_find_by_import_source_locates_an_already_imported_playlist(tmp_path: Path) -> None:
+    database = tmp_path / "playlists.db"
+    library = PlaylistLibrary(database)
+
+    assert library.find_by_import_source("PLabc123") is None
+
+    imported_playlist = sample_playlist("Someone else's mix")
+    imported_playlist["youtube_import"] = {
+        "source_playlist_id": "PLabc123",
+        "source_url": "https://music.youtube.com/playlist?list=PLabc123",
+        "imported_at": "2026-09-11T16:00:00+00:00",
+    }
+    created = library.create(imported_playlist)
+
+    found = library.find_by_import_source("PLabc123")
+    assert found is not None
+    assert found["id"] == created["id"]
+    assert found["name"] == "Someone else's mix"
+
+    assert library.find_by_import_source("PLdifferent456") is None
+
+    library.delete(created["id"])
+    assert library.find_by_import_source("PLabc123") is None
+
+
 def test_library_cover_uses_representative_tracks_and_refreshes_on_update(
     tmp_path: Path,
 ) -> None:

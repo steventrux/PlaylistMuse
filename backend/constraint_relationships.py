@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 
 from backend import cache_metrics
-from backend.musicbrainz_client import rate_limited_get
+from backend.musicbrainz_client import escape_lucene_phrase, rate_limited_get
 from backend.text_normalization import normalize_identity
 from backend.version import USER_AGENT
 
@@ -140,7 +140,10 @@ async def _verify_album_artist_pair(
         client,
         f"{API_ROOT}/release-group",
         params={
-            "query": f'releasegroup:"{album}" AND artist:"{artist}"',
+            "query": (
+                f'releasegroup:"{escape_lucene_phrase(album)}" '
+                f'AND artist:"{escape_lucene_phrase(artist)}"'
+            ),
             "fmt": "json",
             "limit": "8",
         },

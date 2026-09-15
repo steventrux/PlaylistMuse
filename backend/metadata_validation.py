@@ -18,7 +18,7 @@ import httpx
 
 from backend import cache_metrics
 from backend.musicbrainz_artist import lookup_artist_origin
-from backend.musicbrainz_client import rate_limited_get
+from backend.musicbrainz_client import escape_lucene_phrase, rate_limited_get
 from backend.national_origin import infer_artist_country, normalize_country_to_iso
 from backend.text_normalization import normalize_identity as _normalize
 from backend.validation_fixes import effective_temporal_range
@@ -756,7 +756,8 @@ async def _lookup_historical_metadata(
     )
     try:
         query = (
-            f'recording:"{title}" AND artist:"{artist}" AND '
+            f'recording:"{escape_lucene_phrase(title)}" '
+            f'AND artist:"{escape_lucene_phrase(artist)}" AND '
             f'firstreleasedate:[* TO {cutoff_year}-12-31] AND status:official'
         )
         response = await _rate_limited_get(
@@ -810,7 +811,7 @@ async def lookup_track_metadata(
         headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
     )
     try:
-        query = f'recording:"{title}" AND artist:"{artist}"'
+        query = f'recording:"{escape_lucene_phrase(title)}" AND artist:"{escape_lucene_phrase(artist)}"'
         response = await _rate_limited_get(
             active_client,
             {

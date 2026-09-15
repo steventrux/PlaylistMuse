@@ -352,10 +352,19 @@
     title.className = 'library-title';
     title.textContent = item.name || 'Untitled playlist';
     title.title = title.textContent;
+    const badgeGroup = document.createElement('span');
+    badgeGroup.className = 'library-badge-group';
     const badge = document.createElement('span');
     badge.className = `library-status-badge ${item.status === 'published' ? 'published' : ''}`;
     badge.textContent = item.status === 'published' ? 'Published' : 'Draft';
-    titleRow.append(title, badge);
+    badgeGroup.append(badge);
+    if (item.imported) {
+      const importedBadge = document.createElement('span');
+      importedBadge.className = 'library-status-badge imported';
+      importedBadge.textContent = 'Imported';
+      badgeGroup.append(importedBadge);
+    }
+    titleRow.append(title, badgeGroup);
 
     const meta = document.createElement('p');
     meta.className = 'library-meta';

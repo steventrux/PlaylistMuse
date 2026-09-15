@@ -13,6 +13,16 @@ _SCHEDULE_LOCK = threading.Lock()
 _NEXT_REQUEST_AT = 0.0
 
 
+def escape_lucene_phrase(value: str) -> str:
+    """Escape backslashes and double quotes so a value stays a single quoted phrase.
+
+    Without this, a name containing `"` (e.g. `The "Weird" Al Band`) would close the
+    quoted phrase early and let the rest of the string alter the Lucene query sent to
+    MusicBrainz's public search API.
+    """
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 async def rate_limited_get(
     client: httpx.AsyncClient,
     url: str,

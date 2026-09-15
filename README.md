@@ -55,7 +55,7 @@ It runs entirely on infrastructure you control. The core application only needs 
 
 - **Your data stays on your server.** No account, no cloud sync, no third party storing your listening habits or your prompts.
 - **You choose the AI.** Bring your own Gemini, OpenAI, Anthropic, OpenRouter, Ollama, or any OpenAI-compatible endpoint, including fully local models, at no cost beyond what you already pay for that provider.
-- **Real tracks, not hallucinated ones.** Every generated playlist is resolved and validated against real catalogue data instead of trusting the AI's raw output.
+- **Real tracks, not hallucinated ones.** Every generated playlist is resolved against the real catalogue and validated against real-world release metadata (release year, artist country of origin) instead of trusting the AI's raw output.
 - **Built to be refined, not just generated.** Playlist Studio lets you lock the tracks you like and re-run a request against only the part you want to change.
 - **Free and open source.** MIT licensed, self-hosted, no subscription, no lock-in.
 
@@ -101,10 +101,12 @@ Click any screenshot to open it at full size.
 | 🎧 | **Playlist generation** | Create playlists from natural-language requests or a reference song. |
 | 🧠 | **AI-powered curation** | Use the AI provider of your choice to interpret musical direction and constraints. |
 | ✨ | **Review and refinement** | Review the result, edit playlist content and refine drafts before publishing. |
+| 🔊 | **Audio preview** | Play a short preview of a track directly from a generated playlist or from seed-track search results, without leaving the app. |
 | 📚 | **Persistent library** | Keep generated playlists in local persistent storage and reopen them later. |
 | 📤 | **Export to CSV or M3U** | Export any playlist as a CSV or M3U file for use in other apps. |
 | 🌐 | **Music discovery** | Optionally use Last.fm to broaden discovery and provide additional music signals. |
 | ▶️ | **YouTube Music publishing** | Connect a YouTube Music account and publish completed playlists directly from PlaylistMuse. |
+| ⬇️ | **Import from YouTube Music** | Import an existing YouTube Music playlist from its link as a local, editable draft. No connected account required. |
 | 🛡️ | **Validation and diagnostics** | Validate resolved tracks and requests, and collect sanitized diagnostics when technical support is needed. |
 
 ### How it works
@@ -420,8 +422,6 @@ PlaylistMuse is under active development. Areas currently planned or in progress
 
 - Excluded artists and tracks, with per-playlist overrides, alongside the existing favorites.
 - Appending generated tracks to an existing playlist instead of only creating new ones.
-- Importing a YouTube Music playlist by ID.
-- Light / dark / automatic theme.
 
 There are no fixed dates for these items. Feature requests and votes on priorities are welcome through [GitHub Issues](https://github.com/steventrux/PlaylistMuse/issues).
 

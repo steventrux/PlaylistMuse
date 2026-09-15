@@ -109,6 +109,11 @@ def _ytmusic_client() -> YTMusic:
     )
 
 
+def ytmusic_client() -> YTMusic:
+    """Public accessor for other modules that need the authenticated YT Music client."""
+    return _ytmusic_client()
+
+
 def _account_payload(account: dict[str, Any] | None) -> dict[str, Any]:
     values = account if isinstance(account, dict) else {}
     return {
@@ -227,6 +232,24 @@ def _refresh_access_token_sync() -> str:
 
     write_secure_json(YOUTUBE_TOKEN_PATH, token)
     return access_token
+
+
+async def ensure_ytmusic_client() -> YTMusic:
+    """Return an authenticated client with a guaranteed-fresh access token.
+
+    Raises YouTubeAccountError with a user-facing reconnect message when the account
+    isn't usable, mirroring the checks youtube_status() already performs inline.
+    """
+
+    if not _saved_token_is_usable():
+        raise YouTubeAccountError("Connect a YouTube Music account first.")
+    token = read_json_object(YOUTUBE_TOKEN_PATH)
+    if _refresh_token_has_expired(token):
+        delete_file(YOUTUBE_TOKEN_PATH)
+        raise _expired_authorization_error()
+    if not _access_token_is_current(token):
+        await asyncio.to_thread(_refresh_access_token_sync)
+    return await asyncio.to_thread(ytmusic_client)
 
 
 def _optional_account_profile_sync(client: Any | None = None) -> dict[str, Any]:

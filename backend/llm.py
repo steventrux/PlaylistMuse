@@ -108,8 +108,26 @@ _GEMINI_SCHEMA_KEYS = {
 
 _CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 _URL_RE = re.compile(r"https?://\S+")
-_API_KEY_RE = re.compile(r"(?:AIza|sk-or-|sk-)[A-Za-z0-9_\-]{12,}")
+_API_KEY_RE = re.compile(
+    r"(?:AIza|sk-or-|sk-ant-|sk-proj-|sk-|gsk_|hf_|xoxb-|xoxp-)[A-Za-z0-9_\-]{12,}"
+)
+# Catch-all for the "custom" OpenAI-compatible provider, whose key format is unknown:
+# a Bearer/api-key token, or any other long letters+digits run a provider error might
+# echo back, is treated as sensitive rather than allow-listing known prefixes only.
+_BEARER_TOKEN_RE = re.compile(
+    r"(?i)\b(?:bearer|api[_-]?key|authorization)\b\s*[:=]?\s*[\"']?([A-Za-z0-9_\-.]{16,})"
+)
+_GENERIC_TOKEN_RE = re.compile(
+    r"\b(?=[A-Za-z0-9_\-]{20,}\b)(?=[A-Za-z0-9_\-]*[A-Za-z])(?=[A-Za-z0-9_\-]*[0-9])"
+    r"[A-Za-z0-9_\-]{20,}\b"
+)
 _QUERY_KEY_RE = re.compile(r"\bkey=[^\s&]+", re.IGNORECASE)
+
+
+def _redact_keys(text: str) -> str:
+    text = _API_KEY_RE.sub("[redacted]", text)
+    text = _BEARER_TOKEN_RE.sub(lambda m: m.group(0).replace(m.group(1), "[redacted]"), text)
+    return _GENERIC_TOKEN_RE.sub("[redacted]", text)
 
 
 class ProviderRequestError(ValueError):
@@ -396,7 +414,7 @@ def _safe_provider_message(provider: str, response: httpx.Response) -> str:
             message = str(raw_message)
 
     message = _URL_RE.sub("", message)
-    message = _API_KEY_RE.sub("[redacted]", message)
+    message = _redact_keys(message)
     message = " ".join(message.split()).strip(" ;,.")
     if response.status_code in {401, 403}:
         return f"{provider} rejected the saved API key or its permissions."
@@ -409,7 +427,7 @@ def safe_error_message(error: Exception) -> str:
     """Return a concise public error without URLs, keys, request bodies or trace detail."""
     text = str(error)
     text = _URL_RE.sub("", text)
-    text = _API_KEY_RE.sub("[redacted]", text)
+    text = _redact_keys(text)
     text = _QUERY_KEY_RE.sub("key=[redacted]", text)
     text = " ".join(text.split()).strip()
     message = text[:420] or "The AI provider could not complete the request."
